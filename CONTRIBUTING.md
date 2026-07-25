@@ -1,166 +1,103 @@
 # Contributing to MiniUnicorn
 
-Thank you for being here.
+感谢你来到这里。
 
-MiniUnicorn is built with a simple belief: good tools should feel calm, clear, and humane.
-We care deeply about useful features, but we also believe in achieving more with less:
-solutions should be powerful without becoming heavy, and ambitious without becoming
-needlessly complicated.
+MiniUnicorn 基于一个简单的理念：好的工具应当平静、清晰、人性化。我们重视有用的功能，但也相信"以少胜多"——
+方案应当强大而不沉重，有野心而不无谓复杂。
 
-This guide is not only about how to open a PR. It is also about how we hope to build
-software together: with care, clarity, and respect for the next person reading the code.
+这份指南不仅是关于如何提交 PR，也是关于我们希望如何一起写代码：
+带着关心、清晰，以及对下一位读者的尊重。
 
-## Maintainers
+## 仓库信息
 
-Maintainers are community stewards who help review, organize, and maintain the project. The list below describes each maintainer's current open-source project responsibilities.
+- 仓库：<https://github.com/zhoulingquan/mini-Unicorn>
+- 许可证：MIT
+- 主分支：`main`（稳定发布）
 
-| Maintainer | Focus |
-|------------|-------|
-| [@re-bin](https://github.com/re-bin) | Project lead, `main` branch |
-| [@chengyongru](https://github.com/chengyongru) | `nightly` branch, experimental features |
+本仓库目前由单人维护，未引入 `nightly` 双分支模型。所有改动直接基于 `main` 进行。
 
-## Branching Strategy
+## 开发环境
 
-We use a two-branch model to balance stability and exploration:
-
-| Branch | Purpose | Stability |
-|--------|---------|-----------|
-| `main` | Stable releases | Production-ready |
-| `nightly` | Experimental features | May have bugs or breaking changes |
-
-### Which Branch Should I Target?
-
-**Target `nightly` if your PR includes:**
-
-- New features or functionality
-- Refactoring that may affect existing behavior
-- Changes to APIs or configuration
-
-**Target `main` if your PR includes:**
-
-- Bug fixes with no behavior changes
-- Documentation improvements
-- Minor tweaks that don't affect functionality
-
-**When in doubt, target `nightly`.** It is easier to move a stable idea from `nightly`
-to `main` than to undo a risky change after it lands in the stable branch.
-
-### Starting Work
-
-Before making changes, sync the target branch and create a topic branch from it.
-For stable bug fixes and documentation-only changes, start from the latest `main`.
-For experimental work, start from the latest `nightly`.
+保持本地构建无聊且可靠，目标是让你尽快进入代码：
 
 ```bash
-git fetch upstream
-git switch main
-git pull --ff-only upstream main
-git switch -c your-topic-branch
+# 克隆仓库
+git clone https://github.com/zhoulingquan/mini-Unicorn.git
+cd mini-Unicorn
+
+# 用 uv 安装依赖（推荐）
+uv sync --all-extras
+
+# 运行测试
+uv run pytest tests/
+
+# 代码检查（全规则）
+uv run ruff check miniUnicorn
+
+# 格式检查
+uv run ruff format --check miniUnicorn
 ```
 
-Use your primary HKUDS/MiniUnicorn remote in place of `upstream` if your checkout
-uses a different remote name.
+## 开发流程
 
-Keep unrelated local changes out of the topic branch. If your checkout already has
-work in progress, use a separate worktree or finish that work before starting a
-new branch.
+1. 从最新 `main` 拉取并创建主题分支：
 
-### How Does Nightly Get Merged to Main?
+   ```bash
+   git fetch origin
+   git switch main
+   git pull --ff-only origin main
+   git switch -c your-topic-branch
+   ```
 
-We don't merge the entire `nightly` branch. Instead, stable features are **cherry-picked** from `nightly` into individual PRs targeting `main`:
+2. 保持主题分支聚焦，避免在同一分支中混入无关改动。
 
-```
-nightly  ──┬── feature A (stable) ──► PR ──► main
-           ├── feature B (testing)
-           └── feature C (stable) ──► PR ──► main
-```
+3. 提交前确保以下检查通过：
 
-This happens approximately **once a week**, but the timing depends on when features become stable enough.
+   ```bash
+   uv run ruff check miniUnicorn
+   uv run ruff format --check miniUnicorn
+   uv run pytest tests/
+   ```
 
-### Quick Summary
+4. 提交 PR 到 `main`，并在描述中说明改动的动机与影响范围。
 
-| Your Change | Target Branch |
-|-------------|---------------|
-| New feature | `nightly` |
-| Bug fix | `main` |
-| Documentation | `main` |
-| Refactoring | `nightly` |
-| Unsure | `nightly` |
+## 代码风格
 
-## Development Setup
+我们关心的不仅是通过 lint。我们希望 MiniUnicorn 保持小巧、平静、可读。
 
-Keep setup boring and reliable. The goal is to get you into the code quickly:
+贡献代码时，请追求以下特质：
 
-```bash
-# Clone the repository
-git clone https://github.com/HKUDS/miniUnicorn.git
-cd miniUnicorn
+- **简单**：用最小的改动解决真实问题
+- **清晰**：为下一位读者优化，而非炫技
+- **解耦**：保持边界清晰，避免不必要的新抽象
+- **诚实**：不隐藏复杂度，也不制造额外复杂度
+- **耐用**：选择易于维护、测试和扩展的方案
 
-# Install with dev dependencies
-pip install -e ".[dev]"
+实践约定：
 
-# Run tests
-pytest
+- 行宽：100 字符（`ruff`）
+- 目标版本：Python 3.11+
+- Lint：`ruff`，启用 E / F / I / N / W 规则（E501 忽略）
+- 异步：全程使用 `asyncio`；pytest 使用 `asyncio_mode = "auto"`
+- 优先写可读代码，而非"巧妙"的代码
+- 优先提交聚焦的补丁，而非大范围重写
+- 如引入新抽象，应明确减少复杂度，而非只是把复杂度搬家
 
-# Lint code
-ruff check miniUnicorn/
+## 修改 CI 工作流
 
-# Format code — optional. The existing tree predates `ruff format`,
-# so running it across `MiniUnicorn/` produces a large unrelated diff
-# (E501 is ignored, so many existing lines exceed the 100-char setting).
-# Format only files you've actually touched, not the whole package.
-ruff format <files-you-changed>
-```
+如果 PR 涉及 [.github/workflows/](./.github/workflows/)，请保持在 GitHub Actions 免费额度内：
 
-## Contribution License
+- 仅使用标准 GitHub 托管 runner（`ubuntu-latest`、`macos-latest`、`windows-latest`）
+- 避免大规格 runner（`*-cores`、`*-xlarge`、`*-gpu`）和自建 runner
+- 避免上传大体积 artifact 或设置过长保留期
+- 避免付费 Marketplace actions
 
-By submitting a contribution, you confirm that you have the right to submit it
-and agree that it will be licensed under the project's MIT License.
+如确实需要超出上述范围，请在 PR 描述中明确说明，以便合并前讨论。
 
-## Code Style
+## 贡献许可
 
-We care about more than passing lint. We want MiniUnicorn to stay small, calm, and readable.
+提交贡献即表示你确认自己有权提交该内容，并同意按本项目的 MIT 许可证授权。
 
-When contributing, please aim for code that feels:
+## 有问题？
 
-- Simple: prefer the smallest change that solves the real problem
-- Clear: optimize for the next reader, not for cleverness
-- Decoupled: keep boundaries clean and avoid unnecessary new abstractions
-- Honest: do not hide complexity, but do not create extra complexity either
-- Durable: choose solutions that are easy to maintain, test, and extend
-
-In practice:
-
-- Line length: 100 characters (`ruff`)
-- Target: Python 3.11+
-- Linting: `ruff` with rules E, F, I, N, W (E501 ignored)
-- Async: uses `asyncio` throughout; pytest with `asyncio_mode = "auto"`
-- Prefer readable code over magical code
-- Prefer focused patches over broad rewrites
-- If a new abstraction is introduced, it should clearly reduce complexity rather than move it around
-
-## Modifying CI Workflows
-
-If your PR touches `.github/workflows/`, please keep the CI within
-GitHub Actions' free tier:
-
-- Use only standard GitHub-hosted runners (`ubuntu-latest`, `windows-latest`)
-- Avoid macOS runners, larger runners (`*-cores`, `*-xlarge`, `*-gpu`),
-  and self-hosted runners
-- Avoid uploading large artifacts or using long retention
-- Avoid paid Marketplace actions
-
-If your change genuinely needs to step outside this, please call it out
-explicitly in the PR description so it can be discussed before merge.
-
-## Questions?
-
-If you have questions, ideas, or half-formed insights, you are warmly welcome here.
-
-Please feel free to open an [issue](https://github.com/HKUDS/miniUnicorn/issues), join the community, or simply reach out:
-
-- [Discord](https://discord.gg/MnCvHqpUGB)
-- [Feishu/WeChat](./COMMUNICATION.md)
-- Email: Xubin Ren (@Re-bin) — <xubinrencs@gmail.com>
-
-Thank you for spending your time and care on MiniUnicorn. We would love for more people to participate in this community, and we genuinely welcome contributions of all sizes.
+欢迎打开 [Issue](https://github.com/zhoulingquan/mini-Unicorn/issues) 进行讨论。感谢你为 MiniUnicorn 投入的时间与用心。

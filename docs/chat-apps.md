@@ -1,775 +1,170 @@
 # Chat Apps
 
-Connect MiniUnicorn to your favorite chat platform. Want to build your own? See the [Channel Plugin Guide](./channel-plugin-guide.md).
+将 MiniUnicorn 接入你常用的聊天平台。当前内置以下频道适配器：
 
-| Channel | What you need |
-|---------|---------------|
-| **Telegram** | Bot token from @BotFather |
-| **Discord** | Bot token + Message Content intent |
-| **WhatsApp** | QR code scan (`miniUnicorn channels login whatsapp`) |
-| **WeChat (Weixin)** | QR code scan (`miniUnicorn channels login weixin`) |
-| **Feishu** | App ID + App Secret |
-| **DingTalk** | App Key + App Secret |
-| **Slack** | Bot token + App-Level token |
-| **Matrix** | Homeserver URL + Access token |
-| **Email** | IMAP/SMTP credentials |
+| 频道 | 接入方式 |
+|---------|----------|
+| **飞书 (Feishu)** | App ID + App Secret，支持扫码登录 |
+| **钉钉 (DingTalk)** | App Key + App Secret |
+| **企业微信 (Wecom)** | Bot ID + Bot Secret |
+| **微信 (Weixin)** | 扫码登录（`miniUnicorn channels login weixin`） |
 | **QQ** | App ID + App Secret |
-| **Wecom** | Bot ID + Bot Secret |
-| **Microsoft Teams** | App ID + App Password + public HTTPS endpoint |
-| **Mochat** | Claw token (auto-setup available) |
-| **Signal** | signal-cli daemon + phone number |
+| **WebSocket / WebUI** | 内置浏览器 UI，零配置可用 |
 
-<details>
-<summary><b>Telegram</b> (Recommended)</summary>
+想要接入其他平台？参考 [频道插件指南](./channel-plugin-guide.md) 自行实现。
 
-**1. Create a bot**
-- Open Telegram, search `@BotFather`
-- Send `/newbot`, follow prompts
-- Copy the token
+## 通用配置
 
-**2. Configure**
-
-```json
-{
-  "channels": {
-    "telegram": {
-      "enabled": true,
-      "token": "YOUR_BOT_TOKEN",
-      "allowFrom": ["YOUR_USER_ID"]
-    }
-  }
-}
-```
-
-> You can find your **User ID** in Telegram settings. It is shown as `@yourUserId`.
-> Copy this value **without the `@` symbol** and paste it into the config file.
-
-
-**3. Run**
-
-```bash
-miniUnicorn gateway
-```
-
-**Webhook mode (optional)**
-
-Telegram uses long polling by default. To receive updates through a webhook, expose
-a public HTTPS URL that forwards to MiniUnicorn's local listener and set `mode` to
-`webhook`:
-
-```json
-{
-  "channels": {
-    "telegram": {
-      "enabled": true,
-      "token": "YOUR_BOT_TOKEN",
-      "mode": "webhook",
-      "webhookUrl": "https://example.com/telegram",
-      "webhookListenHost": "127.0.0.1",
-      "webhookListenPort": 8081,
-      "webhookPath": "/telegram",
-      "webhookSecretToken": "CHANGE_ME_RANDOM_SECRET",
-      "webhookMaxConnections": 4,
-      "allowFrom": ["YOUR_USER_ID"]
-    }
-  }
-}
-```
-
-> `webhookSecretToken` is required in webhook mode. Do not expose the local
-> webhook listener directly to the public internet without a reverse proxy or
-> tunnel in front of it. TLS/Host policy is handled by your proxy; MiniUnicorn only
-> listens on `webhookListenHost:webhookListenPort` and validates Telegram's
-> webhook secret token. `webhookMaxConnections` defaults to `4`; MiniUnicorn
-> still serializes Telegram updates per conversation before forwarding them to
-> the agent.
->
-> `webhookUrl` is the public HTTPS URL registered with Telegram.
-> `webhookPath` is the local path MiniUnicorn listens on. They often use the same
-> path, but may differ when a reverse proxy or tunnel rewrites the request path.
-
-</details>
-
-<details>
-<summary><b>Mochat (Claw IM)</b></summary>
-
-Uses **Socket.IO WebSocket** by default, with HTTP polling fallback.
-
-**1. Ask MiniUnicorn to set up Mochat for you**
-
-Simply send this message to MiniUnicorn (replace `xxx@xxx` with your real email):
-
-```
-Read https://raw.githubusercontent.com/HKUDS/MoChat/refs/heads/main/skills/MiniUnicorn/skill.md and register on MoChat. My Email account is xxx@xxx Bind me as your owner and DM me on MoChat.
-```
-
-MiniUnicorn will automatically register, configure `~/.miniUnicorn/config.json`, and connect to Mochat.
-
-**2. Restart gateway**
-
-```bash
-miniUnicorn gateway
-```
-
-That's it — MiniUnicorn handles the rest!
-
-<br>
-
-<details>
-<summary>Manual configuration (advanced)</summary>
-
-If you prefer to configure manually, add the following to `~/.miniUnicorn/config.json`:
-
-> Keep `claw_token` private. It should only be sent in `X-Claw-Token` header to your Mochat API endpoint.
-
-```json
-{
-  "channels": {
-    "mochat": {
-      "enabled": true,
-      "base_url": "https://mochat.io",
-      "socket_url": "https://mochat.io",
-      "socket_path": "/socket.io",
-      "claw_token": "claw_xxx",
-      "agent_user_id": "6982abcdef",
-      "sessions": ["*"],
-      "panels": ["*"],
-      "reply_delay_mode": "non-mention",
-      "reply_delay_ms": 120000
-    }
-  }
-}
-```
-
-
-
-</details>
-
-</details>
-
-<details>
-<summary><b>Discord</b></summary>
-
-**1. Create a bot**
-- Go to https://discord.com/developers/applications
-- Create an application → Bot → Add Bot
-- Copy the bot token
-
-**2. Enable intents**
-- In the Bot settings, enable **MESSAGE CONTENT INTENT**
-- (Optional) Enable **SERVER MEMBERS INTENT** if you plan to use allow lists based on member data
-
-**3. Get your User ID**
-- Discord Settings → Advanced → enable **Developer Mode**
-- Right-click your avatar → **Copy User ID**
-
-**4. Configure**
-
-```json
-{
-  "channels": {
-    "discord": {
-      "enabled": true,
-      "token": "YOUR_BOT_TOKEN",
-      "allowFrom": ["YOUR_USER_ID"],
-      "allowChannels": [],
-      "groupPolicy": "mention",
-      "streaming": true
-    }
-  }
-}
-```
-
-> `groupPolicy` controls how the bot responds in group channels:
-> - `"mention"` (default) — Only respond when @mentioned
-> - `"open"` — Respond to all messages
-> DMs always respond when the sender is in `allowFrom`.
-> - If you set group policy to open create new threads as private threads and then @ the bot into it. Otherwise the thread itself and the channel in which you spawned it will spawn a bot session.
-> `allowChannels` restricts the bot to specific Discord channel IDs. Empty (default) means respond in every channel the bot can see. Example: `["1234567890", "0987654321"]`. The filter applies after `allowFrom`, so both must pass. Discord threads under an allowed parent channel are also allowed; for Forum channels, allowing the parent Forum channel allows all threads/posts in that forum.
-> `streaming` defaults to `true`. Disable it only if you explicitly want non-streaming replies.
-
-**5. Invite the bot**
-- OAuth2 → URL Generator
-- Scopes: `bot`
-- Bot Permissions: `Send Messages`, `Read Message History`
-- Open the generated invite URL and add the bot to your server
-
-**6. Run**
-
-```bash
-miniUnicorn gateway
-```
-
-</details>
-
-<details>
-<summary><b>Matrix (Element)</b></summary>
-
-Install Matrix dependencies first:
-
-```bash
-pip install miniUnicorn-ai[matrix]
-```
-
-> [!NOTE]
-> Matrix is not supported on Windows. `matrix-nio[e2e]` depends on
-> `python-olm`, which has no pre-built Windows wheel and is skipped by the
-> `matrix` extra on `sys_platform == 'win32'`. The command above will still
-> succeed on Windows but without `matrix-nio` installed, so enabling the
-> Matrix channel will fail at startup. Use macOS, Linux, or WSL2.
-
-**1. Create/choose a Matrix account**
-
-- Create or reuse a Matrix account on your homeserver (for example `matrix.org`).
-- Confirm you can log in with Element.
-
-**2. Get credentials**
-
-- You need:
-  - `userId` (example: `@MiniUnicorn:matrix.org`)
-  - `password`
-
-(Note: `accessToken` and `deviceId` are still supported for legacy reasons, but
-for reliable encryption, password login is recommended instead. If the
-`password` is provided, `accessToken` and `deviceId` will be ignored.)
-
-**3. Configure**
-
-```json
-{
-  "channels": {
-    "matrix": {
-      "enabled": true,
-      "homeserver": "https://matrix.org",
-      "userId": "@MiniUnicorn:matrix.org",
-      "password": "mypasswordhere",
-      "e2eeEnabled": true,
-      "allowFrom": ["@your_user:matrix.org"],
-      "groupPolicy": "open",
-      "groupAllowFrom": [],
-      "allowRoomMentions": false,
-      "maxMediaBytes": 20971520
-    }
-  }
-}
-```
-
-> Keep a persistent `matrix-store` — encrypted session state is lost if these change across restarts.
-
-| Option | Description |
-|--------|-------------|
-| `allowFrom` | User IDs allowed to interact. Empty denies all; use `["*"]` to allow everyone. |
-| `groupPolicy` | `open` (default), `mention`, or `allowlist`. |
-| `groupAllowFrom` | Room allowlist (used when policy is `allowlist`). |
-| `allowRoomMentions` | Accept `@room` mentions in mention mode. |
-| `e2eeEnabled` | E2EE support (default `true`). Set `false` for plaintext-only. |
-| `maxMediaBytes` | Max attachment size (default `20MB`). Set `0` to block all media. |
-
-
-
-
-**4. Run**
-
-```bash
-miniUnicorn gateway
-```
-
-</details>
-
-<details>
-<summary><b>WhatsApp</b></summary>
-
-Requires **Node.js ≥18**.
-
-**1. Link device**
-
-```bash
-miniUnicorn channels login whatsapp
-# Scan QR with WhatsApp → Settings → Linked Devices
-```
-
-**2. Configure**
-
-```json
-{
-  "channels": {
-    "whatsapp": {
-      "enabled": true,
-      "allowFrom": ["+1234567890"]
-    }
-  }
-}
-```
-
-**3. Run** (two terminals)
-
-```bash
-# Terminal 1
-miniUnicorn channels login whatsapp
-
-# Terminal 2
-miniUnicorn gateway
-```
-
-> WhatsApp bridge updates are not applied automatically for existing installations.
-> After upgrading MiniUnicorn, rebuild the local bridge with:
-> `rm -rf ~/.miniUnicorn/bridge && miniUnicorn channels login whatsapp`
-
-</details>
-
-<details>
-<summary><b>Feishu</b></summary>
-
-Uses **WebSocket** long connection — no public IP required.
-
-**1. Create a Feishu bot**
-- Visit [Feishu Open Platform](https://open.feishu.cn/app)
-- Create a new app → Enable **Bot** capability
-- **Permissions**:
-  - `im:message` (send messages) and `im:message.p2p_msg:readonly` (receive messages)
-  - **Streaming replies** (default in MiniUnicorn): add **`cardkit:card:write`** (often labeled **Create and update cards** in the Feishu developer console). Required for CardKit entities and streamed assistant text. Older apps may not have it yet — open **Permission management**, enable the scope, then **publish** a new app version if the console requires it.
-  - If you **cannot** add `cardkit:card:write`, set `"streaming": false` under `channels.feishu` (see below). The bot still works; replies use normal interactive cards without token-by-token streaming.
-- **Events**: Add `im.message.receive_v1` (receive messages)
-  - Select **Long Connection** mode (requires running MiniUnicorn first to establish connection)
-- Get **App ID** and **App Secret** from "Credentials & Basic Info"
-- Publish the app
-
-**2. Configure**
+所有频道配置统一放在 `~/.miniUnicorn/config.json` 的 `channels` 字段下。可以使用 `${VAR_NAME}` 引用环境变量，避免把密钥写入配置文件：
 
 ```json
 {
   "channels": {
     "feishu": {
       "enabled": true,
-      "appId": "cli_xxx",
-      "appSecret": "xxx",
-      "encryptKey": "",
-      "verificationToken": "",
-      "allowFrom": ["ou_YOUR_OPEN_ID"],
-      "groupPolicy": "mention",
-      "reactEmoji": "OnIt",
-      "doneEmoji": "DONE",
-      "toolHintPrefix": "🔧",
-      "streaming": true,
-      "domain": "feishu"
+      "appId": "${FEISHU_APP_ID}",
+      "appSecret": "${FEISHU_APP_SECRET}"
+    },
+    "websocket": {
+      "enabled": true
     }
   }
 }
 ```
 
-> `streaming` defaults to `true`. Use `false` if your app does not have **`cardkit:card:write`** (see permissions above).
-> `encryptKey` and `verificationToken` are optional for Long Connection mode.
-> `allowFrom`: Add your open_id (find it in MiniUnicorn logs when you message the bot). Use `["*"]` to allow all users.
-> `groupPolicy`: `"mention"` (default — respond only when @mentioned), `"open"` (respond to all group messages). Private chats always respond.
-> `reactEmoji`: Emoji for "processing" status (default: `OnIt`). See [available emojis](https://open.larkoffice.com/document/server-docs/im-v1/message-reaction/emojis-introduce).
-> `doneEmoji`: Optional emoji for "completed" status (e.g., `DONE`, `OK`, `HEART`). When set, bot adds this reaction after removing `reactEmoji`.
-> `toolHintPrefix`: Prefix for inline tool hints in streaming cards (default: `🔧`).
-> `domain`: `"feishu"` (default) for China (open.feishu.cn), `"lark"` for international Lark (open.larksuite.com).
+频道级别的通用设置（如 `sendProgress`、`sendToolHints`、`sendMaxRetries`）见 [Configuration: Channel Settings](./configuration.md#channel-settings)。
 
-**3. Run**
+## 飞书 (Feishu)
 
-```bash
-miniUnicorn gateway
-```
+**1. 创建飞书应用**
 
-> [!TIP]
-> Feishu uses WebSocket to receive messages — no webhook or public IP needed!
+- 进入 [飞书开放平台](https://open.feishu.cn/) 创建企业自建应用
+- 记录 `App ID` 与 `App Secret`
+- 在「事件订阅」中配置消息接收地址，或启用长连接模式
 
-</details>
-
-<details>
-<summary><b>QQ (QQ单聊)</b></summary>
-
-Uses **botpy SDK** with WebSocket — no public IP required. Currently supports **private messages only**.
-
-**1. Register & create bot**
-- Visit [QQ Open Platform](https://q.qq.com) → Register as a developer (personal or enterprise)
-- Create a new bot application
-- Go to **开发设置 (Developer Settings)** → copy **AppID** and **AppSecret**
-
-**2. Set up sandbox for testing**
-- In the bot management console, find **沙箱配置 (Sandbox Config)**
-- Under **在消息列表配置**, click **添加成员** and add your own QQ number
-- Once added, scan the bot's QR code with mobile QQ → open the bot profile → tap "发消息" to start chatting
-
-**3. Configure**
-
-> - `allowFrom`: Add your openid (find it in MiniUnicorn logs when you message the bot). Use `["*"]` for public access.
-> - `msgFormat`: Optional. Use `"plain"` (default) for maximum compatibility with legacy QQ clients, or `"markdown"` for richer formatting on newer clients.
-> - For production: submit a review in the bot console and publish. See [QQ Bot Docs](https://bot.q.qq.com/wiki/) for the full publishing flow.
+**2. 配置**
 
 ```json
 {
   "channels": {
-    "qq": {
+    "feishu": {
       "enabled": true,
-      "appId": "YOUR_APP_ID",
-      "secret": "YOUR_APP_SECRET",
-      "allowFrom": ["YOUR_OPENID"],
-      "msgFormat": "plain"
+      "appId": "${FEISHU_APP_ID}",
+      "appSecret": "${FEISHU_APP_SECRET}"
     }
   }
 }
 ```
 
-**4. Run**
+**3. 扫码登录（可选）**
 
-```bash
-miniUnicorn gateway
-```
+MiniUnicorn 支持飞书扫码登录流程，运行后通过 WebUI 引导扫码即可自动完成配置并持久化。
 
-Now send a message to the bot from QQ — it should respond!
+## 钉钉 (DingTalk)
 
-</details>
+**1. 创建钉钉应用**
 
-<details>
-<summary><b>DingTalk (钉钉)</b></summary>
+- 进入 [钉钉开放平台](https://open.dingtalk.com/) 创建企业内部应用
+- 记录 `App Key` 与 `App Secret`
+- 开启机器人与消息推送能力
 
-Uses **Stream Mode** — no public IP required.
-
-**1. Create a DingTalk bot**
-- Visit [DingTalk Open Platform](https://open-dev.dingtalk.com/)
-- Create a new app -> Add **Robot** capability
-- **Configuration**:
-  - Toggle **Stream Mode** ON
-- **Permissions**: Add necessary permissions for sending messages
-- Get **AppKey** (Client ID) and **AppSecret** (Client Secret) from "Credentials"
-- Publish the app
-
-**2. Configure**
+**2. 配置**
 
 ```json
 {
   "channels": {
     "dingtalk": {
       "enabled": true,
-      "clientId": "YOUR_APP_KEY",
-      "clientSecret": "YOUR_APP_SECRET",
-      "allowFrom": ["YOUR_STAFF_ID"]
+      "appKey": "${DINGTALK_APP_KEY}",
+      "appSecret": "${DINGTALK_APP_SECRET}"
     }
   }
 }
 ```
 
-> `allowFrom`: Add your staff ID. Use `["*"]` to allow all users.
+## 企业微信 (Wecom)
 
-**3. Run**
+**1. 创建企业微信机器人**
 
-```bash
-miniUnicorn gateway
-```
+- 在企业微信管理后台创建自建应用
+- 记录 `Bot ID` 与 `Bot Secret`
 
-</details>
-
-<details>
-<summary><b>Slack</b></summary>
-
-Uses **Socket Mode** — no public URL required.
-
-**1. Create a Slack app**
-- Go to [Slack API](https://api.slack.com/apps) → **Create New App** → "From scratch"
-- Pick a name and select your workspace
-
-**2. Configure the app**
-- **Socket Mode**: Toggle ON → Generate an **App-Level Token** with `connections:write` scope → copy it (`xapp-...`)
-- **OAuth & Permissions**: Add bot scopes: `chat:write`, `reactions:write`, `app_mentions:read`, `files:read`, `files:write`, `channels:history`, `groups:history`, `im:history`, `mpim:history`
-- **Event Subscriptions**: Toggle ON → Subscribe to bot events: `message.im`, `message.channels`, `app_mention` → Save Changes
-- **App Home**: Scroll to **Show Tabs** → Enable **Messages Tab** → Check **"Allow users to send Slash commands and messages from the messages tab"**
-- **Install App**: Click **Install to Workspace** → Authorize → copy the **Bot Token** (`xoxb-...`)
-
-> `files:read` is required to read files users send to MiniUnicorn. `files:write` is required for MiniUnicorn to send images, videos, and other file uploads. If you add either scope later, reinstall the Slack app to the workspace and restart MiniUnicorn so it uses the updated bot token.
-
-**3. Configure MiniUnicorn**
-
-```json
-{
-  "channels": {
-    "slack": {
-      "enabled": true,
-      "botToken": "xoxb-...",
-      "appToken": "xapp-...",
-      "allowFrom": ["YOUR_SLACK_USER_ID"],
-      "groupPolicy": "mention"
-    }
-  }
-}
-```
-
-**4. Run**
-
-```bash
-miniUnicorn gateway
-```
-
-DM the bot directly or @mention it in a channel — it should respond!
-
-> [!TIP]
-> - `groupPolicy`: `"mention"` (default — respond only when @mentioned), `"open"` (respond to all channel messages), or `"allowlist"` (restrict to specific channels).
-> - DM policy defaults to open. Set `"dm": {"enabled": false}` to disable DMs.
-
-</details>
-
-<details>
-<summary><b>Email</b></summary>
-
-Give MiniUnicorn its own email account. It polls **IMAP** for incoming mail and replies via **SMTP** — like a personal email assistant.
-
-**1. Get credentials (Gmail example)**
-- Create a dedicated Gmail account for your bot (e.g. `my-MiniUnicorn@gmail.com`)
-- Enable 2-Step Verification → Create an [App Password](https://myaccount.google.com/apppasswords)
-- Use this app password for both IMAP and SMTP
-
-**2. Configure**
-
-> - `consentGranted` must be `true` to allow mailbox access. This is a safety gate — set `false` to fully disable.
-> - `allowFrom`: Add your email address. Use `["*"]` to accept emails from anyone.
-> - `smtpUseTls` and `smtpUseSsl` default to `true` / `false` respectively, which is correct for Gmail (port 587 + STARTTLS). No need to set them explicitly.
-> - Set `"autoReplyEnabled": false` if you only want to read/analyze emails without sending automatic replies.
-> - `allowedAttachmentTypes`: Save inbound attachments matching these MIME types — `["*"]` for all, e.g. `["application/pdf", "image/*"]` (default `[]` = disabled).
-> - `maxAttachmentSize`: Max size per attachment in bytes (default `2000000` / 2MB).
-> - `maxAttachmentsPerEmail`: Max attachments to save per email (default `5`).
-
-```json
-{
-  "channels": {
-    "email": {
-      "enabled": true,
-      "consentGranted": true,
-      "imapHost": "imap.gmail.com",
-      "imapPort": 993,
-      "imapUsername": "my-MiniUnicorn@gmail.com",
-      "imapPassword": "your-app-password",
-      "smtpHost": "smtp.gmail.com",
-      "smtpPort": 587,
-      "smtpUsername": "my-MiniUnicorn@gmail.com",
-      "smtpPassword": "your-app-password",
-      "fromAddress": "my-MiniUnicorn@gmail.com",
-      "allowFrom": ["your-real-email@gmail.com"],
-      "allowedAttachmentTypes": ["application/pdf", "image/*"]
-    }
-  }
-}
-```
-
-
-**3. Run**
-
-```bash
-miniUnicorn gateway
-```
-
-</details>
-
-<details>
-<summary><b>WeChat (微信 / Weixin)</b></summary>
-
-Uses **HTTP long-poll** with QR-code login via the ilinkai personal WeChat API. No local WeChat desktop client is required.
-
-**1. Install with WeChat support**
-
-```bash
-pip install "miniUnicorn-ai[weixin]"
-```
-
-**2. Configure**
-
-```json
-{
-  "channels": {
-    "weixin": {
-      "enabled": true,
-      "allowFrom": ["YOUR_WECHAT_USER_ID"]
-    }
-  }
-}
-```
-
-> - `allowFrom`: Add the sender ID you see in MiniUnicorn logs for your WeChat account. Use `["*"]` to allow all users.
-> - `token`: Optional. If omitted, log in interactively and MiniUnicorn will save the token for you.
-> - `routeTag`: Optional. When your upstream Weixin deployment requires request routing, MiniUnicorn will send it as the `SKRouteTag` header.
-> - `stateDir`: Optional. Defaults to MiniUnicorn's runtime directory for Weixin state.
-> - `pollTimeout`: Optional long-poll timeout in seconds.
-
-**3. Login**
-
-```bash
-miniUnicorn channels login weixin
-```
-
-Use `--force` to re-authenticate and ignore any saved token:
-
-```bash
-miniUnicorn channels login weixin --force
-```
-
-**4. Run**
-
-```bash
-miniUnicorn gateway
-```
-
-</details>
-
-<details>
-<summary><b>Wecom (企业微信)</b></summary>
-
-> Here we use [wecom-aibot-sdk-python](https://github.com/chengyongru/wecom_aibot_sdk) (community Python version of the official [@wecom/aibot-node-sdk](https://www.npmjs.com/package/@wecom/aibot-node-sdk)).
->
-> Uses **WebSocket** long connection — no public IP required.
-
-**1. Install the optional dependency**
-
-```bash
-pip install miniUnicorn-ai[wecom]
-```
-
-**2. Create a WeCom AI Bot**
-
-Go to the WeCom admin console → Intelligent Robot → Create Robot → select **API mode** with **long connection**. Copy the Bot ID and Secret.
-
-**3. Configure**
+**2. 配置**
 
 ```json
 {
   "channels": {
     "wecom": {
       "enabled": true,
-      "botId": "your_bot_id",
-      "secret": "your_bot_secret",
-      "allowFrom": ["your_id"]
+      "botId": "${WECOM_BOT_ID}",
+      "botSecret": "${WECOM_BOT_SECRET}"
     }
   }
 }
 ```
 
-**4. Run**
+## 微信 (Weixin)
+
+通过扫码登录接入个人微信：
 
 ```bash
-miniUnicorn gateway
+miniUnicorn channels login weixin
 ```
 
-</details>
+扫码成功后凭据自动写入 `~/.miniUnicorn/config.json`。
 
-<details>
-<summary><b>Microsoft Teams</b> (MVP — DM only)</summary>
+> 注意：个人微信接入存在账号风险，仅建议在小号或测试账号上使用。
 
-> Direct-message text in/out, tenant-aware OAuth, conversation reference persistence.
-> Uses a public HTTPS webhook — no WebSocket; you need a tunnel or reverse proxy.
+## QQ
 
-**1. Install the optional dependency**
+**1. 创建 QQ 机器人**
 
-```bash
-pip install miniUnicorn-ai[msteams]
-```
+- 在 [QQ 开放平台](https://q.qq.com/) 注册机器人
+- 记录 `App ID` 与 `App Secret`
 
-**2. Create a Teams / Azure bot app registration**
-
-Create or reuse a Microsoft Teams / Azure bot app registration. Set the bot messaging endpoint to a public HTTPS URL ending in `/api/messages`.
-
-**3. Configure**
+**2. 配置**
 
 ```json
 {
   "channels": {
-    "msteams": {
+    "qq": {
       "enabled": true,
-      "appId": "YOUR_APP_ID",
-      "appPassword": "YOUR_APP_SECRET",
-      "tenantId": "YOUR_TENANT_ID",
-      "host": "0.0.0.0",
-      "port": 3978,
-      "path": "/api/messages",
-      "allowFrom": ["*"],
-      "replyInThread": true,
-      "mentionOnlyResponse": "Hi — what can I help with?",
-      "validateInboundAuth": true,
-      "refTtlDays": 30,
-      "pruneWebChatRefs": true,
-      "pruneNonPersonalRefs": true,
-      "refTouchIntervalS": 300
+      "appId": "${QQ_APP_ID}",
+      "appSecret": "${QQ_APP_SECRET}"
     }
   }
 }
 ```
 
-> - `replyInThread: true` replies to the triggering Teams activity when a stored `activity_id` is available.
-> - `mentionOnlyResponse` controls what MiniUnicorn receives when a user sends only a bot mention (`<at>MiniUnicorn</at>`). Set to `""` to ignore mention-only messages.
-> - `validateInboundAuth: true` enables inbound Bot Framework bearer-token validation (signature, issuer, audience, lifetime, `serviceUrl`). This is the safe default for public deployments. Only set it to `false` for local development or tightly controlled testing.
-> - `refTtlDays` (default `30`) controls how old stored conversation refs can be before they are pruned.
-> - `pruneWebChatRefs` (default `true`) drops refs with `webchat.botframework.com` service URLs.
-> - `pruneNonPersonalRefs` (default `true`) drops refs whose `conversation_type` is not `personal`.
-> - `refTouchIntervalS` (default `300`) throttles how often successful sends refresh `updated_at` for active refs.
+## WebSocket / WebUI
 
-**4. Run**
+内置频道，**零配置即可使用**。启动网关后通过浏览器访问 WebUI：
 
 ```bash
 miniUnicorn gateway
 ```
 
-</details>
+默认监听本地端口，支持局域网访问与 Token 鉴权。详见 [Deployment](./deployment.md)。
 
-<details>
-<summary><b>Signal</b></summary>
-
-Uses **signal-cli** daemon in HTTP mode — receive messages via SSE, send via JSON-RPC.
-
-**1. Install signal-cli**
-
-Install [signal-cli](https://github.com/AsamK/signal-cli) and register a phone number:
-
-```bash
-signal-cli -u +1234567890 register
-signal-cli -u +1234567890 verify <CODE>
-```
-
-Start the daemon:
-
-```bash
-signal-cli -a +1234567890 daemon --http localhost:8080
-```
-
-**2. Configure**
+如需对 WebSocket 频道进行细粒度控制：
 
 ```json
 {
   "channels": {
-    "signal": {
+    "websocket": {
       "enabled": true,
-      "phoneNumber": "+1234567890",
-      "daemonHost": "localhost",
-      "daemonPort": 8080,
-      "dm": {
-        "enabled": true,
-        "policy": "open"
-      },
-      "group": {
-        "enabled": true,
-        "policy": "open",
-        "requireMention": true
-      }
+      "sendToolHints": true
     }
   }
 }
 ```
 
-> - `phoneNumber`: Your registered Signal phone number.
-> - `daemonHost` / `daemonPort`: Where signal-cli daemon is listening (default `localhost:8080`).
-> - `dm.policy`: `"open"` (anyone can DM) or `"allowlist"` (only listed numbers/UUIDs). When `"allowlist"`, unlisted DM senders receive a pairing code.
-> - `dm.allowFrom`: List of allowed phone numbers or UUIDs (used when policy is `"allowlist"`).
-> - `group.policy`: `"open"` (all groups) or `"allowlist"` (only listed group IDs).
-> - `group.requireMention`: When `true` (default), the bot only responds in groups when @mentioned.
-> - `group.allowFrom`: List of allowed group IDs (used when group policy is `"allowlist"`).
-> - `attachmentsDir`: Override the directory where signal-cli stores inbound attachments. Defaults to `~/.local/share/signal-cli/attachments` (the Linux default). Set this if signal-cli runs with a custom `XDG_DATA_HOME` or on macOS/Windows.
-> - `groupMessageBufferSize`: Number of recent group messages kept for context (default `20`, must be > 0).
+## 配对（Pairing）
 
-**3. Run**
+当未在 allowlist 中的用户向机器人发送私信时，MiniUnicorn 会自动回复一个 10 分钟过期的配对码（形如 `ABCD-EFGH`）。在任意频道会话中执行：
 
-```bash
-miniUnicorn gateway
+```text
+/pairing approve ABCD-EFGH
 ```
 
-> [!TIP]
-> The channel automatically reconnects to the signal-cli daemon with exponential backoff if the connection drops.
-> Markdown in bot replies is automatically converted to Signal text styles (bold, italic, code, etc.).
-
-</details>
+即可放行该用户。完整指令见 [In-Chat Commands](./chat-commands.md#pairing)。

@@ -1,5 +1,1 @@
-blank_issues_enabled: false
-contact_links:
-  - name: Question / Support
-    url: https://github.com/HKUDS/miniUnicorn/discussions
-    about: Ask questions and get help from the community in Discussions.
+blank_issues_enabled: true

@@ -261,7 +261,6 @@ Markdown + YAML frontmatter 定义，按需加载：
 | Python SDK | [python-sdk.md](./docs/python-sdk.md) | 编程式调用 |
 | 频道插件 | [channel-plugin-guide.md](./docs/channel-plugin-guide.md) | 自定义频道插件开发 |
 | WebSocket | [websocket.md](./docs/websocket.md) | 实时 WebSocket 协议细节 |
-| Agent 社交网络 | [agent-social-network.md](./docs/agent-social-network.md) | 接入外部 agent 社区 |
 | 图像生成 | [image-generation.md](./docs/image-generation.md) | 图像 provider、WebUI 图像模式 |
 | 自省工具 | [my-tool.md](./docs/my-tool.md) | `my` 工具运行时状态 |
 
