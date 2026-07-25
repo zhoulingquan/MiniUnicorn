@@ -91,7 +91,7 @@ IMAP_PASSWORD=your-password-here
 
 ```bash
 docker run --rm --env-file=./MiniUnicorn.env \
-  -v ~/.MiniUnicorn:/home/miniUnicorn/.miniUnicorn \
+  -v ~/.miniUnicorn:/home/miniUnicorn/.miniUnicorn \
   miniUnicorn agent -m "Hello"
 ```
 

@@ -10,8 +10,8 @@
 **Install from source** (latest features, experimental changes may land here first; recommended for development)
 
 ```bash
-git clone https://github.com/HKUDS/miniUnicorn.git
-cd MiniUnicorn
+git clone https://github.com/zhoulingquan/mini-Unicorn.git
+cd mini-Unicorn
 pip install -e .
 ```
 
@@ -41,13 +41,6 @@ miniUnicorn --version
 ```bash
 uv tool upgrade miniUnicorn-ai
 miniUnicorn --version
-```
-
-**Using WhatsApp?** Rebuild the local bridge after upgrading:
-
-```bash
-rm -rf ~/.miniUnicorn/bridge
-miniUnicorn channels login whatsapp
 ```
 
 ## Quick Start

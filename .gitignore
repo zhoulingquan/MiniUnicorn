@@ -1,15 +1,8 @@
 # Project-specific
 .worktrees/
 .worktree/
-.assets
-.docs
 .env
-.web
-.orion
 .miniUnicorn-config/
-miniUnicorn-desktop/
-miniUnicorn-workspace/
-desktop/
 
 # Claude / AI assistant artifacts
 docs/superpowers/
