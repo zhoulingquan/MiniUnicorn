@@ -9,6 +9,7 @@ import type {
   CronJobCreate,
   CronJobPayload,
   CronJobsPayload,
+  ImageGenerationSettingsUpdate,
   McpPresetsPayload,
   ModelConfigurationCreate,
   ModelConfigurationUpdate,
@@ -770,6 +771,24 @@ export async function updateWebFetchSettings(
   query.set("use_jina_reader", String(update.useJinaReader));
   return request<SettingsPayload>(
     `${base}/api/settings/web-fetch/update?${query}`,
+    token,
+  );
+}
+
+export async function updateImageGenerationSettings(
+  token: string,
+  update: ImageGenerationSettingsUpdate,
+  base: string = "",
+): Promise<SettingsPayload> {
+  const query = new URLSearchParams();
+  query.set("enable", String(update.enabled));
+  query.set("preset", update.preset);
+  query.set("default_aspect_ratio", update.defaultAspectRatio);
+  query.set("default_image_size", update.defaultImageSize);
+  query.set("max_images_per_turn", String(update.maxImagesPerTurn));
+  query.set("save_dir", update.saveDir);
+  return request<SettingsPayload>(
+    `${base}/api/settings/image-generation/update?${query}`,
     token,
   );
 }

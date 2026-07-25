@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from ._helpers import _query_first, _query_first_alias
+from ._query import _query_first, _query_first_alias
 from ._runtime import QueryParams
 
 

@@ -35,6 +35,7 @@ import { useWebSearchSection } from "./useWebSearchSection";
 import { useAdvancedSection } from "./useAdvancedSection";
 import { useRuntimeSection } from "./useRuntimeSection";
 import { useModelsAndProvidersSection } from "./useModelsAndProvidersSection";
+import { useImageGenerationSection } from "./useImageGenerationSection";
 
 export interface UseSettingsStateParams {
   token: string;
@@ -82,6 +83,7 @@ export function useSettingsState({
       setPendingRestartSections({
         runtime: payload.restart_required_sections.includes("runtime"),
         browser: payload.restart_required_sections.includes("browser"),
+        images: payload.restart_required_sections.includes("images"),
       });
     }
     onSettingsChange?.(payload);
@@ -181,6 +183,7 @@ export function useSettingsState({
   const advanced = useAdvancedSection(shared);
   const runtime = useRuntimeSection(shared);
   const models = useModelsAndProvidersSection({ ...shared, onModelNameChange });
+  const imageGeneration = useImageGenerationSection(shared);
 
   return {
     // 共享状态
@@ -207,5 +210,6 @@ export function useSettingsState({
     advanced,
     runtime,
     models,
+    imageGeneration,
   };
 }

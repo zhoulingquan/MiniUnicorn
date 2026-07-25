@@ -69,7 +69,7 @@ export interface ModelsAndProvidersSectionState {
   setModelConfigurationForm: Dispatch<SetStateAction<ModelConfigurationDraft>>;
   modelConfigurationSaving: boolean;
   openModelConfigurationDialog: () => void;
-  handleCreateModelConfiguration: (overrideDraft?: ModelConfigurationDraft) => Promise<boolean>;
+  handleCreateModelConfiguration: (overrideDraft?: ModelConfigurationDraft) => Promise<{ ok: boolean; learning: boolean }>;
   configuredModelProviderOptions: Array<{ name: string; label: string }>;
 
   // inline add model
@@ -410,23 +410,19 @@ export function useModelsAndProvidersSection(
   );
 
   const handleCreateModelConfiguration = useCallback(
-    async (overrideDraft?: ModelConfigurationDraft): Promise<boolean> => {
-      if (modelConfigurationSaving) return false;
+    async (overrideDraft?: ModelConfigurationDraft): Promise<{ ok: boolean; learning: boolean }> => {
+      if (modelConfigurationSaving) return { ok: false, learning: false };
       const draft = overrideDraft ?? modelConfigurationForm;
       const label = draft.label.trim();
       const provider = draft.provider.trim();
       const model = draft.model.trim();
-      if (!label || !provider || !model) return false;
+      if (!label || !provider || !model) return { ok: false, learning: false };
       const editingName = draft.editingPresetName;
       const isNewModel = !editingName;
-      const willQueryContext = isNewModel;
-      if (willQueryContext) {
-        learningPollCancelRef.current = true;
-        setContextWindowLearning(true);
-        setLearningProvider(provider);
-        setContextWindowLearnTimeout(false);
-        setTimeoutProvider(null);
-      }
+      // 不在此处预设 learningProvider:需先调用 API,根据后端返回的 status 判断
+      // 模型是否已学习过(已学习则后端立即返回 "learned"/"configured")。
+      // 若提前设置 learningProvider,会对已学习模型显示"查询中"状态,
+      // 而第一次轮询(1500ms 后)就会重置,造成"一闪而过"。
       setModelConfigurationSaving(true);
       try {
         const payload: SettingsPayload = editingName
@@ -447,17 +443,36 @@ export function useModelsAndProvidersSection(
             });
         applyPayload(payload);
         onModelNameChange(payload.agent.model || null);
-        setModelConfigurationOpen(false);
         setError(null);
-        if (willQueryContext) {
+        // 检查后端返回的 resolved_context_window_status:
+        // - "learned"/"configured":模型已学习过,无需轮询,直接收起表单
+        // - "unknown":模型未学习过,需要轮询并保持表单展开显示"查询中"
+        const preset = payload.model_presets.find((p) => p.model === model);
+        const agentStatus =
+          payload.agent.model === model
+            ? payload.agent.resolved_context_window_status
+            : undefined;
+        const status = preset?.resolved_context_window_status ?? agentStatus ?? "unknown";
+        const alreadyLearned = status === "learned" || status === "configured";
+        const needLearning = isNewModel && !alreadyLearned;
+        if (needLearning) {
+          learningPollCancelRef.current = true;
+          setContextWindowLearning(true);
+          setLearningProvider(provider);
+          setContextWindowLearnTimeout(false);
+          setTimeoutProvider(null);
           pollContextWindowLearning(model, provider);
         }
-        return true;
+        // 不需要轮询(已学习或编辑模式)时收起 Dialog
+        if (!needLearning) {
+          setModelConfigurationOpen(false);
+        }
+        return { ok: true, learning: needLearning };
       } catch (err) {
         setError((err as Error).message);
         setContextWindowLearning(false);
         setLearningProvider(null);
-        return false;
+        return { ok: false, learning: false };
       } finally {
         setModelConfigurationSaving(false);
       }
@@ -506,29 +521,44 @@ export function useModelsAndProvidersSection(
     setInlineAddModelSaving(true);
     try {
       const model = inlineAddModelDraft.model.trim();
+      // 未配置非 custom provider:InlineAddModelForm 不显示凭证字段,
+      // 此时用用户在卡片上填入 providerForms 的 apiKey/apiBase 兜底,
+      // 保证保存时凭证一并写入(draft 优先,providerForms 兜底)。
+      const providerForm = providerForms[inlineAddModelDraft.provider];
       const draftWithLabel: ModelConfigurationDraft = {
         ...inlineAddModelDraft,
         label: model,
+        apiKey: inlineAddModelDraft.apiKey?.trim() || providerForm?.apiKey?.trim() || undefined,
+        apiBase: inlineAddModelDraft.apiBase?.trim() || providerForm?.apiBase?.trim() || undefined,
       };
-      const ok = await handleCreateModelConfiguration(draftWithLabel);
-      if (ok) {
-        setInlineAddModelProvider(null);
-        setInlineAddModelModels([]);
+      const result = await handleCreateModelConfiguration(draftWithLabel);
+      if (result.ok) {
+        // 不立即收起 inline form:若后端触发上下文窗口学习,
+        // 保持表单展开显示"查询中"状态,等轮询结束后由 pollContextWindowLearning 重置 learningProvider。
+        // 仅在未触发学习时才收起。
+        if (!result.learning) {
+          setInlineAddModelProvider(null);
+          setInlineAddModelModels([]);
+        }
       }
     } finally {
       setInlineAddModelSaving(false);
     }
-  }, [inlineAddModelSaving, inlineAddModelDraft, handleCreateModelConfiguration]);
+  }, [inlineAddModelSaving, inlineAddModelDraft, providerForms, handleCreateModelConfiguration]);
 
   const fetchInlineAddModelModels = useCallback(async () => {
     if (inlineAddModelModelsLoading) return;
     const providerName = inlineAddModelDraft.provider;
     if (!providerName) return;
+    // 未配置非 custom provider:InlineAddModelForm 不显示凭证字段,
+    // 用用户在卡片上填入 providerForms 的 apiKey/apiBase 拉取模型列表,
+    // 否则后端会回退用 default_api_base + 空 key 凑数请求(draft 优先,providerForms 兜底)。
+    const providerForm = providerForms[providerName];
     setInlineAddModelModelsLoading(true);
     try {
       const models = await fetchProviderModels(token, providerName, {
-        apiKey: inlineAddModelDraft.apiKey?.trim() || undefined,
-        apiBase: inlineAddModelDraft.apiBase?.trim() || undefined,
+        apiKey: inlineAddModelDraft.apiKey?.trim() || providerForm?.apiKey?.trim() || undefined,
+        apiBase: inlineAddModelDraft.apiBase?.trim() || providerForm?.apiBase?.trim() || undefined,
       });
       setInlineAddModelModels(models ?? []);
       setError(null);
@@ -538,7 +568,7 @@ export function useModelsAndProvidersSection(
     } finally {
       setInlineAddModelModelsLoading(false);
     }
-  }, [inlineAddModelModelsLoading, inlineAddModelDraft, token, setError]);
+  }, [inlineAddModelModelsLoading, inlineAddModelDraft, providerForms, token, setError]);
 
   // === custom 自定义配置入口 ===
   const openCustomConfig = useCallback(() => {
@@ -567,10 +597,13 @@ export function useModelsAndProvidersSection(
         ...customConfigDraft,
         label: model,
       };
-      const ok = await handleCreateModelConfiguration(draftWithLabel);
-      if (ok) {
-        setCustomConfigOpen(false);
-        setCustomConfigModels([]);
+      const result = await handleCreateModelConfiguration(draftWithLabel);
+      if (result.ok) {
+        // 若触发上下文窗口学习,保持 Dialog 展开显示"查询中",轮询结束后由 pollContextWindowLearning 重置状态。
+        if (!result.learning) {
+          setCustomConfigOpen(false);
+          setCustomConfigModels([]);
+        }
       }
     } finally {
       setCustomConfigSaving(false);

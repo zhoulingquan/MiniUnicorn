@@ -383,17 +383,15 @@ export function ProvidersSettings({
                 </DropdownMenu>
               </label>
             ) : null}
-            {/* 已配置 provider 卡片:展示该 provider 下挂载的 preset 列表(多模型支持)。
-                所有 provider(含 custom)一致显示。 */}
-            {isConfigured ? (
-              <ProviderPresetList
-                presets={provider.presets ?? []}
-                saving={saving || providerSaving === "__preset_activate__"}
-                onDelete={(presetName) => onDeletePreset(presetName)}
-                onActivate={(presetName) => onActivatePreset(presetName)}
-                onAdd={() => onAddModelToProvider(provider.name)}
-              />
-            ) : null}
+            {/* provider 卡片:展示该 provider 下挂载的 preset 列表(多模型支持)。
+                所有 provider(含未配置、custom)一致显示,未配置时也可"添加模型"。 */}
+            <ProviderPresetList
+              presets={provider.presets ?? []}
+              saving={saving || providerSaving === "__preset_activate__"}
+              onDelete={(presetName) => onDeletePreset(presetName)}
+              onActivate={(presetName) => onActivatePreset(presetName)}
+              onAdd={() => onAddModelToProvider(provider.name)}
+            />
             {/* inline 折叠展开式添加模型表单(替代弹窗):
                 当 inlineAddModelProvider 等于当前 provider 名时展开。 */}
             {inlineAddModelProvider === provider.name ? (
@@ -402,6 +400,7 @@ export function ProvidersSettings({
                 fetchedModels={inlineAddModelModels}
                 modelsLoading={inlineAddModelModelsLoading}
                 saving={inlineAddModelSaving}
+                learning={learningProvider === provider.name}
                 isCustom={provider.name === "custom"}
                 onChangeDraft={onChangeInlineAddModelDraft}
                 onFetchModels={onFetchInlineAddModelModels}
@@ -433,11 +432,9 @@ export function ProvidersSettings({
                       : t("settings.actions.saving"))
                   : (learningProvider === provider.name
                       ? t("settings.actions.queryingContext")
-                      : timeoutProvider === provider.name
-                        ? t("settings.actions.queryTimeout")
-                        : saved
-                          ? tx("settings.providers.saved", "Saved")
-                          : tx("settings.providers.saveProvider", "Save provider"))}
+                      : saved
+                        ? tx("settings.providers.saved", "Saved")
+                        : tx("settings.providers.saveProvider", "Save provider"))}
               </Button>
               {/* 已配置卡片:显示删除按钮(清除凭证 + 关联 model_preset,移回未配置)。
                   所有 provider(含 custom)一致显示。 */}
@@ -478,7 +475,7 @@ export function ProvidersSettings({
             size="sm"
             disabled={configuredProviders.length === 0 || deletingAllProviders}
             onClick={() => setDeleteAllConfirmOpen(true)}
-            className="h-7 rounded-full border-destructive/30 px-3 text-[12px] text-destructive hover:bg-destructive/5 hover:text-destructive disabled:border-border/40 disabled:text-muted-foreground disabled:opacity-60"
+            className="h-7 rounded-full px-3 text-[12px]"
           >
             {deletingAllProviders ? (
               <Loader2 className="mr-1 h-3 w-3 animate-spin" aria-hidden />
@@ -525,6 +522,7 @@ export function ProvidersSettings({
               fetchedModels={customConfigModels}
               modelsLoading={customConfigModelsLoading}
               saving={customConfigSaving}
+              learning={learningProvider === "custom"}
               isCustom
               variant="dialog"
               onChangeDraft={onChangeCustomConfigDraft}

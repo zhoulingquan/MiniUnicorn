@@ -151,7 +151,10 @@ function ModelPresetOptionContent({
   const provider = modelPresetProviderKey(preset, settings, {
     draftProvider: preset.is_default ? draftProvider : undefined,
   });
-  const model = preset.is_default ? draftModel : preset.model;
+  // compact(触发器):default preset 用 draftModel 显示当前选中模型;
+  // 非 compact(下拉列表项):default preset 用 preset.label("Default"),
+  // 避免 draftModel 恰好等于某具名 preset 的 model 时两个选项显示相同文案。
+  const model = preset.is_default ? (compact ? draftModel : "") : preset.model;
   const providerName = providerDisplayLabel(settings.providers, provider);
   return (
     <span className="flex min-w-0 items-center gap-2.5">

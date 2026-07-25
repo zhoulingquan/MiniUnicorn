@@ -4,6 +4,7 @@
 import {
   Activity,
   Globe2,
+  ImageIcon,
   LayoutGrid,
   Palette,
   ShieldCheck,
@@ -25,6 +26,7 @@ export type SettingsSectionKey =
   | "appearance"
   | "models"
   | "browser"
+  | "images"
   | "advanced"
   | "apps";
 
@@ -57,7 +59,7 @@ export interface ModelConfigurationDraft {
   editingPresetName?: string;
 }
 
-export type PendingRestartSection = "runtime" | "browser";
+export type PendingRestartSection = "runtime" | "browser" | "images";
 export type PendingRestartSections = Record<PendingRestartSection, boolean>;
 
 export type RestartAwarePayload = {
@@ -115,6 +117,7 @@ export const LOCAL_UNCONFIGURED_PROVIDER_ORDER = new Map(
 export const EMPTY_PENDING_RESTART_SECTIONS: PendingRestartSections = {
   runtime: false,
   browser: false,
+  images: false,
 };
 
 export const SETTINGS_NAV_ITEMS: Array<{
@@ -126,6 +129,7 @@ export const SETTINGS_NAV_ITEMS: Array<{
   { key: "appearance", icon: Palette, fallback: "Appearance" },
   { key: "models", icon: SlidersHorizontal, fallback: "Models" },
   { key: "browser", icon: Globe2, fallback: "Search" },
+  { key: "images", icon: ImageIcon, fallback: "Image" },
   { key: "advanced", icon: ShieldCheck, fallback: "Security" },
   { key: "apps", icon: LayoutGrid, fallback: "Apps" },
 ];

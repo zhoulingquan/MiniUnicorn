@@ -25,6 +25,7 @@ from miniUnicorn.webui.settings_api import (
     logout_oauth_provider,
     settings_payload,
     update_agent_settings,
+    update_image_generation_settings,
     update_model_configuration,
     update_network_safety_settings,
     update_provider_settings,
@@ -190,6 +191,17 @@ def web_search_update(ctx: RouteContext) -> Response:
     except WebUISettingsError as e:
         return _http_error(e.status, e.message)
     return _http_json_response(ctx.deps.with_restart_state(payload, section="browser"))
+
+
+@router.route("/api/settings/image-generation/update")
+@require_auth
+def image_generation_update(ctx: RouteContext) -> Response:
+    query = ctx.query
+    try:
+        payload = update_image_generation_settings(query)
+    except WebUISettingsError as e:
+        return _http_error(e.status, e.message)
+    return _http_json_response(ctx.deps.with_restart_state(payload, section="runtime"))
 
 
 @router.route("/api/settings/network-safety/update")

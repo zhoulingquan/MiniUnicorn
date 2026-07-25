@@ -3,7 +3,7 @@
 import { useMemo, type Dispatch, type SetStateAction } from "react";
 import { useTranslation } from "react-i18next";
 
-import type { WebFetchSettingsUpdate, WebSearchSettingsUpdate } from "@/lib/types";
+import type { WebSearchSettingsUpdate } from "@/lib/types";
 
 import { NumberInput, ToggleButton } from "../components/SegmentedControl";
 import { RestartSettingsFooter } from "../components/RestartSettingsFooter";
@@ -44,11 +44,6 @@ export function WebSearchSettings({
   onSave,
   onRestart,
   isRestarting,
-  webFetchForm,
-  webFetchDirty,
-  webFetchSaving,
-  onChangeWebFetchForm,
-  onSaveWebFetch,
 }: {
   form: WebSearchSettingsUpdate;
   dirty: boolean;
@@ -58,11 +53,6 @@ export function WebSearchSettings({
   onRestart?: () => void;
   isRestarting?: boolean;
   onSave: () => void;
-  webFetchForm: WebFetchSettingsUpdate;
-  webFetchDirty: boolean;
-  webFetchSaving: boolean;
-  onChangeWebFetchForm: Dispatch<SetStateAction<WebFetchSettingsUpdate>>;
-  onSaveWebFetch: () => void;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
@@ -76,7 +66,7 @@ export function WebSearchSettings({
     }
     // 额外展示用户已配置但不在 KEYED_BACKENDS 列表中的后端
     for (const [name, draft] of Object.entries(form.backends)) {
-      if (!KEYED_BACKENDS.includes(name)) {
+      if (!(KEYED_BACKENDS as readonly string[]).includes(name)) {
         result.push({ name, draft });
       }
     }

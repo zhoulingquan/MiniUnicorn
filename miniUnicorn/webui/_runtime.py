@@ -52,6 +52,19 @@ class WebUISettingsError(ValueError):
         self.status = status
 
 
+def _mask_secret_hint(secret: str | None) -> str | None:
+    """脱敏 secret,返回形如 ``sk-24••••0X3L`` 的提示串。
+
+    通用工具,被 model_settings_api(provider api_key) 和
+    web_search_api(search api_key) 共用。从 ``_helpers.py`` 迁入。
+    """
+    if not secret:
+        return None
+    if len(secret) <= 8:
+        return "••••"
+    return f"{secret[:4]}••••{secret[-4:]}"
+
+
 def _normalize_surface(surface: str | None) -> RuntimeSurface:
     return "native" if surface in {"native", "desktop"} else "browser"
 

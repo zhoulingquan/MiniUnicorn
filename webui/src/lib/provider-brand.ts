@@ -98,6 +98,7 @@ export const PROVIDER_LABEL_ALIASES: Record<string, string> = {
 };
 
 const PROVIDER_BRANDS: Record<string, ProviderBrand> = {
+  agnes: brand("agnes-ai.com", "#FF6B35", "A"),
   brave: brand("brave.com", "#FB542B", "B"),
   custom: brand("localhost", "#6B7280", "C"),
   deepseek: brand("deepseek.com", "#4D6BFE", "DS"),

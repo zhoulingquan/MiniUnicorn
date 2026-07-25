@@ -8,7 +8,7 @@ from typing import Any
 from miniUnicorn.apps.cli import CliAppError, CliAppManager, CliAppsRuntimeConfig
 from miniUnicorn.config.loader import load_config
 
-from ._helpers import _clip_ws_string, _query_first
+from ._query import _clip_ws_string, _query_first
 from ._runtime import QueryParams
 
 _CLI_APP_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$", re.IGNORECASE)

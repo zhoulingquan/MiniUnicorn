@@ -12,7 +12,7 @@ from typing import Any
 from miniUnicorn.cron.service import CronService
 from miniUnicorn.cron.types import CronJob, CronSchedule
 
-from ._helpers import _query_first, _query_first_alias
+from ._query import _query_first, _query_first_alias
 from ._runtime import QueryParams
 
 

@@ -38,7 +38,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from miniUnicorn.security.network import create_ssrf_safe_client, validate_url_target
 
-from ._helpers import _query_first
+from ._query import _query_first
 
 # 项目标识，传给第三方扫码授权端点作为 source 参数（参考 QwenPaw PROJECT_NAME）。
 PROJECT_NAME = "MiniUnicorn"

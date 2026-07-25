@@ -438,34 +438,34 @@ export function AppsSettings({
               title={t("settings.cliApps.allCategories")}
             />
           </SettingsRow>
+          <details className="px-4 py-3.5 text-[11px] leading-relaxed text-muted-foreground/80 sm:px-5">
+            <summary className="cursor-pointer select-none font-medium text-foreground/70 hover:text-foreground">
+              CLI 应用实现机制
+            </summary>
+            <div className="mt-2 space-y-1.5">
+              <p>
+                <span className="font-medium text-foreground/70">【数据来源】</span>
+                所有 CLI 应用条目均来自 3 个远程 JSON registry(harness/public 必选,extensions 可选),无本地内置 catalog。本地缓存 TTL 由 catalogTtlSeconds 控制(默认 3600s)。
+              </p>
+              <p>
+                <span className="font-medium text-foreground/70">【安装策略】</span>
+                bundled(随父应用捆绑,只检测不安装)、npm、brew、uv、pip 五种;其他视为 unsupported。
+              </p>
+              <p>
+                <span className="font-medium text-foreground/70">【状态判定】</span>
+                installed(已登记+可执行)、missing(已登记+找不到)、available(未登记+系统已有)、not_installed(未登记+找不到)、unsupported。
+              </p>
+              <p>
+                <span className="font-medium text-foreground/70">【不支持自定义 CLI】</span>
+                UI/API/配置/核心逻辑四层均封闭:get_app() 只查远程 catalog,无 create/edit/delete 接口,config.tools.cliApps 仅含 enable 与超时字段。
+              </p>
+              <p>
+                <span className="font-medium text-foreground/70">【替代方案】</span>
+                运行任意 CLI 用 exec 工具;集成自定义服务用 tools.mcpServers 声明。
+              </p>
+            </div>
+          </details>
         </SettingsGroup>
-        <details className="mt-2 rounded-lg border border-foreground/10 bg-card/40 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground/80">
-          <summary className="cursor-pointer select-none font-medium text-foreground/70 hover:text-foreground">
-            CLI 应用实现机制
-          </summary>
-          <div className="mt-2 space-y-1.5">
-            <p>
-              <span className="font-medium text-foreground/70">【数据来源】</span>
-              所有 CLI 应用条目均来自 3 个远程 JSON registry(harness/public 必选,extensions 可选),无本地内置 catalog。本地缓存 TTL 由 catalogTtlSeconds 控制(默认 3600s)。
-            </p>
-            <p>
-              <span className="font-medium text-foreground/70">【安装策略】</span>
-              bundled(随父应用捆绑,只检测不安装)、npm、brew、uv、pip 五种;其他视为 unsupported。
-            </p>
-            <p>
-              <span className="font-medium text-foreground/70">【状态判定】</span>
-              installed(已登记+可执行)、missing(已登记+找不到)、available(未登记+系统已有)、not_installed(未登记+找不到)、unsupported。
-            </p>
-            <p>
-              <span className="font-medium text-foreground/70">【不支持自定义 CLI】</span>
-              UI/API/配置/核心逻辑四层均封闭:get_app() 只查远程 catalog,无 create/edit/delete 接口,config.tools.cliApps 仅含 enable 与超时字段。
-            </p>
-            <p>
-              <span className="font-medium text-foreground/70">【替代方案】</span>
-              运行任意 CLI 用 exec 工具;集成自定义服务用 tools.mcpServers 声明。
-            </p>
-          </div>
-        </details>
       </section>
 
       {error ? (

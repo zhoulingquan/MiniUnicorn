@@ -23,7 +23,7 @@ from miniUnicorn.config.paths import get_runtime_subdir
 from miniUnicorn.config.schema import MCPServerConfig
 from miniUnicorn.utils.helpers import ensure_dir
 
-from ._helpers import _clip_ws_string, _query_first
+from ._query import _clip_ws_string, _query_first
 from ._runtime import QueryParams
 
 _MCP_PRESET_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$", re.IGNORECASE)

@@ -15,7 +15,7 @@ from typing import Any, get_args, get_origin
 from miniUnicorn.config.loader import load_config, save_config
 from miniUnicorn.config.schema import Base, ChannelsConfig
 
-from ._helpers import _query_first, _query_first_alias
+from ._query import _query_first, _query_first_alias
 from ._runtime import QueryParams
 
 

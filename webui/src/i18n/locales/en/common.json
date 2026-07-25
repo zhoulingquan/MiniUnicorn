@@ -77,7 +77,8 @@
       "cliApps": "CLI Apps",
       "mcp": "MCP",
       "advanced": "Security",
-      "apps": "CLI Apps"
+      "apps": "CLI Apps",
+      "images": "Image"
     },
     "sections": {
       "interface": "Interface",
@@ -96,7 +97,9 @@
       "webSearchBackends": "Backend Credentials",
       "apps": "CLI Apps",
       "nativeHost": "Native host",
-      "hostSafety": "App safety"
+      "hostSafety": "App safety",
+      "imageGeneration": "Image Generation",
+      "imageGenDefaults": "Defaults"
     },
     "models": {
       "selectModel": "Select model",
@@ -150,7 +153,13 @@
       "engine": "Engine",
       "logs": "Logs",
       "diagnostics": "Diagnostics",
-      "contextWindow": "Context window"
+      "contextWindow": "Context window",
+      "imageGenEnable": "Enable generate_image",
+      "imageGenPreset": "Model Preset",
+      "imageGenAspectRatio": "Default Aspect Ratio",
+      "imageGenImageSize": "Default Image Size",
+      "imageGenMaxPerTurn": "Max Images Per Turn",
+      "imageGenSaveDir": "Save Directory"
     },
     "help": {
       "theme": "Switch between light and dark appearance.",
@@ -187,7 +196,17 @@
       "webuiDefaultAccessNative": "Used by native chats without a project-specific permission.",
       "contextWindow": "Choose the default context budget for this model configuration.",
       "heartbeat": "Idle check interval in seconds (60-86400).",
-      "dream": "Memory consolidation cron expression (e.g. '0 3 * * *' for daily at 3am). Timezone follows the main timezone setting."
+      "dream": "Memory consolidation cron expression (e.g. '0 3 * * *' for daily at 3am). Timezone follows the main timezone setting.",
+      "imageGenEnable": "Expose generate_image in chats when a configured model preset is available. Toggle this on after picking a preset below.",
+      "imageGenPreset": "Model preset used for image generation. The dropdown lists all cards in the configured area of Models settings; credentials (API Key / API Base) are reused from the preset, no need to re-enter here.",
+      "imageGenProviderDisabled": "Image generation is off. Toggle enable above after picking a preset.",
+      "imageGenProviderSelected": "Preset: {{name}} · Model: {{model}}",
+      "imageGenProviderMain": "Using main model: {{model}}",
+      "imageGenAspectRatio": "Used when the tool call omits aspect_ratio. Maps to provider-specific sizes.",
+      "imageGenImageSize": "Size hint like 1K / 2K / 4K or explicit dimensions (1024x1024).",
+      "imageGenMaxPerTurn": "Cap on count parameter to prevent runaway API bills. Range: 1-8.",
+      "imageGenSaveDir": "Subdirectory under media root for storing generated artifacts. Default: generated.",
+      "imageGenWorkflow": "After enabling, just ask in chat to generate or edit images. Pass prior image paths as reference_images for iterative edits. Model preset is picked above; credentials are reused from your model configuration."
     },
     "cliApps": {
       "allCategories": "All categories",
@@ -243,7 +262,11 @@
       "restartingEngine": "Restarting",
       "cnRegion": "CN",
       "globalRegion": "Global",
-      "seconds": "s"
+      "seconds": "s",
+      "noProvider": "No provider configured",
+      "imageGenMain": "Main model",
+      "imageGenPickFolder": "Pick Folder",
+      "imageGenSaveDirPath": "Save path"
     },
     "status": {
       "loading": "Loading settings...",

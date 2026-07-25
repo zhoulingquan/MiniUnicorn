@@ -77,7 +77,8 @@
       "cliApps": "CLI 应用",
       "mcp": "MCP",
       "advanced": "安全",
-      "apps": "CLI 应用"
+      "apps": "CLI 应用",
+      "images": "图片"
     },
     "sections": {
       "interface": "界面",
@@ -96,7 +97,9 @@
       "webSearchBackends": "后端凭证",
       "apps": "CLI 应用",
       "nativeHost": "App",
-      "hostSafety": "App 安全"
+      "hostSafety": "App 安全",
+      "imageGeneration": "图像生成",
+      "imageGenDefaults": "默认参数"
     },
     "models": {
       "selectModel": "选择模型",
@@ -150,7 +153,13 @@
       "engine": "引擎",
       "logs": "日志",
       "diagnostics": "诊断",
-      "contextWindow": "上下文窗口"
+      "contextWindow": "上下文窗口",
+      "imageGenEnable": "启用 generate_image",
+      "imageGenPreset": "模型预设",
+      "imageGenAspectRatio": "默认宽高比",
+      "imageGenImageSize": "默认图片尺寸",
+      "imageGenMaxPerTurn": "单轮最大张数",
+      "imageGenSaveDir": "保存目录"
     },
     "help": {
       "theme": "在浅色和深色外观之间切换。",
@@ -187,7 +196,17 @@
       "webuiDefaultAccessNative": "用于没有单独选择权限的原生 App 对话。",
       "contextWindow": "选择这个模型配置默认使用的上下文预算。",
       "heartbeat": "空闲检查间隔，单位秒（60-86400）。",
-      "dream": "做梦的 cron 表达式（如 '0 3 * * *' 表示每天凌晨 3 点）。时区跟随主时区设置。"
+      "dream": "做梦的 cron 表达式（如 '0 3 * * *' 表示每天凌晨 3 点）。时区跟随主时区设置。",
+      "imageGenEnable": "在下方选定一个模型预设后,开启此项即可在聊天中调用 generate_image 工具。",
+      "imageGenPreset": "图像生成所用的模型预设。下拉中列出“模型设置”已配置区域的全部卡片;凭证复用其 API Key / API Base,无需在此重复填写。",
+      "imageGenProviderDisabled": "图像生成已关闭。在上方选定一个模型预设后再开启。",
+      "imageGenProviderSelected": "预设:{{name}} · 模型:{{model}}",
+      "imageGenProviderMain": "使用主模型:{{model}}",
+      "imageGenAspectRatio": "工具调用未传 aspect_ratio 时使用。映射到 provider 特定的尺寸。",
+      "imageGenImageSize": "尺寸提示,如 1K / 2K / 4K,或显式像素值（如 1024x1024）。",
+      "imageGenMaxPerTurn": "count 参数上限,用于避免 API 账单失控。范围:1-8。",
+      "imageGenSaveDir": "保存生成图片的子目录,位于 media 根目录下。默认: generated。",
+      "imageGenWorkflow": "启用后,在聊天中直接用自然语言请求生成或编辑图片。把上次生成图片路径作为 reference_images 传入即可迭代编辑。预设来自“模型设置”已配置区域的卡片,凭证自动复用。"
     },
     "cliApps": {
       "allCategories": "全部分类",
@@ -243,7 +262,11 @@
       "restartingEngine": "正在重启",
       "cnRegion": "国内",
       "globalRegion": "海外",
-      "seconds": "秒"
+      "seconds": "秒",
+      "noProvider": "未配置提供商",
+      "imageGenMain": "主模型",
+      "imageGenPickFolder": "选择文件夹",
+      "imageGenSaveDirPath": "保存路径"
     },
     "status": {
       "loading": "正在加载设置...",
@@ -312,7 +335,7 @@
       "modelIdRequired": "请填写模型 ID",
       "customRequiredHint": "需填写配置名称、API base 和模型 ID",
       "modelsUnderProvider": "该服务商下的模型",
-      "noPresets": "继续配置添加其他模型",
+      "noPresets": "添加模型ID（可添加多个）",
       "addModelToProvider": "添加模型",
       "addCustomProvider": "添加自定义服务商",
       "customProviderHelp": "配置 OpenAI 兼容的自定义端点,保存后会作为独立服务商卡片显示。",

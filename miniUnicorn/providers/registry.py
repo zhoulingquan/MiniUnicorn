@@ -130,6 +130,15 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         backend="openai_compat",
         default_api_base="https://opencode.ai/zen/v1",
     ),
+    # === Agnes AI: OpenAI-compatible at apihub.agnes-ai.com ================
+    ProviderSpec(
+        name="agnes",
+        keywords=("agnes",),
+        env_key="AGNES_API_KEY",
+        display_name="Agnes AI",
+        backend="openai_compat",
+        default_api_base="https://apihub.agnes-ai.com/v1",
+    ),
 )
 
 

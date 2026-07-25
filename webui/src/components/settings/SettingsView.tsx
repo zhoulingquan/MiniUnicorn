@@ -37,6 +37,7 @@ import { ProvidersSettings } from "./sections/ProvidersSettings";
 import { AdvancedSettings } from "./sections/AdvancedSettings";
 import { NewModelConfigurationDialog } from "./sections/NewModelConfigurationDialog";
 import { WebSearchSettings } from "./sections/WebSearchSettings";
+import { ImageGenerationSettings } from "./sections/ImageGenerationSettings";
 import { useSettingsState } from "./hooks/useSettingsState";
 
 // 重新导出共享类型,保证外部 `import { SettingsSectionKey } from "@/components/settings/SettingsView"` 仍可用。
@@ -168,11 +169,20 @@ export function SettingsView({
             onRestart={state.restartViaSettingsSurface}
             isRestarting={isRestarting || state.hostEngineApplying}
             requiresRestartPending={state.pendingRestartSections.browser}
-            webFetchForm={state.webSearch.webFetchForm}
-            webFetchDirty={state.webSearch.webFetchDirty}
-            webFetchSaving={state.webSearch.webFetchSaving}
-            onChangeWebFetchForm={state.webSearch.setWebFetchForm}
-            onSaveWebFetch={state.webSearch.saveWebFetchSettings}
+          />
+        );
+      case "images":
+        return (
+          <ImageGenerationSettings
+            form={state.imageGeneration.imageGenForm}
+            dirty={state.imageGeneration.imageGenDirty}
+            saving={state.imageGeneration.imageGenSaving}
+            settings={state.settings}
+            onChangeForm={state.imageGeneration.setImageGenForm}
+            onSave={state.imageGeneration.saveImageGenerationSettings}
+            onRestart={state.restartViaSettingsSurface}
+            isRestarting={isRestarting || state.hostEngineApplying}
+            requiresRestartPending={state.pendingRestartSections.images}
           />
         );
       case "advanced":
@@ -217,6 +227,11 @@ export function SettingsView({
         onOpenChange={state.models.setModelConfigurationOpen}
         onChangeDraft={state.models.setModelConfigurationForm}
         onSave={state.models.handleCreateModelConfiguration}
+        learning={
+          state.models.contextWindowLearning
+          && !!state.models.modelConfigurationForm.provider
+          && state.models.learningProvider === state.models.modelConfigurationForm.provider
+        }
       />
 
       <Dialog

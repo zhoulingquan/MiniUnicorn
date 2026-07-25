@@ -322,6 +322,19 @@ export interface SettingsPayload {
       }
     >;
   };
+  image_generation: {
+    enabled: boolean;
+    preset: string;
+    api_type: "images_generations" | "chat_completions" | "dashscope_multimodal";
+    response_format: "b64_json" | "url";
+    default_aspect_ratio: string;
+    default_image_size: string;
+    max_images_per_turn: number;
+    save_dir: string;
+    save_dir_full: string;
+    supported_api_types: string[];
+    aspect_ratio_options: string[];
+  };
   runtime: {
     config_path: string;
     workspace_path: string;
@@ -363,7 +376,7 @@ export interface SettingsPayload {
     exec_path_append_set: boolean;
   };
   requires_restart: boolean;
-  restart_required_sections?: Array<"runtime" | "browser" | "image">;
+  restart_required_sections?: Array<"runtime" | "browser" | "image" | "images">;
 }
 
 export interface AppPackageRef {
@@ -610,6 +623,15 @@ export interface ProviderSettingsUpdate {
 
 export interface WebFetchSettingsUpdate {
   useJinaReader: boolean;
+}
+
+export interface ImageGenerationSettingsUpdate {
+  enabled: boolean;
+  preset: string;
+  defaultAspectRatio: string;
+  defaultImageSize: string;
+  maxImagesPerTurn: number;
+  saveDir: string;
 }
 
 export interface WebSearchBackendDraft {

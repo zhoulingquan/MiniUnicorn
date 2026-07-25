@@ -24,6 +24,7 @@ export function NewModelConfigurationDialog({
   draft,
   providers,
   saving,
+  learning = false,
   showProviderLogos,
   onOpenChange,
   onChangeDraft,
@@ -33,6 +34,8 @@ export function NewModelConfigurationDialog({
   draft: ModelConfigurationDraft;
   providers: Array<{ name: string; label: string }>;
   saving: boolean;
+  /** 保存后是否正在查询模型上下文窗口(轮询中)。 */
+  learning?: boolean;
   showProviderLogos: boolean;
   onOpenChange: (open: boolean) => void;
   onChangeDraft: Dispatch<SetStateAction<ModelConfigurationDraft>>;
@@ -156,7 +159,7 @@ export function NewModelConfigurationDialog({
               type="button"
               variant="ghost"
               className="rounded-full"
-              disabled={saving}
+              disabled={saving || learning}
               onClick={() => onOpenChange(false)}
             >
               {tx("settings.actions.cancel", "Cancel")}
@@ -165,12 +168,16 @@ export function NewModelConfigurationDialog({
               type="submit"
               variant="outline"
               className="rounded-full"
-              disabled={!canSave || saving || providers.length === 0}
+              disabled={!canSave || saving || learning || providers.length === 0}
             >
-              {saving ? (
+              {saving || learning ? (
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
               ) : null}
-              {saving ? tx("settings.actions.saving", "Saving...") : tx("settings.actions.save", "Save")}
+              {saving
+                ? tx("settings.actions.saving", "Saving...")
+                : learning
+                  ? tx("settings.actions.queryingContext", "Querying context...")
+                  : tx("settings.actions.save", "Save")}
             </Button>
           </DialogFooter>
         </form>

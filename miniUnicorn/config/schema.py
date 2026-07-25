@@ -13,6 +13,7 @@ from miniUnicorn.cron.types import CronSchedule
 if TYPE_CHECKING:
     from miniUnicorn.agent.tools.cli_apps import CliAppsToolConfig
     from miniUnicorn.agent.tools.deep_research.config import DeepResearchConfig
+    from miniUnicorn.agent.tools.image_generation.config import ImageGenerationConfig
     from miniUnicorn.agent.tools.self import MyToolConfig
     from miniUnicorn.agent.tools.shell import ExecToolConfig
     from miniUnicorn.agent.tools.web import WebToolsConfig
@@ -276,7 +277,7 @@ class ProviderConfig(Base):
 class ProvidersConfig(Base):
     """Configuration for LLM providers.
 
-    内置 provider（custom/deepseek/opencode）已声明字段；其他 provider 通过
+    内置 provider（custom/deepseek/opencode/agnes）已声明字段；其他 provider 通过
     extra="allow" 接受，由 _coerce_extra_providers 把 dict 转为 ProviderConfig。
     """
 
@@ -285,6 +286,7 @@ class ProvidersConfig(Base):
     custom: ProviderConfig = Field(default_factory=ProviderConfig)  # Any OpenAI-compatible endpoint
     deepseek: ProviderConfig = Field(default_factory=ProviderConfig)
     opencode: ProviderConfig = Field(default_factory=ProviderConfig)
+    agnes: ProviderConfig = Field(default_factory=ProviderConfig)
 
     # Optional separate embedding provider — allows using a different backend
     # for embeddings than for chat (e.g. Anthropic Claude for chat + OpenAI
@@ -390,6 +392,7 @@ class ToolsConfig(Base):
     my: MyToolConfig = Field(default_factory=lambda: _lazy_default("miniUnicorn.agent.tools.self", "MyToolConfig"))
     web_search: WebSearchConfig = Field(default_factory=lambda: _lazy_default("miniUnicorn.agent.tools.web_search.config", "WebSearchConfig"))
     deep_research: "DeepResearchConfig" = Field(default_factory=lambda: _lazy_default("miniUnicorn.agent.tools.deep_research.config", "DeepResearchConfig"))
+    image_generation: "ImageGenerationConfig" = Field(default_factory=lambda: _lazy_default("miniUnicorn.agent.tools.image_generation.config", "ImageGenerationConfig"))
     # 默认开启工作区隔离,避免工具越权访问工作区外路径;已有 config.json 中的显式值会覆盖此默认
     restrict_to_workspace: bool = True
     webui_allow_local_service_access: bool = Field(
@@ -614,6 +617,7 @@ def _resolve_tool_config_refs() -> None:
 
     from miniUnicorn.agent.tools.cli_apps import CliAppsToolConfig
     from miniUnicorn.agent.tools.deep_research.config import DeepResearchConfig
+    from miniUnicorn.agent.tools.image_generation.config import ImageGenerationConfig
     from miniUnicorn.agent.tools.self import MyToolConfig
     from miniUnicorn.agent.tools.shell import ExecToolConfig
     from miniUnicorn.agent.tools.web import WebFetchConfig, WebToolsConfig
@@ -628,6 +632,7 @@ def _resolve_tool_config_refs() -> None:
     mod.MyToolConfig = MyToolConfig  # type: ignore[attr-defined]
     mod.WebSearchConfig = WebSearchConfig  # type: ignore[attr-defined]
     mod.DeepResearchConfig = DeepResearchConfig  # type: ignore[attr-defined]
+    mod.ImageGenerationConfig = ImageGenerationConfig  # type: ignore[attr-defined]
 
     ToolsConfig.model_rebuild()
     Config.model_rebuild()

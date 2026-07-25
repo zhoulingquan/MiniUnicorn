@@ -20,6 +20,8 @@ export interface InlineAddModelFormProps {
   modelsLoading: boolean;
   /** 是否正在保存。 */
   saving: boolean;
+  /** 保存后是否正在查询模型上下文窗口(轮询中)。 */
+  learning?: boolean;
   /** 是否为 custom provider(custom 必须填 API Key + API Base)。 */
   isCustom: boolean;
   /** 渲染变体:inline=卡片内折叠表单(带虚线边框),dialog=Dialog 内无边框。 */
@@ -39,6 +41,7 @@ export function InlineAddModelForm({
   fetchedModels,
   modelsLoading,
   saving,
+  learning = false,
   isCustom,
   variant = "inline",
   onChangeDraft,
@@ -166,7 +169,7 @@ export function InlineAddModelForm({
           variant="ghost"
           size="sm"
           className="rounded-full"
-          disabled={saving}
+          disabled={saving || learning}
           onClick={onCancel}
         >
           {tx("settings.actions.cancel", "Cancel")}
@@ -176,13 +179,17 @@ export function InlineAddModelForm({
           variant="outline"
           size="sm"
           className="rounded-full"
-          disabled={!canSave || saving}
+          disabled={!canSave || saving || learning}
           onClick={onSave}
         >
-          {saving ? (
+          {saving || learning ? (
             <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
           ) : null}
-          {saving ? tx("settings.actions.saving", "Saving...") : tx("settings.actions.save", "Save")}
+          {saving
+            ? tx("settings.actions.saving", "Saving...")
+            : learning
+              ? tx("settings.actions.queryingContext", "Querying context...")
+              : tx("settings.actions.save", "Save")}
         </Button>
       </div>
     </div>
