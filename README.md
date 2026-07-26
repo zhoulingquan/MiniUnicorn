@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/logo.png" alt="MiniUnicorn Logo" width="200" height="200">
+<img src="docs/logo.svg" alt="MiniUnicorn Logo" width="200" height="200">
 
 # MiniUnicorn
 
