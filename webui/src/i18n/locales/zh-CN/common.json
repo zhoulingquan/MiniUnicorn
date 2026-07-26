@@ -580,6 +580,7 @@
       "attachTooltipLimit": "单次上传最多 {{max}} 个附件",
       "attachTooltipImages": "图片：PNG / JPEG / WebP / GIF",
       "attachTooltipDocs": "文档：PDF / Word / Excel / PPT / TXT / MD / CSV / JSON / XML / HTML / YAML 等",
+      "skillHint": "请使用 skill \"{{name}}\" 完成以下任务：",
       "contextChip": {
         "full": "{{count}} · {{ctx}} 上下文",
         "countOnly": "{{count}} 条",

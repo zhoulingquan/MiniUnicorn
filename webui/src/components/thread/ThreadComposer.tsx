@@ -48,6 +48,7 @@ import { AttachmentChip, formatBytes } from "./components/AttachmentChip";
 import { ComposerModelBadge } from "./components/ComposerModelBadge";
 import { ContextChip } from "./components/ContextChip";
 import { RunElapsedStrip } from "./components/RunElapsedStrip";
+import { SkillSelectorButton } from "./components/SkillSelectorButton";
 import { SlashCommandPalette } from "./components/SlashCommandPalette";
 
 /** ``<input accept>``:与后端 MIME 白名单对齐。图片走 image worker,
@@ -90,6 +91,7 @@ export function ThreadComposer({
   selectedAgentId = null,
   onSelectAgent,
   onClearAgent,
+  skills = [],
   messageCount = 0,
   contextWindowTokens = null,
   contextUsage = null,
@@ -219,6 +221,12 @@ export function ThreadComposer({
     [agents, selectedAgentId],
   );
   const showAgentSelector = agents.length > 0;
+  // 过滤出 available 且未禁用的 skill,作为下拉菜单可选列表。
+  const selectableSkills = useMemo(
+    () => skills.filter((skill) => skill.available && !skill.disabled),
+    [skills],
+  );
+  const showSkillSelector = selectableSkills.length > 0;
   const handleSelectAgent = useCallback(
     (agentId: string) => {
       // Sentinel emitted by the "clear" menu item: delegate to onClearAgent
@@ -246,6 +254,23 @@ export function ThreadComposer({
       el.focus();
     });
   }, [expanded]);
+
+  // 选中 skill 后,在输入框中前置一段提示文字,引导 LLM 主动 read_file
+  // 该 skill 的 SKILL.md 并按其指示工作。若输入框已有内容,保留并追加换行,
+  // 让用户的原始问题/任务描述跟在 skill 提示之后。
+  const handleSelectSkill = useCallback(
+    (skillName: string) => {
+      const hint = t("thread.composer.skillHint", { name: skillName });
+      setValue((prev) => {
+        const trimmed = prev.trim();
+        if (!trimmed) return hint;
+        return `${hint}\n\n${trimmed}`;
+      });
+      setInlineError(null);
+      resizeTextarea();
+    },
+    [resizeTextarea, t],
+  );
 
   const handleCommandSelected = useCallback(
     (command: SlashCommand) => {
@@ -620,6 +645,18 @@ export function ThreadComposer({
                 ariaLabel={t("agents.title")}
                 emptyLabel={t("agents.empty")}
                 clearLabel={t("agents.clear")}
+              />
+            ) : null}
+            {showSkillSelector ? (
+              <SkillSelectorButton
+                skills={selectableSkills}
+                disabled={disabled}
+                isHero={isHero}
+                onSelect={handleSelectSkill}
+                ariaLabel={t("skills.title")}
+                emptyLabel={t("skills.empty")}
+                builtinBadge={t("skills.builtinBadge")}
+                workspaceBadge={t("skills.workspaceBadge")}
               />
             ) : null}
             {workspaceScope ? (

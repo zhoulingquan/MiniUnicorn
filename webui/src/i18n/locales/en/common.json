@@ -575,6 +575,7 @@
       "attachTooltipLimit": "Up to {{max}} attachments per upload",
       "attachTooltipImages": "Images: PNG / JPEG / WebP / GIF",
       "attachTooltipDocs": "Documents: PDF / Word / Excel / PPT / TXT / MD / CSV / JSON / XML / HTML / YAML, etc.",
+      "skillHint": "Please use the \"{{name}}\" skill to complete the following task:",
       "contextChip": {
         "full": "{{count}} · {{ctx}} ctx",
         "countOnly": "{{count}} msg",

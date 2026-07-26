@@ -2,6 +2,7 @@ import type {
   AgentInfo,
   ContextUsagePayload,
   GoalStateWsPayload,
+  SkillInfo,
   SlashCommand,
   WorkspaceScopePayload,
   WorkspacesPayload,
@@ -44,6 +45,9 @@ export interface ThreadComposerProps {
   onSelectAgent?: (agentId: string) => void;
   /** Called when the user clears the active subagent selection. */
   onClearAgent?: () => void;
+  /** 可用 skill 列表(从 ``GET /api/skills`` 拉取,已在前端过滤 available && !disabled)。
+   * 列表非空时,在对话框左下角渲染 SkillSelectorButton。 */
+  skills?: SkillInfo[];
   /** 当前会话消息条数(含 user/assistant,不含 trace 行)。 */
   messageCount?: number;
   /** 当前模型预设的上下文窗口大小(tokens),用于显示上下文预算。 */
