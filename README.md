@@ -1,6 +1,8 @@
-# 🧙 MiniUnicorn
-
 <div align="center">
+
+<img src="docs/logo.png" alt="MiniUnicorn Logo" width="200" height="200">
+
+# MiniUnicorn
 
 **一个开源、超轻量级的个人 AI 代理框架**
 
@@ -8,7 +10,7 @@
 
 [![Python](https://img.shields.io/badge/python-≥3.11-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
-[![Release](https://img.shields.io/badge/release-v0.1.0-success)](https://github.com/zhoulingquan/mini-Unicorn/releases)
+[![Release](https://img.shields.io/badge/release-v0.3.0-success)](https://github.com/zhoulingquan/mini-Unicorn/releases)
 [![Status](https://img.shields.io/badge/status-alpha-orange)]()
 
 </div>
