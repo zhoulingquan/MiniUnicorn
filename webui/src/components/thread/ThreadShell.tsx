@@ -738,6 +738,11 @@ export function ThreadShell({
     </div>
   ) : (
     <div className="flex w-full flex-col items-center text-center animate-in fade-in-0 slide-in-from-bottom-2 duration-500">
+      <img
+        src="/logo.svg"
+        alt={t("app.brand")}
+        className="mb-6 h-20 w-20 rounded-xl"
+      />
       <h1 className="text-balance text-[40px] font-normal leading-tight tracking-[-0.045em] text-foreground sm:text-[48px]">
         {t(heroGreetingKey)}
       </h1>

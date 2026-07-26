@@ -72,7 +72,7 @@ export function Sidebar(props: SidebarProps) {
         !props.hostChromeInset && "border-r border-sidebar-border/60",
       )}
     >
-      {/* 品牌区：折叠态仅显示 logo，展开态显示 logo + 文字 */}
+      {/* 品牌区：折叠态仅显示文字，展开态显示完整品牌名 */}
       <div
         className={cn(
           "flex items-center gap-2 px-3",
@@ -80,15 +80,13 @@ export function Sidebar(props: SidebarProps) {
           props.hostChromeInset && "pt-[2.85rem]",
         )}
       >
-        <img
-          src="/logo.svg"
-          alt={t("app.brand")}
-          className="h-7 w-7 shrink-0 rounded-md"
-        />
         {!collapsed && (
           <span className="text-sm font-semibold text-sidebar-foreground truncate">
             {t("app.brand")}
           </span>
+        )}
+        {collapsed && (
+          <span className="text-base font-bold text-sidebar-foreground">M</span>
         )}
       </div>
       <div
