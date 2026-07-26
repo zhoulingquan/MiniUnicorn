@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, ChevronDown, Menu, Monitor, Moon, Sun } from "lucide-react";
+import { Check, ChevronDown, Monitor, Moon, PanelLeft, Search, Sun } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -15,107 +15,115 @@ import type { ThemeMode } from "@/hooks/useTheme";
 import { providerDisplayLabel, resolveCustomBrand, type ProviderBrand } from "@/lib/provider-brand";
 import { cn } from "@/lib/utils";
 
-interface ThreadHeaderProps {
-  title: string;
+interface TopBarProvider {
+  name: string;
+  label: string;
+  configured: boolean;
+  is_custom_preset?: boolean;
+  api_base?: string | null;
+  presets?: Array<{ name: string; label: string; model: string; active: boolean }>;
+}
+
+interface TopBarProps {
+  /** 点击 PanelLeft 按钮:切换侧边栏宽度。 */
   onToggleSidebar: () => void;
+  /** 点击搜索按钮:打开会话搜索弹窗。 */
+  onOpenSearch: () => void;
+  /** 可选的中间标题(chat 视图传会话标题;其他视图可不传)。 */
+  title?: string | null;
+  /** 是否显示中间标题。 */
+  showTitle?: boolean;
   theme: "light" | "dark";
   themeMode?: ThemeMode;
   onToggleTheme: () => void;
   onToggleLanguage: () => void;
-  hideSidebarToggleForHostChrome?: boolean;
-  minimal?: boolean;
-  /** 可选的 provider 列表(从 settings.providers 过滤后传入)。 */
-  providers?: Array<{
-    name: string;
-    label: string;
-    configured: boolean;
-    is_custom_preset?: boolean;
-    api_base?: string | null;
-    presets?: Array<{ name: string; label: string; model: string; active: boolean }>;
-  }>;
-  /** 当前激活的 provider 名(如 "deepseek"、"custom")。 */
+  /** provider 切换器数据。 */
+  providers?: TopBarProvider[];
   currentProvider?: string | null;
-  /** 用户在 header 选择新 provider 时触发。 */
   onSelectProvider?: (provider: string) => void;
+  /** 侧边栏展开宽度(px),用于让左侧按钮组右边缘与侧边栏右边缘对齐。 */
+  sidebarWidth?: number;
+  /** 后端版本号,显示在 logo 旁边。 */
+  version?: string | null;
 }
 
-export function ThreadHeader({
-  title,
+/**
+ * 全局固定顶栏:跨整个窗口宽度,独立于 sidebar + main 的 flex 容器。
+ * 左侧:PanelLeft 收起按钮 + 品牌文字。
+ * 中间:可选标题(chat 视图传会话标题)。
+ * 右侧:provider 下拉 + 语言切换 + 主题切换。
+ *
+ * 设计意图:点击 PanelLeft 按钮只切换侧边栏宽度,顶栏所有元素位置不变。
+ */
+export function TopBar({
   onToggleSidebar,
+  onOpenSearch,
+  title,
+  showTitle = false,
   theme,
   themeMode,
   onToggleTheme,
   onToggleLanguage,
-  hideSidebarToggleForHostChrome = false,
-  minimal = false,
   providers = [],
   currentProvider = null,
   onSelectProvider,
-}: ThreadHeaderProps) {
+  sidebarWidth = 272,
+  version = null,
+}: TopBarProps) {
   const { t } = useTranslation();
   const showProviderSwitcher = !!onSelectProvider && providers.length > 0;
 
-  if (minimal) {
-    return (
-      <div className="relative z-10 flex h-11 items-center justify-between gap-3 px-3 py-2">
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={t("thread.header.toggleSidebar")}
-          onClick={onToggleSidebar}
-          className={cn(
-            "h-7 w-7 rounded-md text-muted-foreground hover:bg-accent/35 hover:text-foreground",
-            hideSidebarToggleForHostChrome && "lg:hidden",
-          )}
-        >
-          <Menu className="h-3.5 w-3.5" />
-        </Button>
-        <div className="ml-auto flex items-center gap-1.5">
-          {showProviderSwitcher ? (
-            <HeaderProviderSwitcher
-              providers={providers}
-              currentProvider={currentProvider}
-              onSelect={onSelectProvider!}
-            />
-          ) : null}
-          <div className="flex items-center -space-x-1">
-            <LocaleButton
-              onToggleLanguage={onToggleLanguage}
-              label={t("thread.header.toggleLanguage")}
-            />
-            <ThemeButton
-              theme={theme}
-              themeMode={themeMode}
-              onToggleTheme={onToggleTheme}
-              label={t("thread.header.toggleTheme")}
-            />
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="relative z-10 flex items-center justify-between gap-3 px-3 py-2">
-      <div className="relative flex min-w-0 items-center gap-2">
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={t("thread.header.toggleSidebar")}
-          onClick={onToggleSidebar}
-          className={cn(
-            "h-7 w-7 rounded-md text-muted-foreground hover:bg-accent/35 hover:text-foreground",
-            hideSidebarToggleForHostChrome && "lg:hidden",
-          )}
-        >
-          <Menu className="h-3.5 w-3.5" />
-        </Button>
-        <div className="flex min-w-0 items-center rounded-md px-1.5 py-1 text-[12px] font-medium text-muted-foreground">
-          <span className="max-w-[min(60vw,32rem)] truncate">{title}</span>
+    <header className="relative z-20 flex h-11 shrink-0 items-center justify-between border-b border-border/60 bg-background">
+      {/* 左侧:宽度=侧边栏宽度,logo 左对齐,按钮组右对齐(与侧边栏右边缘对齐)。
+       * PanelLeft + 搜索按钮用 -space-x-1 包裹,间距与右侧语言/主题按钮一致。 */}
+      <div
+        className="flex shrink-0 items-center justify-between pl-3"
+        style={{ width: sidebarWidth }}
+      >
+        <div className="flex min-w-0 items-baseline gap-1.5">
+          <span className="text-sm font-semibold text-foreground truncate">
+            {t("app.brand")}
+          </span>
+          {version ? (
+            <span className="text-[10px] font-medium text-muted-foreground/70 shrink-0">
+              v{version}
+            </span>
+          ) : null}
+        </div>
+        <div className="flex items-center -space-x-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={t("sidebar.collapse")}
+            onClick={onToggleSidebar}
+            className="h-8 w-8 rounded-full text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+          >
+            <PanelLeft className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={t("sidebar.search")}
+            onClick={onOpenSearch}
+            className="h-8 w-8 rounded-full text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+          >
+            <Search className="h-4 w-4" />
+          </Button>
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-2">
+      {/* 中间:可选标题 */}
+      {showTitle && title ? (
+        <div className="flex min-w-0 flex-1 items-center justify-center">
+          <span className="max-w-[min(50vw,32rem)] truncate text-[12px] font-medium text-muted-foreground">
+            {title}
+          </span>
+        </div>
+      ) : null}
+
+      {/* 右侧:provider 下拉 + 语言 + 主题 */}
+      <div className="flex shrink-0 items-center gap-2 pr-3">
         {showProviderSwitcher ? (
           <HeaderProviderSwitcher
             providers={providers}
@@ -136,9 +144,7 @@ export function ThreadHeader({
           />
         </div>
       </div>
-
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-full h-4" />
-    </div>
+    </header>
   );
 }
 
@@ -149,14 +155,7 @@ function HeaderProviderSwitcher({
   currentProvider,
   onSelect,
 }: {
-  providers: Array<{
-    name: string;
-    label: string;
-    configured: boolean;
-    is_custom_preset?: boolean;
-    api_base?: string | null;
-    presets?: Array<{ name: string; label: string; model: string; active: boolean }>;
-  }>;
+  providers: TopBarProvider[];
   currentProvider: string | null;
   onSelect: (provider: string) => void;
 }) {

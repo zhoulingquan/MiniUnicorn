@@ -227,10 +227,6 @@ describe("ThreadShell", () => {
       client,
       <ThreadShell
         session={session("chat-title")}
-        title="Important conversation"
-        onToggleSidebar={() => {}}
-        onGoHome={onGoHome}
-        onNewChat={() => {}}
       />,
     ));
 
@@ -247,8 +243,6 @@ describe("ThreadShell", () => {
         client,
         <ThreadShell
           session={session("model-logo")}
-          title="Model logo"
-          onToggleSidebar={() => {}}
           settingsSnapshot={modelSettings("deepseek-v4-pro", "deepseek")}
         />,
         "deepseek-v4-pro",
@@ -263,8 +257,6 @@ describe("ThreadShell", () => {
           client,
           <ThreadShell
             session={session("model-logo")}
-            title="Model logo"
-            onToggleSidebar={() => {}}
           settingsSnapshot={modelSettings("opencode/big-pickle", "opencode")}
         />,
         "opencode/big-pickle",
@@ -277,17 +269,12 @@ describe("ThreadShell", () => {
 
   it("restores in-memory messages when switching away and back to a session", async () => {
     const client = makeClient();
-    const onNewChat = vi.fn().mockResolvedValue("chat-a");
 
     const { rerender } = render(
       wrap(
         client,
         <ThreadShell
           session={session("chat-a")}
-          title="Chat chat-a"
-          onToggleSidebar={() => {}}
-          onGoHome={() => {}}
-          onNewChat={onNewChat}
         />,
       ),
     );
@@ -312,10 +299,6 @@ describe("ThreadShell", () => {
           client,
           <ThreadShell
             session={session("chat-b")}
-            title="Chat chat-b"
-            onToggleSidebar={() => {}}
-            onGoHome={() => {}}
-            onNewChat={onNewChat}
           />,
         ),
       );
@@ -327,10 +310,6 @@ describe("ThreadShell", () => {
           client,
           <ThreadShell
             session={session("chat-a")}
-            title="Chat chat-a"
-            onToggleSidebar={() => {}}
-            onGoHome={() => {}}
-            onNewChat={onNewChat}
           />,
         ),
       );
@@ -341,17 +320,12 @@ describe("ThreadShell", () => {
 
   it("clears the old thread when the active session is removed", async () => {
     const client = makeClient();
-    const onNewChat = vi.fn().mockResolvedValue("chat-a");
 
     const { rerender } = render(
       wrap(
         client,
         <ThreadShell
           session={session("chat-a")}
-          title="Chat chat-a"
-          onToggleSidebar={() => {}}
-          onGoHome={() => {}}
-          onNewChat={onNewChat}
         />,
       ),
     );
@@ -376,10 +350,6 @@ describe("ThreadShell", () => {
           client,
           <ThreadShell
             session={null}
-            title="MiniUnicorn"
-            onToggleSidebar={() => {}}
-            onGoHome={() => {}}
-            onNewChat={onNewChat}
           />,
         ),
       );
@@ -401,10 +371,6 @@ describe("ThreadShell", () => {
         client,
         <ThreadShell
           session={null}
-          title="MiniUnicorn"
-          onToggleSidebar={() => {}}
-          onGoHome={() => {}}
-          onNewChat={onNewChat}
           onCreateChat={onCreateChat}
         />,
       ),
@@ -436,8 +402,6 @@ describe("ThreadShell", () => {
         client,
         <ThreadShell
           session={null}
-          title="MiniUnicorn"
-          onToggleSidebar={() => {}}
           onCreateChat={onCreateChat}
         />,
       ),
@@ -456,8 +420,6 @@ describe("ThreadShell", () => {
           client,
           <ThreadShell
             session={session("chat-new")}
-            title="Chat chat-new"
-            onToggleSidebar={() => {}}
             onCreateChat={onCreateChat}
           />,
         ),
@@ -505,8 +467,6 @@ describe("ThreadShell", () => {
         client,
         <ThreadShell
           session={null}
-          title="MiniUnicorn"
-          onToggleSidebar={() => {}}
           onCreateChat={onCreateChat}
         />,
       ),
@@ -525,8 +485,6 @@ describe("ThreadShell", () => {
           client,
           <ThreadShell
             session={session("chat-new")}
-            title="Chat chat-new"
-            onToggleSidebar={() => {}}
             onCreateChat={onCreateChat}
           />,
         ),
@@ -562,10 +520,6 @@ describe("ThreadShell", () => {
         client,
         <ThreadShell
           session={null}
-          title="MiniUnicorn"
-          onToggleSidebar={() => {}}
-          onGoHome={() => {}}
-          onNewChat={() => {}}
         />,
       ),
     );
@@ -579,7 +533,6 @@ describe("ThreadShell", () => {
 
   it("does not leak the previous thread when opening a brand-new chat", async () => {
     const client = makeClient();
-    const onNewChat = vi.fn().mockResolvedValue("chat-new");
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -605,10 +558,6 @@ describe("ThreadShell", () => {
         client,
         <ThreadShell
           session={session("chat-a")}
-          title="Chat chat-a"
-          onToggleSidebar={() => {}}
-          onGoHome={() => {}}
-          onNewChat={onNewChat}
         />,
       ),
     );
@@ -621,10 +570,6 @@ describe("ThreadShell", () => {
           client,
           <ThreadShell
             session={session("chat-new")}
-            title="Chat chat-new"
-            onToggleSidebar={() => {}}
-            onGoHome={() => {}}
-            onNewChat={onNewChat}
           />,
         ),
       );
@@ -641,17 +586,12 @@ describe("ThreadShell", () => {
 
   it("does not cache optimistic messages under the next chat during a session switch", async () => {
     const client = makeClient();
-    const onNewChat = vi.fn().mockResolvedValue("chat-b");
 
     const { rerender } = render(
       wrap(
         client,
         <ThreadShell
           session={session("chat-a")}
-          title="Chat chat-a"
-          onToggleSidebar={() => {}}
-          onGoHome={() => {}}
-          onNewChat={onNewChat}
         />,
       ),
     );
@@ -676,10 +616,6 @@ describe("ThreadShell", () => {
           client,
           <ThreadShell
             session={session("chat-b")}
-            title="Chat chat-b"
-            onToggleSidebar={() => {}}
-            onGoHome={() => {}}
-            onNewChat={onNewChat}
           />,
         ),
       );
@@ -695,10 +631,6 @@ describe("ThreadShell", () => {
           client,
           <ThreadShell
             session={session("chat-a")}
-            title="Chat chat-a"
-            onToggleSidebar={() => {}}
-            onGoHome={() => {}}
-            onNewChat={onNewChat}
           />,
         ),
       );
@@ -712,10 +644,6 @@ describe("ThreadShell", () => {
           client,
           <ThreadShell
             session={session("chat-b")}
-            title="Chat chat-b"
-            onToggleSidebar={() => {}}
-            onGoHome={() => {}}
-            onNewChat={onNewChat}
           />,
         ),
       );
@@ -748,9 +676,6 @@ describe("ThreadShell", () => {
         client,
         <ThreadShell
           session={session("chat-a")}
-          title="Chat chat-a"
-          onToggleSidebar={() => {}}
-          onNewChat={() => {}}
         />,
       ),
     );
@@ -771,9 +696,6 @@ describe("ThreadShell", () => {
           client,
           <ThreadShell
             session={null}
-            title="MiniUnicorn"
-            onToggleSidebar={() => {}}
-            onNewChat={() => {}}
           />,
         ),
       );
@@ -788,9 +710,6 @@ describe("ThreadShell", () => {
           client,
           <ThreadShell
             session={session("chat-a")}
-            title="Chat chat-a"
-            onToggleSidebar={() => {}}
-            onNewChat={() => {}}
           />,
         ),
       );
@@ -832,9 +751,6 @@ describe("ThreadShell", () => {
         client,
         <ThreadShell
           session={session("chat-a")}
-          title="Chat chat-a"
-          onToggleSidebar={() => {}}
-          onNewChat={() => {}}
         />,
       ),
     );
@@ -886,9 +802,6 @@ describe("ThreadShell", () => {
         client,
         <ThreadShell
           session={session("chat-a")}
-          title="Chat chat-a"
-          onToggleSidebar={() => {}}
-          onNewChat={() => {}}
         />,
       ),
     );
@@ -934,9 +847,6 @@ describe("ThreadShell", () => {
           client,
           <ThreadShell
             session={null}
-            title="MiniUnicorn"
-            onToggleSidebar={() => {}}
-            onNewChat={() => {}}
           />,
         ),
       );
@@ -950,9 +860,6 @@ describe("ThreadShell", () => {
             client,
             <ThreadShell
               session={session("chat-a")}
-              title="Chat chat-a"
-              onToggleSidebar={() => {}}
-              onNewChat={() => {}}
             />,
           ),
         );
@@ -1002,9 +909,6 @@ describe("ThreadShell", () => {
         client,
         <ThreadShell
           session={null}
-          title="MiniUnicorn"
-          onToggleSidebar={() => {}}
-          onNewChat={() => {}}
         />,
       ),
     );
@@ -1026,17 +930,12 @@ describe("ThreadShell", () => {
 
   it("surfaces a dismissible banner when the stream reports message_too_big", async () => {
     const client = makeClient();
-    const onNewChat = vi.fn().mockResolvedValue("chat-a");
 
     render(
       wrap(
         client,
         <ThreadShell
           session={session("chat-a")}
-          title="Chat chat-a"
-          onToggleSidebar={() => {}}
-          onGoHome={() => {}}
-          onNewChat={onNewChat}
         />,
       ),
     );
@@ -1061,17 +960,12 @@ describe("ThreadShell", () => {
 
   it("clears the stream error banner when the user switches to another chat", async () => {
     const client = makeClient();
-    const onNewChat = vi.fn().mockResolvedValue("chat-a");
 
     const { rerender } = render(
       wrap(
         client,
         <ThreadShell
           session={session("chat-a")}
-          title="Chat chat-a"
-          onToggleSidebar={() => {}}
-          onGoHome={() => {}}
-          onNewChat={onNewChat}
         />,
       ),
     );
@@ -1090,10 +984,6 @@ describe("ThreadShell", () => {
           client,
           <ThreadShell
             session={session("chat-b")}
-            title="Chat chat-b"
-            onToggleSidebar={() => {}}
-            onGoHome={() => {}}
-            onNewChat={onNewChat}
           />,
         ),
       );
@@ -1106,7 +996,6 @@ describe("ThreadShell", () => {
 
   it("clears the previous thread immediately while the next session loads", async () => {
     const client = makeClient();
-    const onNewChat = vi.fn().mockResolvedValue("chat-b");
     let resolveChatB:
       | ((value: { ok: boolean; status: number; json: () => Promise<unknown> }) => void)
       | null = null;
@@ -1139,10 +1028,6 @@ describe("ThreadShell", () => {
         client,
         <ThreadShell
           session={session("chat-a")}
-          title="Chat chat-a"
-          onToggleSidebar={() => {}}
-          onGoHome={() => {}}
-          onNewChat={onNewChat}
         />,
       ),
     );
@@ -1155,10 +1040,6 @@ describe("ThreadShell", () => {
           client,
           <ThreadShell
             session={session("chat-b")}
-            title="Chat chat-b"
-            onToggleSidebar={() => {}}
-            onGoHome={() => {}}
-            onNewChat={onNewChat}
           />,
         ),
       );
@@ -1183,10 +1064,6 @@ describe("ThreadShell", () => {
       client,
       <ThreadShell
         session={session("chat-cli-apps")}
-        title="Chat chat-cli-apps"
-        onToggleSidebar={() => {}}
-        onGoHome={() => {}}
-        onNewChat={() => {}}
       />,
     ));
 

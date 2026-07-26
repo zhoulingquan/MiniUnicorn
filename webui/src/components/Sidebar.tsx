@@ -2,7 +2,6 @@ import { useState, type ReactNode } from "react";
 import {
   Archive,
   PanelLeft,
-  Search,
   Settings,
   SquarePen,
 } from "lucide-react";
@@ -72,35 +71,35 @@ export function Sidebar(props: SidebarProps) {
         !props.hostChromeInset && "border-r border-sidebar-border/60",
       )}
     >
-      {/* 品牌区：折叠态仅显示文字，展开态显示完整品牌名 + 右侧收起按钮 */}
-      <div
-        className={cn(
-          "flex items-center gap-2 px-3",
-          collapsed ? "h-12 justify-center" : "h-12",
-          props.hostChromeInset && "pt-[2.85rem]",
-        )}
-      >
-        {!collapsed && (
-          <span className="text-sm font-semibold text-sidebar-foreground truncate">
-            {t("app.brand")}
-          </span>
-        )}
-        {collapsed && (
-          <span className="text-base font-bold text-sidebar-foreground">M</span>
-        )}
-        {/* 展开态且非 host chrome 时，收起按钮放品牌区右侧 */}
-        {!collapsed && !props.hostChromeInset ? (
-          <Button
-            type="button"
-            variant="ghost"
-            aria-label={t("sidebar.collapse")}
-            onClick={props.onCollapse}
-            className="ml-auto h-8 w-8 shrink-0 rounded-xl text-sidebar-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground"
-          >
-            <PanelLeft className="h-4 w-4" />
-          </Button>
-        ) : null}
-      </div>
+      {/* 品牌区:仅 native host 模式渲染(web 模式下 logo + PanelLeft 按钮已移至全局 TopBar)。
+       * 折叠态仅显示文字,展开态显示完整品牌名 + 右侧收起按钮。 */}
+      {props.hostChromeInset ? (
+        <div
+          className={cn(
+            "flex items-center gap-2 px-3 h-[calc(2.85rem+3rem)] pt-[2.85rem]",
+            collapsed && "justify-center",
+          )}
+        >
+          {!collapsed && (
+            <span className="text-sm font-semibold text-sidebar-foreground truncate">
+              {t("app.brand")}
+            </span>
+          )}
+          {collapsed && (
+            <span className="text-base font-bold text-sidebar-foreground">M</span>
+          )}
+          {/* 展开态:收起按钮放品牌区右侧,样式与折叠态展开按钮保持一致 */}
+          {!collapsed ? (
+            <SidebarActionButton
+              collapsed
+              label={t("sidebar.collapse")}
+              onClick={props.onCollapse}
+              icon={<PanelLeft className="h-4 w-4" />}
+              className="ml-auto"
+            />
+          ) : null}
+        </div>
+      ) : null}
       <div
         className={cn(
           "space-y-1.5 px-2",
@@ -108,7 +107,8 @@ export function Sidebar(props: SidebarProps) {
           collapsed && "flex w-14 flex-col items-center px-0",
         )}
       >
-        {collapsed && props.onExpand ? (
+        {/* 折叠态展开按钮:仅 native host 模式渲染(web 模式下 PanelLeft 按钮在 TopBar 始终可见) */}
+        {collapsed && props.onExpand && props.hostChromeInset ? (
           <SidebarActionButton
             collapsed
             label={t("sidebar.expand")}
@@ -121,12 +121,6 @@ export function Sidebar(props: SidebarProps) {
           label={t("sidebar.newChat")}
           onClick={props.onNewChat}
           icon={<SquarePen className="h-4 w-4" />}
-        />
-        <SidebarActionButton
-          collapsed={collapsed}
-          label={t("sidebar.search")}
-          onClick={props.onOpenSearch}
-          icon={<Search className="h-4 w-4" />}
         />
         {/* 声明式视图导航按钮：由 VIEW_REGISTRY 驱动，新增视图只需在 registry 加一项 */}
         {props.navItems.map((item) => {

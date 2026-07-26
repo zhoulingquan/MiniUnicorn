@@ -35,6 +35,7 @@ from miniUnicorn.agent.tools.mcp import request_mcp_reload
 from miniUnicorn.bus.events import OUTBOUND_META_AGENT_UI, OutboundMessage
 from miniUnicorn.bus.queue import MessageBus
 from miniUnicorn.channels.base import BaseChannel
+from miniUnicorn import __version__
 from miniUnicorn.command.builtin import builtin_command_palette
 from miniUnicorn.config.paths import get_media_dir, get_workspace_path
 from miniUnicorn.security.workspace_access import (
@@ -774,6 +775,7 @@ class WebSocketChannel(BaseChannel):
                 "model_name": _resolve_bootstrap_model_name(self._runtime_model_name),
                 "runtime_surface": self._runtime_surface,
                 "runtime_capabilities": self._runtime_capabilities,
+                "version": __version__,
             }
         )
 

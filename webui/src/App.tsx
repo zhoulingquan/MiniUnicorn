@@ -7,7 +7,8 @@ import { RenameChatDialog } from "@/components/RenameChatDialog";
 import { Sidebar } from "@/components/Sidebar";
 import type { SettingsSectionKey } from "@/components/settings/types";
 import { SearchDialog } from "@/components/search/SearchDialog";
-import { ThreadShell } from "@/components/thread/ThreadShell";
+import { ThreadShell, resolvedModelProvider } from "@/components/thread/ThreadShell";
+import { TopBar } from "@/components/thread/TopBar";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { VIEW_REGISTRY, getSidebarNavItems, getView, type ViewRenderContext } from "@/views/registry";
 
@@ -47,7 +48,7 @@ import type {
 } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { fetchSettings } from "@/lib/api";
+import { fetchSettings, updateSettings } from "@/lib/api";
 import {
   createRuntimeHost,
   toRuntimeSurface,
@@ -66,6 +67,7 @@ type BootState =
       tokenExpiresAt: number;
       modelName: string | null;
       runtimeSurface: RuntimeSurface;
+      version: string | null;
     };
 
 const SIDEBAR_STORAGE_KEY = STORAGE_KEYS.sidebar;
@@ -272,6 +274,7 @@ export default function App() {
                           refreshed.runtime_surface
                             ? toRuntimeSurface(refreshed.runtime_surface)
                             : current.runtimeSurface,
+                        version: refreshed.version ?? current.version,
                       }
                     : current,
                 );
@@ -290,6 +293,7 @@ export default function App() {
             tokenExpiresAt: bootstrapTokenExpiresAt(boot.expires_in),
             modelName: boot.model_name ?? null,
             runtimeSurface,
+            version: boot.version ?? null,
           });
         } catch (e) {
           if (cancelled) return;
@@ -336,6 +340,7 @@ export default function App() {
                 runtimeSurface: boot.runtime_surface
                   ? toRuntimeSurface(boot.runtime_surface)
                   : current.runtimeSurface,
+                version: boot.version ?? current.version,
               }
             : current,
         );
@@ -401,6 +406,7 @@ export default function App() {
       >
         <Shell
           runtimeSurface={state.runtimeSurface}
+          version={state.version}
           onModelNameChange={handleModelNameChange}
         />
       </ClientProvider>
@@ -410,13 +416,15 @@ export default function App() {
 
 function Shell({
   runtimeSurface,
+  version,
   onModelNameChange,
 }: {
   runtimeSurface: RuntimeSurface;
+  version: string | null;
   onModelNameChange: (modelName: string | null) => void;
 }) {
   const { t, i18n } = useTranslation();
-  const { client, token } = useClient();
+  const { client, token, modelName } = useClient();
   const { theme, mode, toggle, setMode } = useTheme();
 
   const toggleLanguage = useCallback(() => {
@@ -455,6 +463,48 @@ function Shell({
       cancelled = true;
     };
   }, [token]);
+
+  // 当前激活的 provider(从 settings + modelName 派生),供 TopBar 的 provider 切换器使用。
+  const currentProvider = useMemo(
+    () => resolvedModelProvider(settingsSnapshot, modelName),
+    [settingsSnapshot, modelName],
+  );
+
+  // 用户在 TopBar 切换 provider。
+  // 后端 model_preset/provider/model 是三个独立字段,但运行时 resolve_preset()
+  // 在 model_preset 指向命名 preset 时完全使用该 preset 的 provider/model,
+  // 忽略 defaults.provider。因此切换策略:
+  //  1. 目标 provider 下有命名 preset → 切到第一个 preset(preset 自带 provider/model/凭证)
+  //  2. 目标 provider 下无命名 preset → 切回 default preset 并设置 provider
+  //     (只有 model_preset=default/None 时 defaults.provider 才会生效)
+  const handleSelectProvider = useCallback(
+    async (provider: string) => {
+      if (!token || provider === currentProvider) return;
+      try {
+        const targetRow = settingsSnapshot?.providers?.find((p) => p.name === provider);
+        // 虚拟 preset row(如 custom__xxx):直接切到对应 preset(preset 自带 provider/model/凭证)
+        if (targetRow?.preset_name) {
+          const next = await updateSettings(token, { modelPreset: targetRow.preset_name });
+          setSettingsSnapshot(next);
+          return;
+        }
+        // 常规 provider:
+        //  1. 目标 provider 下有命名 preset → 切到第一个 preset
+        //  2. 目标 provider 下无命名 preset → 切回 default preset 并设置 provider
+        const providerPresets = targetRow?.presets ?? [];
+        let next: SettingsPayload;
+        if (providerPresets.length > 0) {
+          next = await updateSettings(token, { modelPreset: providerPresets[0].name });
+        } else {
+          next = await updateSettings(token, { modelPreset: "default", provider });
+        }
+        setSettingsSnapshot(next);
+      } catch (err) {
+        console.error("[App] switch provider failed", err);
+      }
+    },
+    [token, currentProvider, settingsSnapshot],
+  );
 
   useEffect(() => {
     try {
@@ -696,8 +746,14 @@ function Shell({
   useEffect(() => {
     return client.onRuntimeModelUpdate((modelName) => {
       onModelNameChange(modelName);
+      // 模型变化通常伴随 provider/preset 切换,同步刷新 settings 以更新 TopBar 的 provider 切换器。
+      fetchSettings(token)
+        .then(setSettingsSnapshot)
+        .catch(() => {
+          // 忽略:settings 会在下次 token 变化时重新拉取。
+        });
     });
-  }, [client, onModelNameChange]);
+  }, [client, onModelNameChange, token]);
 
   const onTurnEnd = useDeferredTitleRefresh(activeSession, refresh);
 
@@ -803,7 +859,7 @@ function Shell({
     <ThemeProvider theme={theme}>
       <div
         className={cn(
-          "relative h-full w-full overflow-hidden",
+          "relative flex h-full w-full flex-col overflow-hidden",
           showHostChrome && "bg-sidebar",
         )}
       >
@@ -815,10 +871,28 @@ function Shell({
             onToggleLanguage={toggleLanguage}
             showThemeButton={view !== "chat"}
           />
-        ) : null}
+        ) : (
+          /* web 模式全局固定顶栏:跨整个窗口宽度,独立于 sidebar + main 的 flex 容器。
+           * 点击 PanelLeft 按钮只切换侧边栏宽度,顶栏所有元素位置不变。 */
+          <TopBar
+            onToggleSidebar={toggleSidebar}
+            onOpenSearch={() => setSearchOpen(true)}
+            title={view === "chat" ? headerTitle : null}
+            showTitle={view === "chat" && !!activeSession}
+            theme={theme}
+            themeMode={mode}
+            onToggleTheme={toggle}
+            onToggleLanguage={toggleLanguage}
+            providers={settingsSnapshot?.providers}
+            currentProvider={currentProvider}
+            onSelectProvider={handleSelectProvider}
+            sidebarWidth={SIDEBAR_WIDTH}
+            version={version}
+          />
+        )}
         <div
           className={cn(
-            "relative flex h-full w-full overflow-hidden",
+            "relative flex min-h-0 flex-1 w-full overflow-hidden",
           )}
         >
           {/* Host sidebar: in normal flow, so the thread area width stays honest. */}
@@ -895,17 +969,8 @@ function Shell({
             >
               <ThreadShell
                 session={activeSession}
-                title={headerTitle}
-                onToggleSidebar={toggleSidebar}
-                onNewChat={onNewChat}
                 onCreateChat={onCreateChat}
                 onTurnEnd={onTurnEnd}
-                theme={theme}
-                themeMode={mode}
-                onToggleTheme={toggle}
-                onToggleLanguage={toggleLanguage}
-                hideSidebarToggleForHostChrome
-                hideHeader={false}
                 workspaceScope={activeWorkspaceScope}
                 workspaceDefaultScope={workspaces?.default_scope ?? null}
                 workspaceControls={workspaces?.controls ?? null}
@@ -913,6 +978,8 @@ function Shell({
                 workspaceError={workspaceError}
                 onWorkspaceScopeChange={applyWorkspaceScope}
                 settingsSnapshot={settingsSnapshot}
+                onSettingsChange={setSettingsSnapshot}
+                currentProvider={currentProvider}
                 selectedAgentId={selectedAgentId}
                 onSelectAgent={onSelectAgent}
                 onClearAgent={onClearAgent}

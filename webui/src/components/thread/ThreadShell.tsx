@@ -2,18 +2,17 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useTranslation } from "react-i18next";
 
 import { ThreadComposer } from "@/components/thread/ThreadComposer";
-import { ThreadHeader } from "@/components/thread/ThreadHeader";
 import { StreamErrorNotice } from "@/components/thread/StreamErrorNotice";
 import { ThreadViewport } from "@/components/thread/ThreadViewport";
 import { useMiniUnicornStream, type SendImage, type SendOptions } from "@/hooks/useMiniUnicornStream";
-import type { ThemeMode } from "@/hooks/useTheme";
 import { useSessionHistory } from "@/hooks/useSessions";
-import { fetchAgents, fetchSettings, listSlashCommands, rewindSession, updateSettings } from "@/lib/api";
+import { fetchAgents, listSlashCommands, rewindSession, updateSettings, fetchSkills } from "@/lib/api";
 import { inferProviderFromModelName, providerDisplayLabel } from "@/lib/provider-brand";
 import type {
   AgentInfo,
   ChatSummary,
   SettingsPayload,
+  SkillInfo,
   SlashCommand,
   UIMessage,
   WorkspaceScopePayload,
@@ -70,18 +69,9 @@ function truncateAtUserMessage(messages: UIMessage[], userMessageIndex: number):
 
 interface ThreadShellProps {
   session: ChatSummary | null;
-  title: string;
-  onToggleSidebar: () => void;
-  onGoHome?: () => void;
   onNewChat?: () => void;
   onCreateChat?: (workspaceScope?: WorkspaceScopePayload | null) => Promise<string | null>;
   onTurnEnd?: () => void;
-  theme?: "light" | "dark";
-  themeMode?: ThemeMode;
-  onToggleTheme?: () => void;
-  onToggleLanguage?: () => void;
-  hideSidebarToggleForHostChrome?: boolean;
-  hideHeader?: boolean;
   workspaceScope?: WorkspaceScopePayload | null;
   workspaceDefaultScope?: WorkspaceScopePayload | null;
   workspaceControls?: WorkspacesPayload["controls"] | null;
@@ -89,6 +79,10 @@ interface ThreadShellProps {
   workspaceError?: string | null;
   onWorkspaceScopeChange?: (scope: WorkspaceScopePayload) => void;
   settingsSnapshot?: SettingsPayload | null;
+  /** settings 变化时上报(如 composer 切换 model preset 后),由 App.tsx 统一管理。 */
+  onSettingsChange?: (payload: SettingsPayload) => void;
+  /** 当前激活的 provider(由 App.tsx 从 settings + modelName 派生)。 */
+  currentProvider?: string | null;
   /** Currently selected subagent id (routes outbound turns to that agent). */
   selectedAgentId?: string | null;
   /** Called when the user picks a subagent in the composer. */
@@ -112,7 +106,7 @@ interface ModelBadgeInfo {
   apiBase: string | null;
 }
 
-function activeModelPreset(settings: SettingsPayload | null): SettingsPayload["model_presets"][number] | null {
+export function activeModelPreset(settings: SettingsPayload | null): SettingsPayload["model_presets"][number] | null {
   if (!settings) return null;
   const configured = settings.agent.model_preset || "default";
   return (
@@ -122,7 +116,7 @@ function activeModelPreset(settings: SettingsPayload | null): SettingsPayload["m
   );
 }
 
-function resolvedModelProvider(settings: SettingsPayload | null, modelName: string | null): string | null {
+export function resolvedModelProvider(settings: SettingsPayload | null, modelName: string | null): string | null {
   const preset = activeModelPreset(settings);
   const rawProvider = preset?.provider || settings?.agent.provider || null;
   if (rawProvider === "auto") {
@@ -169,16 +163,8 @@ interface PendingFirstMessage {
 
 export function ThreadShell({
   session,
-  title,
-  onToggleSidebar,
   onCreateChat,
   onTurnEnd,
-  theme = "light",
-  themeMode,
-  onToggleTheme = () => {},
-  onToggleLanguage = () => {},
-  hideSidebarToggleForHostChrome = false,
-  hideHeader = false,
   workspaceScope = null,
   workspaceDefaultScope = null,
   workspaceControls = null,
@@ -186,6 +172,8 @@ export function ThreadShell({
   workspaceError = null,
   onWorkspaceScopeChange,
   settingsSnapshot = null,
+  onSettingsChange,
+  currentProvider: currentProviderProp,
   selectedAgentId = null,
   onSelectAgent,
   onClearAgent,
@@ -204,7 +192,10 @@ export function ThreadShell({
   const [booting, setBooting] = useState(false);
   const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
-  const [settings, setSettings] = useState<SettingsPayload | null>(settingsSnapshot);
+  const [skills, setSkills] = useState<SkillInfo[]>([]);
+  // settings 由 App.tsx 统一管理(通过 settingsSnapshot prop 传入),
+  // ThreadShell 不再持有本地 settings 状态,变更通过 onSettingsChange 上报。
+  const settings = settingsSnapshot;
   const [heroGreetingKey, setHeroGreetingKey] = useState(randomHeroGreetingKey);
   const [scrollToBottomSignal, setScrollToBottomSignal] = useState(0);
   // 回退后,被回退的用户消息内容会写入此处,由 ThreadComposer 消费后清空。
@@ -309,33 +300,9 @@ export function ThreadShell({
     [workspaceScope],
   );
 
-  const refreshModelSettings = useCallback(async () => {
-    try {
-      setSettings(await fetchSettings(token));
-    } catch {
-      if (!settingsSnapshot) setSettings(null);
-    }
-  }, [settingsSnapshot, token]);
-
-  useEffect(() => {
-    if (settingsSnapshot) {
-      setSettings(settingsSnapshot);
-      return;
-    }
-    void refreshModelSettings();
-  }, [refreshModelSettings, settingsSnapshot]);
-
-  useEffect(() => {
-    return client.onRuntimeModelUpdate(() => {
-      void refreshModelSettings();
-    });
-  }, [client, refreshModelSettings]);
-
-  // 当前激活的 provider(用于 header 切换器与 composer 模型列表拉取)
-  const currentProvider = useMemo(
-    () => resolvedModelProvider(settings, modelName),
-    [settings, modelName],
-  );
+  // settings 由 App.tsx 统一管理(含 runtime model update 监听),ThreadShell 直接消费 props。
+  // currentProvider 同样由 App.tsx 派生,通过 currentProviderProp 传入。
+  const currentProvider = currentProviderProp ?? null;
 
   // 已配置的模型列表:
   // - 虚拟 row(如 custom__xxx):单 preset,只显示该 preset 的 model(徽章静态)
@@ -364,45 +331,10 @@ export function ThreadShell({
     return result;
   }, [settings, currentProvider]);
 
-  // 用户在 header 切换 provider。
-  // 后端 model_preset/provider/model 是三个独立字段,但运行时 resolve_preset()
-  // 在 model_preset 指向命名 preset 时完全使用该 preset 的 provider/model,
-  // 忽略 defaults.provider。因此切换策略:
-  //  1. 目标 provider 下有命名 preset → 切到第一个 preset(preset 自带 provider/model/凭证)
-  //  2. 目标 provider 下无命名 preset → 切回 default preset 并设置 provider
-  //     (只有 model_preset=default/None 时 defaults.provider 才会生效)
-  const handleSelectProvider = useCallback(
-    async (provider: string) => {
-      if (!token || provider === currentProvider) return;
-      try {
-        const targetRow = settings?.providers?.find((p) => p.name === provider);
-        // 虚拟 preset row(如 custom__xxx):直接切到对应 preset(preset 自带 provider/model/凭证)
-        if (targetRow?.preset_name) {
-          const next = await updateSettings(token, { modelPreset: targetRow.preset_name });
-          setSettings(next);
-          return;
-        }
-        // 常规 provider:
-        //  1. 目标 provider 下有命名 preset → 切到第一个 preset
-        //  2. 目标 provider 下无命名 preset → 切回 default preset 并设置 provider
-        const providerPresets = targetRow?.presets ?? [];
-        let next: SettingsPayload;
-        if (providerPresets.length > 0) {
-          next = await updateSettings(token, { modelPreset: providerPresets[0].name });
-        } else {
-          next = await updateSettings(token, { modelPreset: "default", provider });
-        }
-        setSettings(next);
-      } catch (err) {
-        console.error("[ThreadShell] switch provider failed", err);
-      }
-    },
-    [token, currentProvider, settings],
-  );
-
   // 用户在 composer 模型徽章弹出菜单选择其他模型。
   // 列表显示的是当前 provider 下已配置的命名 preset,选中即切换到对应 preset
   // (preset 自带 provider/model/凭证),通过 updateSettings({ modelPreset }) 切换。
+  // settings 变更通过 onSettingsChange 上报给 App.tsx(统一管理 settings 状态)。
   const handleSelectModel = useCallback(
     async (model: string) => {
       if (!token || !model || model === modelBadge.label) return;
@@ -412,12 +344,12 @@ export function ThreadShell({
       if (!target) return;
       try {
         const next = await updateSettings(token, { modelPreset: target.name });
-        setSettings(next);
+        onSettingsChange?.(next);
       } catch (err) {
         console.error("[ThreadShell] switch model preset failed", err);
       }
     },
-    [token, modelBadge.label, settings, currentProvider],
+    [token, modelBadge.label, settings, currentProvider, onSettingsChange],
   );
 
   // Canonical history hydration — merges fetched history into the live thread.
@@ -565,6 +497,22 @@ export function ThreadShell({
     };
   }, [token]);
 
+  // Fetch available skills for the composer selector. Refresh on token change.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const payload = await fetchSkills(token);
+        if (!cancelled) setSkills(payload.skills);
+      } catch {
+        if (!cancelled) setSkills([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
   const handleWelcomeSend = useCallback(
     async (content: string, images?: SendImage[], options?: SendOptions) => {
       if (booting) return;
@@ -687,6 +635,7 @@ export function ThreadShell({
           selectedAgentId={selectedAgentId}
           onSelectAgent={onSelectAgent}
           onClearAgent={onClearAgent}
+          skills={skills}
           messageCount={conversationMessageCount}
           contextWindowTokens={contextWindowTokens}
           contextUsage={contextUsage}
@@ -724,6 +673,7 @@ export function ThreadShell({
           selectedAgentId={selectedAgentId}
           onSelectAgent={onSelectAgent}
           onClearAgent={onClearAgent}
+          skills={skills}
           messageCount={conversationMessageCount}
           contextWindowTokens={contextWindowTokens}
           contextUsage={contextUsage}
@@ -751,21 +701,8 @@ export function ThreadShell({
 
   return (
     <section className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-      {!hideHeader ? (
-        <ThreadHeader
-          title={title}
-          onToggleSidebar={onToggleSidebar}
-          theme={theme}
-          themeMode={themeMode}
-          onToggleTheme={onToggleTheme}
-          onToggleLanguage={onToggleLanguage}
-          hideSidebarToggleForHostChrome={hideSidebarToggleForHostChrome}
-          minimal={!session && !loading}
-          providers={settings?.providers}
-          currentProvider={currentProvider}
-          onSelectProvider={handleSelectProvider}
-        />
-      ) : null}
+      {/* ThreadHeader 已移除:logo + PanelLeft + provider 下拉 + 语言/主题
+       * 统一移至 App.tsx 的全局 TopBar,跨整个窗口宽度固定显示。 */}
       <ThreadViewport
         messages={displayMessages}
         isStreaming={isStreaming}
