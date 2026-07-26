@@ -3,13 +3,18 @@ MiniUnicorn - A lightweight AI agent framework
 """
 
 import tomllib
-from importlib.metadata import PackageNotFoundError
-from importlib.metadata import version as _pkg_version
+from functools import lru_cache
 from pathlib import Path
 
 
+@lru_cache(maxsize=1)
 def _read_pyproject_version() -> str | None:
-    """Read the source-tree version when package metadata is unavailable."""
+    """Read the version from the source-tree pyproject.toml.
+
+    Always reads pyproject.toml (not importlib.metadata) so that editing
+    ``version`` takes effect on the next import without reinstalling the
+    editable install. Cached for the process lifetime via lru_cache.
+    """
     pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
     if not pyproject.exists():
         return None
@@ -18,10 +23,7 @@ def _read_pyproject_version() -> str | None:
 
 
 def _resolve_version() -> str:
-    try:
-        return _pkg_version("miniunicorn-ai")
-    except PackageNotFoundError:
-        return _read_pyproject_version() or "0.3.0"
+    return _read_pyproject_version() or "0.3.0"
 
 
 __version__ = _resolve_version()
