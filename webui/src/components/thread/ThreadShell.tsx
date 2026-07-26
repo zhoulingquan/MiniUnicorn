@@ -741,7 +741,7 @@ export function ThreadShell({
       <img
         src="/logo.svg"
         alt={t("app.brand")}
-        className="mb-6 h-44 w-44 rounded-2xl"
+        className="mb-6 h-64 w-64 rounded-2xl"
       />
       <h1 className="text-balance text-[40px] font-normal leading-tight tracking-[-0.045em] text-foreground sm:text-[48px]">
         {t(heroGreetingKey)}
