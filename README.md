@@ -2,8 +2,6 @@
 
 <img src="docs/logo.svg" alt="MiniUnicorn Logo" width="200" height="200">
 
-# MiniUnicorn
-
 **一个开源、超轻量级的个人 AI 代理框架**
 
 围绕一个可读的核心循环构建——消息进来，LLM 决策，工具执行，记忆按需注入。
