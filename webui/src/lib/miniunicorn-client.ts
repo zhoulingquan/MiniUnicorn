@@ -87,7 +87,7 @@ interface PendingNewChat {
   timer: ReturnType<typeof setTimeout>;
 }
 
-export interface MiniUnicornClientOptions {
+export interface MiniunicornClientOptions {
   url: string;
   reconnect?: boolean;
   /** Called when a connection drops so the app can refresh its token. */
@@ -105,7 +105,7 @@ export interface MiniUnicornClientOptions {
  * ``chat_id``, and this class fans those events out to handlers registered
  * per chat. Reconnects are transparent and re-attach every known chat_id.
  */
-export class MiniUnicornClient {
+export class MiniunicornClient {
   private socket: WebSocket | null = null;
   private statusHandlers = new Set<StatusHandler>();
   private runtimeModelHandlers = new Set<RuntimeModelHandler>();
