@@ -4,7 +4,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Brain,
-  Bot,
   Cloud,
   Cpu,
   Database,
@@ -30,7 +29,6 @@ export const PROVIDER_ICONS: Record<string, LucideIcon> = {
   skywork: Sparkles,
   aihubmix: Triangle,
   anthropic: Brain,
-  openai: Bot,
   deepseek: Waves,
   zhipu: Grid3X3,
   dashscope: Cloud,

@@ -101,12 +101,6 @@ export const DEFAULT_LOCAL_PREFS: LocalPreferences = {
   brandLogos: true,
 };
 
-export const OPENAI_API_TYPE_OPTIONS: Array<{ value: ProviderApiType; label: string }> = [
-  { value: "auto", label: "Auto" },
-  { value: "chat_completions", label: "Chat Completions" },
-  { value: "responses", label: "Responses" },
-];
-
 export const LOCAL_UNCONFIGURED_PROVIDER_ORDER = new Map(
   ["vllm", "ollama", "lm_studio", "atomic_chat", "ovms"].map((name, index) => [
     name,

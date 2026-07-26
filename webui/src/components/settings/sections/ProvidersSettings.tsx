@@ -4,7 +4,6 @@
 
 import { useMemo, useState } from "react";
 import {
-  ChevronDown,
   Eye,
   EyeOff,
   Loader2,
@@ -23,17 +22,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import type { SettingsPayload } from "@/lib/types";
 
 import {
-  OPENAI_API_TYPE_OPTIONS,
   orderUnconfiguredProviders,
   type ProviderForm,
   type ModelConfigurationDraft,
@@ -351,38 +343,6 @@ export function ProvidersSettings({
             </label>
             {/* Model ID 输入栏已移除:模型配置统一通过"添加模型"按钮(InlineAddModelForm)管理,
                 已配置的模型显示在下方 ProviderPresetList 中。 */}
-            {provider.name === "openai" ? (
-              <label className="block space-y-1.5">
-                <span className="text-[12px] font-medium text-muted-foreground">
-                  {tx("settings.byok.apiType", "API type")}
-                </span>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-9 w-full justify-between rounded-full px-3 text-[13px]"
-                    >
-                      <span>
-                        {OPENAI_API_TYPE_OPTIONS.find((option) => option.value === form.apiType)?.label ??
-                          form.apiType}
-                      </span>
-                      <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="min-w-[220px]">
-                    {OPENAI_API_TYPE_OPTIONS.map((option) => (
-                      <DropdownMenuItem
-                        key={option.value}
-                        onSelect={() => onChangeProviderForm(provider.name, { apiType: option.value })}
-                      >
-                        {option.label}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </label>
-            ) : null}
             {/* provider 卡片:展示该 provider 下挂载的 preset 列表(多模型支持)。
                 所有 provider(含未配置、custom)一致显示,未配置时也可"添加模型"。 */}
             <ProviderPresetList

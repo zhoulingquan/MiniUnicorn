@@ -199,7 +199,7 @@ class TestBuildResponsesBodyExtraBody:
         provider = OpenAICompatProvider(
             api_key="test-key",
             default_model="gpt-5",
-            spec=find_by_name("openai"),
+            spec=find_by_name("deepseek"),
             extra_body={
                 "metadata": {"source": "test"},
                 "parallel_tool_calls": False,
@@ -219,7 +219,7 @@ class TestBuildResponsesBodyExtraBody:
         provider = OpenAICompatProvider(
             api_key="test-key",
             default_model="gpt-5",
-            spec=find_by_name("openai"),
+            spec=find_by_name("deepseek"),
             extra_body={"tools": [{"type": "web_search"}]},
         )
 
@@ -251,7 +251,7 @@ class TestBuildResponsesBodyExtraBody:
         provider = OpenAICompatProvider(
             api_key="test-key",
             default_model="gpt-5",
-            spec=find_by_name("openai"),
+            spec=find_by_name("deepseek"),
             extra_body={
                 "include": [
                     "reasoning.encrypted_content",

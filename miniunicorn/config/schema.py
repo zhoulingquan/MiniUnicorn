@@ -288,7 +288,7 @@ class ProviderConfig(Base):
 class ProvidersConfig(Base):
     """Configuration for LLM providers.
 
-    内置 provider（custom/deepseek/opencode/agnes/openai）已声明字段；其他 provider 通过
+    内置 provider（custom/deepseek/opencode/agnes）已声明字段；其他 provider 通过
     extra="allow" 接受，由 _coerce_extra_providers 把 dict 转为 ProviderConfig。
     """
 
@@ -298,8 +298,6 @@ class ProvidersConfig(Base):
     deepseek: ProviderConfig = Field(default_factory=ProviderConfig)
     opencode: ProviderConfig = Field(default_factory=ProviderConfig)
     agnes: ProviderConfig = Field(default_factory=ProviderConfig)
-    # openai: 原生 OpenAI provider，用于直接使用 OpenAI API Key 的场景。
-    openai: ProviderConfig = Field(default_factory=ProviderConfig)
 
     # Optional separate embedding provider — allows using a different backend
     # for embeddings than for chat (e.g. Anthropic Claude for chat + OpenAI

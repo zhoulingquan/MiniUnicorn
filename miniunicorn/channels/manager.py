@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import os
 from collections import OrderedDict
 from collections.abc import Callable
 from contextlib import suppress
@@ -176,7 +177,9 @@ class ChannelManager:
         """Pick the API key for the configured transcription provider."""
         try:
             if provider == "openai":
-                return self.config.providers.openai.api_key
+                # OpenAI Whisper transcription reads the key directly from env.
+                # (openai LLM provider 已从 ProvidersConfig 移除，不再作为字段存在。)
+                return os.environ.get("OPENAI_API_KEY", "") or ""
             return self.config.providers.groq.api_key
         except AttributeError:
             return ""
@@ -185,7 +188,8 @@ class ChannelManager:
         """Pick the API base URL for the configured transcription provider."""
         try:
             if provider == "openai":
-                return self.config.providers.openai.api_base or ""
+                # OpenAI Whisper 默认走官方端点；用户可设 OPENAI_API_BASE 覆盖。
+                return os.environ.get("OPENAI_API_BASE", "") or ""
             return self.config.providers.groq.api_base or ""
         except AttributeError:
             return ""
