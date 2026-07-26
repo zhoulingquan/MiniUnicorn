@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { MiniunicornClient } from "@/lib/miniunicorn-client";
+import { MiniUnicornClient } from "@/lib/miniUnicorn-client";
 
 /**
- * Minimal fake WebSocket implementing the subset MiniunicornClient touches.
+ * Minimal fake WebSocket implementing the subset MiniUnicornClient touches.
  * Every instance is retrievable via ``FakeSocket.instances`` so tests can
  * drive open/close/message lifecycles deterministically.
  */
@@ -68,9 +68,9 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("MiniunicornClient", () => {
+describe("MiniUnicornClient", () => {
   it("routes events to the matching chat handler", () => {
-    const client = new MiniunicornClient({
+    const client = new MiniUnicornClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -90,7 +90,7 @@ describe("MiniunicornClient", () => {
   });
 
   it("buffers chat events while no chat handler is registered and replays on subscribe", () => {
-    const client = new MiniunicornClient({
+    const client = new MiniUnicornClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -110,7 +110,7 @@ describe("MiniunicornClient", () => {
   });
 
   it("records goal_status run strip without an onChat subscriber", () => {
-    const client = new MiniunicornClient({
+    const client = new MiniUnicornClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -133,7 +133,7 @@ describe("MiniunicornClient", () => {
   });
 
   it("clears run strip when a turn_end arrives without idle", () => {
-    const client = new MiniunicornClient({
+    const client = new MiniUnicornClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -157,7 +157,7 @@ describe("MiniunicornClient", () => {
   });
 
   it("notifies run status subscribers and replays running chats", () => {
-    const client = new MiniunicornClient({
+    const client = new MiniUnicornClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -188,7 +188,7 @@ describe("MiniunicornClient", () => {
   });
 
   it("records goal_state per chat_id without an onChat subscriber", () => {
-    const client = new MiniunicornClient({
+    const client = new MiniUnicornClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -219,7 +219,7 @@ describe("MiniunicornClient", () => {
   });
 
   it("records goal_state from turn_end payload when present", () => {
-    const client = new MiniunicornClient({
+    const client = new MiniUnicornClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -235,7 +235,7 @@ describe("MiniunicornClient", () => {
   });
 
   it("buffers after unsubscribe until the chat is subscribed again", () => {
-    const client = new MiniunicornClient({
+    const client = new MiniUnicornClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -256,7 +256,7 @@ describe("MiniunicornClient", () => {
   });
 
   it("dispatches runtime model updates globally", () => {
-    const client = new MiniunicornClient({
+    const client = new MiniUnicornClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -276,7 +276,7 @@ describe("MiniunicornClient", () => {
   });
 
   it("dispatches session updates globally", () => {
-    const client = new MiniunicornClient({
+    const client = new MiniUnicornClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -309,7 +309,7 @@ describe("MiniunicornClient", () => {
   });
 
   it("resolves newChat() via the server-assigned chat_id", async () => {
-    const client = new MiniunicornClient({
+    const client = new MiniUnicornClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -323,7 +323,7 @@ describe("MiniunicornClient", () => {
   });
 
   it("serializes workspace scope for new chats and messages", async () => {
-    const client = new MiniunicornClient({
+    const client = new MiniUnicornClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -357,7 +357,7 @@ describe("MiniunicornClient", () => {
   });
 
   it("queues sends while connecting and flushes on open", () => {
-    const client = new MiniunicornClient({
+    const client = new MiniUnicornClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -374,7 +374,7 @@ describe("MiniunicornClient", () => {
   });
 
   it("includes CLI app attachments in outbound messages", () => {
-    const client = new MiniunicornClient({
+    const client = new MiniUnicornClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -417,7 +417,7 @@ describe("MiniunicornClient", () => {
   });
 
   it("includes MCP preset attachments in outbound messages", () => {
-    const client = new MiniunicornClient({
+    const client = new MiniUnicornClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -464,7 +464,7 @@ describe("MiniunicornClient", () => {
   });
 
   it("re-attaches known chats after a reconnect", async () => {
-    const client = new MiniunicornClient({
+    const client = new MiniUnicornClient({
       url: "ws://test",
       reconnect: true,
       maxBackoffMs: 10,
@@ -489,7 +489,7 @@ describe("MiniunicornClient", () => {
   });
 
   it("reports status transitions through onStatus", () => {
-    const client = new MiniunicornClient({
+    const client = new MiniUnicornClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -503,7 +503,7 @@ describe("MiniunicornClient", () => {
   });
 
   it("does not schedule a reconnect when close() is called explicitly", async () => {
-    const client = new MiniunicornClient({
+    const client = new MiniUnicornClient({
       url: "ws://test",
       reconnect: true,
       maxBackoffMs: 10,
@@ -523,7 +523,7 @@ describe("MiniunicornClient", () => {
   });
 
   it("passes media through into the message envelope", () => {
-    const client = new MiniunicornClient({
+    const client = new MiniUnicornClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -544,7 +544,7 @@ describe("MiniunicornClient", () => {
   });
 
   it("omits media from the envelope when no images are attached", () => {
-    const client = new MiniunicornClient({
+    const client = new MiniUnicornClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -563,7 +563,7 @@ describe("MiniunicornClient", () => {
   });
 
   it("emits a message_too_big error when the socket closes with code 1009", () => {
-    const client = new MiniunicornClient({
+    const client = new MiniUnicornClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -578,7 +578,7 @@ describe("MiniunicornClient", () => {
   });
 
   it("emits workspace scope rejection errors from server frames", () => {
-    const client = new MiniunicornClient({
+    const client = new MiniUnicornClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -603,7 +603,7 @@ describe("MiniunicornClient", () => {
   });
 
   it("rejects pending new chats when workspace scope is rejected", async () => {
-    const client = new MiniunicornClient({
+    const client = new MiniUnicornClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -624,7 +624,7 @@ describe("MiniunicornClient", () => {
   });
 
   it("isolates throwing error handlers so reconnect bookkeeping still runs", async () => {
-    const client = new MiniunicornClient({
+    const client = new MiniUnicornClient({
       url: "ws://test",
       reconnect: true,
       maxBackoffMs: 5,
@@ -646,7 +646,7 @@ describe("MiniunicornClient", () => {
   });
 
   it("does not emit a stream error on a vanilla socket close", () => {
-    const client = new MiniunicornClient({
+    const client = new MiniUnicornClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -660,7 +660,7 @@ describe("MiniunicornClient", () => {
   });
 
   it("surfaces 'reconnecting' only on an unexpected drop", async () => {
-    const client = new MiniunicornClient({
+    const client = new MiniUnicornClient({
       url: "ws://test",
       reconnect: true,
       maxBackoffMs: 5,

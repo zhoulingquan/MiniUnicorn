@@ -2,7 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { useMiniunicornStream } from "@/hooks/useMiniunicornStream";
+import { useMiniUnicornStream } from "@/hooks/useMiniUnicornStream";
 import type { InboundEvent, GoalStateWsPayload } from "@/lib/types";
 import { ClientProvider } from "@/providers/ClientProvider";
 
@@ -78,7 +78,7 @@ function wrap(client: ReturnType<typeof fakeClient>["client"]) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
       <ClientProvider
-        client={client as unknown as import("@/lib/miniunicorn-client").MiniunicornClient}
+        client={client as unknown as import("@/lib/miniUnicorn-client").MiniUnicornClient}
         token="tok"
       >
         {children}
@@ -95,11 +95,11 @@ async function flushStreamFrame() {
   });
 }
 
-describe("useMiniunicornStream", () => {
+describe("useMiniUnicornStream", () => {
   it("batches answer deltas into one animation-frame update", async () => {
     const fake = fakeClient();
     const requestFrame = vi.spyOn(window, "requestAnimationFrame");
-    const { result } = renderHook(() => useMiniunicornStream("chat-batch", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-batch", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -132,7 +132,7 @@ describe("useMiniunicornStream", () => {
 
   it("flushes pending delta text before turn_end finalizes the turn", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-flush", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-flush", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -160,7 +160,7 @@ describe("useMiniunicornStream", () => {
   it("drops pending stream work when switching chats", async () => {
     const fake = fakeClient();
     const { result, rerender } = renderHook(
-      ({ chatId }: { chatId: string }) => useMiniunicornStream(chatId, EMPTY_MESSAGES),
+      ({ chatId }: { chatId: string }) => useMiniUnicornStream(chatId, EMPTY_MESSAGES),
       {
         wrapper: wrap(fake.client),
         initialProps: { chatId: "chat-old" },
@@ -202,7 +202,7 @@ describe("useMiniunicornStream", () => {
       createdAt: Date.now(),
     }];
     const { result } = renderHook(
-      () => useMiniunicornStream("chat-p", initialMessages, true),
+      () => useMiniUnicornStream("chat-p", initialMessages, true),
       {
         wrapper: wrap(fake.client),
       },
@@ -213,7 +213,7 @@ describe("useMiniunicornStream", () => {
 
   it("collapses consecutive tool_hint frames into one trace row", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-t", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-t", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -255,7 +255,7 @@ describe("useMiniunicornStream", () => {
 
   it("treats progress with arbitrary agent_ui like ordinary trace text", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-au", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-au", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
     act(() => {
@@ -277,7 +277,7 @@ describe("useMiniunicornStream", () => {
 
   it("renders live tool traces from structured tool events", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-tool-events", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-tool-events", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -314,7 +314,7 @@ describe("useMiniunicornStream", () => {
 
   it("dedupes finish-phase tool events after their start trace", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-tool-finish", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-tool-finish", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -368,7 +368,7 @@ describe("useMiniunicornStream", () => {
 
   it("keeps phase updates when a tool event trace line is deduped", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-tool-phase", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-tool-phase", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -416,7 +416,7 @@ describe("useMiniunicornStream", () => {
 
   it("renders live file_edit events as their own activity trace", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-file-edit", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-file-edit", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -482,7 +482,7 @@ describe("useMiniunicornStream", () => {
 
   it("replaces matching write_file tool events with live file edit activity", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-file-edit-events", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-file-edit-events", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -545,7 +545,7 @@ describe("useMiniunicornStream", () => {
 
   it("upgrades pending file_edit placeholders when the path arrives", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-file-edit-pending", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-file-edit-pending", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -597,7 +597,7 @@ describe("useMiniunicornStream", () => {
 
   it("merges file_edit updates after interleaved progress events", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-file-edit-progress", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-file-edit-progress", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -660,7 +660,7 @@ describe("useMiniunicornStream", () => {
 
   it("keeps interrupted pre-tool text inside activity before the final answer", async () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-stream-segments", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-stream-segments", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -709,7 +709,7 @@ describe("useMiniunicornStream", () => {
 
   it("does not replace interrupted pre-tool text with final stream_end text", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-stream-end-final", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-stream-end-final", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -757,7 +757,7 @@ describe("useMiniunicornStream", () => {
 
   it("opens a new activity segment for reasoning after file edit activity", async () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-file-segments", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-file-segments", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -812,7 +812,7 @@ describe("useMiniunicornStream", () => {
 
   it("keeps file edit blocks ordered across a new reasoning phase", async () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-file-order", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-file-order", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -871,7 +871,7 @@ describe("useMiniunicornStream", () => {
 
   it("accumulates reasoning_delta chunks on a placeholder until reasoning_end", async () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-r", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-r", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -905,7 +905,7 @@ describe("useMiniunicornStream", () => {
 
   it("absorbs a streaming reasoning placeholder into the answer turn that follows", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-r2", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-r2", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -932,7 +932,7 @@ describe("useMiniunicornStream", () => {
 
   it("ignores empty reasoning_delta frames", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-r3", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-r3", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -949,7 +949,7 @@ describe("useMiniunicornStream", () => {
 
   it("treats legacy kind=reasoning messages as a complete delta + end pair", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-r4", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-r4", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -969,7 +969,7 @@ describe("useMiniunicornStream", () => {
 
   it("attaches post-hoc reasoning to the same assistant turn above the answer", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-r5", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-r5", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1014,7 +1014,7 @@ describe("useMiniunicornStream", () => {
       },
     ];
     const { result } = renderHook(
-      () => useMiniunicornStream("chat-r6", initialMessages),
+      () => useMiniUnicornStream("chat-r6", initialMessages),
       { wrapper: wrap(fake.client) },
     );
 
@@ -1038,7 +1038,7 @@ describe("useMiniunicornStream", () => {
 
   it("does not attach reasoning across a tool trace boundary", async () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-r7", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-r7", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1079,7 +1079,7 @@ describe("useMiniunicornStream", () => {
 
   it("keeps tool-call reasoning before the matching live tool trace", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-tool-reasoning", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-tool-reasoning", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1122,7 +1122,7 @@ describe("useMiniunicornStream", () => {
 
   it("absorbs non-streamed final answers into the preceding reasoning placeholder", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-final-reasoning", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-final-reasoning", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1169,7 +1169,7 @@ describe("useMiniunicornStream", () => {
 
   it("prunes reasoning-only placeholders when a turn ends without an answer", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-empty-thinking", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-empty-thinking", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1206,7 +1206,7 @@ describe("useMiniunicornStream", () => {
       },
     ];
     const { result } = renderHook(
-      () => useMiniunicornStream("chat-stale-thinking", initialMessages),
+      () => useMiniUnicornStream("chat-stale-thinking", initialMessages),
       { wrapper: wrap(fake.client) },
     );
 
@@ -1221,7 +1221,7 @@ describe("useMiniunicornStream", () => {
 
   it("attaches assistant media_urls to complete messages", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-m", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-m", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1242,7 +1242,7 @@ describe("useMiniunicornStream", () => {
 
   it("suppresses redundant stream confirmation after assistant media", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-img-result", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-img-result", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1281,7 +1281,7 @@ describe("useMiniunicornStream", () => {
 
   it("stops the active turn without adding a user slash command bubble", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-stop", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-stop", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1304,7 +1304,7 @@ describe("useMiniunicornStream", () => {
   it("keeps streaming alive across stream_end and completes on turn_end", async () => {
     const fake = fakeClient();
     const onTurnEnd = vi.fn();
-    const { result } = renderHook(() => useMiniunicornStream("chat-s", EMPTY_MESSAGES, false, onTurnEnd), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-s", EMPTY_MESSAGES, false, onTurnEnd), {
       wrapper: wrap(fake.client),
     });
 
@@ -1363,7 +1363,7 @@ describe("useMiniunicornStream", () => {
 
   it("replaces streamed content with final stream_end text when provided", async () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-stream-final", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-stream-final", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1395,7 +1395,7 @@ describe("useMiniunicornStream", () => {
 
   it("creates an assistant bubble from final stream_end text without prior delta", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-stream-end-only", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-stream-end-only", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1417,7 +1417,7 @@ describe("useMiniunicornStream", () => {
 
   it("stamps latency on the last assistant bubble from turn_end", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-lat", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-lat", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1443,7 +1443,7 @@ describe("useMiniunicornStream", () => {
 
   it("tracks goal_status running and clears on idle", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-g", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-g", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1471,7 +1471,7 @@ describe("useMiniunicornStream", () => {
 
   it("clears runStartedAt on turn_end even without idle", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useMiniunicornStream("chat-g", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useMiniUnicornStream("chat-g", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1497,7 +1497,7 @@ describe("useMiniunicornStream", () => {
   it("restores runStartedAt after switching away and back when goal_status was recorded without a subscriber", () => {
     const fake = fakeClient();
     const { result, rerender } = renderHook(
-      ({ chatId }: { chatId: string }) => useMiniunicornStream(chatId, EMPTY_MESSAGES),
+      ({ chatId }: { chatId: string }) => useMiniUnicornStream(chatId, EMPTY_MESSAGES),
       {
         wrapper: wrap(fake.client),
         initialProps: { chatId: "chat-a" },
@@ -1533,7 +1533,7 @@ describe("useMiniunicornStream", () => {
   it("tracks goal_state per chat and restores after switching sessions", () => {
     const fake = fakeClient();
     const { result, rerender } = renderHook(
-      ({ chatId }: { chatId: string }) => useMiniunicornStream(chatId, EMPTY_MESSAGES),
+      ({ chatId }: { chatId: string }) => useMiniUnicornStream(chatId, EMPTY_MESSAGES),
       {
         wrapper: wrap(fake.client),
         initialProps: { chatId: "chat-a" },

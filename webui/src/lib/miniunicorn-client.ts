@@ -19,8 +19,8 @@ const WS_CLOSING = 2;
 /** Inbound WebSocket ``console.log`` / parse-failure ``console.warn``.
  *
  * - **Dev** (non-production bundle): **on by default** — messages appear at default log level.
- * - **Production**: off unless ``localStorage.setItem('miniunicorn_debug_ws','1')`` (or ``true``).
- * - **Silence anywhere**: ``localStorage.setItem('miniunicorn_debug_ws','0')`` (or ``false`` / ``off``).
+ * - **Production**: off unless ``localStorage.setItem('miniUnicorn_debug_ws','1')`` (or ``true``).
+ * - **Silence anywhere**: ``localStorage.setItem('miniUnicorn_debug_ws','0')`` (or ``false`` / ``off``).
  * Values are read on every frame; no reload needed.
  */
 function wsInboundDebugEnabled(): boolean {
@@ -87,7 +87,7 @@ interface PendingNewChat {
   timer: ReturnType<typeof setTimeout>;
 }
 
-export interface MiniunicornClientOptions {
+export interface MiniUnicornClientOptions {
   url: string;
   reconnect?: boolean;
   /** Called when a connection drops so the app can refresh its token. */
@@ -105,7 +105,7 @@ export interface MiniunicornClientOptions {
  * ``chat_id``, and this class fans those events out to handlers registered
  * per chat. Reconnects are transparent and re-attach every known chat_id.
  */
-export class MiniunicornClient {
+export class MiniUnicornClient {
   private socket: WebSocket | null = null;
   private statusHandlers = new Set<StatusHandler>();
   private runtimeModelHandlers = new Set<RuntimeModelHandler>();
@@ -138,7 +138,7 @@ export class MiniunicornClient {
   // and must not schedule a reconnect or flip status back to "reconnecting".
   private intentionallyClosed = false;
 
-  constructor(private options: MiniunicornClientOptions) {
+  constructor(private options: MiniUnicornClientOptions) {
     this.shouldReconnect = options.reconnect ?? true;
     this.maxBackoffMs = options.maxBackoffMs ?? 15_000;
     this.socketFactory =
@@ -383,7 +383,7 @@ export class MiniunicornClient {
       if (wsInboundDebugEnabled()) {
         const raw = typeof ev.data === "string" ? ev.data : String(ev.data);
         console.warn(
-          "[miniunicorn ws inbound] invalid JSON",
+          "[miniUnicorn ws inbound] invalid JSON",
           raw.length > 400 ? `${raw.slice(0, 400)}… (${raw.length} chars)` : raw,
         );
       }
@@ -391,7 +391,7 @@ export class MiniunicornClient {
     }
 
     if (wsInboundDebugEnabled()) {
-      console.log("[miniunicorn ws inbound]", summarizeInboundWsPayload(parsed));
+      console.log("[miniUnicorn ws inbound]", summarizeInboundWsPayload(parsed));
     }
 
     if (parsed.event === "ready") {
@@ -478,7 +478,7 @@ export class MiniunicornClient {
       this.pendingInboundByChat.set(chatId, q);
     }
     q.push(ev);
-    const over = q.length - MiniunicornClient.PENDING_INBOUND_MAX;
+    const over = q.length - MiniUnicornClient.PENDING_INBOUND_MAX;
     if (over > 0) {
       q.splice(0, over);
     }

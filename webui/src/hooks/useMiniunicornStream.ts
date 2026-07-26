@@ -8,7 +8,7 @@ import {
   normalizeToolProgressEvents,
   toolTraceLinesFromEvents,
 } from "@/lib/tool-traces";
-import type { StreamError } from "@/lib/miniunicorn-client";
+import type { StreamError } from "@/lib/miniUnicorn-client";
 import type {
   ContextUsagePayload,
   InboundEvent,
@@ -413,7 +413,7 @@ export interface SendOptions {
   agentId?: string;
 }
 
-export function useMiniunicornStream(
+export function useMiniUnicornStream(
   chatId: string | null,
   initialMessages: UIMessage[] = [],
   hasPendingToolCalls = false,
