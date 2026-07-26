@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
     <meta
@@ -53,12 +54,10 @@
         color: rgba(10, 10, 10, 0.64);
       }
 
-      .boot-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 9999px;
-        background: currentColor;
-        opacity: 0.75;
+      .boot-logo {
+        width: 22px;
+        height: 22px;
+        opacity: 0.85;
         animation: boot-pulse 1s ease-in-out infinite;
       }
 
@@ -173,7 +172,7 @@
     <div id="root">
       <div class="boot-splash">
         <div class="boot-splash-inner">
-          <span class="boot-dot" aria-hidden="true"></span>
+          <img src="/logo.svg" alt="MiniUnicorn" class="boot-logo" />
           <span data-boot-copy>Loading MiniUnicorn…</span>
         </div>
       </div>

@@ -72,6 +72,25 @@ export function Sidebar(props: SidebarProps) {
         !props.hostChromeInset && "border-r border-sidebar-border/60",
       )}
     >
+      {/* 品牌区：折叠态仅显示 logo，展开态显示 logo + 文字 */}
+      <div
+        className={cn(
+          "flex items-center gap-2 px-3",
+          collapsed ? "h-12 justify-center" : "h-12",
+          props.hostChromeInset && "pt-[2.85rem]",
+        )}
+      >
+        <img
+          src="/logo.svg"
+          alt={t("app.brand")}
+          className="h-7 w-7 shrink-0 rounded-md"
+        />
+        {!collapsed && (
+          <span className="text-sm font-semibold text-sidebar-foreground truncate">
+            {t("app.brand")}
+          </span>
+        )}
+      </div>
       <div
         className={cn(
           "space-y-1.5 px-2",
