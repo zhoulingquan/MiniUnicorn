@@ -86,7 +86,8 @@ async def test_bootstrap_returns_token_for_localhost(
     bus: MagicMock, tmp_path: Path
 ) -> None:
     sm = _seed_session(tmp_path)
-    channel = _ch(bus, session_manager=sm, port=29901)
+    # 传入 runtime_model_name 确保 bootstrap 返回的 model_name 是字符串而非 None
+    channel = _ch(bus, session_manager=sm, port=29901, runtime_model_name=lambda: "test-model")
     server_task = asyncio.create_task(channel.start())
     await asyncio.sleep(0.3)
     try:

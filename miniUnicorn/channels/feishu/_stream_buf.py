@@ -18,3 +18,7 @@ class _FeishuStreamBuf:
     card_id: str | None = None
     sequence: int = 0
     last_edit: float = 0.0
+    # 记录 buf 最近一次被 touch 的时间(单调时钟),供 TTL 清理使用。
+    # 与 last_edit 区分:last_edit 仅在卡片成功创建/更新时刷新,
+    # last_update 在 buf 创建/追加 delta 时即刷新,避免卡片创建失败导致 buf 永驻。
+    last_update: float = 0.0

@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import threading
 import time
 import uuid
 from contextlib import suppress
@@ -51,7 +52,10 @@ def _compute_next_run(schedule: CronSchedule, now_ms: int) -> int | None:
             cron = croniter(schedule.expr, base_dt)
             next_dt = cron.get_next(datetime)
             return int(next_dt.timestamp() * 1000)
-        except Exception:
+        except Exception as e:
+            # 静默 return None 会让 cron 表达式错误的 job 永远不被调度且无任何日志,
+            # 排查时只能看到 next_run_at_ms 始终为 None。这里 warning 一下方便定位。
+            logger.warning("cron 表达式解析失败,job 将无法调度: %s (错误: %s)", schedule.expr, e)
             return None
 
     return None
@@ -85,6 +89,10 @@ class CronService:
         self.store_path = store_path
         self._action_path = store_path.parent / "action.jsonl"
         self._lock = FileLock(str(self._action_path.parent) + ".lock")
+        # 保护公共 API (list_jobs/add_job/remove_job 等) 的进程内线程锁,
+        # 与跨进程的 FileLock 互补:防止同一进程内多线程并发修改 _store
+        # 时出现 read-modify-write 竞态。持锁期间不要 await。
+        self._store_lock = threading.Lock()
         self.on_job = on_job
         self._store: CronStore | None = None
         self._timer_task: asyncio.Task | None = None
@@ -358,7 +366,8 @@ class CronService:
         补跑判断:
         - cron schedule: 用 croniter 算"上一次本该触发的时间",若
           ``last_run_at_ms < prev_due_ms``(或从未执行过),则视为错过。
-        - every schedule: 若 ``last_run_at_ms + every_ms <= now``,则视为错过。
+        - every schedule: 若从未执行过,立即补跑首次触发;否则当
+          ``last_run_at_ms + every_ms <= now`` 时视为错过。
         - 其他 schedule(at): 不补跑。
         """
         if not self._store:
@@ -385,7 +394,14 @@ class CronService:
                 if job.state.last_run_at_ms:
                     prev_due_ms = job.state.last_run_at_ms + sched.every_ms
                 else:
-                    # 从未执行过 —— 没有基线可对比,不补跑,让正常调度接管。
+                    # 从未执行过的 every job:没有基线可对比,但
+                    # catch_up_on_start 语义下应立即触发首次执行,
+                    # 否则服务重启后必须等满一个 every_ms 周期才跑。
+                    logger.info(
+                        "Cron: job '{}' never run, scheduling initial catch-up",
+                        job.name,
+                    )
+                    job.state.next_run_at_ms = now  # _arm_timer 会立刻触发
                     continue
             else:
                 continue
@@ -531,9 +547,10 @@ class CronService:
 
     def list_jobs(self, include_disabled: bool = False) -> list[CronJob]:
         """List all jobs."""
-        store = self._load_store()
-        jobs = store.jobs if include_disabled else [j for j in store.jobs if j.enabled]
-        return sorted(jobs, key=lambda j: j.state.next_run_at_ms or float('inf'))
+        with self._store_lock:
+            store = self._load_store()
+            jobs = store.jobs if include_disabled else [j for j in store.jobs if j.enabled]
+            return sorted(jobs, key=lambda j: j.state.next_run_at_ms or float('inf'))
 
     def add_job(
         self,
@@ -551,35 +568,52 @@ class CronService:
         _validate_schedule_for_add(schedule)
         now = _now_ms()
 
-        job = CronJob(
-            id=str(uuid.uuid4())[:8],
-            name=name,
-            enabled=True,
-            schedule=schedule,
-            payload=CronPayload(
-                kind="agent_turn",
-                message=message,
-                deliver=deliver,
-                channel=channel,
-                to=to,
-                channel_meta=channel_meta or {},
-                session_key=session_key,
-            ),
-            state=CronJobState(next_run_at_ms=_compute_next_run(schedule, now)),
-            created_at_ms=now,
-            updated_at_ms=now,
-            delete_after_run=delete_after_run,
-        )
-        if self._running:
-            store = self._load_store()
-            store.jobs.append(job)
-            self._save_store()
-            self._arm_timer()
-        else:
-            self._append_action("add", asdict(job))
+        with self._store_lock:
+            # 在持锁状态下生成 ID 并构造 job,确保碰撞检测与 append 之间
+            # 不会有其他线程插入相同 ID 的 job。
+            job = CronJob(
+                id=self._generate_job_id(),
+                name=name,
+                enabled=True,
+                schedule=schedule,
+                payload=CronPayload(
+                    kind="agent_turn",
+                    message=message,
+                    deliver=deliver,
+                    channel=channel,
+                    to=to,
+                    channel_meta=channel_meta or {},
+                    session_key=session_key,
+                ),
+                state=CronJobState(next_run_at_ms=_compute_next_run(schedule, now)),
+                created_at_ms=now,
+                updated_at_ms=now,
+                delete_after_run=delete_after_run,
+            )
+            if self._running:
+                store = self._load_store()
+                store.jobs.append(job)
+                self._save_store()
+                self._arm_timer()
+            else:
+                self._append_action("add", asdict(job))
 
         logger.info("Cron: added job '{}' ({})", name, job.id)
         return job
+
+    def _generate_job_id(self) -> str:
+        """生成唯一 job ID,带碰撞检测。
+
+        uuid4 前 8 位在百万级规模下碰撞概率极低,但仍做一次磁盘存在性校验,
+        避免极端情况下覆盖已有 job。调用方需持 _store_lock 以确保检测与
+        实际写入之间的原子性。
+        """
+        while True:
+            job_id = str(uuid.uuid4())[:8]
+            store = self._load_store()
+            existing_ids = store.jobs if store else []
+            if not any(j.id == job_id for j in existing_ids):
+                return job_id
 
     def register_system_job(self, job: CronJob) -> CronJob:
         """Register an internal system job (idempotent on restart).
@@ -587,65 +621,68 @@ class CronService:
         保留磁盘上已存在同 id job 的 ``last_run_at_ms`` 和 ``run_history``,
         否则 gateway 重启后补跑检测就拿不到"上次执行时间"了。
         """
-        store = self._load_store()
-        now = _now_ms()
-        existing = next((j for j in store.jobs if j.id == job.id), None)
-        if existing is not None:
-            job.state.last_run_at_ms = existing.state.last_run_at_ms
-            job.state.run_history = list(existing.state.run_history)
-        job.state.next_run_at_ms = _compute_next_run(job.schedule, now)
-        job.created_at_ms = now
-        job.updated_at_ms = now
-        store.jobs = [j for j in store.jobs if j.id != job.id]
-        store.jobs.append(job)
-        self._save_store()
-        self._arm_timer()
+        with self._store_lock:
+            store = self._load_store()
+            now = _now_ms()
+            existing = next((j for j in store.jobs if j.id == job.id), None)
+            if existing is not None:
+                job.state.last_run_at_ms = existing.state.last_run_at_ms
+                job.state.run_history = list(existing.state.run_history)
+            job.state.next_run_at_ms = _compute_next_run(job.schedule, now)
+            job.created_at_ms = now
+            job.updated_at_ms = now
+            store.jobs = [j for j in store.jobs if j.id != job.id]
+            store.jobs.append(job)
+            self._save_store()
+            self._arm_timer()
         logger.info("Cron: registered system job '{}' ({})", job.name, job.id)
         return job
 
     def remove_job(self, job_id: str) -> Literal["removed", "protected", "not_found"]:
         """Remove a job by ID, unless it is a protected system job."""
-        store = self._load_store()
-        job = next((j for j in store.jobs if j.id == job_id), None)
-        if job is None:
-            return "not_found"
-        if job.payload.kind == "system_event":
-            logger.info("Cron: refused to remove protected system job {}", job_id)
-            return "protected"
+        with self._store_lock:
+            store = self._load_store()
+            job = next((j for j in store.jobs if j.id == job_id), None)
+            if job is None:
+                return "not_found"
+            if job.payload.kind == "system_event":
+                logger.info("Cron: refused to remove protected system job {}", job_id)
+                return "protected"
 
-        before = len(store.jobs)
-        store.jobs = [j for j in store.jobs if j.id != job_id]
-        removed = len(store.jobs) < before
+            before = len(store.jobs)
+            store.jobs = [j for j in store.jobs if j.id != job_id]
+            removed = len(store.jobs) < before
 
-        if removed:
-            if self._running:
-                self._save_store()
-                self._arm_timer()
-            else:
-                self._append_action("del", {"job_id": job_id})
-            logger.info("Cron: removed job {}", job_id)
-            return "removed"
-
-        return "not_found"
-
-    def enable_job(self, job_id: str, enabled: bool = True) -> CronJob | None:
-        """Enable or disable a job."""
-        store = self._load_store()
-        for job in store.jobs:
-            if job.id == job_id:
-                job.enabled = enabled
-                job.updated_at_ms = _now_ms()
-                if enabled:
-                    job.state.next_run_at_ms = _compute_next_run(job.schedule, _now_ms())
-                else:
-                    job.state.next_run_at_ms = None
+            if removed:
                 if self._running:
                     self._save_store()
                     self._arm_timer()
                 else:
-                    self._append_action("update", asdict(job))
-                return job
-        return None
+                    self._append_action("del", {"job_id": job_id})
+                logger.info("Cron: removed job {}", job_id)
+                return "removed"
+
+            return "not_found"
+
+    def enable_job(self, job_id: str, enabled: bool = True) -> CronJob | None:
+        """Enable or disable a job."""
+        with self._store_lock:
+            store = self._load_store()
+            for job in store.jobs:
+                if job.id == job_id:
+                    job.enabled = enabled
+                    job.updated_at_ms = _now_ms()
+                    if enabled:
+                        job.state.next_run_at_ms = _compute_next_run(job.schedule, _now_ms())
+                    else:
+                        job.state.next_run_at_ms = None
+                    if self._running:
+                        self._save_store()
+                        self._arm_timer()
+                    else:
+                        self._append_action("update", asdict(job))
+                    return job
+            return None
 
     def update_job(
         self,
@@ -664,38 +701,39 @@ class CronService:
         For ``channel`` and ``to``, pass an explicit value (including ``None``)
         to update; omit (sentinel ``...``) to leave unchanged.
         """
-        store = self._load_store()
-        job = next((j for j in store.jobs if j.id == job_id), None)
-        if job is None:
-            return "not_found"
-        if job.payload.kind == "system_event":
-            return "protected"
+        with self._store_lock:
+            store = self._load_store()
+            job = next((j for j in store.jobs if j.id == job_id), None)
+            if job is None:
+                return "not_found"
+            if job.payload.kind == "system_event":
+                return "protected"
 
-        if schedule is not None:
-            _validate_schedule_for_add(schedule)
-            job.schedule = schedule
-        if name is not None:
-            job.name = name
-        if message is not None:
-            job.payload.message = message
-        if deliver is not None:
-            job.payload.deliver = deliver
-        if channel is not ...:
-            job.payload.channel = channel
-        if to is not ...:
-            job.payload.to = to
-        if delete_after_run is not None:
-            job.delete_after_run = delete_after_run
+            if schedule is not None:
+                _validate_schedule_for_add(schedule)
+                job.schedule = schedule
+            if name is not None:
+                job.name = name
+            if message is not None:
+                job.payload.message = message
+            if deliver is not None:
+                job.payload.deliver = deliver
+            if channel is not ...:
+                job.payload.channel = channel
+            if to is not ...:
+                job.payload.to = to
+            if delete_after_run is not None:
+                job.delete_after_run = delete_after_run
 
-        job.updated_at_ms = _now_ms()
-        if job.enabled:
-            job.state.next_run_at_ms = _compute_next_run(job.schedule, _now_ms())
+            job.updated_at_ms = _now_ms()
+            if job.enabled:
+                job.state.next_run_at_ms = _compute_next_run(job.schedule, _now_ms())
 
-        if self._running:
-            self._save_store()
-            self._arm_timer()
-        else:
-            self._append_action("update", asdict(job))
+            if self._running:
+                self._save_store()
+                self._arm_timer()
+            else:
+                self._append_action("update", asdict(job))
 
         logger.info("Cron: updated job '{}' ({})", job.name, job.id)
         return job
@@ -705,15 +743,19 @@ class CronService:
         was_running = self._running
         self._running = True
         try:
-            store = self._load_store()
-            for job in store.jobs:
-                if job.id == job_id:
-                    if not force and not job.enabled:
-                        return False
-                    await self._execute_job(job)
-                    self._save_store()
-                    return True
-            return False
+            with self._store_lock:
+                store = self._load_store()
+                target_job = next((j for j in store.jobs if j.id == job_id), None)
+                if target_job is None:
+                    return False
+                if not force and not target_job.enabled:
+                    return False
+            # _execute_job 可能耗时较长 (await on_job),故先释放锁再执行,
+            # 避免阻塞其他公共方法;执行完再加锁保存。
+            await self._execute_job(target_job)
+            with self._store_lock:
+                self._save_store()
+            return True
         finally:
             self._running = was_running
             if was_running:
@@ -721,14 +763,16 @@ class CronService:
 
     def get_job(self, job_id: str) -> CronJob | None:
         """Get a job by ID."""
-        store = self._load_store()
-        return next((j for j in store.jobs if j.id == job_id), None)
+        with self._store_lock:
+            store = self._load_store()
+            return next((j for j in store.jobs if j.id == job_id), None)
 
     def status(self) -> dict:
         """Get service status."""
-        store = self._load_store()
-        return {
-            "enabled": self._running,
-            "jobs": len(store.jobs),
-            "next_wake_at_ms": self._get_next_wake_ms(),
-        }
+        with self._store_lock:
+            store = self._load_store()
+            return {
+                "enabled": self._running,
+                "jobs": len(store.jobs),
+                "next_wake_at_ms": self._get_next_wake_ms(),
+            }

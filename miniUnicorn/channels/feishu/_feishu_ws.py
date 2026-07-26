@@ -48,6 +48,36 @@ class FeishuWsRunner:
             return
         await asyncio.wrap_future(asyncio.run_coroutine_threadsafe(self._stop_client(key), loop))
 
+    def shutdown(self) -> None:
+        """关闭后台事件循环与线程,释放资源。
+
+        在网关停止时调用:先停止所有 client,再停止事件循环,最后 join 线程。
+        重复调用是安全的(幂等)。注意:此方法必须在主线程同步调用,
+        不能在事件循环线程内调用(会死锁)。
+        """
+        loop = self._loop
+        # 1. 停止所有 client(通过事件循环线程异步执行)
+        if loop is not None and not loop.is_closed() and loop.is_running():
+            async def _stop_all() -> None:
+                for key in list(self._clients.keys()):
+                    await self._stop_client(key)
+            with suppress(Exception):
+                fut = asyncio.run_coroutine_threadsafe(_stop_all(), loop)
+                fut.result(timeout=10)
+            # 2. 停止事件循环
+            with suppress(Exception):
+                loop.call_soon_threadsafe(loop.stop)
+        # 3. join 线程(等待事件循环退出)
+        if self._thread is not None and self._thread.is_alive():
+            self._thread.join(timeout=5.0)
+        # 4. 关闭事件循环(若尚未关闭)
+        if loop is not None and not loop.is_closed():
+            with suppress(Exception):
+                loop.close()
+        self._thread = None
+        self._loop = None
+        self._clients.clear()
+
     def _ensure_loop(self) -> asyncio.AbstractEventLoop:
         with self._lock:
             if self._loop is not None and not self._loop.is_closed():

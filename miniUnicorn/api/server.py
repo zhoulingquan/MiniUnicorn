@@ -2,6 +2,20 @@
 
 Provides /v1/chat/completions and /v1/models endpoints.
 All requests route to a single persistent API session.
+
+CORS 说明
+---------
+本服务器**不**处理 CORS 预检请求,也不返回 ``Access-Control-*`` 响应头。
+设计意图是仅供同源调用或服务端到服务端调用(如 Python ``requests``、
+OpenAI SDK、curl 等)。如需浏览器直连:
+
+1. 推荐方案:在反向代理(nginx/caddy/traefik)层处理 CORS,并将请求
+   转发到本服务。这样安全策略集中可控,且能附加额外的认证/限流。
+2. 若必须由应用层处理,可在 ``create_app`` 返回的 ``web.Application``
+   上叠加 ``aiohttp_cors`` 中间件,但需自行评估 CSRF/凭证泄露风险。
+
+注意:即便加上 CORS,也务必配合 ``api.api_key`` 一起使用,不要把无认证
+的 API 暴露到公网(参考 ``serve`` 命令的 warning 输出)。
 """
 
 from __future__ import annotations
@@ -12,6 +26,7 @@ import hmac
 import json as _json
 import time
 import uuid
+from collections import OrderedDict
 from typing import Any
 
 from aiohttp import web
@@ -45,6 +60,10 @@ API_CHAT_ID = "default"
 # Routes that bypass auth (health checks only). /v1/* always requires auth
 # when api_key is configured.
 _PUBLIC_PATHS = frozenset({"/health"})
+
+# session_locks LRU 上限,避免恶意/异常客户端用大量不同 session_id 耗尽内存。
+# 超过上限时驱逐最久未使用的 session 锁。
+_MAX_SESSION_LOCKS = 1000
 
 
 # ---------------------------------------------------------------------------
@@ -174,15 +193,30 @@ async def _parse_multipart(request: web.Request) -> tuple[str, list[str], str | 
         elif part.name == "model":
             model = (await part.read()).decode("utf-8").strip()
         elif part.name == "files":
-            raw = await part.read()
-            if len(raw) > MAX_FILE_SIZE:
-                raise _FileSizeExceededError(
-                    f"File '{part.filename}' exceeds {MAX_FILE_SIZE // (1024 * 1024)}MB limit"
-                )
+            # 流式读取并写盘,避免将整个文件缓冲到内存后才校验尺寸。
+            # 一旦累计字节数超过 MAX_FILE_SIZE 立即停止并抛出异常,
+            # 防止恶意客户端通过超大 body 耗尽服务器内存。
             base = safe_filename(part.filename or "upload.bin")
             filename = f"{uuid.uuid4().hex[:12]}_{base}"
             dest = media_dir / filename
-            dest.write_bytes(raw)
+            written = 0
+            try:
+                with open(dest, "wb") as f:
+                    while True:
+                        chunk = await part.read_chunk(64 * 1024)
+                        if not chunk:
+                            break
+                        written += len(chunk)
+                        if written > MAX_FILE_SIZE:
+                            raise _FileSizeExceededError(
+                                f"File '{part.filename}' exceeds {MAX_FILE_SIZE // (1024 * 1024)}MB limit"
+                            )
+                        f.write(chunk)
+            except BaseException:
+                # 清理未完成的临时文件,避免半成品占用磁盘。
+                with contextlib.suppress(OSError):
+                    dest.unlink(missing_ok=True)
+                raise
             media_paths.append(str(dest))
 
     if not text:
@@ -231,8 +265,17 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
         return _error_json(400, f"Only configured model '{model_name}' is available")
 
     session_key = f"api:{session_id}" if session_id else API_SESSION_KEY
-    session_locks: dict[str, asyncio.Lock] = request.app["session_locks"]
-    session_lock = session_locks.setdefault(session_key, asyncio.Lock())
+    session_locks: "OrderedDict[str, asyncio.Lock]" = request.app["session_locks"]
+    # LRU 策略:命中则移到末尾 (最近使用);未命中则新建并在超出上限时驱逐最旧。
+    session_lock = session_locks.get(session_key)
+    if session_lock is None:
+        session_lock = asyncio.Lock()
+        session_locks[session_key] = session_lock
+        if len(session_locks) > _MAX_SESSION_LOCKS:
+            # 驱逐最久未使用的 session 锁,防止无界增长
+            session_locks.popitem(last=False)
+    else:
+        session_locks.move_to_end(session_key)
 
     logger.info(
         "API request session_key={} media={} text={} stream={}",
@@ -446,7 +489,9 @@ def create_app(
     app["model_name"] = model_name
     app["request_timeout"] = request_timeout
     app["api_key"] = api_key
-    app["session_locks"] = {}  # per-user locks, keyed by session_key
+    # 使用 OrderedDict 实现 LRU:命中时 move_to_end,超过 _MAX_SESSION_LOCKS
+    # 时 popitem(last=False) 驱逐最久未使用的 session 锁。
+    app["session_locks"] = OrderedDict()  # per-user locks, keyed by session_key
 
     app.router.add_post("/v1/chat/completions", handle_chat_completions)
     app.router.add_get("/v1/models", handle_models)

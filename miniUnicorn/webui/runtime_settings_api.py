@@ -14,7 +14,7 @@ from typing import Any
 
 from miniUnicorn.config.loader import get_config_path, load_config, save_config
 
-from ._query import QueryParams, _query_first_alias
+from ._query import QueryParams, _query_first, _query_first_alias
 from ._runtime import WebUISettingsError
 
 
@@ -46,6 +46,9 @@ def runtime_payload(config: Any) -> dict[str, Any]:
                 "enabled": config.gateway.heartbeat.enabled,
                 "interval_s": config.gateway.heartbeat.interval_s,
                 "keep_recent_messages": config.gateway.heartbeat.keep_recent_messages,
+                "active_hours": config.gateway.heartbeat.active_hours,
+                "light_context": config.gateway.heartbeat.light_context,
+                "isolated_session": config.gateway.heartbeat.isolated_session,
             },
             "dream": {
                 "schedule": defaults.dream.describe_schedule(),
@@ -62,15 +65,24 @@ def runtime_payload(config: Any) -> dict[str, Any]:
 
 
 def update_runtime_settings(query: QueryParams) -> dict[str, Any]:
-    """Update heartbeat interval and/or dream interval from WebUI query params."""
+    """Update heartbeat interval and/or dream cron from WebUI query params."""
     raw_heartbeat_interval = _query_first_alias(
         query, "heartbeat_interval_s", "heartbeatIntervalS"
     )
-    raw_dream_interval = _query_first_alias(
-        query, "dream_interval_h", "dreamIntervalH"
-    )
-    if raw_heartbeat_interval is None and raw_dream_interval is None:
-        raise WebUISettingsError("heartbeat_interval_s or dream_interval_h is required")
+    raw_dream_cron = _query_first(query, "dream_cron")
+    raw_light_context = _query_first_alias(query, "heartbeat_light_context", "heartbeatLightContext")
+    raw_isolated_session = _query_first_alias(query, "heartbeat_isolated_session", "heartbeatIsolatedSession")
+    raw_active_hours_start = _query_first_alias(query, "heartbeat_active_hours_start", "heartbeatActiveHoursStart")
+    raw_active_hours_end = _query_first_alias(query, "heartbeat_active_hours_end", "heartbeatActiveHoursEnd")
+    if (
+        raw_heartbeat_interval is None
+        and raw_dream_cron is None
+        and raw_light_context is None
+        and raw_isolated_session is None
+        and raw_active_hours_start is None
+        and raw_active_hours_end is None
+    ):
+        raise WebUISettingsError("heartbeat_interval_s or dream_cron is required")
 
     config = load_config()
     changed = False
@@ -86,15 +98,54 @@ def update_runtime_settings(query: QueryParams) -> dict[str, Any]:
             config.gateway.heartbeat.interval_s = heartbeat_interval
             changed = True
 
-    if raw_dream_interval is not None:
+    if raw_light_context is not None:
+        light_context = raw_light_context.lower() in ("true", "1", "yes")
+        if config.gateway.heartbeat.light_context != light_context:
+            config.gateway.heartbeat.light_context = light_context
+            changed = True
+
+    if raw_isolated_session is not None:
+        isolated_session = raw_isolated_session.lower() in ("true", "1", "yes")
+        if config.gateway.heartbeat.isolated_session != isolated_session:
+            config.gateway.heartbeat.isolated_session = isolated_session
+            changed = True
+
+    # active_hours: 两个参数都传才更新;传空字符串表示清除限制
+    if raw_active_hours_start is not None or raw_active_hours_end is not None:
+        start = (raw_active_hours_start or "").strip()
+        end = (raw_active_hours_end or "").strip()
+        if not start and not end:
+            # 清除 active_hours 限制
+            if config.gateway.heartbeat.active_hours is not None:
+                config.gateway.heartbeat.active_hours = None
+                changed = True
+        else:
+            # 校验 HH:MM 格式
+            for label, val in [("start", start), ("end", end)]:
+                if val:
+                    parts = val.split(":")
+                    if len(parts) != 2 or not (0 <= int(parts[0]) <= 24 and 0 <= int(parts[1]) <= 59):
+                        raise WebUISettingsError(f"Invalid active_hours {label}: {val}")
+            new_active_hours = {"start": start or "00:00", "end": end or "24:00"}
+            if config.gateway.heartbeat.active_hours != new_active_hours:
+                config.gateway.heartbeat.active_hours = new_active_hours
+                changed = True
+
+    if raw_dream_cron is not None:
+        cron_expr = raw_dream_cron.strip()
+        if not cron_expr:
+            raise WebUISettingsError("dream_cron must not be empty")
+        # 校验 cron 表达式合法性（5 字段 Unix cron）
         try:
-            dream_interval = int(raw_dream_interval)
-        except ValueError:
-            raise WebUISettingsError("dream_interval_h must be an integer") from None
-        if dream_interval < 1 or dream_interval > 48:
-            raise WebUISettingsError("dream_interval_h must be between 1 and 48")
-        if config.agents.defaults.dream.interval_h != dream_interval:
-            config.agents.defaults.dream.interval_h = dream_interval
+            from datetime import datetime
+
+            from croniter import croniter
+
+            croniter(cron_expr, datetime.now())
+        except Exception:
+            raise WebUISettingsError(f"Invalid cron expression: {cron_expr}") from None
+        if config.agents.defaults.dream.cron != cron_expr:
+            config.agents.defaults.dream.cron = cron_expr
             changed = True
 
     if changed:

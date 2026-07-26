@@ -195,8 +195,9 @@
       "localServiceAccessNative": "允许完全访问模式下的 shell 命令访问这台 Mac 上的服务。",
       "webuiDefaultAccessNative": "用于没有单独选择权限的原生 App 对话。",
       "contextWindow": "选择这个模型配置默认使用的上下文预算。",
-      "heartbeat": "空闲检查间隔，单位秒（60-86400）。",
-      "dream": "做梦的 cron 表达式（如 '0 3 * * *' 表示每天凌晨 3 点）。时区跟随主时区设置。",
+      "heartbeat": "空闲检查间隔，单位秒（60-86400）。心跳仅在 gateway 模式且配置了消息频道（飞书/钉钉等）时才会触发——让 agent 通过 IM 主动通知你。桌面模式和纯 CLI 不会触发心跳。",
+      "heartbeatOptions": "活跃时段限制心跳触发时间；轻量上下文跳过 bootstrap 文件以节省 token；隔离会话避免历史累积污染主对话。",
+      "dream": "记忆整合频率（保底）。空闲触发默认开启——停用 5 分钟后也会自动 Dream，无需 24 小时运行。",
       "imageGenEnable": "在下方选定一个模型预设后,开启此项即可在聊天中调用 generate_image 工具。",
       "imageGenPreset": "图像生成所用的模型预设。下拉中列出“模型设置”已配置区域的全部卡片;凭证复用其 API Key / API Base,无需在此重复填写。",
       "imageGenProviderDisabled": "图像生成已关闭。在上方选定一个模型预设后再开启。",
@@ -206,7 +207,7 @@
       "imageGenImageSize": "尺寸提示,如 1K / 2K / 4K,或显式像素值（如 1024x1024）。",
       "imageGenMaxPerTurn": "count 参数上限,用于避免 API 账单失控。范围:1-8。",
       "imageGenSaveDir": "保存生成图片的子目录,位于 media 根目录下。默认: generated。",
-      "imageGenWorkflow": "启用后,在聊天中直接用自然语言请求生成或编辑图片。把上次生成图片路径作为 reference_images 传入即可迭代编辑。预设来自“模型设置”已配置区域的卡片,凭证自动复用。"
+      "imageGenWorkflow": "启用后,在对话中直接用自然语言请求生成或编辑图片。对上一张图说“再改暖一点”之类的话即可迭代修改。模型预设从上方选择,凭证自动复用。"
     },
     "cliApps": {
       "allCategories": "全部分类",
@@ -357,6 +358,7 @@
       "totalProviders": "共 {{count}} 个可用",
       "workspace": "工作区",
       "heartbeat": "心跳",
+      "heartbeatOptions": "心跳选项",
       "dream": "做梦",
       "dreamHint": "记忆整合"
     },
@@ -373,6 +375,7 @@
       "emptyError": "内容不能为空"
     },
     "dream": {
+      "custom": "自定义",
       "files": {
         "button": "查看文件",
         "title": "做梦生成的文件",
@@ -405,7 +408,9 @@
       "llmTitle": "心跳专用 LLM",
       "configuredHint": "使用:{{model}}",
       "defaultHint": "当前复用主对话模型。",
-      "useMain": "主模型"
+      "useMain": "主模型",
+      "lightContext": "轻量上下文",
+      "isolatedSession": "隔离会话"
     },
     "planner": {
       "title": "Plan & Execute 双模型",

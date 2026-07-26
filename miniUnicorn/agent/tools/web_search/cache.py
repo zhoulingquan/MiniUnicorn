@@ -21,11 +21,28 @@ class SearchCache:
         self._store: OrderedDict[str, tuple[float, Any]] = OrderedDict()
         self._lock = Lock()
 
-    def _make_key(self, query: str, backend: str, count: int) -> str:
-        return f"{backend}:{count}:{query.strip().lower()}"
+    def _make_key(
+        self,
+        query: str,
+        backend: str,
+        count: int,
+        user_id: str | None = None,
+    ) -> str:
+        # 可选 user_id:用于按用户/工作区隔离缓存,避免跨用户命中同一缓存
+        # (不同用户可能使用不同后端凭证,缓存结果不应共享)。
+        parts = [backend, count, query.strip().lower()]
+        if user_id:
+            parts.append(user_id)
+        return ":".join(str(p) for p in parts)
 
-    def get(self, query: str, backend: str, count: int) -> Any | None:
-        key = self._make_key(query, backend, count)
+    def get(
+        self,
+        query: str,
+        backend: str,
+        count: int,
+        user_id: str | None = None,
+    ) -> Any | None:
+        key = self._make_key(query, backend, count, user_id=user_id)
         with self._lock:
             entry = self._store.get(key)
             if entry is None:
@@ -39,8 +56,15 @@ class SearchCache:
             self._store.move_to_end(key)
             return value
 
-    def set(self, query: str, backend: str, count: int, value: Any) -> None:
-        key = self._make_key(query, backend, count)
+    def set(
+        self,
+        query: str,
+        backend: str,
+        count: int,
+        value: Any,
+        user_id: str | None = None,
+    ) -> None:
+        key = self._make_key(query, backend, count, user_id=user_id)
         with self._lock:
             self._store[key] = (time.time(), value)
             self._store.move_to_end(key)

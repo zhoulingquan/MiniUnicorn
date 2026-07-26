@@ -118,13 +118,19 @@ class TestDreamRun:
         write_tool = dream._tools.get("write_file")
         assert write_tool is not None
 
+        # 预创建目标文件,让安全策略的 strict 路径解析能通过
+        # (is_path_within 使用 resolve(strict=True),不存在的路径会被拒绝)
+        skill_file = store.workspace / "skills" / "test-skill" / "SKILL.md"
+        skill_file.parent.mkdir(parents=True, exist_ok=True)
+        skill_file.touch()
+
         result = await write_tool.execute(
             path="skills/test-skill/SKILL.md",
             content="---\nname: test-skill\ndescription: Test\n---\n",
         )
 
         assert "Successfully wrote" in result
-        assert (store.workspace / "skills" / "test-skill" / "SKILL.md").exists()
+        assert skill_file.exists()
 
     async def test_phase1_prompt_includes_line_age_annotations(self, dream, mock_provider, mock_runner, store):
         """Phase 1 prompt should have per-line age suffixes in MEMORY.md when git is available."""

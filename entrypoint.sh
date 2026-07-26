@@ -1,4 +1,5 @@
 #!/bin/sh
+set -eu
 dir="$HOME/.miniUnicorn"
 if [ -d "$dir" ] && [ ! -w "$dir" ]; then
     owner_uid=$(stat -c %u "$dir" 2>/dev/null || stat -f %u "$dir" 2>/dev/null)

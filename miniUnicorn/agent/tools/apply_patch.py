@@ -33,6 +33,9 @@ class _PatchError(ValueError):
 
 _ABSOLUTE_WINDOWS_RE = re.compile(r"^[A-Za-z]:[\\/]")
 
+# patch 内容总大小上限(字节):防止超大 patch 挤占内存/上下文
+_MAX_PATCH_SIZE = 1_000_000  # 1MB
+
 
 def _validate_relative_path(path: str) -> str:
     normalized = path.strip()
@@ -143,6 +146,25 @@ class ApplyPatchTool(_FsTool):
         try:
             if not edits:
                 raise _PatchError("must provide edits")
+
+            # patch 内容总大小校验:累加所有 edit 的 old_text/new_text 长度,
+            # 超过 _MAX_PATCH_SIZE 时直接拒绝,避免处理超大 patch 拖垮内存。
+            total_size = 0
+            for edit in edits:
+                if isinstance(edit, dict):
+                    for key in ("old_text", "new_text"):
+                        val = edit.get(key)
+                        if isinstance(val, str):
+                            total_size += len(val)
+                    # path 也计入,避免通过超长路径名规避限制
+                    path_val = edit.get("path")
+                    if isinstance(path_val, str):
+                        total_size += len(path_val)
+            if total_size > _MAX_PATCH_SIZE:
+                return (
+                    f"Error: patch 内容过大({total_size} 字节),"
+                    f"上限 {_MAX_PATCH_SIZE}"
+                )
 
             writes: dict[Path, str] = {}
             summaries: list[_PatchSummary] = []

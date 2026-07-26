@@ -1,9 +1,11 @@
 """Session management for conversation history."""
 
+import hashlib
 import json
 import os
 import re
 import shutil
+import threading
 from collections import OrderedDict
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -349,6 +351,9 @@ class SessionManager:
         # OrderedDict 以 LRU 方式淘汰：get_or_create/save 时 move_to_end，
         # 超过 cache_max 时 popitem(last=False) 丢弃最旧。
         self._cache: "OrderedDict[str, Session]" = OrderedDict()
+        # 保护 _cache (OrderedDict) 的线程锁，确保多线程访问缓存时不会出现
+        # 并发修改导致的字典状态错乱。仅保护同步操作，不要在持锁时 await。
+        self._cache_lock = threading.Lock()
         if cache_max is None:
             try:
                 env_val = int(os.environ.get("MINIUNICORN_SESSION_CACHE_SIZE", str(self._DEFAULT_CACHE_MAX)))
@@ -358,18 +363,30 @@ class SessionManager:
         self._cache_max = cache_max  # <=0 表示无上限
         # 当会话从缓存中 evict 时触发，供 AgentLoop 同步清理锁/队列/任务。
         # 回调签名：(session_key: str) -> None
-        self._on_evict: Callable[[str], None] | None = None
+        self._on_evict: Callable[[str], None] = None
+        # per-session 保存锁，防止并发 save 同一 session 时 tmp 文件互相覆盖。
+        # 使用 threading.Lock (而非 asyncio.Lock) 因为 save() 是同步方法。
+        # threading.Lock 不支持 weakref，故用普通 dict；锁数量与会话数成正比，
+        # 而会话数受磁盘文件数限制，规模可控。
+        self._save_locks: dict[str, threading.Lock] = {}
+        self._save_locks_guard = threading.Lock()
 
     def set_on_evict(self, cb: Callable[[str], None]) -> None:
         """注册 evict 回调，AgentLoop 在此清理 _session_locks/_pending_queues 等。"""
         self._on_evict = cb
 
     def _touch(self, key: str) -> None:
-        """LRU 更新：把 key 移到末尾（最近使用）。"""
+        """LRU 更新：把 key 移到末尾（最近使用）。
+
+        调用方必须已持有 ``_cache_lock``。
+        """
         self._cache.move_to_end(key)
 
     def _enforce_max(self) -> None:
-        """淘汰最旧条目直到满足 cache_max。"""
+        """淘汰最旧条目直到满足 cache_max。
+
+        调用方必须已持有 ``_cache_lock``。
+        """
         if self._cache_max <= 0:
             return
         while len(self._cache) > self._cache_max:
@@ -403,16 +420,23 @@ class SessionManager:
         Returns:
             The session.
         """
-        if key in self._cache:
-            self._touch(key)
-            return self._cache[key]
+        with self._cache_lock:
+            if key in self._cache:
+                self._touch(key)
+                return self._cache[key]
 
+        # _load 涉及磁盘 IO,不持 _cache_lock 避免阻塞其他 cache 访问。
         session = self._load(key)
         if session is None:
             session = Session(key=key)
 
-        self._cache[key] = session
-        self._enforce_max()
+        with self._cache_lock:
+            # 双重检查:_load 期间另一线程可能已写入同一 key。
+            if key in self._cache:
+                self._touch(key)
+                return self._cache[key]
+            self._cache[key] = session
+            self._enforce_max()
         return session
 
     def _load(self, key: str) -> Session | None:
@@ -533,6 +557,28 @@ class SessionManager:
             "messages": session.messages,
         }
 
+    def _tmp_path(self, path: Path) -> Path:
+        """使用 session key 哈希生成唯一 tmp 路径,避免并发 save 冲突。
+
+        每个 session 的 tmp 文件路径不同,即使两个线程同时调用 save()
+        也不会互相覆盖对方的 tmp 文件 (配合 per-session 锁双重保险)。
+        """
+        h = hashlib.md5(str(path).encode()).hexdigest()[:8]
+        return path.with_suffix(f".{h}.jsonl.tmp")
+
+    def _get_save_lock(self, key: str) -> threading.Lock:
+        """获取 (或惰性创建) 指定 session 的 save 锁。
+
+        使用 _save_locks_guard 保护字典本身的多线程并发访问,
+        实际保存期间持锁的是返回的 per-session Lock。
+        """
+        with self._save_locks_guard:
+            lock = self._save_locks.get(key)
+            if lock is None:
+                lock = threading.Lock()
+                self._save_locks[key] = lock
+            return lock
+
     def save(self, session: Session, *, fsync: bool = False) -> None:
         """Save a session to disk atomically.
 
@@ -542,9 +588,28 @@ class SessionManager:
         should be enabled during graceful shutdown so that filesystems with
         write-back caching (e.g. rclone VFS, NFS, FUSE mounts) do not lose
         the most recent writes.
+
+        Note: ``flush_all`` 在优雅关闭时强制 ``fsync=True`` 以确保持久化,
+        满足"至少在 flush_all 中强制 fsync=True"的兜底要求;常规 save 保留
+        ``fsync=False`` 默认值以避免每次写入都付 fsync 性能开销。
         """
+        # 使用 per-session 锁串行化同一 session 的并发 save,避免 tmp 文件
+        # 互相覆盖导致的数据丢失 (不同 session 之间不互斥,可并行保存)。
+        lock = self._get_save_lock(session.key)
+        with lock:
+            self._save_impl(session, fsync=fsync)
+
+    def _save_impl(self, session: Session, *, fsync: bool) -> None:
+        """实际的同步保存逻辑 (调用方需自行加锁)。"""
         path = self._get_session_path(session.key)
-        tmp_path = path.with_suffix(".jsonl.tmp")
+        tmp_path = self._tmp_path(path)
+
+        # 清理旧版本残留的 tmp 文件 (向后兼容;旧版使用 .jsonl.tmp 后缀)。
+        # 不清理当前 _tmp_path 自身,避免误删正在使用的文件。
+        legacy_tmp = path.with_suffix(".jsonl.tmp")
+        if legacy_tmp != tmp_path and legacy_tmp.exists():
+            with suppress(OSError):
+                legacy_tmp.unlink()
 
         try:
             with open(tmp_path, "w", encoding="utf-8") as f:
@@ -581,11 +646,12 @@ class SessionManager:
             raise
 
         # 保存即最近使用，更新 LRU 顺序。
-        if session.key in self._cache:
-            self._touch(session.key)
-        else:
-            self._cache[session.key] = session
-            self._enforce_max()
+        with self._cache_lock:
+            if session.key in self._cache:
+                self._touch(session.key)
+            else:
+                self._cache[session.key] = session
+                self._enforce_max()
 
     def flush_all(self) -> int:
         """Re-save every cached session with fsync for durable shutdown.
@@ -594,8 +660,11 @@ class SessionManager:
         sessions are logged but do not prevent other sessions from being
         flushed.
         """
+        # 拍快照避免迭代期间其他线程修改 _cache 导致 RuntimeError。
+        with self._cache_lock:
+            items = list(self._cache.items())
         flushed = 0
-        for key, session in list(self._cache.items()):
+        for key, session in items:
             try:
                 self.save(session, fsync=True)
                 flushed += 1
@@ -605,7 +674,8 @@ class SessionManager:
 
     def invalidate(self, key: str) -> None:
         """Remove a session from the in-memory cache."""
-        self._cache.pop(key, None)
+        with self._cache_lock:
+            self._cache.pop(key, None)
 
     def delete_session(self, key: str) -> bool:
         """Remove a session from disk and the in-memory cache.

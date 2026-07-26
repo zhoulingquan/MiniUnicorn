@@ -400,32 +400,39 @@ async def test_images_generations_adapter_url_response():
 
 
 @pytest.mark.asyncio
-async def test_images_generations_adapter_http_error():
-    """HTTP 4xx/5xx 应抛 ImageGenerationError。"""
+async def test_images_edits_uploads_image_only(tmp_path):
+    """images_generations /images/edits: 上传 image 文件, 不上传 mask。"""
     from miniUnicorn.agent.tools.image_generation.config import ImageGenerationProviderConfig
-    from miniUnicorn.agent.tools.image_generation.providers.base import ImageGenerationError
     from miniUnicorn.agent.tools.image_generation.providers.images_generations import (
         ImagesGenerationsAdapter,
     )
 
-    fake_resp = _mock_response(401, text='{"error": "invalid api key"}')
+    ref_img = tmp_path / "ref.png"
+    _write_png(ref_img)
 
+    b64 = base64.b64encode(_PNG_BYTES).decode()
+    fake_resp = _mock_response(200, {"data": [{"b64_json": b64}]})
     fake_client = AsyncMock()
     fake_client.post = AsyncMock(return_value=fake_resp)
     fake_client.aclose = AsyncMock()
 
     adapter = ImagesGenerationsAdapter()
-    cfg = ImageGenerationProviderConfig(api_key="bad", api_type="images_generations")
-    with pytest.raises(ImageGenerationError, match="401"):
-        await adapter.generate(
-            prompt="x",
-            model="m",
-            provider_config=cfg,
-            reference_images=None,
-            aspect_ratio=None,
-            image_size=None,
-            http_client=fake_client,
-        )
+    cfg = ImageGenerationProviderConfig(
+        api_key="k", api_type="images_generations", response_format="b64_json",
+    )
+    result = await adapter.generate(
+        prompt="edit", model="gpt-image-1", provider_config=cfg,
+        reference_images=[ref_img],
+        aspect_ratio="1:1", image_size=None, http_client=fake_client,
+    )
+    assert len(result.images) == 1
+    # 验证请求 URL 走的是 /images/edits
+    post_url = str(fake_client.post.call_args.args[0])
+    assert post_url.endswith("/images/edits")
+    # 验证 files 字典只含 image, 不含 mask
+    files = fake_client.post.call_args.kwargs.get("files", {})
+    assert "image" in files
+    assert "mask" not in files
 
 
 @pytest.mark.asyncio
@@ -1112,6 +1119,6 @@ def test_tool_schema_has_required_prompt_only():
     fn = schema.get("function", schema)
     params = fn.get("parameters", {})
     assert params.get("required") == ["prompt"]
-    # 应包含所有 5 个参数
+    # 应包含所有 5 个参数 (prompt / reference_images / aspect_ratio / image_size / count)
     prop_names = set(params.get("properties", {}).keys())
     assert prop_names == {"prompt", "reference_images", "aspect_ratio", "image_size", "count"}

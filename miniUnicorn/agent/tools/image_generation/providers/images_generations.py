@@ -10,7 +10,7 @@ Response:
   - responseFormat="url": { "data": [{"url": "..."}] }
 
 参考图编辑: OpenAI gpt-image-1 支持 multipart/form-data 的 /images/edits 端点;
-本适配器在收到参考图时自动切换到 /images/edits, 用 multipart 上传 image + mask。
+本适配器在收到参考图时自动切换到 /images/edits, 用 multipart 上传 image 文件。
 """
 
 from __future__ import annotations

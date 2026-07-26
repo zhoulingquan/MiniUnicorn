@@ -5,6 +5,7 @@ import base64
 import hashlib
 import importlib.util
 import os
+from collections import OrderedDict
 from typing import Any
 
 from pydantic import Field
@@ -71,6 +72,10 @@ class WecomChannel(BaseChannel):
     name = "wecom"
     display_name = "WeCom"
 
+    # chat_frames 缓存上限:超过时按 LRU 策略淘汰最旧条目,
+    # 防止长期运行(大量历史 chat_id)导致内存无限增长。
+    _MAX_CHAT_FRAMES = 1000
+
     @classmethod
     def default_config(cls) -> dict[str, Any]:
         return WecomConfig().model_dump(by_alias=True)
@@ -83,8 +88,9 @@ class WecomChannel(BaseChannel):
         self._client: Any = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._generate_req_id = None
-        # Store frame headers for each chat to enable replies
-        self._chat_frames: dict[str, Any] = {}
+        # Store frame headers for each chat to enable replies。
+        # 使用 OrderedDict 实现 LRU:写入/访问时 move_to_end,超过上限时淘汰最旧。
+        self._chat_frames: OrderedDict[str, Any] = OrderedDict()
 
     async def start(self) -> None:
         """Start the WeCom bot with WebSocket long connection."""
@@ -316,8 +322,11 @@ class WecomChannel(BaseChannel):
             if not content:
                 return
 
-            # Store frame for this chat to enable replies
+            # Store frame for this chat to enable replies,使用 LRU 策略淘汰。
             self._chat_frames[chat_id] = frame
+            self._chat_frames.move_to_end(chat_id)
+            while len(self._chat_frames) > self._MAX_CHAT_FRAMES:
+                self._chat_frames.popitem(last=False)
 
             # Forward to message bus
             await self._handle_message(
@@ -480,8 +489,11 @@ class WecomChannel(BaseChannel):
             content = (msg.content or "").strip()
             is_progress = bool(msg.metadata.get("_progress"))
 
-            # Get the stored frame for this chat
+            # Get the stored frame for this chat。
+            # 命中时 move_to_end 维护 LRU 顺序,使最近活跃的 chat 不被优先淘汰。
             frame = self._chat_frames.get(msg.chat_id)
+            if frame is not None:
+                self._chat_frames.move_to_end(msg.chat_id)
 
             # Send media files via WebSocket upload
             for file_path in msg.media or []:

@@ -8,6 +8,7 @@ private-assistant scale: small JSON file, simple locking, no external DB.
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import string
 import threading
@@ -18,7 +19,6 @@ from typing import Any
 from loguru import logger
 
 from miniUnicorn.config.paths import get_data_dir
-from miniUnicorn.utils.helpers import _write_text_atomic
 
 # threading.Lock is used so store functions remain callable from both sync CLI
 # and async channel handlers.  At private-assistant scale (small JSON file,
@@ -58,7 +58,23 @@ def _save(data: dict[str, Any]) -> None:
         "approved": {ch: sorted(list(users)) for ch, users in data.get("approved", {}).items()},
         "pending": dict(data.get("pending", {})),
     }
-    _write_text_atomic(path, json.dumps(payload, indent=2, ensure_ascii=False))
+    content = json.dumps(payload, indent=2, ensure_ascii=False)
+    # 原子写入 + 文件权限 0o600: pairing.json 包含已审批的发送者 ID 与
+    # 配对码 (可被冒充发起 DM),属于敏感凭证,必须限制只有文件属主可读写。
+    # 不能用 _write_text_atomic,因为它不会设置文件权限。
+    tmp_path = path.with_suffix(".json.tmp")
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.chmod(tmp_path, 0o600)
+        os.replace(tmp_path, path)
+        os.chmod(path, 0o600)
+    except BaseException:
+        try:
+            tmp_path.unlink()
+        except FileNotFoundError:
+            pass
+        raise
 
 
 def _gc_pending(data: dict[str, Any]) -> None:

@@ -73,6 +73,7 @@ class McpLifecycleMixin:
         for name, stack in self._mcp_stacks.items():
             try:
                 await stack.aclose()
-            except (RuntimeError, BaseExceptionGroup):
+            except Exception:
+                # 兼容老版本 Python（无 BaseExceptionGroup），aclose 通常只 raise Exception 子类
                 logger.debug("MCP server '{}' cleanup error (can be ignored)", name)
         self._mcp_stacks.clear()

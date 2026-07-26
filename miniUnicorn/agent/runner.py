@@ -148,6 +148,8 @@ class AgentRunner:
         # Lazily-constructed default ContextGovernor; built on first use so
         # that entry-point plugins are loaded at most once per runner.
         self._default_governor: Any | None = None
+        # 跟踪 reflection 后台任务，避免被 GC 回收
+        self._reflection_tasks: set[asyncio.Task] = set()
 
     def _get_governor(self, spec: AgentRunSpec) -> Any:
         """Resolve the context governor: spec-provided override or default.
@@ -640,13 +642,16 @@ class AgentRunner:
                     reflection is not None
                     and (iteration + 1) % getattr(spec, "reflection_interval", 5) == 0
                 ):
-                    asyncio.create_task(reflection.reflect(
+                    # 跟踪 reflection 任务避免被 GC 回收，完成后从集合移除
+                    task = asyncio.create_task(reflection.reflect(
                         trigger="periodic",
                         iteration=iteration,
                         context_summary=f"Periodic reflection at iteration {iteration}",
                         messages=messages,
                         session_key=spec.session_key,
                     ))
+                    self._reflection_tasks.add(task)
+                    task.add_done_callback(self._reflection_tasks.discard)
                 continue
 
             if response.has_tool_calls:
@@ -1033,6 +1038,10 @@ class AgentRunner:
                     "Tool call did not complete.",
                 )
         except asyncio.TimeoutError:
+            # 超时情况下刷新 file edit trackers，标记未匹配的编辑为错误状态
+            if live_file_edits is not None:
+                with suppress(Exception):
+                    await live_file_edits.error_unmatched([], "LLM timed out")
             if outer_timeout_s is None:
                 return LLMResponse(
                     content="Error calling LLM: stream stalled",
@@ -1235,7 +1244,8 @@ class AgentRunner:
                 result = await spec.tools.execute(tool_call.name, params)
         except asyncio.CancelledError:
             raise
-        except BaseException as exc:
+        # 使用 Exception 而非 BaseException，避免吞掉 KeyboardInterrupt 等系统级中断
+        except Exception as exc:
             if file_edit_trackers and progress_callback is not None:
                 await invoke_file_edit_progress(
                     progress_callback,

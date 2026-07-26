@@ -73,3 +73,19 @@ class EmbeddingProvider:
         except Exception:
             logger.exception("Separate embedding failed for model {}", use_model)
             raise
+
+    async def aclose(self) -> None:
+        """关闭独立的 embedding 客户端连接池,释放底层 httpx 资源。
+
+        仅在 ``_separate=True`` 时存在独立客户端;主 provider 的连接由其自身
+        ``aclose`` 负责。在网关停止或配置重新加载时调用,避免连接泄漏。
+        """
+        client = self._embed_client
+        if client is None:
+            return
+        # 先置 None,避免并发场景下其他协程在关闭过程中误用。
+        self._embed_client = None
+        try:
+            await client.close()
+        except Exception as exc:
+            logger.warning("关闭 embedding 客户端连接池失败: {}", exc)

@@ -9,13 +9,17 @@ import { Input } from "@/components/ui/input";
 import type { RuntimeSettingsUpdate, SettingsPayload } from "@/lib/types";
 
 import {
+  cronToFreqValue,
+  DREAM_FREQ_PRESETS,
   extractDreamCron,
+  freqValueToCron,
+  type DreamFreqValue,
   type SettingsSectionKey,
 } from "../types";
 import { BootstrapFileRow } from "../components/BootstrapFileRow";
 import { DreamFilesButton } from "../components/DreamFilesButton";
 import { HeartbeatLlmConfig } from "../components/HeartbeatLlmConfig";
-import { NumberInput } from "../components/SegmentedControl";
+import { NumberInput, SegmentedControl } from "../components/SegmentedControl";
 import { PlannerConfig } from "../components/PlannerConfig";
 import { RestartSettingsFooter } from "../components/RestartSettingsFooter";
 import {
@@ -135,7 +139,7 @@ export function OverviewSettings({
           <SettingsRow
             icon={Activity}
             title={tx("settings.overview.heartbeat", "Heartbeat")}
-            description={tx("settings.help.heartbeat", "Idle check interval in seconds (60-86400).")}
+            description={tx("settings.help.heartbeat", "Idle check interval in seconds (60-86400). Heartbeat only runs in gateway mode with a configured channel (Feishu/DingTalk etc.) — it lets the agent proactively notify you via IM. Desktop mode and CLI-only setups do not trigger heartbeat.")}
           >
             <NumberInput
               value={runtimeForm.heartbeatIntervalS ?? settings.runtime.heartbeat.interval_s}
@@ -155,19 +159,43 @@ export function OverviewSettings({
           <SettingsRow
             icon={Moon}
             title={tx("settings.overview.dream", "Dream")}
-            description={tx("settings.help.dream", "Memory consolidation cron expression (e.g. '0 3 * * *' for daily at 3am).")}
+            description={tx("settings.help.dream", "Memory consolidation frequency. Idle trigger is enabled by default — Dream also runs automatically when you stop using it for 5 min.")}
           >
-            <Input
-              type="text"
-              value={runtimeForm.dreamCron ?? extractDreamCron(settings.runtime.dream.schedule)}
-              placeholder="0 3 * * *"
-              spellCheck={false}
-              autoComplete="off"
-              onChange={(event) =>
-                onChangeRuntimeForm((prev) => ({ ...prev, dreamCron: event.target.value }))
-              }
-              className="h-8 w-24 rounded-full text-center text-[13px]"
-            />
+            <div className="flex items-center gap-2">
+              <SegmentedControl
+                value={cronToFreqValue(runtimeForm.dreamCron ?? extractDreamCron(settings.runtime.dream.schedule))}
+                options={[
+                  ...DREAM_FREQ_PRESETS.map((p) => ({ value: p.value, label: p.label })),
+                  { value: "custom", label: tx("settings.dream.custom", "自定义") },
+                ]}
+                onChange={(value) => {
+                  const freq = value as DreamFreqValue;
+                  const cron = freqValueToCron(freq);
+                  if (cron) {
+                    onChangeRuntimeForm((prev) => ({ ...prev, dreamCron: cron }));
+                  } else {
+                    // 选"自定义"时保留当前 cron 值，显示输入框
+                    onChangeRuntimeForm((prev) => ({
+                      ...prev,
+                      dreamCron: prev.dreamCron ?? extractDreamCron(settings.runtime.dream.schedule),
+                    }));
+                  }
+                }}
+              />
+              {cronToFreqValue(runtimeForm.dreamCron ?? extractDreamCron(settings.runtime.dream.schedule)) === "custom" && (
+                <Input
+                  type="text"
+                  value={runtimeForm.dreamCron ?? extractDreamCron(settings.runtime.dream.schedule)}
+                  placeholder="0 3 * * *"
+                  spellCheck={false}
+                  autoComplete="off"
+                  onChange={(event) =>
+                    onChangeRuntimeForm((prev) => ({ ...prev, dreamCron: event.target.value }))
+                  }
+                  className="h-8 w-32 rounded-full text-center text-[13px]"
+                />
+              )}
+            </div>
           </SettingsRow>
           <RestartSettingsFooter
             dirty={runtimeDirty}

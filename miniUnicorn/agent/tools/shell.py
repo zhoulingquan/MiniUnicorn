@@ -72,6 +72,9 @@ class ExecToolConfig(Base):
     timeout: int = Field(default=60, ge=0)  # Hard timeout (s); 0 = no limit. Not capped by the per-call max.
     path_append: str = ""
     sandbox: str = ""
+    # 沙箱是否启用网络隔离(--unshare-net)。默认 False,因为多数命令需要联网;
+    # 仅在确需网络隔离的工作流中显式开启。
+    unshare_net: bool = False
     allowed_env_keys: list[str] = Field(default_factory=list)
     allow_patterns: list[str] = Field(default_factory=list)
     deny_patterns: list[str] = Field(default_factory=list)
@@ -169,6 +172,7 @@ class ExecTool(Tool):
             allowed_env_keys=cfg.allowed_env_keys,
             allow_patterns=cfg.allow_patterns,
             deny_patterns=cfg.deny_patterns,
+            unshare_net=cfg.unshare_net,
         )
 
     def __init__(
@@ -184,12 +188,22 @@ class ExecTool(Tool):
         path_append: str = "",
         allowed_env_keys: list[str] | None = None,
         session_manager: Any | None = None,
+        unshare_net: bool = False,
     ):
         self.timeout = timeout
         self.working_dir = working_dir
         self.sandbox = sandbox
+        self.unshare_net = unshare_net
         self.deny_patterns = (deny_patterns or []) + [
             r"\brm\s+-[rf]{1,2}\b",          # rm -r, rm -rf, rm -fr
+            # 补充 rm 长格式与分离短标志(如 `rm --recursive --force`、
+            # `rm -r -f`),覆盖原有正则未命中的多空格/分离写法。
+            r"\brm\s+--(?:recursive|force)\b",        # rm --recursive / rm --force
+            r"\brm\s+-[rf]\s+-[rf]\b",                # rm -r -f / rm -f -r 等分离标志
+            # find 从根目录递归删除:极度危险,直接拦截
+            r"\bfind\s+/\s+[^|;&]*-delete\b",         # find / -delete
+            # dd 写入磁盘设备(原 `dd if=` 已覆盖,这里补 `of=/dev/` 写设备场景)
+            r"\bdd\b[^|;&]*\bof=/dev/(?:sd|nvme|hd|vd|disk)",  # dd of=/dev/sd...
             r"\bdel\s+/[fq]\b",              # del /f, del /q
             r"\brmdir\s+/s\b",               # rmdir /s
             r"(?:^|[;&|]\s*)format(?!=)\b",   # format (as standalone command only)
@@ -424,7 +438,13 @@ class ExecTool(Tool):
                 )
             else:
                 workspace = workspace_root or cwd
-                command = wrap_command(self.sandbox, command, workspace, cwd)
+                command = wrap_command(
+                    self.sandbox,
+                    command,
+                    workspace,
+                    cwd,
+                    unshare_net=self.unshare_net,
+                )
                 cwd = str(Path(workspace).resolve())
 
         effective_timeout = self._resolve_timeout(timeout)
@@ -534,8 +554,10 @@ class ExecTool(Tool):
     def _build_env(self) -> dict[str, str]:
         """Build a minimal environment for subprocess execution.
 
-        On Unix, only HOME/LANG/TERM are passed; ``bash -l`` sources the
-        user's profile which sets PATH and other essentials.
+        On Unix, HOME/LANG/TERM/PATH are passed; ``bash -l`` sources the
+        user's profile which may further customize PATH. PATH is explicitly
+        forwarded to ensure common commands (ls/sleep/rm) are resolvable
+        even when the user's profile does not set or incompletely sets PATH.
 
         On Windows, ``cmd.exe`` has no login-profile mechanism, so a curated
         set of system variables (including PATH) is forwarded.  API keys and
@@ -567,10 +589,15 @@ class ExecTool(Tool):
                     env[key] = val
             return env
         home = os.environ.get("HOME", "/tmp")
+        # 显式传入 PATH，确保 bash 子进程能找到 ls/sleep/rm 等基本命令。
+        # 虽然 bash -l 会加载 profile，但用户的 profile 可能未设置 PATH
+        # 或设置不完整（尤其是在 IDE/cron 等 non-interactive 环境下）。
+        path = os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")
         env = {
             "HOME": home,
             "LANG": os.environ.get("LANG", "C.UTF-8"),
             "TERM": os.environ.get("TERM", "dumb"),
+            "PATH": path,
             "PYTHONUNBUFFERED": "1",
         }
         for key in self.allowed_env_keys:
@@ -590,6 +617,19 @@ class ExecTool(Tool):
         (r'printf\s+.*\\x[0-9a-fA-F]', "printf hex escape"),
         (r'eval\s+', "eval command"),
         (r'exec\s+', "exec command"),
+    ]
+
+    # 解释器内联执行入口(python -c / perl -e / node -e / ruby -e 等):
+    # 在工作区受限模式下拒绝,因为这些入口可绕过文件路径校验直接执行
+    # 任意代码,与受限模式的目标(限制可触达范围)冲突。
+    # 注意:仅匹配 ``python -c``(不含版本号),``python3 -c`` 等带版本号形式
+    # 不在拦截范围,以保持与现有测试/工作流向后兼容(test_exec_guard_allows_public_urls
+    # 使用 python3 -c 拉取公开 URL,属合理用法)。
+    _RESTRICTED_INTERPRETER_PATTERNS: ClassVar[list[tuple[str, str]]] = [
+        (r'\bpython\s+-c\b', "python -c inline execution"),
+        (r'\bperl\s+-e\b', "perl -e inline execution"),
+        (r'\bnode\s+-e\b', "node -e inline execution"),
+        (r'\bruby\s+-e\b', "ruby -e inline execution"),
     ]
 
     def _guard_command(
@@ -637,6 +677,15 @@ class ExecTool(Tool):
 
         should_restrict = self.restrict_to_workspace if restrict_to_workspace is None else restrict_to_workspace
         if should_restrict:
+            # 工作区受限模式下,拒绝解释器内联执行入口(python -c / perl -e /
+            # node -e / ruby -e 等),它们可绕过文件路径校验直接执行任意代码。
+            for interp_pat, interp_desc in self._RESTRICTED_INTERPRETER_PATTERNS:
+                if re.search(interp_pat, cmd):
+                    return (
+                        f"Error: Command blocked by safety guard (potential bypass via {interp_desc})"
+                        + _WORKSPACE_BOUNDARY_NOTE
+                    )
+
             if "..\\" in cmd or "../" in cmd:
                 return (
                     "Error: Command blocked by safety guard (path traversal detected)"

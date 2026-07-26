@@ -30,6 +30,11 @@ from ._runtime import WebUISettingsError, _mask_secret_hint
 
 _MODEL_CONFIGURATION_SLUG_RE = re.compile(r"[^a-z0-9_-]+")
 
+# 允许的 context_window_tokens 取值集合。
+# 仅接受 65536（默认上下文）与 262144（扩展上下文），其他值一律拒绝，
+# 避免用户填入不合理的数值导致 agent 上下文预算错乱。
+_ALLOWED_CONTEXT_WINDOWS: frozenset[int] = frozenset({65536, 262144})
+
 
 # === 专属 helper ===
 
@@ -76,8 +81,11 @@ def _parse_context_window_tokens(value: str | None) -> int | None:
         parsed = int(value)
     except ValueError:
         raise WebUISettingsError("context_window_tokens must be an integer") from None
-    if parsed <= 0:
-        raise WebUISettingsError("context_window_tokens must be a positive integer")
+    # 仅允许预设的上下文窗口取值，避免用户填入任意数值。
+    if parsed not in _ALLOWED_CONTEXT_WINDOWS:
+        raise WebUISettingsError(
+            f"context_window_tokens must be 65536 or 262144 (got {parsed})"
+        )
     return parsed
 
 

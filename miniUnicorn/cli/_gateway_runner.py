@@ -34,9 +34,11 @@ from loguru import logger
 from miniUnicorn import __logo__, __version__
 from miniUnicorn.bus.events import OutboundMessage
 from miniUnicorn.cli._heartbeat import (
+    _HEARTBEAT_LIGHT_PREAMBLE,
     _HEARTBEAT_PREAMBLE,
     _build_heartbeat_provider,
     _heartbeat_template,
+    _is_within_active_hours,
 )
 from miniUnicorn.cli._terminal_render import console
 from miniUnicorn.config.paths import is_default_workspace
@@ -99,26 +101,49 @@ async def _handle_heartbeat_job(
     resolved through ``commands.evaluate_response`` so that test patches
     on that path continue to work.
     """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
     from miniUnicorn.cli import commands
+
+    # activeHours 检查:不在活跃时段内则跳过(借鉴 OpenClaw activeHours)
+    tz_name = config.agents.defaults.timezone or "UTC"
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = ZoneInfo("UTC")
+    if not _is_within_active_hours(hb_cfg.active_hours, tz):
+        logger.debug("Heartbeat: outside active_hours, skipping")
+        return None
 
     heartbeat_file = config.workspace_path / "HEARTBEAT.md"
     try:
         content = heartbeat_file.read_text(encoding="utf-8")
     except OSError:
-        logger.debug("Heartbeat: HEARTBEAT.md missing")
-        return None
-    if not content or content == _heartbeat_template():
-        logger.debug("Heartbeat: HEARTBEAT.md empty or identical to template")
-        return None
+        content = ""
+    is_template = bool(content) and content == _heartbeat_template()
+    has_tasks = bool(content) and not is_template
 
     channel, chat_id = pick_heartbeat_target()
     if channel == "cli":
         return None
 
-    prompt = (
-        _HEARTBEAT_PREAMBLE
-        + f"Review the following HEARTBEAT.md and report any active tasks:\n\n{content}"
-    )
+    # 构造 prompt:有任务时用完整 preamble + HEARTBEAT.md;无任务时用轻量巡检 preamble。
+    # 这修复了"空 HEARTBEAT.md 直接短路"的问题——即使没有用户任务,
+    # agent 仍可做一次轻量巡检(检查 cron/dream 产物等)。
+    if has_tasks:
+        prompt = (
+            _HEARTBEAT_PREAMBLE
+            + f"Review the following HEARTBEAT.md and report any active tasks:\n\n{content}"
+        )
+    else:
+        prompt = _HEARTBEAT_LIGHT_PREAMBLE
+
+    # isolatedSession:每次心跳用独立 session_key,不累积历史
+    if hb_cfg.isolated_session:
+        session_key = f"heartbeat_{int(datetime.now().timestamp())}"
+    else:
+        session_key = "heartbeat"
 
     # 若配置了 heartbeat 专用 model_preset,临时切换 agent 的 provider/model,
     # 调用结束后在 finally 中恢复,避免影响主对话。
@@ -135,13 +160,16 @@ async def _handle_heartbeat_job(
         agent.provider = hb_provider
         agent.model = hb_model
         agent.runner.provider = hb_provider
+    # lightContext:跳过 bootstrap 文件注入,省 token(由 build_messages 读取)
+    orig_light_context = getattr(agent, "_light_context", False)
+    agent._light_context = hb_cfg.light_context
     try:
         async def _silent(*_args, **_kwargs):
             pass
 
         resp = await agent.process_direct(
             prompt,
-            session_key="heartbeat",
+            session_key=session_key,
             channel=channel,
             chat_id=chat_id,
             on_progress=_silent,
@@ -150,12 +178,15 @@ async def _handle_heartbeat_job(
         agent.provider = orig_provider
         agent.model = orig_model
         agent.runner.provider = orig_runner_provider
+        agent._light_context = orig_light_context
     response = resp.content if resp else ""
 
     # Keep a small tail of heartbeat history so the loop stays bounded.
-    session = agent.sessions.get_or_create("heartbeat")
-    session.retain_recent_legal_suffix(hb_cfg.keep_recent_messages)
-    agent.sessions.save(session)
+    # isolatedSession 模式下不裁剪固定会话(每次都是新会话,无历史累积)。
+    if not hb_cfg.isolated_session:
+        session = agent.sessions.get_or_create("heartbeat")
+        session.retain_recent_legal_suffix(hb_cfg.keep_recent_messages)
+        agent.sessions.save(session)
 
     if not response:
         return None
@@ -540,6 +571,16 @@ def _run_gateway(
     agent.dream.max_batch_size = dream_cfg.max_batch_size
     agent.dream.max_iterations = dream_cfg.max_iterations
     agent.dream.annotate_line_ages = dream_cfg.annotate_line_ages
+    # 同步空闲触发器配置（方案B：会话间空闲自动触发 Dream）
+    agent.dream_idle_trigger.update_config(
+        enabled=dream_cfg.idle_trigger_enabled,
+        min_idle_seconds=dream_cfg.idle_trigger_min_seconds,
+        min_entries=dream_cfg.idle_trigger_min_entries,
+        min_interval_s=dream_cfg.idle_trigger_min_interval_s,
+    )
+    # 标志位：启动时积压检查命中后，延迟到 run() 协程内调度 dream。
+    # 这里不能直接 asyncio.create_task，因为此时还没有 running loop（asyncio.run 尚未执行）。
+    need_dream_catchup = False
     if dream_cfg.enabled:
         cron.register_system_job(CronJob(
             id="dream",
@@ -548,6 +589,20 @@ def _run_gateway(
             payload=CronPayload(kind="system_event"),
             catch_up_on_start=True,
         ))
+        # 方案C：启动时积压检查——若未处理历史超过阈值，立即后台触发一次 dream。
+        # 解决"连续多天不开，catch_up 只补 1 次"的漏洞。
+        if dream_cfg.startup_backlog_threshold > 0:
+            try:
+                cursor = agent.context.memory.get_last_dream_cursor()
+                backlog = agent.context.memory.read_unprocessed_history(since_cursor=cursor)
+            except Exception:
+                backlog = []
+            if len(backlog) >= dream_cfg.startup_backlog_threshold:
+                console.print(
+                    f"[yellow]![/yellow] Dream: {len(backlog)} backlog entries "
+                    f"(threshold={dream_cfg.startup_backlog_threshold}), triggering immediate run"
+                )
+                need_dream_catchup = True
         console.print(f"[green]✓[/green] Dream: {dream_cfg.describe_schedule()}")
     else:
         console.print("[yellow]○[/yellow] Dream: disabled")
@@ -591,6 +646,9 @@ def _run_gateway(
     async def run():
         try:
             await cron.start()
+            # 启动时积压触发的 dream：此时已有 running loop，可安全调度后台任务。
+            if need_dream_catchup:
+                asyncio.create_task(agent.dream.run())
             tasks = [
                 agent.run(),
                 channels.start_all(),

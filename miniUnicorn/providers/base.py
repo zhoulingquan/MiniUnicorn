@@ -169,6 +169,11 @@ class LLMProvider(ABC):
         self.api_base = api_base
         self.generation: GenerationSettings = GenerationSettings()
 
+    @property
+    def is_local(self) -> bool:
+        """是否为本地 provider(Ollama/vLLM 等)。默认 False,子类可覆盖。"""
+        return False
+
     @staticmethod
     def _sanitize_empty_content(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Sanitize message content: fix empty blocks, strip internal _meta fields."""

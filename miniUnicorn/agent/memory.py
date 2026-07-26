@@ -77,7 +77,7 @@ class MemoryStore:
         "memory/.reflections_cursor": {"dream", "memory_store"},
         "memory/episodic.jsonl": {"dream", "memory_store"},
         "memory/procedural.jsonl": {"dream", "memory_store"},
-        "memory/reflections.jsonl": {"dream", "memory_store"},
+        "memory/reflections.jsonl": {"dream", "reflection", "memory_store"},
         "memory/shared/MEMORY_SHARED.md": {"dream", "memory_store"},
         "memory/shared/procedural_shared.jsonl": {"dream", "memory_store"},
     }
@@ -120,6 +120,7 @@ class MemoryStore:
         self._git = GitStore(workspace, tracked_files=[
             "SOUL.md", "USER.md", "notes.md", "memory/MEMORY.md", "memory/.dream_cursor",
             "memory/episodic.jsonl", "memory/procedural.jsonl",
+            "memory/shared/MEMORY_SHARED.md", "memory/shared/procedural_shared.jsonl",
         ])
         # Vector store for embedding-based retrieval. Lazy-initialized via
         # attach_vector_store(); None means no vector retrieval (legacy mode).
@@ -282,7 +283,8 @@ class MemoryStore:
                 return 1
             last = json.loads(lines[-1])
             return last.get("cursor", 0) + 1
-        except (FileNotFoundError, json.JSONDecodeError, Exception):
+        # 移除冗余的 Exception，明确列出可能的异常类型
+        except (FileNotFoundError, json.JSONDecodeError, ValueError):
             return 1
 
     def read_procedural(self, limit: int = 100) -> list[dict[str, Any]]:
@@ -935,13 +937,15 @@ class MemoryStore:
             # On Windows, opening a directory with O_RDONLY raises
             # PermissionError — skip the dir sync there (NTFS
             # journals metadata synchronously).
-            with suppress(PermissionError):
+            # 扩展 suppress 范围，覆盖目录不存在/已非目录等边缘情况
+            with suppress(PermissionError, FileNotFoundError, NotADirectoryError, OSError):
                 fd = os.open(str(self.history_file.parent), os.O_RDONLY)
                 try:
                     os.fsync(fd)
                 finally:
                     os.close(fd)
-        except BaseException:
+        # 使用 Exception 而非 BaseException，避免吞掉 KeyboardInterrupt 等系统级中断
+        except Exception:
             tmp_path.unlink(missing_ok=True)
             raise
 
@@ -1044,6 +1048,9 @@ class Consolidator:
         self.checkpoint_ratio = (
             checkpoint_ratio if checkpoint_ratio is not None else self._CHECKPOINT_RATIO
         )
+        # 校验 ratio 范围，避免无效配置导致压缩/检查点逻辑异常
+        assert 0 < consolidation_ratio <= 1.0, "consolidation_ratio 必须在 (0, 1.0]"
+        assert 0 < self.checkpoint_ratio <= 1.0, "checkpoint_ratio 必须在 (0, 1.0]"
         self._build_messages = build_messages
         self._get_tool_definitions = get_tool_definitions
         self._locks: weakref.WeakValueDictionary[str, asyncio.Lock] = (
@@ -1335,7 +1342,8 @@ class Consolidator:
         默认为输入预算的 70%（_CHECKPOINT_RATIO），比旧行为（100%）
         更早介入，避免模型在高利用率下能力衰减时做关键压缩。
         """
-        return int(self._input_token_budget * self.checkpoint_ratio)
+        # 用 max(0, ...) 防御预算为负或 ratio 为负时产生负阈值
+        return max(0, int(self._input_token_budget * self.checkpoint_ratio))
 
     async def maybe_consolidate_by_tokens(
         self,

@@ -139,6 +139,16 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         backend="openai_compat",
         default_api_base="https://apihub.agnes-ai.com/v1",
     ),
+    # === OpenAI: 原生 OpenAI API ===========================================
+    # 用于直接使用 OpenAI 官方 API Key 的场景（非 gateway 转发）。
+    ProviderSpec(
+        name="openai",
+        keywords=("gpt", "o1", "o3", "o4"),
+        env_key="OPENAI_API_KEY",
+        display_name="OpenAI",
+        backend="openai_compat",
+        default_api_base="https://api.openai.com/v1",
+    ),
 )
 
 

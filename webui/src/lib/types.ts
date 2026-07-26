@@ -345,6 +345,9 @@ export interface SettingsPayload {
       interval_s: number;
       keep_recent_messages: number;
       model_preset: string | null;
+      active_hours: { start: string; end: string } | null;
+      light_context: boolean;
+      isolated_session: boolean;
     };
     dream: {
       schedule: string;
@@ -658,6 +661,10 @@ export interface RuntimeSettingsUpdate {
   heartbeatIntervalS?: number;
   dreamCron?: string;
   heartbeatModelPreset?: string;
+  heartbeatLightContext?: boolean;
+  heartbeatIsolatedSession?: boolean;
+  heartbeatActiveHoursStart?: string;
+  heartbeatActiveHoursEnd?: string;
 }
 
 export type CronScheduleKind = "every" | "cron" | "at";

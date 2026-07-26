@@ -60,6 +60,9 @@ class RouteDeps:
     # 鉴权与连接判断(把 channel 方法以 callable 注入,避免 handler 持有 self)
     check_api_token: "Callable[[WsRequest], bool]"
     is_localhost_connection: "Callable[[Any], bool]"
+    # Origin 校验回调:用于 POST/PUT/DELETE 等状态变更路由的 CSWSH 防护。
+    # 空 Origin(非浏览器客户端)返回 True(放行),非空 Origin 严格匹配白名单。
+    is_origin_allowed: "Callable[[Any], bool]"
     # 4 处副作用回调(触发 channel 侧的状态变更)
     # with_restart_state: 封装 restart-required 段维护 + payload 装饰,替代原
     #   ``self._with_settings_restart_state(payload, section=...)``。

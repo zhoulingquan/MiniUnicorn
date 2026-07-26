@@ -183,6 +183,35 @@ export function extractDreamCron(schedule: string | undefined | null): string {
   return match ? match[1].trim() : "0 3 * * *";
 }
 
+/** Dream 频率预设：用 SegmentedControl 展示的简化选项，避免用户直接写 cron。 */
+export const DREAM_FREQ_PRESETS = [
+  { value: "daily", label: "每天", cron: "0 3 * * *" },
+  { value: "12h", label: "每12h", cron: "0 */12 * * *" },
+  { value: "6h", label: "每6h", cron: "0 */6 * * *" },
+] as const;
+
+export type DreamFreqValue = (typeof DREAM_FREQ_PRESETS)[number]["value"] | "custom";
+
+/**
+ * 把 cron 表达式映射为频率预设值；匹配不上预设则返回 "custom"。
+ */
+export function cronToFreqValue(cron: string): DreamFreqValue {
+  const normalized = cron.trim();
+  for (const preset of DREAM_FREQ_PRESETS) {
+    if (preset.cron === normalized) return preset.value;
+  }
+  return "custom";
+}
+
+/**
+ * 把频率预设值映射为 cron 表达式；"custom" 返回 null（由调用方保留原 cron）。
+ */
+export function freqValueToCron(value: DreamFreqValue): string | null {
+  if (value === "custom") return null;
+  const preset = DREAM_FREQ_PRESETS.find((p) => p.value === value);
+  return preset ? preset.cron : null;
+}
+
 export function titleForSection(section: SettingsSectionKey): string {
   return SETTINGS_NAV_ITEMS.find((item) => item.key === section)?.fallback ?? "Settings";
 }

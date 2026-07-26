@@ -28,7 +28,8 @@ class TestBuildEnvUnix:
     def test_expected_keys(self):
         with patch("miniUnicorn.agent.tools.shell._IS_WINDOWS", False):
             env = ExecTool()._build_env()
-        expected = {"HOME", "LANG", "TERM", "PYTHONUNBUFFERED"}
+        # PATH 显式传入，确保 bash 子进程能找到基本命令（不依赖 profile 设置）
+        expected = {"HOME", "LANG", "TERM", "PYTHONUNBUFFERED", "PATH"}
         assert expected <= set(env)
         if sys.platform != "win32":
             assert set(env) == expected
@@ -253,7 +254,7 @@ class TestSandboxPlatform:
         assert "bwrap" not in spawned_cmd
 
     @pytest.mark.asyncio
-    async def test_bwrap_applied_on_unix(self):
+    async def test_bwrap_applied_on_unix(self, tmp_path):
         """On Unix, sandbox wrapping should still happen normally."""
         mock_proc = AsyncMock()
         mock_proc.communicate.return_value = (b"sandboxed", b"")
@@ -265,7 +266,9 @@ class TestSandboxPlatform:
             patch.object(ExecTool, "_spawn", return_value=mock_proc) as mock_spawn,
             patch.object(ExecTool, "_guard_command", return_value=None),
         ):
-            tool = ExecTool(sandbox="bwrap", working_dir="/workspace")
+            # 使用 tmp_path 确保目录存在,否则 is_path_within(strict=True)
+            # 会因路径不存在而拒绝,导致 wrap_command 永远不会被调用
+            tool = ExecTool(sandbox="bwrap", working_dir=str(tmp_path))
             await tool.execute(command="ls")
 
         mock_wrap.assert_called_once()

@@ -364,6 +364,11 @@ class OpenAICompatProvider(LLMProvider):
         self._responses_failures: dict[str, int] = {}
         self._responses_tripped_at: dict[str, float] = {}
 
+    @property
+    def is_local(self) -> bool:
+        """是否为本地端点(localhost/127.0.0.1 等)。"""
+        return self._is_local
+
     def _build_client(self) -> None:
         """Create the OpenAI client using the current module-level AsyncOpenAI."""
         import httpx
@@ -415,6 +420,26 @@ class OpenAICompatProvider(LLMProvider):
 
             self._build_client()
             return self._client
+
+    async def aclose(self) -> None:
+        """关闭底层 httpx 连接池,释放 socket/文件描述符资源。
+
+        在网关停止或 provider 重新加载时调用,避免连接泄漏导致
+        ``Too many open files`` 错误。重复调用是安全的(幂等)。
+        """
+        client = self._client
+        if client is None:
+            return
+        # 先置 None,避免并发场景下其他协程在关闭过程中误用。
+        self._client = None
+        try:
+            await client.close()
+        except Exception as exc:
+            logger.warning("关闭 OpenAI 客户端连接池失败: {}", exc)
+        # 清理熔断器状态字典,释放残留的 (model, reasoning_effort) 条目。
+        # 这些字典在 provider 实例销毁后无意义,显式清理避免延迟释放。
+        self._responses_failures.clear()
+        self._responses_tripped_at.clear()
 
     async def embed(
         self,
@@ -805,6 +830,10 @@ class OpenAICompatProvider(LLMProvider):
             )
 
     def _record_responses_success(self, model: str | None, reasoning_effort: str | None) -> None:
+        # 成功时清理对应 key,将熔断器从 open/half-open 重置为 closed。
+        # 同时清理 _responses_tripped_at,避免 tripped_at 残留导致下次
+        # 调用时误判为已跳闸(尽管 _responses_circuit_open 会先检查 failures,
+        # 但显式清理更安全,防止状态不一致)。
         key = _responses_circuit_key(model, self.default_model, reasoning_effort)
         self._responses_failures.pop(key, None)
         self._responses_tripped_at.pop(key, None)

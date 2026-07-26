@@ -1,330 +1,300 @@
-# Image Generation
+# 图片生成
 
-MiniUnicorn can generate and edit images through the `generate_image` tool. In the WebUI, users can enable **Image Generation** from the composer, choose an aspect ratio, and keep iterating on generated images inside the same chat.
+MiniUnicorn 通过 `generate_image` 工具支持文生图与参考图编辑。在 WebUI 中开启 **Image Generation** 后，对话中即可调用，并支持基于上一张生成图的迭代编辑。
 
-The feature is disabled by default. Enable it in `~/.miniUnicorn/config.json`, configure a supported image provider, then restart the gateway.
+该功能默认关闭。在 `~/.miniUnicorn/config.json` 中启用并指定一个已配置的 `model_preset`，重启网关后生效。
 
-## Quick Setup
+## 快速上手
 
 ```json
 {
-  "providers": {
-    "openrouter": {
-      "apiKey": "${OPENROUTER_API_KEY}"
-    }
-  },
   "tools": {
     "imageGeneration": {
       "enabled": true,
-      "provider": "openrouter",
-      "model": "openai/gpt-5.4-image-2"
+      "preset": "my_openai"
     }
   }
 }
 ```
 
-See [Provider Notes](#provider-notes) for AIHubMix, MiniMax, Gemini, Ollama, StepFun, and Zhipu configuration examples.
+其中 `my_openai` 是 `agents.model_presets` 字典里已配置的预设名（与 Plan & Execute 的 `plannerModel` 同模式）。凭证（API Key / API Base / extra_headers / extra_body）完全复用该 preset，无需在 `imageGeneration` 下重复声明。
 
 > [!TIP]
-> Prefer environment variables for API keys. MiniUnicorn resolves `${VAR_NAME}` values from the environment at startup.
+> 推荐 API Key 通过环境变量注入。在 `model_presets.<name>.apiKey` 中写 `${VAR_NAME}`，MiniUnicorn 启动时从环境解析。
 
-## WebUI Usage
+## WebUI 使用
 
-In the WebUI composer:
+1. 在 Settings → Image 页面打开 **Enable generate_image**，并选择一个模型预设。
+2. 在对话 composer 中直接描述要生成的图或要做的编辑。
+3. 编辑时把上一轮的 artifact 路径作为 `reference_images` 传回（agent 会自动处理）。
 
-1. Click **Image Generation**.
-2. Choose an aspect ratio: `Auto`, `1:1`, `3:4`, `9:16`, `4:3`, or `16:9`.
-3. Describe the image or the edit you want.
-4. Attach reference images when editing an existing image.
+生成的图保存在本地，agent 拿到 artifact 路径后可通过 `message` 工具的 `media` 参数发给用户。
 
-Generated images are rendered as assistant media in the chat. Follow-up prompts such as "make it warmer", "change the background", or "try a 16:9 version" can reuse the most recent generated artifact.
+## 配置参考
 
-The WebUI hides provider storage details from the user. The agent sees the saved artifact path internally and can pass it back to `generate_image` as `reference_images` for iterative edits.
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `tools.imageGeneration.enabled` | boolean | `false` | 是否注册 `generate_image` 工具 |
+| `tools.imageGeneration.preset` | string | `"default"` | 引用的 `model_preset` 名；`"default"` 或空串表示用主模型预设 |
+| `tools.imageGeneration.apiType` | string | `"images_generations"` | 协议适配器（运行时由 preset 的 provider 自动推断，配置值会被覆盖） |
+| `tools.imageGeneration.responseFormat` | string | `"b64_json"` | 响应格式（运行时由 preset 的 provider 自动推断，配置值会被覆盖） |
+| `tools.imageGeneration.defaultAspectRatio` | string | `"1:1"` | 默认宽高比；prompt 或工具调用未指定时使用 |
+| `tools.imageGeneration.defaultImageSize` | string | `"1K"` | 默认尺寸提示，如 `1K` / `2K` / `4K` / `1024x1024` |
+| `tools.imageGeneration.maxImagesPerTurn` | integer | `4` | 单次工具调用允许的最大张数，范围 1-8 |
+| `tools.imageGeneration.saveDir` | string | `"generated"` | 生成图片的保存子目录（相对于 media 根目录） |
 
-## Configuration Reference
+`camelCase` 与 `snake_case` 都接受，文档统一用 `camelCase` 以与 `config.json` 对齐。
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `tools.imageGeneration.enabled` | boolean | `false` | Register the `generate_image` tool |
-| `tools.imageGeneration.provider` | string | `"openrouter"` | Image provider name. Supported values: `openrouter`, `aihubmix`, `minimax`, `gemini`, `ollama`, `stepfun`, `zhipu` |
-| `tools.imageGeneration.model` | string | `"openai/gpt-5.4-image-2"` | Provider model name |
-| `tools.imageGeneration.defaultAspectRatio` | string | `"1:1"` | Default ratio when the prompt/tool call does not specify one |
-| `tools.imageGeneration.defaultImageSize` | string | `"1K"` | Default size hint, for example `1K`, `2K`, `4K`, or `1024x1024` |
-| `tools.imageGeneration.maxImagesPerTurn` | number | `4` | Maximum `count` accepted by one tool call. Valid range: `1` to `8` |
-| `tools.imageGeneration.saveDir` | string | `"generated"` | Relative directory under MiniUnicorn's media directory for generated artifacts |
+### apiType 自动推断规则
 
-Provider settings reuse normal provider config fields:
+| preset 的 provider | 推断出的 apiType |
+|--------------------|------------------|
+| `dashscope` | `dashscope_multimodal`（阿里通义万相 MultiModalConversation） |
+| `openrouter` | `chat_completions`（OpenRouter 风格 `/chat/completions` with `modalities=["image"]`） |
+| 其他（`openai` / `zhipu` / `stepfun` / `aihubmix` / `minimax` / `gemini` / `ollama` / `custom` / `auto` / 未知 / None） | `images_generations`（OpenAI 标准 `/images/generations`） |
 
-| Option | Description |
-|--------|-------------|
-| `providers.<name>.apiKey` | Provider API key. Prefer `${ENV_VAR}` |
-| `providers.<name>.apiBase` | Optional custom base URL |
-| `providers.<name>.extraHeaders` | Headers merged into provider requests |
-| `providers.<name>.extraBody` | Extra JSON fields merged into provider request bodies |
+### responseFormat 自动推断规则
 
-Both camelCase and snake_case config keys are accepted, but docs use camelCase to match `config.json`.
+仅对 `images_generations` 协议生效；其他协议各自有固定响应结构，不读此字段。
 
-## Provider Notes
+| preset 的 provider | 推断出的 responseFormat |
+|--------------------|-------------------------|
+| `zhipu` / `stepfun` / `minimax` | `url`（返回临时图片 URL，适配器自动下载转 base64） |
+| 其他 | `b64_json`（OpenAI 标准，直接返回 base64） |
 
-### OpenRouter
+## 协议适配器说明
 
-OpenRouter uses a chat-completions style image response. Configure:
+注册表只维护 3 种通用协议适配器（见 [providers/__init__.py](../miniUnicorn/agent/tools/image_generation/providers/__init__.py)），不内置任何具体厂商适配器。所有 provider 通过 `apiType` 选择走哪个协议。
+
+### images_generations（OpenAI 标准）
+
+适用：OpenAI `dall-e-3` / `gpt-image-1`、智谱 cogview、阶跃星辰 step-image、AIHubMix、自部署 SD WebUI OpenAI 兼容端点等。
+
+- 请求：`POST {api_base}/images/generations`
+- 文生图 Body：`{ "model", "prompt", "n", "size", "response_format", ... }`
+- 参考图编辑：当模型属于 `{gpt-image-1, dall-e-2}` 时自动切换到 `POST {api_base}/images/edits` multipart 端点；其他模型退化为文生图 + 在 prompt 中拼接参考图路径（best-effort）。
+- 响应：
+  - `responseFormat="b64_json"`：`{ "data": [{"b64_json": "..."}] }`
+  - `responseFormat="url"`：`{ "data": [{"url": "..."}] }`，适配器下载后转 base64 data URL
+
+### chat_completions（OpenRouter 风格）
+
+适用：OpenRouter 或任何通过 Chat Completions API 返回图片的端点（如 `openai/gpt-image-*` 系列）。
+
+- 请求：`POST {api_base}/chat/completions`
+- Body：`{ "model", "messages": [...], "modalities": ["image", "text"], "image_config": {...}, "stream": false }`
+- 参考图编辑：通过 `messages.content` 多模态结构以 `image_url` 形式传入。
+- 响应：`{ "choices": [{"message": {"images": [{"image_url": {"url": "data:image/..."}}], "content": "..."}}] }`
+
+### dashscope_multimodal（阿里通义万相）
+
+适用：阿里云 DashScope 通义万相系列（`qwen-image-2.0-pro` / `qwen-image-max` / `qwen-image-plus` 等）。
+
+- 请求：`POST {api_base}/services/aigc/multimodal-generation/generation`
+- Headers：`Authorization: Bearer {api_key}`（可加 `X-DashScope-Async: enable` 走异步任务模式）
+- Body：`{ "model", "input": {"messages": [{"role":"user","content":[{"text":"..."},{"image":"data:image/..."}]}]}, "parameters": {"size":"1024*1024","n":1,"watermark":false,"prompt_extend":true} }`
+- 参考图编辑：通过 `messages.content` 的 `image` 字段以 data URL 或 HTTP URL 形式传入。
+- 响应：`{ "output": {"choices": [{"message": {"content": [{"image": "https://..."}]}}]} }`，图片 URL 24h 有效，适配器自动下载转 base64。
+
+## Provider 配置示例
+
+所有 provider 共用同一套 `model_presets` 配置机制。在 `agents.model_presets.<name>` 下声明凭证，再在 `tools.imageGeneration.preset` 里引用该名字即可。
+
+### OpenAI（gpt-image-1 / dall-e-3）
 
 ```json
 {
-  "tools": {
-    "imageGeneration": {
-      "enabled": true,
-      "provider": "openrouter",
-      "model": "openai/gpt-5.4-image-2"
-    }
-  }
-}
-```
-
-Use a model that supports image generation and image editing if you want reference-image edits.
-
-### AIHubMix
-
-AIHubMix `gpt-image-2-free` is supported through AIHubMix's unified predictions API. Internally MiniUnicorn calls:
-
-```text
-/v1/models/openai/gpt-image-2-free/predictions
-```
-
-Configure:
-
-```json
-{
-  "providers": {
-    "aihubmix": {
-      "apiKey": "${AIHUBMIX_API_KEY}",
-      "extraBody": {
-        "quality": "low"
+  "agents": {
+    "model_presets": {
+      "my_openai": {
+        "provider": "openai",
+        "model": "gpt-image-1",
+        "apiKey": "${OPENAI_API_KEY}"
       }
     }
   },
   "tools": {
     "imageGeneration": {
       "enabled": true,
-      "provider": "aihubmix",
-      "model": "gpt-image-2-free"
-    }
-  }
-}
-```
-
-`quality: low` is optional. It can make free image models faster and less likely to time out, but it is not required for correctness.
-
-### MiniMax
-
-MiniMax `image-01` supports text-to-image and reference-image (subject reference) edits. Supported aspect ratios are `1:1`, `16:9`, `4:3`, `3:2`, `2:3`, `3:4`, `9:16`, and `21:9`.
-
-```json
-{
-  "providers": {
-    "minimax": {
-      "apiKey": "${MINIMAX_API_KEY}"
-    }
-  },
-  "tools": {
-    "imageGeneration": {
-      "enabled": true,
-      "provider": "minimax",
-      "model": "image-01",
+      "preset": "my_openai",
       "defaultAspectRatio": "1:1"
     }
   }
 }
 ```
 
-### Gemini
+`gpt-image-1` 支持 `/images/edits` 端点的参考图编辑；`dall-e-3` 仅文生图。
 
-MiniUnicorn supports two Gemini image generation model families via Google's Generative Language API:
-
-| Model | Endpoint | Reference images |
-|-------|----------|-----------------|
-| `imagen-4.0-generate-001` | `:predict` | Not supported by this integration |
-| `gemini-2.5-flash-image` | `:generateContent` | Supported |
-
-For reference-image edits, use a Gemini Flash image model:
+### OpenRouter
 
 ```json
 {
-  "providers": {
-    "gemini": {
-      "apiKey": "${GEMINI_API_KEY}"
+  "agents": {
+    "model_presets": {
+      "my_or": {
+        "provider": "openrouter",
+        "model": "openai/gpt-image-1",
+        "apiKey": "${OPENROUTER_API_KEY}"
+      }
     }
   },
   "tools": {
     "imageGeneration": {
       "enabled": true,
-      "provider": "gemini",
-      "model": "gemini-2.5-flash-image"
+      "preset": "my_or"
     }
   }
 }
 ```
 
-Imagen 4 supports the aspect ratios `1:1`, `9:16`, `16:9`, `3:4`, and `4:3`. Unsupported ratios are ignored and the model uses its default. The `defaultImageSize` setting has no effect on Gemini models; sizing is controlled by `defaultAspectRatio` only. Reference images passed with an Imagen model are ignored (with a warning logged).
-
-### Ollama
-
-Ollama's experimental native image generation API works with local servers and hosted ollama.com models. Local access at `http://localhost:11434/api` does not require an API key; set `providers.ollama.apiKey` only when targeting `https://ollama.com/api`.
+### 阿里通义万相（DashScope）
 
 ```json
 {
-  "providers": {
-    "ollama": {
-      "apiBase": "http://localhost:11434/api"
+  "agents": {
+    "model_presets": {
+      "my_qwen": {
+        "provider": "dashscope",
+        "model": "qwen-image-2.0-pro",
+        "apiKey": "${DASHSCOPE_API_KEY}"
+      }
     }
   },
   "tools": {
     "imageGeneration": {
       "enabled": true,
-      "provider": "ollama",
-      "model": "x/z-image-turbo",
-      "defaultAspectRatio": "16:9",
-      "defaultImageSize": "2K"
+      "preset": "my_qwen"
     }
   }
 }
 ```
 
-Ollama maps `defaultAspectRatio` and `defaultImageSize` to native `width` and `height` values. Reference images are not supported by this integration.
+通义万相走 `dashscope_multimodal` 协议；支持参考图编辑；宽高比映射到 `WIDTH*HEIGHT` 形式（如 `1:1` → `1024*1024`，`16:9` → `1280*720`）。
 
-### StepFun
-
-StepFun (阶跃星辰) `step-image-edit-2` supports text-to-image generation.  The `step-1x-medium` variant additionally supports **style-reference** image edits, where a reference image guides the visual style of the output.
-
-Supported aspect ratios: `1:1`, `16:9`, `9:16`, `3:4`, `4:3`.  Sizes are specified as `WIDTHxHEIGHT` (e.g. `1024x1024`, `1280x800`, `800x1280`).
+### 智谱 cogview
 
 ```json
 {
-  "providers": {
-    "stepfun": {
-      "apiKey": "${STEPFUN_API_KEY}"
+  "agents": {
+    "model_presets": {
+      "my_zhipu": {
+        "provider": "zhipu",
+        "model": "glm-image",
+        "apiKey": "${ZAI_API_KEY}"
+      }
     }
   },
   "tools": {
     "imageGeneration": {
       "enabled": true,
-      "provider": "stepfun",
-      "model": "step-image-edit-2"
+      "preset": "my_zhipu"
+    }
+  }
+}
+```
+
+走 `images_generations` 协议；`responseFormat` 自动推断为 `url`（返回临时 URL，30 天有效，适配器自动下载）。其他可选模型：`cogview-4` / `cogview-4-250304` / `cogview-3-flash`。不支持参考图编辑。
+
+### 其他 OpenAI 兼容端点
+
+只要 provider 对应的 API 兼容 OpenAI 标准 `/images/generations`，都可走 `images_generations` 协议。在 `model_presets.<name>` 里配置 `provider` / `apiBase` / `apiKey` 后，把 `tools.imageGeneration.preset` 指向该预设即可。
+
+> [!IMPORTANT]
+> 旧版本文档曾提到 `tools.imageGeneration.provider` / `tools.imageGeneration.model` 字段，以及 `gemini` / `ollama` / `aihubmix` 原生适配器，这些已全部废弃。当前实现只保留 3 种通用协议适配器，凭证统一通过 `preset` 复用 `model_presets`。
+
+## 进阶：通过 extra_body 传 provider 专属参数
+
+`model_presets.<name>.extraBody` 中的字段会被合并到请求体。可用于传 `quality` / `style` / `seed` / `negative_prompt` 等模型专属字段。
+
+```json
+{
+  "agents": {
+    "model_presets": {
+      "my_openai_hq": {
+        "provider": "openai",
+        "model": "gpt-image-1",
+        "apiKey": "${OPENAI_API_KEY}",
+        "extraBody": {
+          "quality": "high"
+        }
+      }
+    }
+  },
+  "tools": {
+    "imageGeneration": {
+      "enabled": true,
+      "preset": "my_openai_hq"
     }
   }
 }
 ```
 
 > [!NOTE]
-> The StepFun provider reuses the existing `providers.stepfun` config block (the same one used for StepFun's LLM API).  Set `providers.stepfun.apiKey` once and it is shared between text and image generation.
->
-> When `step-image-edit-2` is used, `reference_images` are ignored (the model does not support style reference).  Switch to `step-1x-medium` to use reference-image-guided generation.
+> 没有专用 UI 控件的高级用户可在 `extraBody` 里直接写 provider 专属字段；适配器会原样透传到请求体。
 
-#### StepPlan (Subscription)
+## 工具参数参考
 
-StepPlan is StepFun's subscription tier and uses a different API base URL. The image generation endpoint path is the same — just override `apiBase`:
-
-```json
-{
-  "providers": {
-    "stepfun": {
-      "apiKey": "${STEPFUN_API_KEY}",
-      "apiBase": "https://api.stepfun.com/step_plan/v1"
-    }
-  },
-  "tools": {
-    "imageGeneration": {
-      "enabled": true,
-      "provider": "stepfun",
-      "model": "step-image-edit-2"
-    }
-  }
-}
-```
-
-`apiBase` takes precedence over the registry default, so with the StepPlan base URL configured, image requests are sent to `https://api.stepfun.com/step_plan/v1/images/generations` — the same path prefix used for LLM calls. The API key is shared with the standard StepFun provider.
-
-### Zhipu
-
-Zhipu (智谱) `glm-image` model supports text-to-image generation. The API returns temporary image URLs (valid for 30 days); MiniUnicorn downloads and re-encodes them as base64 data URLs.
-
-Supported aspect ratios: `1:1`, `16:9`, `9:16`, `3:4`, `4:3`. Sizes can be specified as `WIDTHxHEIGHT` (e.g. `1280x1280`, `1728x960`) or using aspect ratio presets.
-
-```json
-{
-  "providers": {
-    "zhipu": {
-      "apiKey": "${ZAI_API_KEY}"
-    }
-  },
-  "tools": {
-    "imageGeneration": {
-      "enabled": true,
-      "provider": "zhipu",
-      "model": "glm-image"
-    }
-  }
-}
-```
-
-Other supported models: `cogview-4`, `cogview-4-250304`, `cogview-3-flash`. Reference images are not supported by this integration.
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `prompt` | string | 是 | 图像生成或编辑的描述 |
+| `reference_images` | string[] | 否 | 参考图本地路径列表（用于迭代编辑） |
+| `aspect_ratio` | string | 否 | 输出宽高比，未指定时用配置默认值 |
+| `image_size` | string | 否 | 输出尺寸提示，未指定时用配置默认值 |
+| `count` | integer | 否 | 本次生成张数，范围 1-`maxImagesPerTurn` |
 
 ## Artifacts
 
-Generated images are stored under the active MiniUnicorn instance's media directory:
+生成的图片按以下结构落盘：
 
 ```text
 ~/.miniUnicorn/media/generated/YYYY-MM-DD/img_<id>.<ext>
 ~/.miniUnicorn/media/generated/YYYY-MM-DD/img_<id>.json
 ```
 
-For non-default config locations, the media directory is relative to the active config file's directory.
+JSON sidecar 字段：
 
-The JSON sidecar stores:
+| 字段 | 含义 |
+|------|------|
+| `id` | 短 ID，如 `img_ab12cd34ef56` |
+| `path` | 本地图片路径（供后续编辑时作为 `reference_images` 传回） |
+| `mime` | 探测出的 MIME 类型 |
+| `prompt` | 本次生成使用的 prompt |
+| `model` | provider 模型名 |
+| `provider` | preset 名 |
+| `source_images` | 编辑时使用的参考图路径列表 |
+| `created_at` | 创建时间戳 |
 
-| Field | Meaning |
-|-------|---------|
-| `id` | Short generated image id, such as `img_ab12cd34ef56` |
-| `path` | Local image path used internally for follow-up edits |
-| `mime` | Detected image MIME type |
-| `prompt` | Prompt used for the generation |
-| `model` | Provider model |
-| `provider` | Provider name |
-| `source_images` | Reference image paths used for edits |
-| `created_at` | Creation timestamp |
+不要把 base64 图片直接贴进对话。agent 会保持 artifact 路径内部使用，除非用户明确要求调试细节。
 
-Do not paste base64 image payloads into chat. The agent should keep local artifact paths internal unless the user explicitly asks for debugging details.
+## Prompt 写法建议
 
-## Prompting
+好的图像 prompt 通常包含：
 
-Good image prompts include:
+- 主体与场景
+- 构图、镜头或布局
+- 风格、氛围、光照、配色
+- 必须出现在图中的文字（用引号）
+- 约束条件，如"保持同一角色"或"保留 logo"
 
-- Subject and scene.
-- Composition, camera, or layout.
-- Style, mood, lighting, and color palette.
-- Exact text that must appear in the image, quoted.
-- Constraints such as "keep the same character" or "preserve the logo".
-
-Example:
+示例：
 
 ```text
 A minimal app icon for MiniUnicorn: friendly robot head, rounded square, soft blue and white palette, clean vector style, no text
 ```
 
-For edits, describe what should change and what must stay fixed:
+编辑场景的写法：
 
 ```text
 Use the reference image. Keep the same robot and composition, change the palette to warm orange, and add a subtle sunrise background.
 ```
 
-## Troubleshooting
+## 故障排查
 
-| Symptom | Check |
-|---------|-------|
-| `generate_image` is not available | Set `tools.imageGeneration.enabled` to `true` and restart the gateway |
-| Missing API key error | Configure `providers.<provider>.apiKey`; if using `${VAR_NAME}`, confirm the environment variable is visible to the gateway process |
-| `unsupported image generation provider` | Use `openrouter`, `aihubmix`, `minimax`, `gemini`, `ollama`, `stepfun`, or `zhipu` |
-| AIHubMix says `Incorrect model ID` | Use `model: "gpt-image-2-free"`; MiniUnicorn expands it to the required `openai/gpt-image-2-free` model path internally |
-| Generation times out | Try a smaller/default image size, set AIHubMix `extraBody.quality` to `"low"`, or retry later |
-| Reference image rejected | Reference image paths must be inside the workspace or MiniUnicorn media directory and must be valid image files |
+| 症状 | 排查 |
+|------|------|
+| `generate_image` 不出现在工具列表 | 确认 `tools.imageGeneration.enabled=true` 并重启网关 |
+| 提示 Missing API key | 检查 `tools.imageGeneration.preset` 引用的 `model_presets.<name>.apiKey`；若用 `${VAR_NAME}`，确认环境变量在网关进程可见 |
+| `unsupported image generation provider` | 当前实现只有 3 种协议适配器；provider 必须能映射到 `images_generations` / `chat_completions` / `dashscope_multimodal` 之一（详见上方"apiType 自动推断规则"） |
+| `preset 'xxx' not found in model_presets` | preset 名必须存在于 `agents.model_presets`，或为 `"default"`（用主模型） |
+| 生成超时 | 调小 `defaultImageSize`；通过 `extraBody.quality: "low"` 降低质量换速度；或换更稳定的 provider |
+| 参考图被拒 | 参考图必须落在 workspace 或 MiniUnicorn media 目录内，扩展名为 png/jpg/jpeg/webp/gif，且 magic bytes 与扩展名一致 |

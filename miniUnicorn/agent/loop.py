@@ -207,6 +207,16 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             self.context_window_tokens = get_model_context_limit(
                 self.model, raise_on_unknown=True
             )
+        # resolved_context_window_tokens: 后端解析值,用于 /status 等显示场景
+        # 优先使用用户显式配置,否则回退到默认值(DEFAULT_CONTEXT_LIMIT)
+        # 不依赖学习表缓存,因为学习表可能包含过时或误匹配的值(如 test-model → 512)
+        from miniUnicorn.cli.models import DEFAULT_CONTEXT_LIMIT
+
+        self.resolved_context_window_tokens = (
+            context_window_tokens
+            if context_window_tokens is not None
+            else defaults.context_window_tokens
+        ) or DEFAULT_CONTEXT_LIMIT
         self.context_block_limit = context_block_limit
         self.max_tool_result_chars = (
             max_tool_result_chars
@@ -282,7 +292,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         self._mcp_connected = False
         self._mcp_connecting = False
         self._active_tasks: dict[str, list[asyncio.Task]] = {}  # session_key -> tasks
-        self._background_tasks: list[asyncio.Task] = []
+        self._background_tasks: set[asyncio.Task] = set()
         self._session_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
         # Per-session pending queues for mid-turn message injection.
         # When a session has an active task, new messages for that session
@@ -313,6 +323,21 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             store=self.context.memory,
             provider=provider,
             model=self.model,
+            max_batch_size=defaults.dream.max_batch_size,
+            max_iterations=defaults.dream.max_iterations,
+            annotate_line_ages=defaults.dream.annotate_line_ages,
+        )
+        # Dream 空闲触发器：用户停用时后台触发 Dream，不依赖 cron 定时。
+        # 解决"用户不 24h 运行 gateway，凌晨 cron 点大概率关机"的问题。
+        # gateway 启动时由 _gateway_runner 从 DreamConfig 同步配置。
+        from miniUnicorn.agent.dream_trigger import DreamIdleTrigger
+
+        self.dream_idle_trigger = DreamIdleTrigger(
+            self.dream,
+            enabled=defaults.dream.idle_trigger_enabled,
+            min_idle_seconds=defaults.dream.idle_trigger_min_seconds,
+            min_entries=defaults.dream.idle_trigger_min_entries,
+            min_interval_s=defaults.dream.idle_trigger_min_interval_s,
         )
         # Attach vector store to memory if enabled (optional sqlite-vec dependency).
         self._vector_recall = vector_recall
@@ -504,10 +529,17 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         """
         tasks = self._active_tasks.pop(key, [])
         cancelled = sum(1 for t in tasks if not t.done() and t.cancel())
+        # 为每个任务等待设置超时，避免 /stop 因单个任务卡死而长时间阻塞
         for t in tasks:
             with suppress(asyncio.CancelledError, Exception):
-                await t
-        sub_cancelled = await self.subagents.cancel_by_session(key)
+                await asyncio.wait_for(t, timeout=10.0)
+        # subagents 取消也加超时保护，超时则返回已取消的部分
+        try:
+            sub_cancelled = await asyncio.wait_for(
+                self.subagents.cancel_by_session(key), timeout=10.0
+            )
+        except asyncio.TimeoutError:
+            sub_cancelled = 0
         return cancelled + sub_cancelled
 
     def _effective_session_key(self, msg: InboundMessage) -> str:
@@ -769,11 +801,18 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                     self._schedule_background,
                     active_session_keys=self._pending_queues.keys(),
                 )
+                # Dream 空闲触发：无活跃会话且有积压数据时后台触发 Dream
+                await self.dream_idle_trigger.maybe_trigger(
+                    active_session_keys=self._pending_queues.keys(),
+                )
                 continue
             except asyncio.CancelledError:
                 # Preserve real task cancellation so shutdown can complete cleanly.
                 # Only ignore non-task CancelledError signals that may leak from integrations.
-                if not self._running or asyncio.current_task().cancelling():
+                # 兼容写法：低版本 Python 没有 Task.cancelling()
+                _task = asyncio.current_task()
+                _cancelling = getattr(_task, "cancelling", lambda: 0)() if _task else 0
+                if not self._running or _cancelling:
                     raise
                 continue
             except Exception as e:
@@ -781,6 +820,8 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                 continue
 
             raw = msg.content.strip()
+            # 标记用户有新活动，重置 Dream 空闲触发器的空闲计时器
+            self.dream_idle_trigger.notify_user_activity()
             effective_key = self._effective_session_key(msg)
             if await agent_context.handle_runtime_control(self, msg, self.tools):
                 continue
@@ -975,8 +1016,9 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
     def _schedule_background(self, coro) -> None:
         """Schedule a coroutine as a tracked background task (drained on shutdown)."""
         task = asyncio.create_task(coro)
-        self._background_tasks.append(task)
-        task.add_done_callback(self._background_tasks.remove)
+        # 使用 set 而非 list，回调用 discard 避免 remove 时 KeyError
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     def stop(self) -> None:
         """Stop the agent loop."""
@@ -1074,6 +1116,12 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         outbound_metadata: dict[str, Any] = {}
         if origin_message_id := msg.metadata.get("origin_message_id"):
             outbound_metadata["origin_message_id"] = origin_message_id
+        # 从 thread-scoped session key 中提取 slack thread_ts,确保 subagent
+        # followup 回到原线程而非频道主页(session key 格式: slack:C123:1700.42)
+        if channel == "slack":
+            parts = key.split(":", 2)
+            if len(parts) == 3:
+                outbound_metadata["slack"] = {"thread_ts": parts[2]}
         return OutboundMessage(
             channel=channel,
             chat_id=chat_id,

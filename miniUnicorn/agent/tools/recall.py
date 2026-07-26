@@ -7,6 +7,7 @@ relying only on what was injected into the system prompt.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from loguru import logger
@@ -106,7 +107,14 @@ class RecallTool(Tool):
             return "Recall is not available (provider does not support embeddings)."
         except Exception as exc:
             logger.exception("recall: embedding failed")
-            return f"Error generating query embedding: {exc}"
+            # 错误信息脱敏:遮蔽可能泄露的 API key / Bearer token 等敏感凭证,
+            # 避免这些值原样回传给模型并可能被记录到对话历史中。
+            _safe_msg = re.sub(
+                r"(sk-[A-Za-z0-9]{8,}|Bearer\s+[A-Za-z0-9]{8,})",
+                "***",
+                str(exc),
+            )
+            return f"Error generating query embedding: {_safe_msg}"
 
         if not embeddings:
             return "No results (empty embedding)."

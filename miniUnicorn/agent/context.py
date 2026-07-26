@@ -98,6 +98,7 @@ class ContextBuilder:
         query_embedding: list[float] | None = None,
         vector_recall: bool = False,
         agent_override: SubagentDefinition | None = None,
+        light_context: bool = False,
     ) -> str:
         """Build the system prompt from identity, bootstrap files, memory, and skills.
 
@@ -124,9 +125,12 @@ class ContextBuilder:
         else:
             parts.append((self._PRIORITY_CRITICAL, self._get_identity(channel=channel, workspace=root)))
 
-        bootstrap = self._load_bootstrap_files(root)
-        if bootstrap:
-            parts.append((self._PRIORITY_CRITICAL, bootstrap))
+        # light_context 模式跳过 bootstrap 文件(AGENTS.md/SOUL.md/USER.md),
+        # 仅保留身份+工具契约+记忆,显著降低 token 消耗。用于心跳等轻量巡检场景。
+        if not light_context:
+            bootstrap = self._load_bootstrap_files(root)
+            if bootstrap:
+                parts.append((self._PRIORITY_CRITICAL, bootstrap))
 
         parts.append((self._PRIORITY_CRITICAL, render_template("agent/tool_contract.md")))
 
@@ -465,6 +469,8 @@ class ContextBuilder:
             merged = f"{user_content}\n\n{runtime_ctx}"
         else:
             merged = user_content + [{"type": "text", "text": runtime_ctx}]
+        # light_context 从 runtime_state 读取(由 AgentLoop 设置,用于心跳等轻量场景)
+        light_context = bool(getattr(runtime_state, "_light_context", False)) if runtime_state else False
         messages = [
             {
                 "role": "system",
@@ -476,6 +482,7 @@ class ContextBuilder:
                     query_embedding=query_embedding,
                     vector_recall=vector_recall,
                     agent_override=agent_override,
+                    light_context=light_context,
                 ),
             },
             *history,

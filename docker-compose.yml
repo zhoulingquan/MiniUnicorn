@@ -15,7 +15,7 @@ x-common-config: &common-config
     dockerfile: Dockerfile
   image: miniunicorn:local
   volumes:
-    - ${MINIUNICORN_CONFIG:-~/.miniUnicorn}:/home/miniUnicorn/.miniUnicorn
+    - ${MINIUNICORN_CONFIG:-${HOME}/.miniUnicorn}:/home/miniUnicorn/.miniUnicorn
   # drop all caps, only add SYS_ADMIN for bubblewrap sandbox
   cap_drop:
     - ALL

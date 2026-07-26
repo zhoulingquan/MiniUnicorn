@@ -147,6 +147,10 @@ class QQChannel(BaseChannel):
 
         self._client: botpy.Client | None = None
         self._http: aiohttp.ClientSession | None = None
+        # 保护 _http 懒初始化的异步锁:防止并发协程同时创建多个 ClientSession,
+        # 导致早期创建的 session 泄漏(未关闭连接池)。start() 中的初始化在
+        # 事件循环启动前完成,无需加锁;此处保护 download 路径的懒初始化。
+        self._http_lock: asyncio.Lock = asyncio.Lock()
 
         self._processed_ids: deque[str] = deque(maxlen=1000)
         self._msg_seq: int = 1  # used to avoid QQ API dedup

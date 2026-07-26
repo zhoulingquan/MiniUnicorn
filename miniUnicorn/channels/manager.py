@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from collections import OrderedDict
 from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
@@ -53,6 +54,9 @@ class ChannelManager:
     - Route outbound messages
     """
 
+    # 去重指纹缓存上限:超过时按 LRU 策略淘汰最旧条目,避免长期运行导致内存无限增长。
+    _MAX_ORIGIN_REPLY_FINGERPRINTS = 10000
+
     def __init__(
         self,
         config: Config,
@@ -83,7 +87,9 @@ class ChannelManager:
         self._webui_tool_registry = webui_tool_registry
         self.channels: dict[str, BaseChannel] = {}
         self._dispatch_task: asyncio.Task | None = None
-        self._origin_reply_fingerprints: dict[tuple[str, str, str], str] = {}
+        # 去重指纹缓存:使用 OrderedDict 实现 LRU,访问/写入时 move_to_end,
+        # 超过 _MAX_ORIGIN_REPLY_FINGERPRINTS 时淘汰最旧条目。
+        self._origin_reply_fingerprints: OrderedDict[tuple[str, str, str], str] = OrderedDict()
 
         self._init_channels()
 
@@ -306,16 +312,38 @@ class ChannelManager:
         origin_message_id = metadata.get("origin_message_id")
         if isinstance(origin_message_id, str) and origin_message_id:
             key = (msg.channel, msg.chat_id, origin_message_id)
+            # 命中时 move_to_end 维护 LRU 顺序,使最近访问的 key 不被优先淘汰。
+            # 仅当容器支持 LRU 排序(OrderedDict)时才执行 move_to_end,允许
+            # 测试用普通 dict 替换该字段而不破坏基本去重行为。
             if self._origin_reply_fingerprints.get(key) == fingerprint:
+                if hasattr(self._origin_reply_fingerprints, "move_to_end"):
+                    self._origin_reply_fingerprints.move_to_end(key)
                 return True
-            self._origin_reply_fingerprints[key] = fingerprint
+            self._record_origin_reply_fingerprint(key, fingerprint)
 
         message_id = metadata.get("message_id")
         if isinstance(message_id, str) and message_id:
             key = (msg.channel, msg.chat_id, message_id)
-            self._origin_reply_fingerprints[key] = fingerprint
+            self._record_origin_reply_fingerprint(key, fingerprint)
 
         return False
+
+    def _record_origin_reply_fingerprint(
+        self, key: tuple[str, str, str], fingerprint: str
+    ) -> None:
+        """写入去重指纹缓存并按 LRU 策略淘汰最旧条目。
+
+        新写入或覆盖的 key 都会 move_to_end,确保最近写入的 key 不会被
+        优先淘汰;当条目数超过 ``_MAX_ORIGIN_REPLY_FINGERPRINTS`` 时,
+        从头部弹出最旧的 key。当容器为普通 dict(不支持 LRU 排序)时,
+        仅写入不维护顺序,允许测试用普通 dict 替换该字段。
+        """
+        self._origin_reply_fingerprints[key] = fingerprint
+        if not hasattr(self._origin_reply_fingerprints, "move_to_end"):
+            return
+        self._origin_reply_fingerprints.move_to_end(key)
+        while len(self._origin_reply_fingerprints) > self._MAX_ORIGIN_REPLY_FINGERPRINTS:
+            self._origin_reply_fingerprints.popitem(last=False)
 
     async def _dispatch_outbound(self) -> None:
         """Dispatch outbound messages to the appropriate channel."""

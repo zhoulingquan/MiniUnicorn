@@ -34,8 +34,22 @@ class AutoCompact:
         return ((now or datetime.now()) - ts).total_seconds() >= self._ttl * 60
 
     @staticmethod
-    def _format_summary(text: str, last_active: datetime) -> str:
-        return f"Previous conversation summary (last active {last_active.isoformat()}):\n{text}"
+    def _format_summary(
+        text: str,
+        last_active: datetime,
+        verbatim: list[str] | None = None,
+    ) -> str:
+        base = f"Previous conversation summary (last active {last_active.isoformat()}):\n{text}"
+        if not verbatim:
+            return base
+        # 拼接最近用户消息原文(防改写偏离),每条截断到 500 字符
+        lines = ["Recent user messages (verbatim):"]
+        for msg in verbatim:
+            if len(msg) > 500:
+                lines.append(msg[:500] + "...")
+            else:
+                lines.append(msg)
+        return base + "\n" + "\n".join(lines)
 
     def check_expired(self, schedule_background: Callable[[Coroutine], None],
                       active_session_keys: Collection[str] = ()) -> None:
@@ -49,7 +63,12 @@ class AutoCompact:
                 continue
             if self._is_expired(info.get("updated_at"), now):
                 self._archiving.add(key)
-                schedule_background(self._archive(key))
+                # 先标记再调度，调度失败需回滚标记，避免任务集泄漏
+                try:
+                    schedule_background(self._archive(key))
+                except Exception:
+                    self._archiving.discard(key)
+                    raise
 
     async def _archive(self, key: str) -> None:
         try:

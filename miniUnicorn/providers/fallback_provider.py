@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -98,6 +99,11 @@ class FallbackProvider(LLMProvider):
     @property
     def supports_progress_deltas(self) -> bool:
         return bool(getattr(self._primary, "supports_progress_deltas", False))
+
+    @property
+    def is_local(self) -> bool:
+        """透传 primary provider 的 is_local 属性。"""
+        return getattr(self._primary, "is_local", False)
 
     def _primary_available(self) -> bool:
         """Return True if the primary provider is not currently tripped."""
@@ -205,16 +211,20 @@ class FallbackProvider(LLMProvider):
                 name: kwargs.get(name, _MISSING)
                 for name in ("model", "max_tokens", "temperature", "reasoning_effort")
             }
-            kwargs["model"] = fallback_model
-            kwargs["max_tokens"] = fallback.max_tokens
-            kwargs["temperature"] = fallback.temperature
+            # 每次迭代深拷贝 kwargs,避免下游 provider 对字典的副作用
+            # (如增删 key、修改嵌套结构)污染下一轮 fallback 的入参。
+            fb_kwargs = copy.deepcopy(kwargs)
+            fb_kwargs["model"] = fallback_model
+            fb_kwargs["max_tokens"] = fallback.max_tokens
+            fb_kwargs["temperature"] = fallback.temperature
             if fallback.reasoning_effort is None:
-                kwargs.pop("reasoning_effort", None)
+                fb_kwargs.pop("reasoning_effort", None)
             else:
-                kwargs["reasoning_effort"] = fallback.reasoning_effort
+                fb_kwargs["reasoning_effort"] = fallback.reasoning_effort
             try:
-                fallback_response = await call(fallback_provider, kwargs)
+                fallback_response = await call(fallback_provider, fb_kwargs)
             finally:
+                # 深拷贝已隔离副作用,但为保持向后兼容仍恢复原始 kwargs 的 4 个 key。
                 for name, value in original_values.items():
                     if value is _MISSING:
                         kwargs.pop(name, None)

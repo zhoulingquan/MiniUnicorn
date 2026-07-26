@@ -25,34 +25,53 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 
 整个系统围绕一个异步消息总线展开，分四层：
 
-```
-┌─────────────────────────────────────────────────────┐
-│  频道层  (channels/)                                  │
-│  飞书 · 钉钉 · 企微 · 微信 · QQ · WebSocket(WebUI)    │
-└──────────────────┬──────────────────────────────────┘
-                   │ InboundMessage
-                   ▼
-┌─────────────────────────────────────────────────────┐
-│  消息总线  (bus/queue.py · ~130 行)                   │
-│  异步队列，解耦频道与代理                              │
-└──────────────────┬──────────────────────────────────┘
-                   │
-                   ▼
-┌─────────────────────────────────────────────────────┐
-│  代理核心  (agent/)                                   │
-│  AgentLoop ─→ AgentRunner ─→ LLM Provider            │
-│              ├─ ToolRegistry (工具调度)               │
-│              ├─ SessionManager (会话与压缩)            │
-│              ├─ Dream (两阶段记忆整合)                 │
-│              └─ SubagentManager (子代理委派)           │
-└──────────────────┬──────────────────────────────────┘
-                   │ OutboundMessage
-                   ▼
-┌─────────────────────────────────────────────────────┐
-│  能力层  (tools/ · skills/ · providers/)              │
-│  文件系统 · Shell · 网页搜索 · MCP · 定时任务 · ...    │
-└─────────────────────────────────────────────────────┘
-```
+<div align="center">
+<table>
+<tr><td>
+
+**频道层** `channels/`<br>
+飞书 · 钉钉 · 企微 · 微信 · QQ · WebSocket(WebUI)
+
+</td></tr>
+</table>
+
+<sub>↓ InboundMessage</sub>
+
+<table>
+<tr><td>
+
+**消息总线** `bus/queue.py` (~130 行)<br>
+异步队列，解耦频道与代理
+
+</td></tr>
+</table>
+
+<sub>↓</sub>
+
+<table>
+<tr><td>
+
+**代理核心** `agent/`<br>
+<code>AgentLoop</code> → <code>AgentRunner</code> → <code>LLM Provider</code><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├─ ToolRegistry (工具调度)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├─ SessionManager (会话与压缩)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├─ Dream (两阶段记忆整合)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└─ SubagentManager (子代理委派)
+
+</td></tr>
+</table>
+
+<sub>↓ OutboundMessage</sub>
+
+<table>
+<tr><td>
+
+**能力层** `tools/ · skills/ · providers/`<br>
+文件系统 · Shell · 网页搜索 · MCP · 定时任务 · ...
+
+</td></tr>
+</table>
+</div>
 
 ### 核心运行时
 

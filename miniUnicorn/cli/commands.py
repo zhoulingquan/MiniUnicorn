@@ -36,12 +36,12 @@ from typing import Any
 # Force UTF-8 encoding for Windows console
 if sys.platform == "win32":
     if sys.stdout.encoding != "utf-8":
-        os.environ["PYTHONIOENCODING"] = "utf-8"
-        # Re-open stdout/stderr with UTF-8 encoding
+        # 运行时设置 PYTHONIOENCODING 已无效（解释器启动时已读取），直接 reconfigure
         with suppress(Exception):
             sys.stdout.reconfigure(encoding="utf-8", errors="replace")
             sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
+import click
 import typer
 from loguru import logger
 
@@ -143,6 +143,13 @@ def onboard(
 
     if config:
         config_path = Path(config).expanduser().resolve()
+        # 校验路径不在系统目录，避免误操作覆盖系统文件
+        _BLOCKED_PATHS = {"/etc", "/usr", "/bin", "/sbin", "/var", "/boot", "/sys", "/proc"}
+        config_str = str(config_path)
+        if config_str in _BLOCKED_PATHS or any(
+            config_str.startswith(p + "/") for p in _BLOCKED_PATHS
+        ):
+            raise click.UsageError(f"--config 路径不允许指向系统目录: {config_path}")
         set_config_path(config_path)
         console.print(f"[dim]Using config: {config_path}[/dim]")
     else:
@@ -246,6 +253,8 @@ def _merge_missing_defaults(existing: Any, defaults: Any) -> Any:
 def _onboard_plugins(config_path: Path) -> None:
     """Inject default config for all discovered channels (built-in + plugins)."""
     import json
+    import os
+    import tempfile
 
     from miniUnicorn.channels.registry import discover_all
 
@@ -263,8 +272,17 @@ def _onboard_plugins(config_path: Path) -> None:
         else:
             channels[name] = _merge_missing_defaults(channels[name], cls.default_config())
 
-    with open(config_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    # 原子写：先写入临时文件，再 os.replace 覆盖目标，避免写入中途崩溃导致配置损坏
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=config_path.parent, prefix=".tmp_")
+    try:
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        os.replace(tmp_path, config_path)
+    except Exception:
+        # 写入失败时清理临时文件，避免残留
+        with suppress(Exception):
+            os.unlink(tmp_path)
+        raise
 
 
 def _model_display(config: Config) -> tuple[str, str]:
@@ -1052,6 +1070,44 @@ def provider_logout(
 ):
     """Log out from an OAuth provider."""
     _resolve_oauth_provider(provider)
+
+
+# === 向后兼容 re-export ===
+# 这些符号已迁移到专门模块,但测试通过 monkeypatch / unittest.mock.patch 替换
+# commands 模块上的属性(例如 patch("miniUnicorn.cli.commands.evaluate_response", ...)),
+# 因此在此 re-export 保持兼容。调用方应通过 commands.<name> 走 late binding 访问,
+# 这样替换才能生效。
+#
+# 注意:下方 import 中已剔除文件顶部从 _terminal_render 引入过的符号
+# (_print_agent_response / _print_cli_reasoning / _ReasoningBuffer / _sanitize_surrogates),
+# 避免重复 import。它们仍属于本模块的兼容导出表面(见 __all___compat__)。
+from miniUnicorn.cli._terminal_render import (
+    FileHistory,
+    SafeFileHistory,
+    _print_interactive_line,
+    _print_interactive_progress_line,
+    _render_interactive_ansi,
+    _response_renderable,
+    patch_stdout,
+)
+from miniUnicorn.utils.evaluator import evaluate_response
+
+# 显式声明 __all__ 之外的兼容导出(避免被 linter 当作未使用而移除)。
+# 同时列出文件顶部已 import 的符号,以便集中查阅兼容表面。
+__all___compat__ = (
+    "FileHistory",
+    "SafeFileHistory",
+    "patch_stdout",
+    "_print_agent_response",
+    "_print_cli_reasoning",
+    "_print_interactive_line",
+    "_print_interactive_progress_line",
+    "_ReasoningBuffer",
+    "_render_interactive_ansi",
+    "_response_renderable",
+    "_sanitize_surrogates",
+    "evaluate_response",
+)
 
 
 if __name__ == "__main__":

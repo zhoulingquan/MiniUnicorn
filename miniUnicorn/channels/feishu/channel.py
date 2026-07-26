@@ -216,6 +216,11 @@ class FeishuChannel(BaseChannel):
     display_name = "Feishu"
 
     _STREAM_EDIT_INTERVAL = 0.5  # throttle between CardKit streaming updates
+    # 流缓冲 TTL:超过该时长(秒)未更新的 buf 视为陈旧并被清理。
+    # 30 分钟足以覆盖正常流式回复间隔,异常中断的流不会长期占用内存。
+    _STREAM_BUF_TTL = 1800
+    # 清理任务周期:每 5 分钟扫描一次,在及时回收与 CPU 开销之间取折中。
+    _STREAM_BUF_CLEANUP_INTERVAL = 300
 
     @classmethod
     def default_config(cls) -> dict[str, Any]:
@@ -234,6 +239,9 @@ class FeishuChannel(BaseChannel):
         self._bot_open_id: str | None = None
         self._background_tasks: set[asyncio.Task] = set()
         self._reaction_ids: dict[str, str] = {}  # message_id → reaction_id
+        # 流缓冲 TTL 清理任务:周期性删除超过 _STREAM_BUF_TTL 未更新的 buf,
+        # 防止异常中断的流(无 stream_end)导致 _stream_bufs 内存泄漏。
+        self._stream_buf_cleanup_task: asyncio.Task | None = None
 
     # ------------------------------------------------------------------
     # QR login — writes credentials directly to config.json
@@ -391,6 +399,9 @@ class FeishuChannel(BaseChannel):
         self.logger.info("bot started with WebSocket long connection")
         self.logger.info("No public IP required - using WebSocket to receive events")
 
+        # 启动流缓冲 TTL 清理后台任务
+        self._stream_buf_cleanup_task = asyncio.create_task(self._stream_buf_cleanup_loop())
+
         # Keep running until stopped
         while self._running:
             await asyncio.sleep(1)
@@ -404,6 +415,12 @@ class FeishuChannel(BaseChannel):
         Reference: https://github.com/larksuite/oapi-sdk-python/blob/v2_main/lark_oapi/ws/client.py#L86
         """
         self._running = False
+        # 取消流缓冲清理任务,等待其退出
+        if self._stream_buf_cleanup_task is not None:
+            self._stream_buf_cleanup_task.cancel()
+            with suppress(Exception):
+                await self._stream_buf_cleanup_task
+            self._stream_buf_cleanup_task = None
         await self._ws_runner.stop_client(self.name)
         self.logger.info("bot stopped")
 
@@ -618,6 +635,35 @@ class FeishuChannel(BaseChannel):
             task.result()
         except Exception as exc:
             self.logger.warning("Background task failed: {}", exc)
+
+    async def _cleanup_stale_stream_bufs(self) -> None:
+        """周期性清理超过 ``_STREAM_BUF_TTL`` 未更新的流缓冲。
+
+        正常流式回复会在 ``stream_end`` 时主动 ``pop`` 缓冲;但若上游异常
+        中断(进程崩溃/网络断开)导致 ``stream_end`` 未送达,buf 会残留在
+        ``_stream_bufs`` 中。此处用 TTL 兜底回收,避免内存无限增长。
+        """
+        cutoff = time.monotonic() - self._STREAM_BUF_TTL
+        stale = [k for k, v in self._stream_bufs.items() if v.last_update < cutoff]
+        for k in stale:
+            self._stream_bufs.pop(k, None)
+        if stale:
+            self.logger.warning(
+                "清理了 {} 个陈旧的流缓冲(超过 {} 秒未更新)",
+                len(stale),
+                self._STREAM_BUF_TTL,
+            )
+
+    async def _stream_buf_cleanup_loop(self) -> None:
+        """流缓冲 TTL 清理后台循环,周期由 ``_STREAM_BUF_CLEANUP_INTERVAL`` 控制。"""
+        while self._running:
+            try:
+                await asyncio.sleep(self._STREAM_BUF_CLEANUP_INTERVAL)
+                await self._cleanup_stale_stream_bufs()
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                self.logger.warning("流缓冲清理任务异常: {}", exc)
 
     def _on_reaction_added(self, message_id: str, task: asyncio.Task) -> None:
         """Callback: store reaction_id after background add-reaction completes."""
@@ -1603,6 +1649,8 @@ class FeishuChannel(BaseChannel):
             buf = _FeishuStreamBuf()
             self._stream_bufs[stream_key] = buf
         buf.text += delta
+        # 每次追加 delta 都刷新 last_update,供 TTL 清理判断 buf 是否陈旧。
+        buf.last_update = time.monotonic()
         if not buf.text.strip():
             return
 

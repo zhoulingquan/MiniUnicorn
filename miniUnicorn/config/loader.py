@@ -1,5 +1,6 @@
 """Configuration loading utilities."""
 
+import copy
 import json
 import os
 import re
@@ -30,12 +31,14 @@ def get_config_path() -> Path:
     return Path.home() / ".miniUnicorn" / "config.json"
 
 
-def load_config(config_path: Path | None = None) -> Config:
+def load_config(config_path: Path | None = None, *, apply_ssrf: bool = True) -> Config:
     """
     Load configuration from file or create default.
 
     Args:
         config_path: Optional path to config file. Uses default if not provided.
+        apply_ssrf: 是否把 config.tools.ssrf_whitelist 应用到网络安全模块。
+            测试场景下可传 False 以避免副作用。生产网关启动时由调用方决定。
 
     Returns:
         Loaded configuration object.
@@ -53,12 +56,16 @@ def load_config(config_path: Path | None = None) -> Config:
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
             data = _migrate_config(data)
+            # config_version 是迁移元数据，不属于 Config schema（extra="forbid"），
+            # 在验证前取出供未来迁移逻辑使用，避免触发 ValidationError。
+            data.pop("config_version", None)
             config = Config.model_validate(data)
         except (json.JSONDecodeError, ValueError, pydantic.ValidationError) as e:
             logger.warning("Failed to load config from {}: {}", path, e)
             logger.warning("Using default configuration.")
 
-    _apply_ssrf_whitelist(config)
+    if apply_ssrf:
+        _apply_ssrf_whitelist(config)
     return config
 
 
@@ -86,7 +93,7 @@ def save_config(config: Config, config_path: Path | None = None) -> None:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
-_ENV_REF_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_ENV_REF_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-(.*))?\}")
 
 
 def resolve_config_env_vars(config: Config) -> Config:
@@ -145,8 +152,12 @@ def _resolve_env_vars(obj: object) -> object:
 
 def _env_replace(match: re.Match[str]) -> str:
     name = match.group(1)
+    default = match.group(2)
     value = os.environ.get(name)
     if value is None:
+        # 支持 ${VAR:-default} 语法：环境变量未设置时回退到默认值
+        if default is not None:
+            return default
         raise ValueError(
             f"Environment variable '{name}' referenced in config is not set"
         )
@@ -154,9 +165,14 @@ def _env_replace(match: re.Match[str]) -> str:
 
 
 def _migrate_config(data: dict) -> dict:
-    """Migrate old config formats to current."""
+    """Migrate old config formats to current.
+
+    返回深拷贝后的新 dict，避免修改调用方传入的原始数据。
+    同时写入 config_version（若不存在）以便未来迁移逻辑判断版本。
+    """
+    result = copy.deepcopy(data)
     # Move tools.exec.restrictToWorkspace → tools.restrictToWorkspace
-    tools = data.get("tools", {})
+    tools = result.get("tools", {})
     exec_cfg = tools.get("exec", {})
     if "restrictToWorkspace" in exec_cfg and "restrictToWorkspace" not in tools:
         tools["restrictToWorkspace"] = exec_cfg.pop("restrictToWorkspace")
@@ -175,4 +191,7 @@ def _migrate_config(data: dict) -> dict:
         else:
             tools.pop("mySet", None)
 
-    return data
+    # 设置版本号（若不存在），便于未来迁移逻辑按版本分支处理
+    if "config_version" not in result:
+        result["config_version"] = 1
+    return result

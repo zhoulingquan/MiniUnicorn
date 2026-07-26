@@ -266,6 +266,37 @@ def _normalize_schema_for_openai(schema: Any) -> dict[str, Any]:
     return normalized
 
 
+# MCP 工具描述长度上限:超过此长度会截断,避免超大描述挤占上下文窗口。
+_MAX_MCP_DESC_LEN = 4000
+
+# 可疑模式:可能是 MCP 工具描述中夹带的提示注入(如 "ignore previous instructions")。
+# 命中时为描述加上 `[MCP-provided]` 前缀标记,提醒后续处理注意隔离。
+_MCP_SUSPICIOUS_PATTERNS: tuple[re.Pattern, ...] = (
+    re.compile(r"ignore\s+(?:previous|prior|all)\s+instructions", re.IGNORECASE),
+    re.compile(r"disregard\s+(?:previous|prior|all)\s+instructions", re.IGNORECASE),
+    re.compile(r"you\s+are\s+(?:now|actually)\s+", re.IGNORECASE),
+    re.compile(r"system\s*prompt", re.IGNORECASE),
+)
+
+
+def _sanitize_mcp_description(description: str) -> str:
+    """对 MCP 工具描述做安全处理:长度截断 + 可疑注入模式标记。
+
+    - 描述过长(超过 ``_MAX_MCP_DESC_LEN``)时截断并附加 ``...[truncated]``。
+    - 命中可疑提示注入模式时,在描述前加上 ``[MCP-provided]`` 前缀,
+      提醒下游该描述由外部 MCP 服务器提供,需要按不可信数据处理。
+    """
+    if not description:
+        return description
+    # 长度截断
+    if len(description) > _MAX_MCP_DESC_LEN:
+        description = description[:_MAX_MCP_DESC_LEN] + "...[truncated]"
+    # 可疑模式标记
+    if any(pat.search(description) for pat in _MCP_SUSPICIOUS_PATTERNS):
+        description = f"[MCP-provided] {description}"
+    return description
+
+
 class MCPToolWrapper(Tool):
     """Wraps a single MCP server tool as a MiniUnicorn Tool."""
 
@@ -275,7 +306,7 @@ class MCPToolWrapper(Tool):
         self._session = session
         self._original_name = tool_def.name
         self._name = _sanitize_name(f"mcp_{server_name}_{tool_def.name}")
-        self._description = tool_def.description or tool_def.name
+        self._description = _sanitize_mcp_description(tool_def.description or tool_def.name)
         raw_schema = tool_def.inputSchema or {"type": "object", "properties": {}}
         self._parameters = _normalize_schema_for_openai(raw_schema)
         self._tool_timeout = tool_timeout

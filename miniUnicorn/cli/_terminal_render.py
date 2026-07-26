@@ -28,6 +28,9 @@ from prompt_toolkit import print_formatted_text
 from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.formatted_text import ANSI, HTML
 from prompt_toolkit.history import FileHistory
+# 重新导出到 commands 模块,供 _read_interactive_input_async 通过
+# commands.patch_stdout() 走 late binding,使测试 monkeypatch 生效。
+from prompt_toolkit.patch_stdout import patch_stdout
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.text import Text

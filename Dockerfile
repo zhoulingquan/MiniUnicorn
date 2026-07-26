@@ -35,5 +35,9 @@ ENV HOME=/home/miniUnicorn
 # WebUI/WebSocket channel port
 EXPOSE 8765
 
+# 健康检查：WebUI 静态资源在根路径返回 index.html，与 docker-compose 的 gateway healthcheck 端点一致
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:8765/ || exit 1
+
 ENTRYPOINT ["entrypoint.sh"]
 CMD ["status"]

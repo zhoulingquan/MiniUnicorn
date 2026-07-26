@@ -181,6 +181,9 @@ function modelSettings(model: string, provider: string): SettingsPayload {
         interval_s: 3600,
         keep_recent_messages: 8,
         model_preset: null,
+        active_hours: null,
+        light_context: false,
+        isolated_session: false,
       },
       dream: {
         schedule: "cron 0 3 * * *",

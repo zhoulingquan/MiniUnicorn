@@ -171,7 +171,10 @@ async def cmd_status(ctx: CommandContext) -> OutboundMessage:
         content=build_status_content(
             version=__version__, model=loop.model,
             start_time=loop._start_time, last_usage=loop._last_usage,
-            context_window_tokens=loop.context_window_tokens,
+            # 优先使用后端解析值(resolved_context_window_tokens),回退到 context_window_tokens
+            context_window_tokens=getattr(
+                loop, "resolved_context_window_tokens", None
+            ) or loop.context_window_tokens,
             session_msg_count=len(session.get_history(max_messages=0)),
             context_tokens_estimate=ctx_est,
             active_task_count=task_count,

@@ -165,6 +165,17 @@ class _SubagentHook(AgentHook):
 class SubagentManager:
     """Manages background subagent execution."""
 
+    @staticmethod
+    def _auto_detect_concurrency(provider: LLMProvider) -> int:
+        """根据 provider.is_local 自动选择并发上限。
+
+        本地 provider(Ollama/vLLM)→ 1(保护 KV Cache)
+        云端 provider(OpenAI/Anthropic)→ 4(可放心并行)
+        """
+        if getattr(provider, "is_local", False):
+            return 1
+        return 4
+
     def __init__(
         self,
         provider: LLMProvider,
@@ -197,8 +208,11 @@ class SubagentManager:
         self.max_concurrent_subagents = (
             max_concurrent_subagents
             if max_concurrent_subagents is not None
-            else defaults.max_concurrent_subagents
+            else self._auto_detect_concurrency(provider)
         )
+        # 并发上限信号量，强制限制在跑子代理数量
+        # 当 max_concurrent_subagents 为 None（未配置自适应）时退化为 1，避免阻塞
+        self._spawn_semaphore = asyncio.Semaphore(self.max_concurrent_subagents or 1)
         # 递归深度限制:None 时回退到 AgentDefaults 的默认值(1)。
         # delegate tool 在运行时读取此属性决定是否允许子代理再 delegate。
         self.max_subagent_recursion_depth = (
@@ -378,76 +392,82 @@ class SubagentManager:
             status.phase = payload.get("phase", status.phase)
             status.iteration = payload.get("iteration", status.iteration)
 
-        try:
-            root = workspace_scope.project_path if workspace_scope is not None else self.workspace
-            cfg = None
-            if workspace_scope is not None:
-                cfg = self._subagent_tools_config()
-                cfg.restrict_to_workspace = workspace_scope.restrict_to_workspace
-            tools = self._build_tools(workspace=root, tools_config=cfg)
-            system_prompt = self._build_subagent_prompt(workspace=root)
-            messages: list[dict[str, Any]] = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": task},
-            ]
-
-            sess_key = origin.get("session_key")
-            llm_timeout = (
-                self._llm_wall_timeout_for_session(sess_key)
-                if self._llm_wall_timeout_for_session
-                else None
-            )
-            token = bind_workspace_scope(workspace_scope) if workspace_scope is not None else None
-            # 子代理运行时 depth+1，使 delegate tool 能检测递归深度。
-            # ContextVar.set 返回 token，用于 finally 中 reset。
-            depth_token = _current_depth.set(_current_depth.get() + 1)
+        # 通过信号量强制限制同时运行的子代理数量
+        async with self._spawn_semaphore:
             try:
-                result = await self.runner.run(AgentRunSpec(
-                    initial_messages=messages,
-                    tools=tools,
-                    model=self.model,
-                    temperature=temperature,
-                    max_iterations=self.max_iterations,
-                    max_tool_result_chars=self.max_tool_result_chars,
-                    hook=_SubagentHook(task_id, status),
-                    max_iterations_message="Task completed but no final response was generated.",
-                    error_message=None,
-                    fail_on_tool_error=True,
-                    checkpoint_callback=_on_checkpoint,
-                    session_key=sess_key,
-                    workspace=root,
-                    llm_timeout_s=llm_timeout,
-                ))
-            finally:
-                _current_depth.reset(depth_token)
-                if token is not None:
-                    reset_workspace_scope(token)
-            status.phase = "done"
-            status.stop_reason = result.stop_reason
+                root = workspace_scope.project_path if workspace_scope is not None else self.workspace
+                cfg = None
+                if workspace_scope is not None:
+                    cfg = self._subagent_tools_config()
+                    cfg.restrict_to_workspace = workspace_scope.restrict_to_workspace
+                tools = self._build_tools(workspace=root, tools_config=cfg)
+                system_prompt = self._build_subagent_prompt(workspace=root)
+                messages: list[dict[str, Any]] = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": task},
+                ]
 
-            if result.stop_reason == "tool_error":
-                status.tool_events = list(result.tool_events)
-                await self._announce_result(
-                    task_id, label, task,
-                    self._format_partial_progress(result),
-                    origin, "error", origin_message_id,
+                sess_key = origin.get("session_key")
+                llm_timeout = (
+                    self._llm_wall_timeout_for_session(sess_key)
+                    if self._llm_wall_timeout_for_session
+                    else None
                 )
-            elif result.stop_reason == "error":
-                await self._announce_result(
-                    task_id, label, task,
-                    result.error or "Error: subagent execution failed.",
-                    origin, "error", origin_message_id,
-                )
-            else:
-                final_result = result.final_content or "Task completed but no final response was generated."
-                logger.info("Subagent [{}] completed successfully", task_id)
-                await self._announce_result(task_id, label, task, final_result, origin, "ok", origin_message_id)
+                token = bind_workspace_scope(workspace_scope) if workspace_scope is not None else None
+                # 子代理运行时 depth+1，使 delegate tool 能检测递归深度。
+                # ContextVar.set 返回 token，用于 finally 中 reset。
+                depth_token = _current_depth.set(_current_depth.get() + 1)
+                try:
+                    result = await self.runner.run(AgentRunSpec(
+                        initial_messages=messages,
+                        tools=tools,
+                        model=self.model,
+                        temperature=temperature,
+                        max_iterations=self.max_iterations,
+                        max_tool_result_chars=self.max_tool_result_chars,
+                        hook=_SubagentHook(task_id, status),
+                        max_iterations_message="Task completed but no final response was generated.",
+                        error_message=None,
+                        fail_on_tool_error=True,
+                        checkpoint_callback=_on_checkpoint,
+                        session_key=sess_key,
+                        workspace=root,
+                        llm_timeout_s=llm_timeout,
+                    ))
+                finally:
+                    _current_depth.reset(depth_token)
+                    if token is not None:
+                        reset_workspace_scope(token)
+                status.phase = "done"
+                status.stop_reason = result.stop_reason
 
-        except Exception as e:
-            status.phase = "error"
-            status.error = str(e)
-            logger.exception("Subagent [{}] failed", task_id)
-            await self._announce_result(task_id, label, task, f"Error: {e}", origin, "error", origin_message_id)
+                if result.stop_reason == "tool_error":
+                    status.tool_events = list(result.tool_events)
+                    await self._announce_result(
+                        task_id, label, task,
+                        self._format_partial_progress(result),
+                        origin, "error", origin_message_id,
+                    )
+                elif result.stop_reason == "error":
+                    await self._announce_result(
+                        task_id, label, task,
+                        result.error or "Error: subagent execution failed.",
+                        origin, "error", origin_message_id,
+                    )
+                else:
+                    final_result = result.final_content or "Task completed but no final response was generated."
+                    logger.info("Subagent [{}] completed successfully", task_id)
+                    await self._announce_result(task_id, label, task, final_result, origin, "ok", origin_message_id)
+
+            except Exception as e:
+                status.phase = "error"
+                status.error = str(e)
+                logger.exception("Subagent [{}] failed", task_id)
+                # 包裹 _announce_result 调用，避免通知失败掩盖原始错误
+                try:
+                    await self._announce_result(task_id, label, task, f"Error: {e}", origin, "error", origin_message_id)
+                except Exception:
+                    logger.exception("Failed to announce subagent failure result")
 
     async def _run_subagent_direct(
         self,
@@ -652,8 +672,11 @@ class SubagentManager:
                  if tid in self._running_tasks and not self._running_tasks[tid].done()]
         for t in tasks:
             t.cancel()
+        # gather 加超时，避免某个子代理清理卡住导致 /stop 长时间无响应
         if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+            await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True), timeout=10.0
+            )
         return len(tasks)
 
     def get_running_count(self) -> int:

@@ -253,14 +253,26 @@ class DingTalkChannel(BaseChannel):
             self.logger.info("bot started with Stream Mode")
 
             # Reconnect loop: restart stream if SDK exits or crashes
+            # 指数退避:首次重试 5s,后续每次翻倍,上限 60s,避免服务端故障时
+            # 客户端高频重连加剧压力。成功连接后通过 retry_count=0 重置。
+            retry_count = 0
             while self._running:
                 try:
                     await self._client.start()
+                    # 正常退出(非异常):重置退避计数,下次重连从 5s 开始。
+                    retry_count = 0
                 except Exception as e:
                     self.logger.warning("stream error: {}", e)
                 if self._running:
-                    self.logger.info("Reconnecting stream in 5 seconds...")
-                    await asyncio.sleep(5)
+                    # 指数退避:5, 10, 20, 40, 60, 60, ... 上限 60s
+                    retry_delay = min(5 * (2 ** retry_count), 60)
+                    self.logger.info(
+                        "Reconnecting stream in {} seconds (attempt {})...",
+                        retry_delay,
+                        retry_count + 1,
+                    )
+                    await asyncio.sleep(retry_delay)
+                    retry_count += 1
 
         except Exception:
             self.logger.exception("Failed to start channel")

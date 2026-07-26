@@ -126,7 +126,12 @@ def sign_media_path(
     secret: bytes,
     media_dir: MediaDirProvider = _default_media_dir,
 ) -> str | None:
-    """Return a signed ``/api/media/<sig>/<payload>`` URL for a media-root path."""
+    """Return a signed ``/api/media/<sig>/<payload>`` URL for a media-root path.
+
+    URL 自带鉴权能力:签名把 payload 绑定到本进程的 ``_media_secret``,
+    因此只有我们主动签发过的路径才能被取回。进程重启时 ``_media_secret``
+    会重新生成,旧 URL 自然失效(等价于隐式 TTL)。
+    """
     try:
         media_root = media_dir(None).resolve()
         rel = abs_path.resolve().relative_to(media_root)
@@ -173,7 +178,11 @@ def serve_signed_media(
     request: WsRequest | None = None,
     media_dir: MediaDirProvider = _default_media_dir,
 ) -> Response:
-    """Serve a signed media URL, including browser-friendly byte ranges."""
+    """Serve a signed media URL, including browser-friendly byte ranges.
+
+    签名验证:HMAC 输入为 ``payload``,绑定到本进程的 ``_media_secret``。
+    主要保护来自进程重启时 ``_media_secret`` 重新生成,旧 URL 自然失效。
+    """
     try:
         provided_mac = b64url_decode(sig)
     except (ValueError, binascii.Error):

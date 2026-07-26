@@ -200,7 +200,7 @@ def test_onboard_wizard_preserves_explicit_config_in_next_steps(tmp_path, monkey
     compact_output = stripped_output.replace("\n", "")
     resolved_config = str(config_path.resolve())
     assert f'miniUnicorn agent -m "Hello!" --config {resolved_config}' in compact_output
-    assert f"miniUnicorn gateway --config {resolved_config}" in compact_output
+    assert f"MiniUnicorn gateway --config {resolved_config}" in compact_output
 
 
 def test_provider_logout_rejects_unknown_provider():
@@ -650,10 +650,11 @@ def _patch_serve_runtime(monkeypatch, config: Config, seen: dict[str, object]) -
         async def close_mcp(self) -> None:
             return None
 
-    def _fake_create_app(agent_loop, model_name: str, request_timeout: float):
+    def _fake_create_app(agent_loop, model_name: str, request_timeout: float, api_key: str = "", **kwargs):
         seen["agent_loop"] = agent_loop
         seen["model_name"] = model_name
         seen["request_timeout"] = request_timeout
+        seen["api_key"] = api_key
         return _FakeApiApp()
 
     def _fake_run_app(api_app, host: str, port: int, print):

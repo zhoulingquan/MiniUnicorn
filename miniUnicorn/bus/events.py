@@ -1,7 +1,7 @@
 """Event types for the message bus."""
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 # Optional ``OutboundMessage.metadata`` key for structured, channel-agnostic UI
@@ -55,7 +55,9 @@ class InboundMessage:
     sender_id: str  # User identifier
     chat_id: str  # Chat/channel identifier
     content: str  # Message text
-    timestamp: datetime = field(default_factory=datetime.now)
+    # 使用 UTC 时间戳,避免跨时区部署时时间不一致(例如容器时区与宿主机不同)。
+    # 旧代码用 ``datetime.now()`` 返回 naive datetime,在序列化/比较时可能引发歧义。
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     media: list[str] = field(default_factory=list)  # Media URLs
     metadata: dict[str, Any] = field(default_factory=dict)  # Channel-specific data
     session_key_override: str | None = None  # Optional override for thread-scoped sessions

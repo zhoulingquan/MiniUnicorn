@@ -228,6 +228,12 @@ class WebSocketChannel(BaseChannel):
         )
         self._settings_restart_sections: set[str] = set()
         self._stream_text_buffers: dict[tuple[str, str], list[str]] = {}
+        # 每个 stream_text_buffer 最近一次追加 delta 的时间(单调时钟),
+        # 供 TTL 清理使用,防止异常中断的流导致 buffer 永驻。
+        self._stream_text_buffer_times: dict[tuple[str, str], float] = {}
+        # 流缓冲 TTL 清理任务:周期性删除超过 _STREAM_TEXT_BUF_TTL 未更新的 buffer,
+        # 同时清理 RateLimiter 中的陈旧 key,防止内存无限增长。
+        self._periodic_cleanup_task: asyncio.Task | None = None
         # Process-local secret used to HMAC-sign media URLs. The signed URL is
         # the capability — anyone who holds a valid URL can fetch that one
         # file, nothing else. The secret regenerates on restart so links
@@ -433,12 +439,63 @@ class WebSocketChannel(BaseChannel):
         return ctx
 
     _MAX_ISSUED_TOKENS = 10_000
+    # 流缓冲 TTL:超过该时长(秒)未更新的 buffer 视为陈旧并被清理。
+    # 30 分钟覆盖正常流式回复间隔,异常中断的流不会长期占用内存。
+    _STREAM_TEXT_BUF_TTL = 1800
+    # 清理任务周期:每 5 分钟扫描一次,在及时回收与 CPU 开销之间取折中。
+    _STREAM_TEXT_BUF_CLEANUP_INTERVAL = 300
 
     def _purge_expired_issued_tokens(self) -> None:
         now = time.monotonic()
         for token_key, expiry in list(self._issued_tokens.items()):
             if now > expiry:
                 self._issued_tokens.pop(token_key, None)
+
+    def _cleanup_stale_stream_text_buffers(self) -> None:
+        """清理超过 ``_STREAM_TEXT_BUF_TTL`` 未更新的流文本缓冲。
+
+        正常流式回复会在 ``stream_end`` 时主动 ``pop`` 缓冲;但若上游异常
+        中断(进程崩溃/连接断开)导致 ``stream_end`` 未送达,buffer 会残留在
+        ``_stream_text_buffers`` 中。此处用 TTL 兜底回收,避免内存无限增长。
+        """
+        cutoff = time.monotonic() - self._STREAM_TEXT_BUF_TTL
+        stale = [k for k, t in self._stream_text_buffer_times.items() if t < cutoff]
+        for k in stale:
+            self._stream_text_buffers.pop(k, None)
+            self._stream_text_buffer_times.pop(k, None)
+        if stale:
+            self.logger.warning(
+                "清理了 {} 个陈旧的流文本缓冲(超过 {} 秒未更新)",
+                len(stale),
+                self._STREAM_TEXT_BUF_TTL,
+            )
+
+    def _cleanup_rate_limiters(self) -> None:
+        """清理三个 RateLimiter 中窗口外已过期的 key,防止内存无限增长。
+
+        ``_RateLimiter.cleanup()`` 会删除窗口外无 hit 的 key,但需要外部周期触发。
+        连接断开后对应的 IP key 不会自动删除,长期运行会导致 ``_hits`` 字典膨胀。
+        """
+        self._conn_rate_limiter.cleanup()
+        self._token_rate_limiter.cleanup()
+        self._media_rate_limiter.cleanup()
+
+    async def _periodic_cleanup_loop(self) -> None:
+        """周期性清理后台循环。
+
+        合并两类清理任务,避免创建多个后台 Task:
+        1. 流文本缓冲 TTL 清理(周期 ``_STREAM_TEXT_BUF_CLEANUP_INTERVAL``)
+        2. RateLimiter 陈旧 key 清理(共用同一周期)
+        """
+        while self._running:
+            try:
+                await asyncio.sleep(self._STREAM_TEXT_BUF_CLEANUP_INTERVAL)
+                self._cleanup_stale_stream_text_buffers()
+                self._cleanup_rate_limiters()
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                self.logger.warning("周期清理任务异常: {}", exc)
 
     def _take_issued_token_if_valid(self, token_value: str | None) -> bool:
         """Validate and consume one issued token (single use per connection attempt).
@@ -562,6 +619,7 @@ class WebSocketChannel(BaseChannel):
             logger=self.logger,
             check_api_token=self._check_api_token,
             is_localhost_connection=self._is_localhost_connection,
+            is_origin_allowed=self._is_origin_allowed,
             with_restart_state=self._with_settings_restart_state,
             refresh_agent_model=self._maybe_refresh_agent_model,
             reload_cron=self._reload_cron_safe,
@@ -647,6 +705,13 @@ class WebSocketChannel(BaseChannel):
         if not token:
             # 仅当 Authorization 头缺失时回退到 ?token= 查询参数(向后兼容)。
             token = _query_first(_parse_query(request.path), "token")
+            if token:
+                # 废弃警告:?token= 会出现在 URL 中,可能被日志/Referer/浏览器历史记录泄漏。
+                # 建议客户端迁移到 Authorization: Bearer <token> 头。每次回退使用时只警告一次
+                # 太吵,这里每次都记录(warning 级别),便于监控存量客户端迁移进度。
+                self.logger.warning(
+                    "使用 ?token= 查询参数鉴权已废弃,请改用 Authorization 头;token 可能泄漏到日志/Referer/浏览器历史"
+                )
         if not token:
             return False
         expiry = self._api_tokens.get(token)
@@ -1045,6 +1110,10 @@ class WebSocketChannel(BaseChannel):
                         Path(socket_path).unlink()
 
         self._server_task = asyncio.create_task(runner())
+        # 启动周期性清理后台任务(流缓冲 TTL + RateLimiter 陈旧 key)
+        self._periodic_cleanup_task = asyncio.create_task(
+            self._periodic_cleanup_loop()
+        )
         await self._server_task
 
     async def _connection_loop(self, connection: Any) -> None:
@@ -1369,6 +1438,12 @@ class WebSocketChannel(BaseChannel):
         self._running = False
         if self._stop_event:
             self._stop_event.set()
+        # 取消周期性清理任务,等待其退出
+        if self._periodic_cleanup_task is not None:
+            self._periodic_cleanup_task.cancel()
+            with suppress(Exception):
+                await self._periodic_cleanup_task
+            self._periodic_cleanup_task = None
         if self._server_task:
             try:
                 await self._server_task
@@ -1380,6 +1455,9 @@ class WebSocketChannel(BaseChannel):
         self._conn_default.clear()
         self._issued_tokens.clear()
         self._api_tokens.clear()
+        # 清空流缓冲及其时间戳记录
+        self._stream_text_buffers.clear()
+        self._stream_text_buffer_times.clear()
 
     async def _safe_send_to(self, connection: Any, raw: str, *, label: str = "") -> None:
         """Send a raw frame to one connection, cleaning up on ConnectionClosed."""
@@ -1585,6 +1663,8 @@ class WebSocketChannel(BaseChannel):
         if meta.get("_stream_end"):
             body: dict[str, Any] = {"event": "stream_end", "chat_id": chat_id}
             buffered = self._stream_text_buffers.pop(stream_key, [])
+            # 同步清理时间戳记录,避免 _stream_text_buffer_times 残留 key。
+            self._stream_text_buffer_times.pop(stream_key, None)
             if delta:
                 buffered.append(delta)
             full_text = "".join(buffered)
@@ -1598,6 +1678,8 @@ class WebSocketChannel(BaseChannel):
                 "text": delta,
             }
             self._stream_text_buffers.setdefault(stream_key, []).append(delta)
+            # 每次追加 delta 都刷新时间戳,供 TTL 清理判断 buffer 是否陈旧。
+            self._stream_text_buffer_times[stream_key] = time.monotonic()
         if meta.get("_stream_id") is not None:
             body["stream_id"] = meta["_stream_id"]
         self._try_append_webui_transcript(chat_id, body)

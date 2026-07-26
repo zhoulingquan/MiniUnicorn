@@ -24,6 +24,7 @@ from miniUnicorn.agent.tools.web_search.backends.base import (
 )
 from miniUnicorn.agent.tools.web_search.cache import SearchCache
 from miniUnicorn.agent.tools.web_search.config import DEFAULT_CACHE_TTL_S, WebSearchConfig
+from miniUnicorn.security.workspace_access import current_workspace_scope
 
 # 后端结果合并优先级(按单条结果质量从高到低)。
 # 并发模式下,所有后端同时跑;合并去重时排在前面的后端结果优先占位。
@@ -92,9 +93,13 @@ class SearchAggregator:
         backend_name: str,
     ) -> BackendResponse:
         """调用单个后端(带缓存)。"""
+        # 取当前工作区标识用于缓存隔离(若无可用的 workspace scope 则返回 None,
+        # 保持原有跨工作区共享缓存的行为,向后兼容)。
+        user_id = self._current_cache_user_id()
+
         # 1. 命中缓存
         if self.cache is not None:
-            cached = self.cache.get(query, backend_name, count)
+            cached = self.cache.get(query, backend_name, count, user_id=user_id)
             if cached is not None:
                 return BackendResponse(
                     backend=backend_name,
@@ -113,8 +118,25 @@ class SearchAggregator:
 
         # 3. 成功才缓存
         if resp.ok and self.cache is not None:
-            self.cache.set(query, backend_name, count, resp.results)
+            self.cache.set(query, backend_name, count, resp.results, user_id=user_id)
         return resp
+
+    @staticmethod
+    def _current_cache_user_id() -> str | None:
+        """获取当前工作区标识,用作缓存隔离的 user_id。
+
+        从 ``current_workspace_scope()`` 取 ``project_name`` 作为隔离键:
+        不同工作区(可能对应不同用户/项目)的搜索缓存互不污染,
+        避免跨工作区命中同一缓存导致的凭证/结果泄露。
+        若无可用 scope(例如未绑定上下文),返回 None 保持向后兼容。
+        """
+        scope = current_workspace_scope()
+        if scope is None:
+            return None
+        try:
+            return scope.project_name
+        except Exception:
+            return None
 
     async def _search_concurrent(
         self,
@@ -163,7 +185,8 @@ class SearchAggregator:
                     name = next(n for n, t in tasks.items() if t is task)
                     try:
                         resp = task.result()
-                    except BaseException as exc:
+                    # 使用 Exception 而非 BaseException，避免吞掉 CancelledError
+                    except Exception as exc:
                         failed.append(f"{name}: {type(exc).__name__}: {exc}")
                         continue
                     if resp.ok and resp.results:
@@ -247,7 +270,8 @@ class SearchAggregator:
                 name = next(n for n, t in tasks.items() if t is task)
                 try:
                     resp = task.result()
-                except BaseException as exc:
+                # 使用 Exception 而非 BaseException，避免吞掉 CancelledError
+                except Exception as exc:
                     failed.append(f"{name}: {type(exc).__name__}: {exc}")
                     continue
                 if resp.ok and resp.results:

@@ -50,7 +50,10 @@ def get_webui_dir() -> Path:
 
 def get_workspace_path(workspace: str | None = None) -> Path:
     """Resolve and ensure the agent workspace path."""
-    path = Path(workspace).expanduser() if workspace else Path.home() / ".miniUnicorn" / "workspace"
+    if workspace:
+        path = Path(workspace).expanduser()
+    else:
+        path = Path.home() / ".miniUnicorn" / "workspace"
     return ensure_dir(path)
 
 

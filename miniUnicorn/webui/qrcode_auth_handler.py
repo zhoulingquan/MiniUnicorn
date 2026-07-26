@@ -27,6 +27,7 @@ import io
 import logging
 import os
 import secrets
+import threading
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -127,9 +128,15 @@ _AES_KEY_LENGTH = 32  # 256 bits
 # 仅在进程内存中保存（扫码登录流程短，无需跨进程持久化）。
 _POLL_TOKEN_TTL = 600  # 10 分钟，覆盖 QQ 二维码 5 分钟有效期 + 轮询余量
 _MAX_POLL_TOKENS = 10_000  # 与 websocket channel._MAX_ISSUED_TOKENS 对齐
+# 定期清理间隔:TTL 的一半,保证过期条目在 1 个周期内被回收。
+_POLL_TOKEN_CLEANUP_INTERVAL = _POLL_TOKEN_TTL // 2
 # 每进程独立的 HMAC secret（fork 多进程时各自不同，对本场景无影响）。
 _POLL_TOKEN_SECRET: bytes = secrets.token_bytes(32)
 _poll_tokens: dict[str, dict] = {}
+
+# 后台清理线程:惰性启动,daemon=True 不阻塞进程退出。
+_poll_token_cleanup_thread: threading.Thread | None = None
+_poll_token_cleanup_lock = threading.Lock()
 
 
 def _purge_expired_poll_tokens() -> None:
@@ -138,6 +145,39 @@ def _purge_expired_poll_tokens() -> None:
     for tid, entry in list(_poll_tokens.items()):
         if now > entry["expires_at"]:
             _poll_tokens.pop(tid, None)
+
+
+def _poll_token_cleanup_loop() -> None:
+    """后台清理循环:周期性调用 ``_purge_expired_poll_tokens``。
+
+    使用 daemon 线程而非 asyncio task,因为本模块是无状态纯函数,
+    没有 asyncio 生命周期可挂载。daemon=True 保证进程退出时不阻塞。
+    """
+    while True:
+        time.sleep(_POLL_TOKEN_CLEANUP_INTERVAL)
+        try:
+            _purge_expired_poll_tokens()
+        except Exception:
+            logger.warning("poll token 后台清理失败", exc_info=True)
+
+
+def _ensure_poll_token_cleanup_started() -> None:
+    """惰性启动后台清理线程(只在首次创建 token 时触发)。
+
+    使用锁避免多线程并发时重复启动。
+    """
+    global _poll_token_cleanup_thread
+    if _poll_token_cleanup_thread is not None:
+        return
+    with _poll_token_cleanup_lock:
+        if _poll_token_cleanup_thread is not None:
+            return
+        _poll_token_cleanup_thread = threading.Thread(
+            target=_poll_token_cleanup_loop,
+            daemon=True,
+            name="qr-poll-token-cleanup",
+        )
+        _poll_token_cleanup_thread.start()
 
 
 def _generate_bind_key() -> str:
@@ -172,6 +212,9 @@ def _encode_poll_token(task_id: str, aes_key: str) -> str:
     - HMAC 防止客户端篡改 task_id；服务端字典 TTL 清理避免内存膨胀。
     """
     _purge_expired_poll_tokens()
+    # 惰性启动后台清理线程,确保即使没有后续操作,
+    # 过期 token 也能被定期回收。
+    _ensure_poll_token_cleanup_started()
     if len(_poll_tokens) >= _MAX_POLL_TOKENS:
         # 与 websocket channel 的 _issued_tokens 一致：超过上限直接拒绝，
         # 防止恶意调用方耗尽内存。

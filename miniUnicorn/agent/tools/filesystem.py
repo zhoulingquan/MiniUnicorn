@@ -100,7 +100,18 @@ _BLOCKED_DEVICE_PATHS = frozenset({
     "/dev/stdin", "/dev/stdout", "/dev/stderr",
     "/dev/tty", "/dev/console",
     "/dev/fd/0", "/dev/fd/1", "/dev/fd/2",
+    # 进程敏感文件:读取会泄露环境变量/命令行参数/进程内存
+    "/proc/self/environ",
+    "/proc/self/mem",
+    "/proc/self/cmdline",
+    "/proc/sysrq-trigger",
 })
+
+# 危险目录前缀:命中即拒绝,避免读取系统内核参数等敏感信息
+_BLOCKED_PATH_PREFIXES = (
+    "/proc/sys/",       # 内核可调参数,可读亦可写,极度危险
+    "/sys/kernel/",     # 内核运行时状态,部分文件可触发系统行为
+)
 
 
 def _is_blocked_device(path: str | Path) -> bool:
@@ -116,6 +127,10 @@ def _is_blocked_device(path: str | Path) -> bool:
 
     if raw in _BLOCKED_DEVICE_PATHS or resolved in _BLOCKED_DEVICE_PATHS:
         return True
+    # 危险目录前缀匹配(对原始路径与解析后路径均检查)
+    for prefix in _BLOCKED_PATH_PREFIXES:
+        if raw.startswith(prefix) or resolved.startswith(prefix):
+            return True
     if re.match(r"/proc/\d+/fd/[012]$", raw) or re.match(r"/proc/self/fd/[012]$", raw):
         return True
     if re.match(r"/proc/\d+/fd/[012]$", resolved) or re.match(r"/proc/self/fd/[012]$", resolved):

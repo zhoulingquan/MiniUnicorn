@@ -852,6 +852,18 @@ export async function updateRuntimeSettings(
   if (update.heartbeatModelPreset !== undefined) {
     query.set("heartbeat_model_preset", update.heartbeatModelPreset);
   }
+  if (update.heartbeatLightContext !== undefined) {
+    query.set("heartbeat_light_context", String(update.heartbeatLightContext));
+  }
+  if (update.heartbeatIsolatedSession !== undefined) {
+    query.set("heartbeat_isolated_session", String(update.heartbeatIsolatedSession));
+  }
+  if (update.heartbeatActiveHoursStart !== undefined) {
+    query.set("heartbeat_active_hours_start", update.heartbeatActiveHoursStart);
+  }
+  if (update.heartbeatActiveHoursEnd !== undefined) {
+    query.set("heartbeat_active_hours_end", update.heartbeatActiveHoursEnd);
+  }
   return request<SettingsPayload>(
     `${base}/api/settings/runtime/update?${query}`,
     token,

@@ -81,6 +81,17 @@ class DreamConfig(Base):
     # on — set to False to feed MEMORY.md raw if a specific LLM reacts poorly
     # to the `← Nd` suffix or you want deterministic, git-independent prompts.
     annotate_line_ages: bool = True
+    # 空闲触发：用户不使用时在后台触发 Dream，不依赖 cron 定时。
+    # 解决"用户不 24 小时运行 gateway，凌晨 cron 点大概率关机"的问题。
+    # 借鉴 Claude Dreaming 的"会话间空闲自动触发"机制。
+    idle_trigger_enabled: bool = True
+    idle_trigger_min_seconds: int = Field(default=300, ge=0)  # 空闲多久才触发（5分钟）
+    idle_trigger_min_entries: int = Field(default=5, ge=1)  # 至少多少新数据才值得 dream
+    idle_trigger_min_interval_s: int = Field(default=3600, ge=0)  # 两次 dream 最小间隔
+    # 启动时积压检查：gateway 启动时若未处理历史超过此阈值，立即触发一次 dream。
+    # 解决"连续多天不开，catch_up 只补 1 次"的漏洞。
+    # 默认 2 * max_batch_size，设为 0 禁用。
+    startup_backlog_threshold: int = Field(default=40, ge=0)
 
     def build_schedule(self, timezone: str) -> CronSchedule:
         """Build the runtime cron schedule for this Dream config."""
@@ -277,7 +288,7 @@ class ProviderConfig(Base):
 class ProvidersConfig(Base):
     """Configuration for LLM providers.
 
-    内置 provider（custom/deepseek/opencode/agnes）已声明字段；其他 provider 通过
+    内置 provider（custom/deepseek/opencode/agnes/openai）已声明字段；其他 provider 通过
     extra="allow" 接受，由 _coerce_extra_providers 把 dict 转为 ProviderConfig。
     """
 
@@ -287,6 +298,8 @@ class ProvidersConfig(Base):
     deepseek: ProviderConfig = Field(default_factory=ProviderConfig)
     opencode: ProviderConfig = Field(default_factory=ProviderConfig)
     agnes: ProviderConfig = Field(default_factory=ProviderConfig)
+    # openai: 原生 OpenAI provider，用于直接使用 OpenAI API Key 的场景。
+    openai: ProviderConfig = Field(default_factory=ProviderConfig)
 
     # Optional separate embedding provider — allows using a different backend
     # for embeddings than for chat (e.g. Anthropic Claude for chat + OpenAI
@@ -301,7 +314,7 @@ class ProvidersConfig(Base):
         default="text-embedding-3-small",
         validation_alias=AliasChoices("embeddingModel"),
         serialization_alias="embeddingModel",
-    )  # Model for the separate embedding endpoint
+    )  # 嵌入模型（优先级高于 agents.defaults.embedding_model，仅当使用独立 embedding_provider 时生效）
     embedding_api_base: str | None = Field(
         default=None,
         validation_alias=AliasChoices("embeddingApiBase"),
@@ -315,7 +328,14 @@ class ProvidersConfig(Base):
 
     @model_validator(mode="after")
     def _coerce_extra_providers(self) -> "ProvidersConfig":
-        """把 extra 字段中的 dict 转为 ProviderConfig，保证访问一致。"""
+        """把 extra 字段中的 dict 转为 ProviderConfig，保证访问一致。
+
+        同时拒绝与内置 provider 同名的自定义 provider，避免覆盖内置配置。
+        """
+        _BUILTIN_PROVIDER_NAMES = {"custom", "deepseek", "opencode", "agnes", "openai"}
+        for name in list(self.__pydantic_extra__.keys()):
+            if name in _BUILTIN_PROVIDER_NAMES:
+                raise ValueError(f"自定义 provider 名 '{name}' 与内置 provider 冲突")
         for name, value in list(self.__pydantic_extra__.items()):
             if isinstance(value, dict):
                 self.__pydantic_extra__[name] = ProviderConfig.model_validate(value)
@@ -337,6 +357,18 @@ class HeartbeatConfig(Base):
         validation_alias=AliasChoices("modelPreset", "model_preset"),
         serialization_alias="modelPreset",
     )
+    # 活跃时段限制:仅在指定本地时段内触发心跳,避免半夜空跑浪费 token。
+    # 格式 {"start": "08:00", "end": "24:00"};留空则不限制。
+    # 默认 08:00-24:00,避免凌晨空跑。
+    active_hours: dict[str, str] | None = Field(
+        default_factory=lambda: {"start": "08:00", "end": "24:00"}
+    )
+    # 轻量上下文:心跳跳过 bootstrap 文件(AGENTS.md/SOUL.md/USER.md)注入,
+    # 仅保留身份+工具契约+记忆,显著降低 token 消耗。默认开启。
+    light_context: bool = Field(default=True)
+    # 隔离会话:每次心跳用独立 session_key(heartbeat_<ts>),不累积历史,
+    # 避免心跳历史污染主对话上下文。默认开启。
+    isolated_session: bool = Field(default=True)
 
 
 class ApiConfig(Base):
@@ -348,6 +380,16 @@ class ApiConfig(Base):
     # Bearer token required for /v1/* endpoints. Empty = no auth (dev only).
     # When set, clients must send ``Authorization: Bearer <api_key>``.
     api_key: str = ""
+
+    @model_validator(mode="after")
+    def _validate_api_security(self) -> "ApiConfig":
+        # 绑定到非本地地址时建议设置 api_key，避免公网暴露无鉴权
+        if self.host not in ("127.0.0.1", "localhost", "::1") and not self.api_key:
+            import logging
+            logging.getLogger(__name__).warning(
+                "API 绑定到非本地地址 %s 但未设置 api_key，存在公网无鉴权暴露风险", self.host
+            )
+        return self
 
 
 class GatewayConfig(Base):
@@ -369,6 +411,43 @@ class MCPServerConfig(Base):
     headers: dict[str, str] = Field(default_factory=dict)  # HTTP/SSE: custom headers
     tool_timeout: int = 30  # seconds before a tool call is cancelled
     enabled_tools: list[str] = Field(default_factory=lambda: ["*"])  # Only register these tools; accepts raw MCP names or wrapped mcp_<server>_<tool> names; ["*"] = all tools; [] = no tools
+
+    @model_validator(mode="after")
+    def _validate_stdio_safety(self) -> "MCPServerConfig":
+        # stdio 类型 MCP 服务器:校验 cwd 不能指向系统关键目录,
+        # 避免 MCP 服务器进程在系统目录下运行(可能造成文件越权读写)。
+        if self.type == "stdio" and self.cwd:
+            cwd_path = Path(self.cwd).expanduser()
+            # 简单黑名单:不允许 cwd 命中以下系统关键目录
+            blocked = {
+                "/",
+                "/etc",
+                "/usr",
+                "/bin",
+                "/sbin",
+                "/var",
+                "/root",
+                "/boot",
+                "/sys",
+                "/proc",
+                # macOS 上 /etc、/var 等是符号链接,解析后实际指向 /private/...,
+                # 一并加入黑名单避免通过符号链接绕过
+                "/private/etc",
+                "/private/var",
+                "/private/tmp",
+            }
+            # 同时检查原始路径与解析后路径,覆盖符号链接场景
+            raw_str = str(cwd_path)
+            try:
+                resolved = str(cwd_path.resolve())
+            except (OSError, RuntimeError):
+                # 路径无法解析时只检查原始路径
+                resolved = raw_str
+            if raw_str in blocked or resolved in blocked:
+                raise ValueError(
+                    f"MCP server cwd 不允许指向系统目录: {self.cwd}"
+                )
+        return self
 
 
 def _lazy_default(module_path: str, class_name: str) -> Any:

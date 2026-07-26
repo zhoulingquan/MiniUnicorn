@@ -195,8 +195,9 @@
       "localServiceAccessNative": "Allow Full Access shell commands to reach services on this Mac.",
       "webuiDefaultAccessNative": "Used by native chats without a project-specific permission.",
       "contextWindow": "Choose the default context budget for this model configuration.",
-      "heartbeat": "Idle check interval in seconds (60-86400).",
-      "dream": "Memory consolidation cron expression (e.g. '0 3 * * *' for daily at 3am). Timezone follows the main timezone setting.",
+      "heartbeat": "Idle check interval in seconds (60-86400). Heartbeat only runs in gateway mode with a configured channel (Feishu/DingTalk etc.) — it lets the agent proactively notify you via IM. Desktop mode and CLI-only setups do not trigger heartbeat.",
+      "heartbeatOptions": "Active hours limit when heartbeat triggers; light context skips bootstrap files to save tokens; isolated session prevents history accumulation.",
+      "dream": "Memory consolidation frequency (baseline). Idle trigger is enabled by default — Dream also runs automatically after 5 min of inactivity, no need to run 24/7.",
       "imageGenEnable": "Expose generate_image in chats when a configured model preset is available. Toggle this on after picking a preset below.",
       "imageGenPreset": "Model preset used for image generation. The dropdown lists all cards in the configured area of Models settings; credentials (API Key / API Base) are reused from the preset, no need to re-enter here.",
       "imageGenProviderDisabled": "Image generation is off. Toggle enable above after picking a preset.",
@@ -206,7 +207,7 @@
       "imageGenImageSize": "Size hint like 1K / 2K / 4K or explicit dimensions (1024x1024).",
       "imageGenMaxPerTurn": "Cap on count parameter to prevent runaway API bills. Range: 1-8.",
       "imageGenSaveDir": "Subdirectory under media root for storing generated artifacts. Default: generated.",
-      "imageGenWorkflow": "After enabling, just ask in chat to generate or edit images. Pass prior image paths as reference_images for iterative edits. Model preset is picked above; credentials are reused from your model configuration."
+      "imageGenWorkflow": "After enabling, just ask in chat to generate or edit images. Say things like 'make the previous one warmer' to iteratively refine. Pick a model preset above; credentials are reused."
     },
     "cliApps": {
       "allCategories": "All categories",
@@ -352,6 +353,7 @@
       "totalProviders": "{{count}} available",
       "workspace": "Workspace",
       "heartbeat": "Heartbeat",
+      "heartbeatOptions": "Heartbeat Options",
       "dream": "Dream",
       "dreamHint": "Memory consolidation"
     },
@@ -368,6 +370,7 @@
       "emptyError": "Content must not be empty"
     },
     "dream": {
+      "custom": "Custom",
       "files": {
         "button": "View Files",
         "title": "Dream Generated Files",
@@ -400,7 +403,9 @@
       "llmTitle": "Heartbeat LLM",
       "configuredHint": "Using: {{model}}",
       "defaultHint": "Using main agent model.",
-      "useMain": "Main model"
+      "useMain": "Main model",
+      "lightContext": "Light context",
+      "isolatedSession": "Isolated session"
     },
     "planner": {
       "title": "Plan & Execute dual model",

@@ -41,6 +41,11 @@ if TYPE_CHECKING:
 # 提取 LLM 返回的 JSON 数组(容忍前后多余文本)
 _JSON_ARRAY_RE = re.compile(r"\[\s*(?:\".*?\"\s*,?\s*)+\s*\]", re.DOTALL)
 
+# 单条查询长度上限(字符):超出则截断,避免单条 query 携带过多内容挤占上下文
+_MAX_QUERY_LEN = 200
+# 解析出的查询总数上限:超出部分丢弃,防止 LLM 生成过量查询拖慢研究流程
+_MAX_QUERY_COUNT = 10
+
 
 class LLMCallError(RuntimeError):
     """LLM 调用失败(网络/鉴权/模型错误等)。"""
@@ -501,6 +506,10 @@ class DeepResearchTool(Tool):
         """从 LLM 输出中提取查询列表。
 
         优先尝试整段 JSON 解析,失败则用正则找第一个 JSON 数组。
+
+        安全限制:
+        - 每条 query 长度超过 ``_MAX_QUERY_LEN`` 时截断;
+        - 列表总数超过 ``_MAX_QUERY_COUNT`` 时丢弃超出部分。
         """
         if not raw:
             return []
@@ -510,23 +519,33 @@ class DeepResearchTool(Tool):
             text = re.sub(r"^```[a-zA-Z]*\n?", "", text)
             text = re.sub(r"\n?```$", "", text)
             text = text.strip()
+        queries: list[str] = []
         # 尝试直接解析
         try:
             parsed = json.loads(text)
             if isinstance(parsed, list):
-                return [str(x).strip() for x in parsed if str(x).strip()]
+                queries = [str(x).strip() for x in parsed if str(x).strip()]
         except json.JSONDecodeError:
             pass
         # 正则兜底
-        match = _JSON_ARRAY_RE.search(text)
-        if match:
-            try:
-                parsed = json.loads(match.group(0))
-                if isinstance(parsed, list):
-                    return [str(x).strip() for x in parsed if str(x).strip()]
-            except json.JSONDecodeError:
-                pass
-        return []
+        if not queries:
+            match = _JSON_ARRAY_RE.search(text)
+            if match:
+                try:
+                    parsed = json.loads(match.group(0))
+                    if isinstance(parsed, list):
+                        queries = [str(x).strip() for x in parsed if str(x).strip()]
+                except json.JSONDecodeError:
+                    pass
+        if not queries:
+            return []
+        # 单条 query 长度截断,超出 _MAX_QUERY_LEN 的部分截掉
+        truncated = [
+            (q if len(q) <= _MAX_QUERY_LEN else q[:_MAX_QUERY_LEN])
+            for q in queries
+        ]
+        # 列表总数上限:只保留前 _MAX_QUERY_COUNT 条
+        return truncated[:_MAX_QUERY_COUNT]
 
     @staticmethod
     def _build_results_digest(results: list[dict[str, Any]], max_items: int) -> str:
