@@ -244,7 +244,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer tok",
-          "X-MiniUnicorn-MCP-Values": JSON.stringify({
+          "x-miniunicorn-MCP-Values": JSON.stringify({
             browserbase_api_key: "bb_live_test",
           }),
         }),
@@ -265,7 +265,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer tok",
-          "X-MiniUnicorn-MCP-Values": JSON.stringify({
+          "x-miniunicorn-MCP-Values": JSON.stringify({
             name: "docs",
             transport: "stdio",
             command: "npx",
@@ -282,7 +282,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer tok",
-          "X-MiniUnicorn-MCP-Values": JSON.stringify({
+          "x-miniunicorn-MCP-Values": JSON.stringify({
             config: '{"mcpServers":{"docs":{"command":"npx"}}}',
           }),
         }),
@@ -295,7 +295,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer tok",
-          "X-MiniUnicorn-MCP-Values": JSON.stringify({
+          "x-miniunicorn-MCP-Values": JSON.stringify({
             name: "docs",
             enabled_tools: ["search", "fetch"],
           }),
@@ -310,7 +310,7 @@ describe("webui API helpers", () => {
       pinned_keys: ["websocket:chat-1"],
       archived_keys: ["websocket:old"],
       title_overrides: { "websocket:chat-1": "Release" },
-      project_name_overrides: { "/Users/me/miniUnicorn": "Core" },
+      project_name_overrides: { "/Users/me/miniunicorn": "Core" },
       tags_by_key: {},
       collapsed_groups: {},
       view: {
@@ -346,7 +346,7 @@ describe("webui API helpers", () => {
     expect(JSON.parse(encodedState ?? "{}")).toMatchObject({
       pinned_keys: ["websocket:chat-1"],
       title_overrides: { "websocket:chat-1": "Release" },
-      project_name_overrides: { "/Users/me/miniUnicorn": "Core" },
+      project_name_overrides: { "/Users/me/miniunicorn": "Core" },
     });
   });
 

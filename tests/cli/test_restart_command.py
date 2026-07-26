@@ -10,14 +10,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniUnicorn.bus.events import InboundMessage
-from miniUnicorn.providers.base import LLMResponse
+from miniunicorn.bus.events import InboundMessage
+from miniunicorn.providers.base import LLMResponse
 
 
 def _make_loop():
     """Create a minimal AgentLoop with mocked dependencies."""
-    from miniUnicorn.agent.loop import AgentLoop
-    from miniUnicorn.bus.queue import MessageBus
+    from miniunicorn.agent.loop import AgentLoop
+    from miniunicorn.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
@@ -25,9 +25,9 @@ def _make_loop():
     workspace = MagicMock()
     workspace.__truediv__ = MagicMock(return_value=MagicMock())
 
-    with patch("miniUnicorn.agent.loop.ContextBuilder"), \
-         patch("miniUnicorn.agent.loop.SessionManager"), \
-         patch("miniUnicorn.agent.loop.SubagentManager"):
+    with patch("miniunicorn.agent.loop.ContextBuilder"), \
+         patch("miniunicorn.agent.loop.SessionManager"), \
+         patch("miniunicorn.agent.loop.SubagentManager"):
         loop = AgentLoop(bus=bus, provider=provider, workspace=workspace)
     return loop, bus
 
@@ -45,9 +45,9 @@ class TestRestartCommand:
 
     @pytest.mark.asyncio
     async def test_restart_sends_message_and_calls_execv(self):
-        from miniUnicorn.command.builtin import cmd_restart
-        from miniUnicorn.command.router import CommandContext
-        from miniUnicorn.utils.restart import (
+        from miniunicorn.command.builtin import cmd_restart
+        from miniunicorn.command.router import CommandContext
+        from miniunicorn.utils.restart import (
             RESTART_NOTIFY_CHANNEL_ENV,
             RESTART_NOTIFY_CHAT_ID_ENV,
             RESTART_STARTED_AT_ENV,
@@ -73,8 +73,8 @@ class TestRestartCommand:
         )
 
         with patch.dict(os.environ, {}, clear=False), \
-             patch("miniUnicorn.command.builtin.asyncio", new=fake_asyncio), \
-             patch("miniUnicorn.command.builtin.os.execv") as mock_execv:
+             patch("miniunicorn.command.builtin.asyncio", new=fake_asyncio), \
+             patch("miniunicorn.command.builtin.os.execv") as mock_execv:
             out = await cmd_restart(ctx)
             assert "Restarting" in out.content
             assert os.environ.get(RESTART_NOTIFY_CHANNEL_ENV) == "cli"
@@ -92,7 +92,7 @@ class TestRestartCommand:
         msg = InboundMessage(channel="telegram", sender_id="u1", chat_id="c1", content="/restart")
 
         with patch.object(loop, "_dispatch", new_callable=AsyncMock) as mock_dispatch, \
-             patch("miniUnicorn.command.builtin.os.execv"):
+             patch("miniunicorn.command.builtin.os.execv"):
             await bus.publish_inbound(msg)
 
             loop._running = True

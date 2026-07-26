@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 
-from miniUnicorn.channels.feishu import FeishuChannel
+from miniunicorn.channels.feishu import FeishuChannel
 
 
 def _mention(key: str, name: str, open_id: str = "", user_id: str = ""):

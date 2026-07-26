@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniUnicorn.agent.tools.self import MyTool
+from miniunicorn.agent.tools.self import MyTool
 
 
 @pytest.mark.asyncio

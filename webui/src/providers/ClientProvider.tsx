@@ -1,9 +1,9 @@
 import { createContext, useContext, type ReactNode } from "react";
 
-import type { MiniUnicornClient } from "@/lib/miniUnicorn-client";
+import type { MiniunicornClient } from "@/lib/miniunicorn-client";
 
 interface ClientContextValue {
-  client: MiniUnicornClient;
+  client: MiniunicornClient;
   token: string;
   modelName: string | null;
 }
@@ -16,7 +16,7 @@ export function ClientProvider({
   modelName = null,
   children,
 }: {
-  client: MiniUnicornClient;
+  client: MiniunicornClient;
   token: string;
   modelName?: string | null;
   children: ReactNode;

@@ -6,12 +6,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-import miniUnicorn.agent.runner as runner_module
-from miniUnicorn.agent.loop import AgentLoop
-from miniUnicorn.bus.events import InboundMessage
-from miniUnicorn.bus.queue import MessageBus
-from miniUnicorn.providers.base import LLMResponse, ToolCallRequest
-from miniUnicorn.utils.progress_events import (
+import miniunicorn.agent.runner as runner_module
+from miniunicorn.agent.loop import AgentLoop
+from miniunicorn.bus.events import InboundMessage
+from miniunicorn.bus.queue import MessageBus
+from miniunicorn.providers.base import LLMResponse, ToolCallRequest
+from miniunicorn.utils.progress_events import (
     invoke_file_edit_progress,
     on_progress_accepts_file_edit_events,
 )
@@ -651,7 +651,7 @@ class TestToolEventProgress:
             return False
 
         monkeypatch.setattr(
-            "miniUnicorn.session.webui_turns.maybe_generate_webui_title_after_turn",
+            "miniunicorn.session.webui_turns.maybe_generate_webui_title_after_turn",
             fake_title_after_turn,
         )
         scheduled_title: list[object] = []
@@ -698,7 +698,7 @@ class TestToolEventProgress:
             raise AssertionError("command-only turns should not generate titles")
 
         monkeypatch.setattr(
-            "miniUnicorn.session.webui_turns.maybe_generate_webui_title_after_turn",
+            "miniunicorn.session.webui_turns.maybe_generate_webui_title_after_turn",
             fake_title_after_turn,
         )
         scheduled: list[object] = []

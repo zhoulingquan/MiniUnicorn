@@ -10,21 +10,21 @@
 **Install from source** (latest features, experimental changes may land here first; recommended for development)
 
 ```bash
-git clone https://github.com/zhoulingquan/mini-Unicorn.git
-cd mini-Unicorn
+git clone https://github.com/zhoulingquan/miniunicorn.git
+cd miniunicorn
 pip install -e .
 ```
 
 **Install with [uv](https://github.com/astral-sh/uv)** (stable release, fast)
 
 ```bash
-uv tool install miniUnicorn-ai
+uv tool install miniunicorn-ai
 ```
 
 **Install from PyPI** (stable release)
 
 ```bash
-pip install miniUnicorn-ai
+pip install miniunicorn-ai
 ```
 
 ### Update to latest version
@@ -32,21 +32,21 @@ pip install miniUnicorn-ai
 **PyPI / pip**
 
 ```bash
-pip install -U miniUnicorn-ai
-miniUnicorn --version
+pip install -U miniunicorn-ai
+miniunicorn --version
 ```
 
 **uv**
 
 ```bash
-uv tool upgrade miniUnicorn-ai
-miniUnicorn --version
+uv tool upgrade miniunicorn-ai
+miniunicorn --version
 ```
 
 ## Quick Start
 
 > [!TIP]
-> Set your API key in `~/.miniUnicorn/config.json`.
+> Set your API key in `~/.miniunicorn/config.json`.
 > Get API keys: [OpenRouter](https://openrouter.ai/keys) (Global)
 >
 > For other LLM providers, please see [`configuration.md`](./configuration.md).
@@ -54,12 +54,12 @@ miniUnicorn --version
 **1. Initialize**
 
 ```bash
-miniUnicorn onboard
+miniunicorn onboard
 ```
 
-Use `miniUnicorn onboard --wizard` if you want the interactive setup wizard.
+Use `miniunicorn onboard --wizard` if you want the interactive setup wizard.
 
-**2. Configure** (`~/.miniUnicorn/config.json`)
+**2. Configure** (`~/.miniunicorn/config.json`)
 
 Configure these **two parts** in your config (other options have defaults).
 
@@ -89,7 +89,7 @@ Configure these **two parts** in your config (other options have defaults).
 **3. Chat**
 
 ```bash
-miniUnicorn agent
+miniunicorn agent
 ```
 
 That's it! You have a working AI agent in 2 minutes.

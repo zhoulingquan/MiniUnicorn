@@ -5,7 +5,7 @@ import path from "node:path";
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const target = env.MINIUNICORN_API_URL ?? "http://127.0.0.1:8765";
-  const hmrPath = "/__miniUnicorn_vite_hmr";
+  const hmrPath = "/__miniunicorn_vite_hmr";
 
   return {
     plugins: [react()],
@@ -22,7 +22,7 @@ export default defineConfig(({ mode }) => {
       exclude: ["@radix-ui/react-dialog"],
     },
     build: {
-      outDir: path.resolve(__dirname, "../miniUnicorn/web/dist"),
+      outDir: path.resolve(__dirname, "../miniunicorn/web/dist"),
       emptyOutDir: true,
       sourcemap: false,
       rollupOptions: {

@@ -1,4 +1,4 @@
-from miniUnicorn.utils.helpers import extract_reasoning, extract_think, strip_think
+from miniunicorn.utils.helpers import extract_reasoning, extract_think, strip_think
 
 
 class TestStripThinkTag:

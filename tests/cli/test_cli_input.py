@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 import pytest
 from prompt_toolkit.formatted_text import HTML
 
-from miniUnicorn.cli import commands
-from miniUnicorn.cli import stream as stream_mod
+from miniunicorn.cli import commands
+from miniunicorn.cli import stream as stream_mod
 
 
 @pytest.fixture
@@ -15,8 +15,8 @@ def mock_prompt_session():
     """Mock the global prompt session."""
     mock_session = MagicMock()
     mock_session.prompt_async = AsyncMock()
-    with patch("miniUnicorn.cli.commands._PROMPT_SESSION", mock_session), \
-         patch("miniUnicorn.cli.commands.patch_stdout"):
+    with patch("miniunicorn.cli.commands._PROMPT_SESSION", mock_session), \
+         patch("miniunicorn.cli.commands.patch_stdout"):
         yield mock_session
 
 
@@ -47,8 +47,8 @@ def test_init_prompt_session_creates_session():
     # Ensure global is None before test
     commands._PROMPT_SESSION = None
     
-    with patch("miniUnicorn.cli.commands.PromptSession") as MockSession, \
-         patch("miniUnicorn.cli.commands.FileHistory") as MockHistory, \
+    with patch("miniunicorn.cli.commands.PromptSession") as MockSession, \
+         patch("miniunicorn.cli.commands.FileHistory") as MockHistory, \
          patch("pathlib.Path.home") as mock_home:
         
         mock_home.return_value = MagicMock()
@@ -171,7 +171,7 @@ async def test_print_interactive_progress_line_pauses_spinner_before_printing():
     async def fake_print(_text: str) -> None:
         order.append("print")
 
-    with patch("miniUnicorn.cli.commands._print_interactive_line", side_effect=fake_print):
+    with patch("miniunicorn.cli.commands._print_interactive_line", side_effect=fake_print):
         thinking = stream_mod.ThinkingSpinner(console=mock_console)
         with thinking:
             await commands._print_interactive_progress_line("tool running", thinking)

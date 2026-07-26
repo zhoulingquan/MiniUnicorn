@@ -5,12 +5,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from miniUnicorn.agent.tools.cli_apps import CliAppsTool
-from miniUnicorn.agent.tools.filesystem import ReadFileTool
-from miniUnicorn.agent.tools.message import MessageTool
-from miniUnicorn.agent.tools.shell import ExecTool
-from miniUnicorn.agent.tools.spawn import SpawnTool
-from miniUnicorn.security.workspace_access import (
+from miniunicorn.agent.tools.cli_apps import CliAppsTool
+from miniunicorn.agent.tools.filesystem import ReadFileTool
+from miniunicorn.agent.tools.message import MessageTool
+from miniunicorn.agent.tools.shell import ExecTool
+from miniunicorn.agent.tools.spawn import SpawnTool
+from miniunicorn.security.workspace_access import (
     WORKSPACE_SCOPE_METADATA_KEY,
     WorkspaceScopeError,
     bind_workspace_scope,
@@ -19,7 +19,7 @@ from miniUnicorn.security.workspace_access import (
     validate_workspace_scope_payload,
     workspace_scope_from_metadata,
 )
-from miniUnicorn.apps.cli.service import CliAppManager, CliAppsRuntimeConfig
+from miniunicorn.apps.cli.service import CliAppManager, CliAppsRuntimeConfig
 
 PNG_BYTES = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
@@ -229,9 +229,9 @@ async def test_cli_app_scope_controls_working_dir(
     CliAppManager(workspace=project, data_dir=data_dir)._save_installed(
         {"demo": {"entry_point": "demo-cli"}}
     )
-    monkeypatch.setattr("miniUnicorn.apps.cli.service.get_runtime_subdir", lambda _name: data_dir)
+    monkeypatch.setattr("miniunicorn.apps.cli.service.get_runtime_subdir", lambda _name: data_dir)
     monkeypatch.setattr(
-        "miniUnicorn.apps.cli.service.shutil.which",
+        "miniunicorn.apps.cli.service.shutil.which",
         lambda entry: "/usr/bin/demo-cli" if entry == "demo-cli" else None,
     )
 
@@ -241,7 +241,7 @@ async def test_cli_app_scope_controls_working_dir(
         seen["cwd"] = kwargs["cwd"]
         return SimpleNamespace(returncode=0, stdout="ok", stderr="")
 
-    monkeypatch.setattr("miniUnicorn.apps.cli.service.subprocess.run", fake_run)
+    monkeypatch.setattr("miniunicorn.apps.cli.service.subprocess.run", fake_run)
     tool = CliAppsTool(
         workspace=tmp_path,
         restrict_to_workspace=True,

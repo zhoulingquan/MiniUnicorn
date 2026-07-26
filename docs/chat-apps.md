@@ -7,7 +7,7 @@
 | **飞书 (Feishu)** | App ID + App Secret，支持扫码登录 |
 | **钉钉 (DingTalk)** | App Key + App Secret |
 | **企业微信 (Wecom)** | Bot ID + Bot Secret |
-| **微信 (Weixin)** | 扫码登录（`miniUnicorn channels login weixin`） |
+| **微信 (Weixin)** | 扫码登录（`miniunicorn channels login weixin`） |
 | **QQ** | App ID + App Secret |
 | **WebSocket / WebUI** | 内置浏览器 UI，零配置可用 |
 
@@ -15,7 +15,7 @@
 
 ## 通用配置
 
-所有频道配置统一放在 `~/.miniUnicorn/config.json` 的 `channels` 字段下。可以使用 `${VAR_NAME}` 引用环境变量，避免把密钥写入配置文件：
+所有频道配置统一放在 `~/.miniunicorn/config.json` 的 `channels` 字段下。可以使用 `${VAR_NAME}` 引用环境变量，避免把密钥写入配置文件：
 
 ```json
 {
@@ -108,10 +108,10 @@ MiniUnicorn 支持飞书扫码登录流程，运行后通过 WebUI 引导扫码�
 通过扫码登录接入个人微信：
 
 ```bash
-miniUnicorn channels login weixin
+miniunicorn channels login weixin
 ```
 
-扫码成功后凭据自动写入 `~/.miniUnicorn/config.json`。
+扫码成功后凭据自动写入 `~/.miniunicorn/config.json`。
 
 > 注意：个人微信接入存在账号风险，仅建议在小号或测试账号上使用。
 
@@ -141,7 +141,7 @@ miniUnicorn channels login weixin
 内置频道，**零配置即可使用**。启动网关后通过浏览器访问 WebUI：
 
 ```bash
-miniUnicorn gateway
+miniunicorn gateway
 ```
 
 默认监听本地端口，支持局域网访问与 Token 鉴权。详见 [Deployment](./deployment.md)。

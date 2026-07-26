@@ -10,7 +10,7 @@
 
 [![Python](https://img.shields.io/badge/python-≥3.11-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
-[![Release](https://img.shields.io/badge/release-v0.3.0-success)](https://github.com/zhoulingquan/mini-Unicorn/releases)
+[![Release](https://img.shields.io/badge/release-v0.3.0-success)](https://github.com/zhoulingquan/miniunicorn/releases)
 [![Status](https://img.shields.io/badge/status-alpha-orange)]()
 
 </div>
@@ -165,8 +165,8 @@ Dream 两阶段记忆将历史整合为上下文片段，按需注入而非持�
 
 ```bash
 # 从源码（最新特性）
-git clone https://github.com/zhoulingquan/mini-Unicorn.git
-cd mini-Unicorn
+git clone https://github.com/zhoulingquan/miniunicorn.git
+cd miniunicorn
 pip install -e .
 
 # 可选附加依赖
@@ -180,7 +180,7 @@ pip install -e ".[api,vector,pdf,dev]"   # HTTP API / 向量记忆 / PDF 解析 
 **一条命令启动**——配置文件和工作区会自动初始化，LLM API Key 可以启动后在 WebUI 里配置。
 
 ```bash
-miniUnicorn gateway
+miniunicorn gateway
 # → 浏览器访问 http://127.0.0.1:8765
 ```
 
@@ -190,25 +190,25 @@ miniUnicorn gateway
 
 ```bash
 # CLI 终端对话（需要先配置 LLM）
-miniUnicorn agent
+miniunicorn agent
 
 # 仅 OpenAI 兼容 API 服务
-miniUnicorn serve
+miniunicorn serve
 
 # 交互式配置向导（可选，用于预配置频道等）
-miniUnicorn onboard --wizard
+miniunicorn onboard --wizard
 ```
 
-**手动编辑配置**（可选）：配置文件位于 `~/.miniUnicorn/config.json`，支持 `${VAR}` 环境变量替换。
+**手动编辑配置**（可选）：配置文件位于 `~/.miniunicorn/config.json`，支持 `${VAR}` 环境变量替换。
 
 ## 编程式接入
 
 ### Python SDK
 
 ```python
-from miniUnicorn import MiniUnicorn
+from miniunicorn import Miniunicorn
 
-bot = MiniUnicorn.from_config()
+bot = Miniunicorn.from_config()
 result = await bot.run("总结这个仓库的架构", hooks=[MyHook()])
 print(result.content)
 print(result.tools_used)

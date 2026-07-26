@@ -14,8 +14,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniUnicorn.providers.openai_compat_provider import OpenAICompatProvider
-from miniUnicorn.providers.registry import find_by_name
+from miniunicorn.providers.openai_compat_provider import OpenAICompatProvider
+from miniunicorn.providers.registry import find_by_name
 
 
 def _fake_chat_response(content: str = "ok") -> SimpleNamespace:
@@ -318,7 +318,7 @@ async def test_openai_compat_stream_forwards_reasoning_deltas_deepseek_style() -
     async def on_content(d: str) -> None:
         content.append(d)
 
-    with patch("miniUnicorn.providers.openai_compat_provider.AsyncOpenAI") as mock_openai:
+    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI") as mock_openai:
         client_instance = mock_openai.return_value
         client_instance.chat.completions.create = mock_chat
 
@@ -352,7 +352,7 @@ async def test_openai_compat_stream_forwards_tool_call_argument_deltas_deepseek(
     async def on_tool_delta(delta: dict) -> None:
         deltas.append(delta)
 
-    with patch("miniUnicorn.providers.openai_compat_provider.AsyncOpenAI") as mock_openai:
+    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI") as mock_openai:
         client_instance = mock_openai.return_value
         client_instance.chat.completions.create = mock_chat
 
@@ -391,7 +391,7 @@ async def test_openai_compat_stream_forwards_legacy_function_call_argument_delta
     async def on_tool_delta(delta: dict) -> None:
         deltas.append(delta)
 
-    with patch("miniUnicorn.providers.openai_compat_provider.AsyncOpenAI") as mock_openai:
+    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI") as mock_openai:
         client_instance = mock_openai.return_value
         client_instance.chat.completions.create = mock_chat
 
@@ -426,7 +426,7 @@ async def test_standard_provider_passes_model_through() -> None:
     mock_create = AsyncMock(return_value=_fake_chat_response())
     spec = find_by_name("deepseek")
 
-    with patch("miniUnicorn.providers.openai_compat_provider.AsyncOpenAI") as MockClient:
+    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI") as MockClient:
         client_instance = MockClient.return_value
         client_instance.chat.completions.create = mock_create
 
@@ -452,7 +452,7 @@ def test_openai_compat_supports_temperature_matches_reasoning_model_rules() -> N
 
 
 def test_openai_compat_preserves_message_level_reasoning_fields() -> None:
-    with patch("miniUnicorn.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider()
 
     sanitized = provider._sanitize_messages([
@@ -481,7 +481,7 @@ def test_openai_compat_preserves_message_level_reasoning_fields() -> None:
 
 
 def _deepseek_kwargs(messages: list[dict]) -> dict:
-    with patch("miniUnicorn.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider(
             api_key="sk-test",
             default_model="deepseek-v4-flash",
@@ -545,7 +545,7 @@ def test_deepseek_thinking_keeps_tool_history_with_reasoning_content() -> None:
 
 
 def test_openai_compat_preserves_tool_call_ids_after_consecutive_assistant_messages() -> None:
-    with patch("miniUnicorn.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider()
 
     sanitized = provider._sanitize_messages([
@@ -573,7 +573,7 @@ def test_openai_compat_preserves_tool_call_ids_after_consecutive_assistant_messa
 
 
 def test_openai_compat_deduplicates_duplicate_tool_call_ids_in_history() -> None:
-    with patch("miniUnicorn.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider()
 
     sanitized = provider._sanitize_messages([
@@ -608,7 +608,7 @@ def test_openai_compat_deduplicates_duplicate_tool_call_ids_in_history() -> None
 
 
 def test_openai_compat_stringifies_dict_tool_arguments() -> None:
-    with patch("miniUnicorn.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider()
 
     sanitized = provider._sanitize_messages([
@@ -632,7 +632,7 @@ def test_openai_compat_stringifies_dict_tool_arguments() -> None:
 
 
 def test_openai_compat_repairs_non_json_tool_arguments_string() -> None:
-    with patch("miniUnicorn.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider()
 
     sanitized = provider._sanitize_messages([
@@ -656,7 +656,7 @@ def test_openai_compat_repairs_non_json_tool_arguments_string() -> None:
 
 
 def test_openai_compat_defaults_missing_tool_arguments_to_empty_object() -> None:
-    with patch("miniUnicorn.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider()
 
     sanitized = provider._sanitize_messages([
@@ -685,7 +685,7 @@ def test_openai_compat_defaults_missing_tool_arguments_to_empty_object() -> None
 
 def _build_kwargs_for(provider_name: str, model: str, reasoning_effort=None):
     spec = find_by_name(provider_name)
-    with patch("miniUnicorn.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI"):
         p = OpenAICompatProvider(api_key="k", default_model=model, spec=spec)
     return p._build_kwargs(
         messages=[{"role": "user", "content": "hi"}],
@@ -717,7 +717,7 @@ def test_deepseek_backfills_reasoning_content_on_legacy_tool_call_messages() -> 
     messages with tool_calls but no reasoning_content. DeepSeek V4 rejects these
     with 400. _build_kwargs must backfill reasoning_content='' on them."""
     spec = find_by_name("deepseek")
-    with patch("miniUnicorn.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI"):
         p = OpenAICompatProvider(api_key="k", default_model="deepseek-v4-pro", spec=spec)
     messages = [
         {"role": "user", "content": "search for news"},
@@ -742,7 +742,7 @@ def test_deepseek_backfills_reasoning_content_on_legacy_tool_call_messages() -> 
 def test_backfill_does_not_touch_messages_when_thinking_explicitly_off() -> None:
     """When thinking is explicitly disabled, legacy messages must NOT be altered."""
     spec = find_by_name("deepseek")
-    with patch("miniUnicorn.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI"):
         p = OpenAICompatProvider(api_key="k", default_model="deepseek-v4-pro", spec=spec)
     messages = [
         {"role": "user", "content": "hi"},
@@ -766,7 +766,7 @@ def test_backfill_does_not_touch_messages_when_thinking_explicitly_off() -> None
 def test_deepseek_v4_backfills_incomplete_reasoning_history_when_effort_implicit() -> None:
     """DeepSeek-V4 reasons natively: backfill even without explicit reasoning_effort."""
     spec = find_by_name("deepseek")
-    with patch("miniUnicorn.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI"):
         p = OpenAICompatProvider(api_key="k", default_model="deepseek-v4-pro", spec=spec)
     messages = [
         {"role": "system", "content": "system"},
@@ -795,7 +795,7 @@ def test_deepseek_chat_keeps_tool_history_when_effort_implicit() -> None:
     """Non-thinking deepseek-chat must keep history untouched and must NOT
     receive backfilled reasoning_content (#3554, #3584)."""
     spec = find_by_name("deepseek")
-    with patch("miniUnicorn.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI"):
         p = OpenAICompatProvider(api_key="k", default_model="deepseek-chat", spec=spec)
     messages = [
         {"role": "user", "content": "hi"},
@@ -821,7 +821,7 @@ def test_deepseek_chat_keeps_tool_history_when_effort_implicit() -> None:
 def test_deepseek_coerces_list_content_to_string() -> None:
     """DeepSeek chat endpoint expects message.content to be a string."""
     spec = find_by_name("deepseek")
-    with patch("miniUnicorn.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI"):
         p = OpenAICompatProvider(api_key="k", default_model="deepseek-chat", spec=spec)
 
     kw = p._build_kwargs(
@@ -859,7 +859,7 @@ def test_deepseek_thinking_disabled_for_none_string() -> None:
 def test_deepseek_no_backfill_when_reasoning_effort_none_string() -> None:
     """reasoning_effort='none' must NOT trigger reasoning_content backfill (thinking inactive)."""
     spec = find_by_name("deepseek")
-    with patch("miniUnicorn.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI"):
         p = OpenAICompatProvider(api_key="k", default_model="deepseek-v4-pro", spec=spec)
     messages = [
         {"role": "user", "content": "hi"},

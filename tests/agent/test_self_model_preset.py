@@ -3,11 +3,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniUnicorn.agent.loop import AgentLoop
-from miniUnicorn.agent.tools.self import MyTool
-from miniUnicorn.bus.queue import MessageBus
-from miniUnicorn.config.schema import ModelPresetConfig
-from miniUnicorn.providers.factory import ProviderSnapshot
+from miniunicorn.agent.loop import AgentLoop
+from miniunicorn.agent.tools.self import MyTool
+from miniunicorn.bus.queue import MessageBus
+from miniunicorn.config.schema import ModelPresetConfig
+from miniunicorn.providers.factory import ProviderSnapshot
 
 
 def _provider(default_model: str, max_tokens: int = 123) -> MagicMock:
@@ -266,12 +266,12 @@ def test_self_tool_set_model_clears_active_preset(tmp_path) -> None:
 def test_from_config_injects_default_preset(tmp_path) -> None:
     from unittest.mock import patch
 
-    from miniUnicorn.config.schema import Config
+    from miniunicorn.config.schema import Config
     config = Config.model_validate({
         "agents": {"defaults": {"model": "openai/gpt-4.1", "workspace": str(tmp_path)}},
     })
     fake_provider = _provider("openai/gpt-4.1")
-    with patch("miniUnicorn.providers.factory.make_provider", return_value=fake_provider):
+    with patch("miniunicorn.providers.factory.make_provider", return_value=fake_provider):
         loop = AgentLoop.from_config(config)
     assert loop.model == "openai/gpt-4.1"
     assert loop.model_preset is None
@@ -282,13 +282,13 @@ def test_from_config_injects_default_preset(tmp_path) -> None:
 def test_from_config_static_preset_loader_does_not_enable_hot_reload(tmp_path) -> None:
     from unittest.mock import patch
 
-    from miniUnicorn.config.schema import Config
+    from miniunicorn.config.schema import Config
     config = Config.model_validate({
         "agents": {"defaults": {"model": "openai/gpt-4.1", "workspace": str(tmp_path)}},
         "model_presets": {"fast": {"model": "openai/gpt-4.1-mini"}},
     })
     fake_provider = _provider("openai/gpt-4.1")
-    with patch("miniUnicorn.providers.factory.make_provider", return_value=fake_provider):
+    with patch("miniunicorn.providers.factory.make_provider", return_value=fake_provider):
         loop = AgentLoop.from_config(config)
     assert loop._provider_snapshot_loader is None
     assert loop._preset_snapshot_loader is not None

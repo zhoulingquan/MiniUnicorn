@@ -3,15 +3,15 @@
 ## Docker
 
 > [!TIP]
-> The `-v ~/.miniUnicorn:/home/miniUnicorn/.miniUnicorn` flag mounts your local config directory into the container, so your config and workspace persist across container restarts.
-> The container runs as the non-root user `miniUnicorn` (UID 1000) and reads config from `/home/miniUnicorn/.miniUnicorn`. Always mount your host config directory to `/home/miniUnicorn/.miniUnicorn`, not `/root/.miniUnicorn`.
-> If you get **Permission denied**, fix ownership on the host first: `sudo chown -R 1000:1000 ~/.miniUnicorn`, or pass `--user $(id -u):$(id -g)` to match your host UID. Podman users can use `--userns=keep-id` instead.
+> The `-v ~/.miniunicorn:/home/miniunicorn/.miniunicorn` flag mounts your local config directory into the container, so your config and workspace persist across container restarts.
+> The container runs as the non-root user `miniunicorn` (UID 1000) and reads config from `/home/miniunicorn/.miniunicorn`. Always mount your host config directory to `/home/miniunicorn/.miniunicorn`, not `/root/.miniunicorn`.
+> If you get **Permission denied**, fix ownership on the host first: `sudo chown -R 1000:1000 ~/.miniunicorn`, or pass `--user $(id -u):$(id -g)` to match your host UID. Podman users can use `--userns=keep-id` instead.
 >
 > [!IMPORTANT]
 > Official Docker usage currently means building from this repository with the included `Dockerfile`. Docker Hub images under third-party namespaces are not maintained or verified by the project; do not mount API keys or bot tokens into them unless you trust the publisher.
 
 > [!IMPORTANT]
-> The gateway and WebSocket channel default to `host: "127.0.0.1"` in `config.json` (set in `miniUnicorn/config/schema.py`). Docker `-p` port forwarding cannot reach a container's loopback interface, so for the host or LAN to reach the exposed ports you must set both binds to `0.0.0.0` in `~/.miniUnicorn/config.json` before starting the container:
+> The gateway and WebSocket channel default to `host: "127.0.0.1"` in `config.json` (set in `miniunicorn/config/schema.py`). Docker `-p` port forwarding cannot reach a container's loopback interface, so for the host or LAN to reach the exposed ports you must set both binds to `0.0.0.0` in `~/.miniunicorn/config.json` before starting the container:
 >
 > ```json
 > {
@@ -25,14 +25,14 @@
 ### Docker Compose
 
 ```bash
-docker compose run --rm miniUnicorn-cli onboard   # first-time setup
-vim ~/.miniUnicorn/config.json                     # add API keys
-docker compose up -d miniUnicorn-gateway           # start gateway
+docker compose run --rm miniunicorn-cli onboard   # first-time setup
+vim ~/.miniunicorn/config.json                     # add API keys
+docker compose up -d miniunicorn-gateway           # start gateway
 ```
 
 ```bash
-docker compose run --rm miniUnicorn-cli agent -m "Hello!"   # run CLI
-docker compose logs -f miniUnicorn-gateway                   # view logs
+docker compose run --rm miniunicorn-cli agent -m "Hello!"   # run CLI
+docker compose logs -f miniunicorn-gateway                   # view logs
 docker compose down                                      # stop
 ```
 
@@ -40,13 +40,13 @@ docker compose down                                      # stop
 
 ```bash
 # Build the image
-docker build -t miniUnicorn .
+docker build -t miniunicorn .
 
 # Initialize config (first time only)
-docker run -v ~/.miniUnicorn:/home/miniUnicorn/.miniUnicorn --rm miniUnicorn onboard
+docker run -v ~/.miniunicorn:/home/miniunicorn/.miniunicorn --rm miniunicorn onboard
 
 # Edit config on host to add API keys
-vim ~/.miniUnicorn/config.json
+vim ~/.miniunicorn/config.json
 
 # Run gateway (connects to enabled channels, e.g. Telegram/Discord/Mochat).
 # Mirrors the security caps and port mappings declared in docker-compose.yml:
@@ -58,13 +58,13 @@ docker run \
   --cap-drop ALL --cap-add SYS_ADMIN \
   --security-opt apparmor=unconfined \
   --security-opt seccomp=unconfined \
-  -v ~/.miniUnicorn:/home/miniUnicorn/.miniUnicorn \
+  -v ~/.miniunicorn:/home/miniunicorn/.miniunicorn \
   -p 8765:8765 \
-  miniUnicorn gateway
+  miniunicorn gateway
 
 # Or run a single command
-docker run -v ~/.miniUnicorn:/home/miniUnicorn/.miniUnicorn --rm miniUnicorn agent -m "Hello!"
-docker run -v ~/.miniUnicorn:/home/miniUnicorn/.miniUnicorn --rm miniUnicorn status
+docker run -v ~/.miniunicorn:/home/miniunicorn/.miniunicorn --rm miniunicorn agent -m "Hello!"
+docker run -v ~/.miniunicorn:/home/miniunicorn/.miniunicorn --rm miniunicorn status
 ```
 
 ## Linux Service
@@ -74,19 +74,19 @@ Run the gateway as a systemd user service so it starts automatically and restart
 **1. Find the MiniUnicorn binary path:**
 
 ```bash
-which MiniUnicorn   # e.g. /home/user/.local/bin/MiniUnicorn
+which miniunicorn   # e.g. /home/user/.local/bin/miniunicorn
 ```
 
-**2. Create the service file** at `~/.config/systemd/user/miniUnicorn-gateway.service` (replace `ExecStart` path if needed):
+**2. Create the service file** at `~/.config/systemd/user/miniunicorn-gateway.service` (replace `ExecStart` path if needed):
 
 ```ini
 [Unit]
-Description=MiniUnicorn Gateway
+Description=miniunicorn Gateway
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/miniUnicorn gateway
+ExecStart=%h/.local/bin/miniunicorn gateway
 Restart=always
 RestartSec=10
 NoNewPrivileges=yes
@@ -101,15 +101,15 @@ WantedBy=default.target
 
 ```bash
 systemctl --user daemon-reload
-systemctl --user enable --now miniUnicorn-gateway
+systemctl --user enable --now miniunicorn-gateway
 ```
 
 **Common operations:**
 
 ```bash
-systemctl --user status miniUnicorn-gateway        # check status
-systemctl --user restart miniUnicorn-gateway       # restart after config changes
-journalctl --user -u miniUnicorn-gateway -f        # follow logs
+systemctl --user status miniunicorn-gateway        # check status
+systemctl --user restart miniunicorn-gateway       # restart after config changes
+journalctl --user -u miniunicorn-gateway -f        # follow logs
 ```
 
 If you edit the `.service` file itself, run `systemctl --user daemon-reload` before restarting.
@@ -122,17 +122,17 @@ If you edit the `.service` file itself, run `systemctl --user daemon-reload` bef
 
 ## macOS LaunchAgent
 
-Use a LaunchAgent when you want `miniUnicorn gateway` to stay online after you log in, without keeping a terminal open.
+Use a LaunchAgent when you want `miniunicorn gateway` to stay online after you log in, without keeping a terminal open.
 
-**1. Get the absolute `MiniUnicorn` path:**
+**1. Get the absolute `miniunicorn` path:**
 
 ```bash
-which MiniUnicorn   # e.g. /Users/youruser/.local/bin/MiniUnicorn
+which miniunicorn   # e.g. /Users/youruser/.local/bin/miniunicorn
 ```
 
 Use that exact path in the plist. It keeps the Python environment from your install method.
 
-**2. Create `~/Library/LaunchAgents/ai.miniUnicorn.gateway.plist`:**
+**2. Create `~/Library/LaunchAgents/ai.miniunicorn.gateway.plist`:**
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -140,18 +140,18 @@ Use that exact path in the plist. It keeps the Python environment from your inst
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>ai.miniUnicorn.gateway</string>
+  <string>ai.miniunicorn.gateway</string>
 
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/youruser/.local/bin/MiniUnicorn</string>
+    <string>/Users/youruser/.local/bin/miniunicorn</string>
     <string>gateway</string>
     <string>--workspace</string>
-    <string>/Users/youruser/.miniUnicorn/workspace</string>
+    <string>/Users/youruser/.miniunicorn/workspace</string>
   </array>
 
   <key>WorkingDirectory</key>
-  <string>/Users/youruser/.miniUnicorn/workspace</string>
+  <string>/Users/youruser/.miniunicorn/workspace</string>
 
   <key>RunAtLoad</key>
   <true/>
@@ -163,10 +163,10 @@ Use that exact path in the plist. It keeps the Python environment from your inst
   </dict>
 
   <key>StandardOutPath</key>
-  <string>/Users/youruser/.miniUnicorn/logs/gateway.log</string>
+  <string>/Users/youruser/.miniunicorn/logs/gateway.log</string>
 
   <key>StandardErrorPath</key>
-  <string>/Users/youruser/.miniUnicorn/logs/gateway.error.log</string>
+  <string>/Users/youruser/.miniunicorn/logs/gateway.error.log</string>
 </dict>
 </plist>
 ```
@@ -174,20 +174,20 @@ Use that exact path in the plist. It keeps the Python environment from your inst
 **3. Load and start it:**
 
 ```bash
-mkdir -p ~/Library/LaunchAgents ~/.miniUnicorn/logs
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.miniUnicorn.gateway.plist
-launchctl enable gui/$(id -u)/ai.miniUnicorn.gateway
-launchctl kickstart -k gui/$(id -u)/ai.miniUnicorn.gateway
+mkdir -p ~/Library/LaunchAgents ~/.miniunicorn/logs
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.miniunicorn.gateway.plist
+launchctl enable gui/$(id -u)/ai.miniunicorn.gateway
+launchctl kickstart -k gui/$(id -u)/ai.miniunicorn.gateway
 ```
 
 **Common operations:**
 
 ```bash
-launchctl list | grep ai.miniUnicorn.gateway
-launchctl kickstart -k gui/$(id -u)/ai.miniUnicorn.gateway   # restart
-launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/ai.miniUnicorn.gateway.plist
+launchctl list | grep ai.miniunicorn.gateway
+launchctl kickstart -k gui/$(id -u)/ai.miniunicorn.gateway   # restart
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/ai.miniunicorn.gateway.plist
 ```
 
 After editing the plist, run `launchctl bootout ...` and `launchctl bootstrap ...` again.
 
-> **Note:** if startup fails with "address already in use", stop the manually started `miniUnicorn gateway` process first.
+> **Note:** if startup fails with "address already in use", stop the manually started `miniunicorn gateway` process first.

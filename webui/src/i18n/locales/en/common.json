@@ -7,7 +7,7 @@
     },
     "error": {
       "title": "Couldn't reach MiniUnicorn",
-      "gatewayHint": "Make sure the gateway is running (`miniUnicorn gateway`) and that this page is open on the same machine."
+      "gatewayHint": "Make sure the gateway is running (`miniunicorn gateway`) and that this page is open on the same machine."
     },
     "auth": {
       "title": "Authentication required",
@@ -314,6 +314,11 @@
       "apiKeyRequired": "API key is required to configure this provider.",
       "showApiKey": "Show API key",
       "hideApiKey": "Hide API key",
+      "modelId": "Model ID",
+      "modelIdPlaceholder": "e.g. gpt-4o, deepseek-chat",
+      "modelIdHelp": "Set as the current model on save.",
+      "fetchModels": "Fetch models",
+      "fetchingModels": "Fetching...",
       "noConfiguredProviders": "No configured providers",
       "configureFirst": "Configure a provider in BYOK first.",
       "openByok": "Open BYOK",
@@ -416,7 +421,8 @@
       "toggleAria": "Toggle plan-and-execute dual model"
     },
     "providers": {
-      "saveProvider": "Save provider"
+      "saveProvider": "Save provider",
+      "saved": "Saved"
     },
     "legal": {},
     "apps": {
@@ -762,6 +768,19 @@
       "retry": "Try again"
     }
   },
+  "version": {
+    "current": "Current version v{{version}}",
+    "updateAvailable": "New version v{{version}} available",
+    "upToDate": "Up to date",
+    "dialog": {
+      "title": "New version v{{version}} available",
+      "description": "Current v{{current}}, latest v{{latest}}. Choose the upgrade command matching your deployment.",
+      "upgradeMethods": "Choose your deployment method:",
+      "source": "Source",
+      "restartHint": "After upgrading, restart the service: miniunicorn gateway",
+      "viewRelease": "View release notes"
+    }
+  },
   "errors": {
     "messageTooBig": {
       "title": "Message too large",
@@ -796,7 +815,26 @@
     "presetServices": "Preset services",
     "allServices": "All services",
     "noPresets": "No preset services",
+    "enable": "Enable",
+    "enabled": "Enabled",
+    "test": "Test",
+    "testing": "Testing...",
+    "testSuccess": "Connected, {{count}} tools available",
+    "testOk": "Connected",
+    "testFailed": "Connection failed",
+    "toolsManage": "Manage tools",
+    "toolList": "Tool list",
+    "selectAll": "Select all",
+    "clearAll": "Clear all",
+    "saveTools": "Save",
     "delete": "Delete",
+    "noTools": "Test the connection first to load the tool list",
+    "importConfig": "Import config",
+    "importPlaceholder": "Paste JSON config, e.g.: {\"mcpServers\": {...}}",
+    "import": "Import",
+    "importSuccess": "Imported successfully",
+    "presetFields": "Please fill in the following fields",
+    "note": "Note",
     "form": {
       "name": "Server name",
       "namePlaceholder": "my-mcp-server",
@@ -1203,7 +1241,7 @@
         "token": "Token",
         "token_desc": "Login token (manual or auto-obtained via QR login)",
         "state_dir": "State Dir",
-        "state_dir_desc": "Directory for login state (empty = default ~/.miniUnicorn/weixin/)",
+        "state_dir_desc": "Directory for login state (empty = default ~/.miniunicorn/weixin/)",
         "poll_timeout": "Poll Timeout",
         "poll_timeout_desc": "Long-poll timeout in seconds"
       }

@@ -7,12 +7,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniUnicorn.agent.loop import AgentLoop
-from miniUnicorn.bus.events import InboundMessage
-from miniUnicorn.bus.queue import MessageBus
-from miniUnicorn.command import CommandContext
-from miniUnicorn.config.schema import AgentDefaults
-from miniUnicorn.providers.base import LLMResponse
+from miniunicorn.agent.loop import AgentLoop
+from miniunicorn.bus.events import InboundMessage
+from miniunicorn.bus.queue import MessageBus
+from miniunicorn.command import CommandContext
+from miniunicorn.config.schema import AgentDefaults
+from miniunicorn.providers.base import LLMResponse
 
 
 def _make_loop(
@@ -54,7 +54,7 @@ def _make_fake_compact(
     track_count: bool = False,
 ):
     """Return a fake compact_idle_session that mirrors the real method's session mutation."""
-    from miniUnicorn.session.manager import Session as _Session
+    from miniunicorn.session.manager import Session as _Session
 
     state = {"count": 0}
 
@@ -144,7 +144,7 @@ class TestSessionTTLConfig:
 
     def test_session_file_cap_is_internal_constant(self):
         """Session file cap should remain an internal constant, not a config field."""
-        from miniUnicorn.session.manager import FILE_MAX_MESSAGES
+        from miniunicorn.session.manager import FILE_MAX_MESSAGES
         assert FILE_MAX_MESSAGES == 2000
 
 
@@ -199,11 +199,11 @@ class TestAgentLoopTTLParam:
             await loop._process_message(msg)
 
         session = loop.sessions.get_or_create("cli:direct")
-        from miniUnicorn.session.manager import FILE_MAX_MESSAGES
+        from miniunicorn.session.manager import FILE_MAX_MESSAGES
         assert len(session.messages) <= FILE_MAX_MESSAGES
 
     def test_session_enforce_file_cap_skips_archive_when_dropped_prefix_already_consolidated(self, tmp_path):
-        from miniUnicorn.session.manager import Session
+        from miniunicorn.session.manager import Session
         archive_fn = MagicMock()
         session = Session(key="cli:direct")
         for i in range(8):
@@ -216,7 +216,7 @@ class TestAgentLoopTTLParam:
         archive_fn.assert_not_called()
 
     def test_session_enforce_file_cap_archives_only_unconsolidated_dropped_prefix(self, tmp_path):
-        from miniUnicorn.session.manager import Session
+        from miniunicorn.session.manager import Session
         archive_fn = MagicMock()
         session = Session(key="cli:direct")
         for i in range(8):

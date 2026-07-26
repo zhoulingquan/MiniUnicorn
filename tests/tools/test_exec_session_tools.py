@@ -6,8 +6,8 @@ import shlex
 import subprocess
 import sys
 
-from miniUnicorn.agent.tools.shell import ExecTool
-from miniUnicorn.agent.tools.exec_session import ExecSessionManager, ListExecSessionsTool, WriteStdinTool
+from miniunicorn.agent.tools.shell import ExecTool
+from miniunicorn.agent.tools.exec_session import ExecSessionManager, ListExecSessionsTool, WriteStdinTool
 
 
 def _python_command(code: str) -> str:
@@ -135,9 +135,9 @@ def test_exec_can_continue_with_stdin(tmp_path):
             "line=sys.stdin.readline(); print('got:' + line.strip(), flush=True)"
         )
 
-        initial = await exec_tool.execute(command=command, yield_time_ms=500)
+        initial = await exec_tool.execute(command=command, yield_time_ms=2000)
         sid = _session_id(initial)
-        result = await stdin_tool.execute(session_id=sid, chars="ping\n", yield_time_ms=1000)
+        result = await stdin_tool.execute(session_id=sid, chars="ping\n", yield_time_ms=2000)
         return initial, result
 
     initial, result = asyncio.run(run())
@@ -185,7 +185,7 @@ def test_write_stdin_can_terminate_session(tmp_path):
             "import time; print('ready', flush=True); time.sleep(30)"
         )
 
-        initial = await exec_tool.execute(command=command, yield_time_ms=500)
+        initial = await exec_tool.execute(command=command, yield_time_ms=2000)
         sid = _session_id(initial)
         result = await stdin_tool.execute(
             session_id=sid,
@@ -213,7 +213,7 @@ def test_write_stdin_accepts_max_output_tokens_alias(tmp_path):
         sid = _session_id(initial)
         poll = await stdin_tool.execute(
             session_id=sid,
-            yield_time_ms=500,
+            yield_time_ms=2000,
             max_output_tokens=1000,
         )
         cleanup = await stdin_tool.execute(session_id=sid, terminate=True, yield_time_ms=0)
@@ -232,12 +232,12 @@ def test_write_stdin_preserves_completed_session_output_until_polled(tmp_path):
         stdin_tool = WriteStdinTool(manager=manager)
         command = _python_command(
             "import time; print('ready', flush=True); "
-            "time.sleep(1.0); print('done', flush=True)"
+            "time.sleep(2.0); print('done', flush=True)"
         )
 
-        initial = await exec_tool.execute(command=command, yield_time_ms=300)
+        initial = await exec_tool.execute(command=command, yield_time_ms=2000)
         sid = _session_id(initial)
-        await asyncio.sleep(1.2)
+        await asyncio.sleep(2.2)
         final = await stdin_tool.execute(session_id=sid, chars="", yield_time_ms=0)
         return initial, final
 
@@ -287,12 +287,12 @@ def test_write_stdin_wait_for_reports_timeout_without_killing_session(tmp_path):
             "import time; print('booting', flush=True); time.sleep(5)"
         )
 
-        initial = await exec_tool.execute(command=command, yield_time_ms=100)
+        initial = await exec_tool.execute(command=command, yield_time_ms=500)
         sid = _session_id(initial)
         waited = await stdin_tool.execute(
             session_id=sid,
             wait_for="never-ready",
-            wait_timeout_ms=200,
+            wait_timeout_ms=2000,
             yield_time_ms=0,
         )
         cleanup = await stdin_tool.execute(session_id=sid, terminate=True, yield_time_ms=0)

@@ -165,10 +165,10 @@ export function RunElapsedStrip({
       {goalPanelOpen && canExpandGoal && markdownBody ? (
         <div
           ref={panelRef}
-          id="miniUnicorn-goal-panel-root"
+          id="miniunicorn-goal-panel-root"
           role="dialog"
           aria-modal="false"
-          aria-labelledby="miniUnicorn-goal-panel-title"
+          aria-labelledby="miniunicorn-goal-panel-title"
           tabIndex={-1}
           className={cn(
             "absolute bottom-[calc(100%+8px)] left-3 right-3 z-[50] flex max-w-none flex-col overflow-hidden",
@@ -179,7 +179,7 @@ export function RunElapsedStrip({
         >
           <div className="flex shrink-0 items-center justify-between gap-2 border-b border-black/[0.06] px-3 py-2 dark:border-white/[0.08]">
             <h2
-              id="miniUnicorn-goal-panel-title"
+              id="miniunicorn-goal-panel-title"
               className="min-w-0 truncate text-[13px] font-semibold tracking-tight text-foreground"
             >
               {t("thread.composer.goalStateSheetTitle")}
@@ -198,7 +198,7 @@ export function RunElapsedStrip({
             </button>
           </div>
           <div
-            id="miniUnicorn-goal-panel-scroll"
+            id="miniunicorn-goal-panel-scroll"
             className="min-h-0 flex-1 overflow-y-auto scrollbar-thin px-3 pb-3 pt-2"
           >
             <MarkdownText className="max-w-none text-[13.5px] leading-relaxed text-foreground/90">
@@ -240,7 +240,7 @@ export function RunElapsedStrip({
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             )}
             aria-expanded={goalPanelOpen}
-            aria-controls={goalPanelOpen ? "miniUnicorn-goal-panel-root" : undefined}
+            aria-controls={goalPanelOpen ? "miniunicorn-goal-panel-root" : undefined}
             aria-label={t("thread.composer.goalStateExpandAria")}
             title={t("thread.composer.goalStateExpandAria")}
             onClick={() => setGoalPanelOpen((o) => !o)}

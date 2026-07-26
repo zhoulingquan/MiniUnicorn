@@ -5,11 +5,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import ValidationError
 
-import miniUnicorn.agent.memory as memory_module
-from miniUnicorn.agent.loop import AgentLoop
-from miniUnicorn.bus.queue import MessageBus
-from miniUnicorn.config.schema import AgentDefaults
-from miniUnicorn.providers.base import GenerationSettings, LLMResponse
+import miniunicorn.agent.memory as memory_module
+from miniunicorn.agent.loop import AgentLoop
+from miniunicorn.bus.queue import MessageBus
+from miniunicorn.config.schema import AgentDefaults
+from miniunicorn.providers.base import GenerationSettings, LLMResponse
 
 
 def _make_loop(

@@ -84,7 +84,7 @@ function mcpValuesHeader(values: Record<string, unknown>): HeadersInit | undefin
     payload[key] = value;
   });
   if (!Object.keys(payload).length) return undefined;
-  return { "X-MiniUnicorn-MCP-Values": JSON.stringify(payload) };
+  return { "x-miniunicorn-MCP-Values": JSON.stringify(payload) };
 }
 
 function splitKey(key: string): { channel: string; chatId: string } {
@@ -360,9 +360,9 @@ export async function saveSkill(
   chunkHeaderValue(content).forEach((chunk, idx) => {
     // Repeated header name; the backend joins values in order.
     if (idx === 0) {
-      headers["X-MiniUnicorn-Skill-Content"] = chunk;
+      headers["x-miniunicorn-Skill-Content"] = chunk;
     } else {
-      headers[`X-MiniUnicorn-Skill-Content-${idx}`] = chunk;
+      headers[`x-miniunicorn-Skill-Content-${idx}`] = chunk;
     }
   });
   return request<{ saved: boolean; name: string; path: string }>(
@@ -441,9 +441,9 @@ export async function saveBootstrapFile(
   const headers: Record<string, string> = {};
   chunkHeaderValue(content).forEach((chunk, idx) => {
     if (idx === 0) {
-      headers["X-MiniUnicorn-Bootstrap-Content"] = chunk;
+      headers["x-miniunicorn-Bootstrap-Content"] = chunk;
     } else {
-      headers[`X-MiniUnicorn-Bootstrap-Content-${idx}`] = chunk;
+      headers[`x-miniunicorn-Bootstrap-Content-${idx}`] = chunk;
     }
   });
   return request<{ saved: boolean; name: string; path: string }>(
@@ -475,9 +475,9 @@ export async function uploadSkillZip(
     }
     const b64 = btoa(binary);
     if (headerIdx === 0) {
-      headers["X-MiniUnicorn-Skill-Zip"] = b64;
+      headers["x-miniunicorn-Skill-Zip"] = b64;
     } else {
-      headers[`X-MiniUnicorn-Skill-Zip-${headerIdx}`] = b64;
+      headers[`x-miniunicorn-Skill-Zip-${headerIdx}`] = b64;
     }
     headerIdx++;
   }
@@ -516,9 +516,9 @@ export async function saveAgent(
   const headers: Record<string, string> = {};
   chunkHeaderValue(content).forEach((chunk, idx) => {
     if (idx === 0) {
-      headers["X-MiniUnicorn-Agent-Content"] = chunk;
+      headers["x-miniunicorn-Agent-Content"] = chunk;
     } else {
-      headers[`X-MiniUnicorn-Agent-Content-${idx}`] = chunk;
+      headers[`x-miniunicorn-Agent-Content-${idx}`] = chunk;
     }
   });
   return request<{ saved: boolean; name: string; path: string }>(
@@ -952,9 +952,9 @@ export async function importToolFile(
     }
     const b64 = btoa(binary);
     if (headerIdx === 0) {
-      headers["X-MiniUnicorn-Tool-Content"] = b64;
+      headers["x-miniunicorn-Tool-Content"] = b64;
     } else {
-      headers[`X-MiniUnicorn-Tool-Content-${headerIdx}`] = b64;
+      headers[`x-miniunicorn-Tool-Content-${headerIdx}`] = b64;
     }
     headerIdx++;
   }

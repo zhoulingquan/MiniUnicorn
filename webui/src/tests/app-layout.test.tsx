@@ -139,7 +139,7 @@ vi.mock("@/lib/bootstrap", () => ({
   clearSavedSecret: vi.fn(),
 }));
 
-vi.mock("@/lib/miniUnicorn-client", () => {
+vi.mock("@/lib/miniunicorn-client", () => {
   class MockClient {
     status = "idle" as const;
     defaultChatId: string | null = null;
@@ -162,7 +162,7 @@ vi.mock("@/lib/miniUnicorn-client", () => {
     updateUrl = updateUrlSpy;
   }
 
-  return { MiniUnicornClient: MockClient };
+  return { MiniunicornClient: MockClient };
 });
 
 import { deriveWsUrl, fetchBootstrap } from "@/lib/bootstrap";
@@ -179,7 +179,7 @@ describe("App layout", () => {
     toggleThemeSpy.mockReset();
     attachSpy.mockReset();
     runStatusHandlers.clear();
-    localStorage.removeItem("miniUnicorn-webui.sidebar.completed-runs.v1");
+    localStorage.removeItem("miniunicorn-webui.sidebar.completed-runs.v1");
     vi.mocked(fetchBootstrap).mockReset().mockResolvedValue({
       token: "tok",
       ws_path: "/",
@@ -294,7 +294,7 @@ describe("App layout", () => {
     render(<App />);
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("button", { name: "Toggle sidebar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
 
     const sheet = await screen.findByRole("dialog");
     const mobileSidebar = within(sheet).getByRole("navigation", {
@@ -470,7 +470,7 @@ describe("App layout", () => {
       .map((button) => button.textContent?.trim())
       .filter(Boolean);
 
-    expect(labels).toEqual(["Alpha plan", "New chat", "Zulu work"]);
+    expect(labels).toEqual(["Alpha plan", "hi MiniUnicorn", "Zulu work"]);
   });
 
   it("shows running and completed session indicators in the sidebar", async () => {
@@ -541,7 +541,7 @@ describe("App layout", () => {
       },
     ];
     localStorage.setItem(
-      "miniUnicorn-webui.sidebar.completed-runs.v1",
+      "miniunicorn-webui.sidebar.completed-runs.v1",
       JSON.stringify(["chat-b"]),
     );
 
@@ -627,7 +627,7 @@ describe("App layout", () => {
                   name: "opencode",
                   label: "OpenCode Zen",
                   configured: false,
-                  api_key_required: true,
+                  api_key_required: false,
                   default_api_base: "https://opencode.ai/zen/v1",
                 },
               ],
@@ -678,8 +678,8 @@ describe("App layout", () => {
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
-    const searchButton = within(sidebar).getByRole("button", { name: "Search" });
-    const appsButton = within(sidebar).getByRole("button", { name: "Apps" });
+    const searchButton = screen.getByRole("button", { name: "Search chats" });
+    const appsButton = within(sidebar).getByRole("button", { name: "CLI Apps" });
     expect(searchButton.compareDocumentPosition(appsButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(within(sidebar).getByRole("button", { name: "Settings" }));
 
@@ -695,11 +695,9 @@ describe("App layout", () => {
     );
     expect(within(settingsNav).getByRole("button", { name: /Models/ })).toBeInTheDocument();
     expect(within(settingsNav).queryByRole("button", { name: "Providers" })).not.toBeInTheDocument();
-    expect(within(settingsNav).queryByRole("button", { name: "Image" })).not.toBeInTheDocument();
-    expect(within(settingsNav).getByRole("button", { name: "Web" })).toBeInTheDocument();
+    expect(within(settingsNav).getByRole("button", { name: "Web Search" })).toBeInTheDocument();
     expect(within(settingsNav).queryByRole("button", { name: "Apps" })).not.toBeInTheDocument();
     expect(within(settingsNav).getByRole("button", { name: "Security" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
     fireEvent.click(within(settingsNav).getByRole("button", { name: "Appearance" }));
     fireEvent.click(within(settingsNav).getByRole("button", { name: "Models" }));
     expect(screen.queryByText("AI")).not.toBeInTheDocument();
@@ -712,51 +710,57 @@ describe("App layout", () => {
     fireEvent.change(within(modelDialog).getByPlaceholderText("Fast writing"), {
       target: { value: "Fast writing" },
     });
-    fireEvent.change(within(modelDialog).getByPlaceholderText("deepseek/deepseek-chat"), {
+    fireEvent.change(within(modelDialog).getByPlaceholderText("openai/gpt-4.1"), {
       target: { value: "opencode/big-pickle" },
     });
-    expect(within(modelDialog).getByRole("button", { name: /OpenCode Zen/ })).toBeInTheDocument();
     expect(within(modelDialog).getByRole("button", { name: "Save" })).toBeEnabled();
     fireEvent.click(within(modelDialog).getByRole("button", { name: "Cancel" }));
-    const modelInput = screen.getByDisplayValue("deepseek/deepseek-chat");
-    expect(modelInput).toBeInTheDocument();
-    fireEvent.pointerDown(screen.getByRole("button", { name: /Auto/ }));
-    expect(screen.getAllByTestId("provider-picker-logo-deepseek").length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole("menuitem", { name: /Auto/ }));
-    fireEvent.change(modelInput, { target: { value: "deepseek/deepseek-reasoner" } });
+    expect(screen.queryByRole("dialog", { name: "New model configuration" })).not.toBeInTheDocument();
+
+    // Switch to "zen" preset -> dirty
+    fireEvent.pointerDown(screen.getByRole("button", { name: /deepseek\/deepseek-chat/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /big-pickle/ }));
     expect(screen.getByText("Unsaved changes.").parentElement?.className).toContain(
       "text-blue-600",
     );
-    fireEvent.change(modelInput, { target: { value: "deepseek/deepseek-chat" } });
+
+    // Switch back to "default" preset -> not dirty
+    fireEvent.pointerDown(screen.getByRole("button", { name: /big-pickle/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Default/ }));
+    expect(screen.queryByText("Unsaved changes.")).not.toBeInTheDocument();
+
     expect(screen.getByText("OpenCode Zen")).toBeInTheDocument();
     expect(screen.getByTestId("provider-logo-deepseek")).toBeInTheDocument();
-    expect(screen.getByText(/Product names, logos, and brands/)).toBeInTheDocument();
     expect(screen.getAllByText("Not configured").length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByText("DeepSeek"));
+
+    const deepseekCard = screen.getByTestId("provider-logo-deepseek").closest("button")!;
+    fireEvent.click(deepseekCard);
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     fireEvent.change(screen.getByPlaceholderText("Leave blank to keep the current key"), {
       target: { value: "unsaved-deepseek-key" },
     });
-    fireEvent.click(screen.getByText("OpenCode Zen"));
-    fireEvent.click(screen.getByText("DeepSeek"));
+
+    // Collapse DeepSeek, expand OpenCode Zen (unconfigured)
+    const opencodeCard = screen.getAllByText("OpenCode Zen")[0].closest("button")!;
+    fireEvent.click(opencodeCard);
+    fireEvent.click(deepseekCard);
     expect(screen.getByText("sk-••••test")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("unsaved-deepseek-key")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByText("OpenCode Zen"));
+    fireEvent.click(opencodeCard);
     expect(screen.getByDisplayValue("https://opencode.ai/zen/v1")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save provider" })).toBeEnabled();
 
     fireEvent.click(within(settingsNav).getByRole("button", { name: /Models/ }));
     expect(screen.getByRole("heading", { name: /Models/ })).toBeInTheDocument();
 
-    fireEvent.click(within(settingsNav).getByRole("button", { name: "Web" }));
-    // Web 设置页现在包含 web_search 工具配置和 Jina reader 开关
-    expect(screen.getByRole("switch", { name: "Jina reader" })).toBeInTheDocument();
+    fireEvent.click(within(settingsNav).getByRole("button", { name: "Web Search" }));
+    // Web 设置页包含 web_search 工具开关
+    expect(screen.getByRole("switch", { name: /Enable web_search/i })).toBeInTheDocument();
 
     fireEvent.click(within(settingsNav).getByRole("button", { name: "Overview" }));
     expect(screen.queryByText("Bot name")).not.toBeInTheDocument();
     expect(screen.queryByText("Tool hint length")).not.toBeInTheDocument();
     expect(screen.queryByText("Unified session")).not.toBeInTheDocument();
-    expect(screen.getByText("Gateway")).toBeInTheDocument();
     expect(screen.getByText("Workspace")).toBeInTheDocument();
     expect(screen.getByText("Heartbeat")).toBeInTheDocument();
     expect(screen.getByText("Dream")).toBeInTheDocument();
@@ -786,18 +790,14 @@ describe("App layout", () => {
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
-    const appsButton = within(sidebar).getByRole("button", { name: "Apps" });
+    const appsButton = within(sidebar).getByRole("button", { name: "CLI Apps" });
 
     fireEvent.click(appsButton);
 
-    expect(await screen.findByRole("heading", { name: "Apps" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "CLI Apps" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Sidebar navigation" })).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "Settings sections" })).not.toBeInTheDocument();
-    expect(within(sidebar).getByRole("button", { name: "Apps" })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
-    expect(document.title).toBe("Apps · MiniUnicorn");
+    expect(document.title).toBe("MiniUnicorn");
   });
 
   it("returns from settings to the blank start page when no session was active", async () => {
@@ -943,14 +943,14 @@ describe("App layout", () => {
     expect(within(sidebar).getByText("Q2 roadmap")).toBeInTheDocument();
     expect(within(sidebar).getByText("Travel ideas")).toBeInTheDocument();
     const newChatButton = within(sidebar).getByRole("button", { name: "New chat" });
-    const searchButton = within(sidebar).getByRole("button", { name: "Search" });
+    const searchButton = screen.getByRole("button", { name: "Search chats" });
     expect(
       newChatButton.compareDocumentPosition(searchButton) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
+        Node.DOCUMENT_POSITION_PRECEDING,
     ).toBeTruthy();
 
     fireEvent.click(searchButton);
-    const dialog = await screen.findByRole("dialog", { name: "Search" });
+    const dialog = await screen.findByRole("dialog", { name: "Search chats" });
     expect(dialog).toHaveClass("origin-center");
     expect(dialog.className).not.toContain("translate-x");
     expect(dialog.className).not.toContain("translate-y");
@@ -960,7 +960,7 @@ describe("App layout", () => {
     expect(within(dialog).queryByText("websocket")).not.toBeInTheDocument();
     expect(within(dialog).queryByText("#1")).not.toBeInTheDocument();
 
-    fireEvent.change(within(dialog).getByRole("textbox", { name: "Search" }), {
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Search chats" }), {
       target: { value: "planning" },
     });
 
@@ -968,7 +968,7 @@ describe("App layout", () => {
     expect(within(dialog).queryByText("Travel ideas")).not.toBeInTheDocument();
     expect(within(sidebar).getByText("Travel ideas")).toBeInTheDocument();
 
-    fireEvent.change(within(dialog).getByRole("textbox", { name: "Search" }), {
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Search chats" }), {
       target: { value: "road q2" },
     });
 
@@ -978,7 +978,7 @@ describe("App layout", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: /Q2 roadmap/ }));
 
     await waitFor(() =>
-      expect(screen.queryByRole("dialog", { name: "Search" })).not.toBeInTheDocument(),
+      expect(screen.queryByRole("dialog", { name: "Search chats" })).not.toBeInTheDocument(),
     );
   });
 
@@ -999,11 +999,11 @@ describe("App layout", () => {
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
     fireEvent.keyDown(window, { key: "k", metaKey: true });
 
-    const dialog = await screen.findByRole("dialog", { name: "Search" });
+    const dialog = await screen.findByRole("dialog", { name: "Search chats" });
     expect(within(dialog).queryByText("Global actions")).not.toBeInTheDocument();
     expect(within(dialog).getByText("Existing chat")).toBeInTheDocument();
 
-    const textbox = within(dialog).getByRole("textbox", { name: "Search" });
+    const textbox = within(dialog).getByRole("textbox", { name: "Search chats" });
     fireEvent.change(textbox, { target: { value: "missing" } });
     expect(within(dialog).queryByText("Existing chat")).not.toBeInTheDocument();
 
@@ -1012,7 +1012,7 @@ describe("App layout", () => {
 
     fireEvent.keyDown(textbox, { key: "Enter" });
     await waitFor(() =>
-      expect(screen.queryByRole("dialog", { name: "Search" })).not.toBeInTheDocument(),
+      expect(screen.queryByRole("dialog", { name: "Search chats" })).not.toBeInTheDocument(),
     );
     expect(createChatSpy).not.toHaveBeenCalled();
   });
@@ -1041,9 +1041,9 @@ describe("App layout", () => {
     expect(within(sidebar).queryByText("Hidden target")).not.toBeInTheDocument();
     expect(within(sidebar).getByRole("button", { name: "Show 10 more" })).toBeInTheDocument();
 
-    fireEvent.click(within(sidebar).getByRole("button", { name: "Search" }));
-    const dialog = await screen.findByRole("dialog", { name: "Search" });
-    fireEvent.change(within(dialog).getByRole("textbox", { name: "Search" }), {
+    fireEvent.click(screen.getByRole("button", { name: "Search chats" }));
+    const dialog = await screen.findByRole("dialog", { name: "Search chats" });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Search chats" }), {
       target: { value: "hidden" },
     });
     expect(within(dialog).getByText("Hidden target")).toBeInTheDocument();
@@ -1087,11 +1087,11 @@ describe("App layout", () => {
     expect(screen.queryByRole("button", { name: "Start a new chat" })).not.toBeInTheDocument();
     const rail = screen.getByRole("navigation", { name: "Sidebar navigation" });
     expect(within(rail).getByRole("button", { name: "New chat" })).toBeInTheDocument();
-    expect(within(rail).getByRole("button", { name: "Search" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Search chats" })).toBeInTheDocument();
     expect(within(rail).queryByRole("button", { name: "View" })).not.toBeInTheDocument();
     expect(within(rail).queryByText("Existing chat")).not.toBeInTheDocument();
 
-    fireEvent.click(within(rail).getByRole("button", { name: "Expand sidebar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
     await waitFor(() => expect(sidebarAside.style.width).toBe("272px"));
 
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });

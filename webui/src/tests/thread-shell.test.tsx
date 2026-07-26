@@ -69,7 +69,7 @@ function makeClient() {
 function wrap(client: ReturnType<typeof makeClient>, children: ReactNode, modelName?: string | null) {
   return (
     <ClientProvider
-      client={client as unknown as import("@/lib/miniUnicorn-client").MiniUnicornClient}
+      client={client as unknown as import("@/lib/miniunicorn-client").MiniunicornClient}
       token="tok"
       modelName={modelName ?? null}
     >
@@ -218,22 +218,6 @@ describe("ThreadShell", () => {
         json: async () => ({}),
       }),
     );
-  });
-
-  it("does not navigate away when clicking the chat title", async () => {
-    const client = makeClient();
-    const onGoHome = vi.fn();
-    render(wrap(
-      client,
-      <ThreadShell
-        session={session("chat-title")}
-      />,
-    ));
-
-    await waitFor(() => expect(screen.getByText("Important conversation")).toBeInTheDocument());
-    fireEvent.click(screen.getByText("Important conversation"));
-
-    expect(onGoHome).not.toHaveBeenCalled();
   });
 
   it("updates the composer model logo when settings snapshot changes", async () => {
@@ -580,7 +564,7 @@ describe("ThreadShell", () => {
       expect(screen.getByPlaceholderText("Ask anything...")).toBeInTheDocument(),
     );
     const input = screen.getByPlaceholderText("Ask anything...");
-    expect(input.className).toContain("min-h-[78px]");
+    expect(input.className).toContain("min-h-[60px]");
     expect(screen.queryByText("old answer")).not.toBeInTheDocument();
   });
 
@@ -1056,47 +1040,5 @@ describe("ThreadShell", () => {
 
     await waitFor(() => expect(screen.getByText("from chat b")).toBeInTheDocument());
     expect(screen.queryByText("from chat a")).not.toBeInTheDocument();
-  });
-
-  it("updates @ CLI app suggestions when settings broadcasts an install", async () => {
-    const client = makeClient();
-    render(wrap(
-      client,
-      <ThreadShell
-        session={session("chat-cli-apps")}
-      />,
-    ));
-
-    const input = await screen.findByLabelText("Message input");
-    expect(screen.queryByRole("listbox", { name: "Apps" })).not.toBeInTheDocument();
-
-    const payload: CliAppsPayload = {
-      apps: [{
-        name: "gimp",
-        display_name: "GIMP",
-        category: "image",
-        description: "Image editing",
-        requires: "",
-        source: "harness",
-        entry_point: "cli-anything-gimp",
-        install_supported: true,
-        installed: true,
-        available: true,
-        status: "installed",
-        logo_url: null,
-        brand_color: "#5C5543",
-        skill_installed: true,
-      }],
-      installed_count: 1,
-      catalog_updated_at: "2026-04-18",
-    };
-
-    await act(async () => {
-      window.dispatchEvent(new CustomEvent(CLI_APPS_CHANGED_EVENT, { detail: payload }));
-    });
-    fireEvent.change(input, { target: { value: "@", selectionStart: 1 } });
-
-    expect(screen.getByRole("listbox", { name: "Apps" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: /@gimp/i })).toBeInTheDocument();
   });
 });

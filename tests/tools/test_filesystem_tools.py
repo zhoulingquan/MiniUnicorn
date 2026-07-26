@@ -2,7 +2,7 @@
 
 import pytest
 
-from miniUnicorn.agent.tools.filesystem import (
+from miniunicorn.agent.tools.filesystem import (
     EditFileTool,
     ListDirTool,
     ReadFileTool,
@@ -329,7 +329,7 @@ class TestWorkspaceRestriction:
         media_file = media_dir / "photo.txt"
         media_file.write_text("shared media", encoding="utf-8")
 
-        monkeypatch.setattr("miniUnicorn.agent.tools.path_utils.get_media_dir", lambda: media_dir)
+        monkeypatch.setattr("miniunicorn.agent.tools.path_utils.get_media_dir", lambda: media_dir)
 
         tool = ReadFileTool(workspace=workspace, allowed_dir=workspace)
         result = await tool.execute(path=str(media_file))
@@ -338,7 +338,7 @@ class TestWorkspaceRestriction:
 
     @pytest.mark.asyncio
     async def test_extra_dirs_does_not_widen_write(self, tmp_path):
-        from miniUnicorn.agent.tools.filesystem import WriteFileTool
+        from miniunicorn.agent.tools.filesystem import WriteFileTool
 
         workspace = tmp_path / "ws"
         workspace.mkdir()

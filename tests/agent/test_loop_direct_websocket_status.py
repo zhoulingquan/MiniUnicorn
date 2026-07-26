@@ -2,9 +2,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniUnicorn.agent.loop import AgentLoop
-from miniUnicorn.bus.queue import MessageBus
-from miniUnicorn.providers.base import GenerationSettings, LLMResponse
+from miniunicorn.agent.loop import AgentLoop
+from miniunicorn.bus.queue import MessageBus
+from miniunicorn.providers.base import GenerationSettings, LLMResponse
 
 
 def _make_loop(tmp_path):

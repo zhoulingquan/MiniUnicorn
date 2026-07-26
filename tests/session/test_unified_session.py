@@ -19,13 +19,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniUnicorn.agent.loop import AgentLoop
-from miniUnicorn.bus.events import InboundMessage
-from miniUnicorn.bus.queue import MessageBus
-from miniUnicorn.command.builtin import cmd_new, register_builtin_commands
-from miniUnicorn.command.router import CommandContext, CommandRouter
-from miniUnicorn.config.schema import AgentDefaults, Config
-from miniUnicorn.session.manager import Session, SessionManager
+from miniunicorn.agent.loop import AgentLoop
+from miniunicorn.bus.events import InboundMessage
+from miniunicorn.bus.queue import MessageBus
+from miniunicorn.command.builtin import cmd_new, register_builtin_commands
+from miniunicorn.command.router import CommandContext, CommandRouter
+from miniunicorn.config.schema import AgentDefaults, Config
+from miniunicorn.session.manager import Session, SessionManager
 
 
 # ---------------------------------------------------------------------------
@@ -38,9 +38,9 @@ def _make_loop(tmp_path: Path, unified_session: bool = False) -> AgentLoop:
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
 
-    with patch("miniUnicorn.agent.loop.SessionManager"), \
-         patch("miniUnicorn.agent.loop.SubagentManager") as MockSubMgr, \
-         patch("miniUnicorn.agent.loop.Dream"):
+    with patch("miniunicorn.agent.loop.SessionManager"), \
+         patch("miniunicorn.agent.loop.SubagentManager") as MockSubMgr, \
+         patch("miniunicorn.agent.loop.Dream"):
         MockSubMgr.return_value.cancel_by_session = AsyncMock(return_value=0)
         loop = AgentLoop(
             bus=bus,
@@ -187,7 +187,7 @@ class TestUnifiedSessionConfig:
 
     def test_onboard_generated_config_contains_unified_session(self, tmp_path: Path):
         """save_config() writes 'unifiedSession' into config.json (simulates MiniUnicorn onboard)."""
-        from miniUnicorn.config.loader import save_config
+        from miniunicorn.config.loader import save_config
 
         config = Config()
         config_path = tmp_path / "config.json"
@@ -302,7 +302,7 @@ class TestConsolidationUnaffectedByUnifiedSession:
     @pytest.mark.asyncio
     async def test_consolidation_skips_empty_session_for_unified_key(self):
         """Empty unified:default session → consolidation exits immediately, archive not called."""
-        from miniUnicorn.agent.memory import Consolidator, MemoryStore
+        from miniunicorn.agent.memory import Consolidator, MemoryStore
 
         store = MagicMock(spec=MemoryStore)
         mock_provider = MagicMock()
@@ -334,7 +334,7 @@ class TestConsolidationUnaffectedByUnifiedSession:
     async def test_consolidation_behaviour_identical_for_any_key(self):
         """archive call count is the same for 'telegram:123' and 'unified:default'
         under identical token conditions."""
-        from miniUnicorn.agent.memory import Consolidator, MemoryStore
+        from miniunicorn.agent.memory import Consolidator, MemoryStore
 
         archive_calls: dict[str, int] = {}
 
@@ -368,7 +368,7 @@ class TestConsolidationUnaffectedByUnifiedSession:
     async def test_consolidation_triggers_when_over_budget_unified_key(self):
         """When tokens exceed budget, consolidation attempts to find a boundary —
         behaviour is identical to any other session key."""
-        from miniUnicorn.agent.memory import Consolidator, MemoryStore
+        from miniunicorn.agent.memory import Consolidator, MemoryStore
 
         store = MagicMock(spec=MemoryStore)
         mock_provider = MagicMock()
@@ -416,7 +416,7 @@ class TestStopCommandWithUnifiedSession:
     @pytest.mark.asyncio
     async def test_active_tasks_use_effective_key_in_unified_mode(self, tmp_path: Path):
         """When unified_session=True, tasks are stored under UNIFIED_SESSION_KEY."""
-        from miniUnicorn.agent.loop import UNIFIED_SESSION_KEY
+        from miniunicorn.agent.loop import UNIFIED_SESSION_KEY
 
         loop = _make_loop(tmp_path, unified_session=True)
 
@@ -444,8 +444,8 @@ class TestStopCommandWithUnifiedSession:
     @pytest.mark.asyncio
     async def test_stop_command_finds_task_in_unified_mode(self, tmp_path: Path):
         """cmd_stop can cancel tasks when unified_session=True."""
-        from miniUnicorn.agent.loop import UNIFIED_SESSION_KEY
-        from miniUnicorn.command.builtin import cmd_stop
+        from miniunicorn.agent.loop import UNIFIED_SESSION_KEY
+        from miniunicorn.command.builtin import cmd_stop
 
         loop = _make_loop(tmp_path, unified_session=True)
 
@@ -477,8 +477,8 @@ class TestStopCommandWithUnifiedSession:
     @pytest.mark.asyncio
     async def test_stop_command_uses_effective_key_without_session_override(self, tmp_path: Path):
         """Priority /stop must cancel the unified session even before dispatch rewrites the message."""
-        from miniUnicorn.agent.loop import UNIFIED_SESSION_KEY
-        from miniUnicorn.command.builtin import cmd_stop
+        from miniunicorn.agent.loop import UNIFIED_SESSION_KEY
+        from miniunicorn.command.builtin import cmd_stop
 
         loop = _make_loop(tmp_path, unified_session=True)
 
@@ -503,8 +503,8 @@ class TestStopCommandWithUnifiedSession:
     @pytest.mark.asyncio
     async def test_stop_command_cross_channel_in_unified_mode(self, tmp_path: Path):
         """In unified mode, /stop from one channel cancels tasks from another channel."""
-        from miniUnicorn.agent.loop import UNIFIED_SESSION_KEY
-        from miniUnicorn.command.builtin import cmd_stop
+        from miniunicorn.agent.loop import UNIFIED_SESSION_KEY
+        from miniunicorn.command.builtin import cmd_stop
 
         loop = _make_loop(tmp_path, unified_session=True)
 

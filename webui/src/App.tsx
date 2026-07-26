@@ -38,7 +38,7 @@ import {
   saveSecret,
 } from "@/lib/bootstrap";
 import { deriveTitle } from "@/lib/format";
-import { MiniUnicornClient } from "@/lib/miniUnicorn-client";
+import { MiniunicornClient } from "@/lib/miniunicorn-client";
 import { ClientProvider, useClient } from "@/providers/ClientProvider";
 import type {
   ChatSummary,
@@ -62,7 +62,7 @@ type BootState =
   | { status: "auth"; failed?: boolean }
   | {
       status: "ready";
-      client: MiniUnicornClient;
+      client: MiniunicornClient;
       token: string;
       tokenExpiresAt: number;
       modelName: string | null;
@@ -251,7 +251,7 @@ export default function App() {
           const url = deriveWsUrl(boot.ws_path, boot.token, boot.ws_url);
           const runtimeSurface = toRuntimeSurface(boot.runtime_surface);
           const runtimeHost = createRuntimeHost(runtimeSurface, boot.runtime_capabilities);
-          const client = new MiniUnicornClient({
+          const client = new MiniunicornClient({
             url,
             socketFactory: runtimeHost.socketFactory,
             onReauth: async () => {
@@ -955,10 +955,10 @@ function Shell({
             {/*
               设计意图:ThreadShell 在切换到其他视图(settings/mcp/skills 等)时
               仅通过 invisible + pointer-events-none 隐藏,而不卸载。
-              原因:ThreadShell 内部持有 WebSocket 订阅与流式状态(useMiniUnicornStream),
+              原因:ThreadShell 内部持有 WebSocket 订阅与流式状态(useMiniunicornStream),
               强行卸载会断开 WS 连接并丢失已渲染的消息列表/输入草稿等会话状态。
               用户切换回 chat 视图时,状态应原地保留(这是优点而非缺陷)。
-              如需优化长会话内存占用,应在 useMiniUnicornStream 内部按 view !== "chat"
+              如需优化长会话内存占用,应在 useMiniunicornStream 内部按 view !== "chat"
               暂停订阅/渲染,而不是在此处卸载组件(风险高)。
             */}
             <div

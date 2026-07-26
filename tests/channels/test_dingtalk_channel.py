@@ -8,7 +8,7 @@ import pytest
 
 # Check optional dingtalk dependencies before running tests
 try:
-    from miniUnicorn.channels import dingtalk
+    from miniunicorn.channels import dingtalk
     DINGTALK_AVAILABLE = getattr(dingtalk, "DINGTALK_AVAILABLE", False)
 except ImportError:
     DINGTALK_AVAILABLE = False
@@ -16,9 +16,9 @@ except ImportError:
 if not DINGTALK_AVAILABLE:
     pytest.skip("DingTalk dependencies not installed (dingtalk-stream)", allow_module_level=True)
 
-import miniUnicorn.channels.dingtalk as dingtalk_module
-from miniUnicorn.bus.queue import MessageBus
-from miniUnicorn.channels.dingtalk import DingTalkChannel, DingTalkConfig, MiniUnicornDingTalkHandler
+import miniunicorn.channels.dingtalk as dingtalk_module
+from miniunicorn.bus.queue import MessageBus
+from miniunicorn.channels.dingtalk import DingTalkChannel, DingTalkConfig, MiniunicornDingTalkHandler
 
 
 class _FakeResponse:
@@ -125,7 +125,7 @@ async def test_handler_uses_voice_recognition_text_when_text_is_empty(monkeypatc
         DingTalkConfig(client_id="app", client_secret="secret", allow_from=["user1"]),
         bus,
     )
-    handler = MiniUnicornDingTalkHandler(channel)
+    handler = MiniunicornDingTalkHandler(channel)
 
     class _FakeChatbotMessage:
         text = None
@@ -169,7 +169,7 @@ async def test_handler_processes_file_message(monkeypatch) -> None:
         DingTalkConfig(client_id="app", client_secret="secret", allow_from=["user1"]),
         bus,
     )
-    handler = MiniUnicornDingTalkHandler(channel)
+    handler = MiniunicornDingTalkHandler(channel)
 
     class _FakeFileChatbotMessage:
         text = None
@@ -186,7 +186,7 @@ async def test_handler_processes_file_message(monkeypatch) -> None:
             return _FakeFileChatbotMessage()
 
     async def fake_download(download_code, filename, sender_id):
-        return f"/tmp/miniUnicorn_dingtalk/{sender_id}/{filename}"
+        return f"/tmp/miniunicorn_dingtalk/{sender_id}/{filename}"
 
     monkeypatch.setattr(dingtalk_module.channel, "ChatbotMessage", _FakeFileChatbotMessage)
     monkeypatch.setattr(dingtalk_module.channel, "AckMessage", SimpleNamespace(STATUS_OK="OK"))
@@ -207,7 +207,7 @@ async def test_handler_processes_file_message(monkeypatch) -> None:
 
     assert (status, body) == ("OK", "OK")
     assert "[File]" in msg.content
-    assert "/tmp/miniUnicorn_dingtalk/user1/report.xlsx" in msg.content
+    assert "/tmp/miniunicorn_dingtalk/user1/report.xlsx" in msg.content
 
 
 @pytest.mark.asyncio
@@ -234,7 +234,7 @@ async def test_download_dingtalk_file(tmp_path, monkeypatch) -> None:
 
     # Redirect media dir to tmp_path
     monkeypatch.setattr(
-        "miniUnicorn.config.paths.get_media_dir",
+        "miniunicorn.config.paths.get_media_dir",
         lambda channel_name=None: tmp_path / channel_name if channel_name else tmp_path,
     )
 

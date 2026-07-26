@@ -21,11 +21,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from miniUnicorn.bus.events import OutboundMessage
-from miniUnicorn.bus.queue import MessageBus
-from miniUnicorn.channels.base import BaseChannel
-from miniUnicorn.channels.manager import ChannelManager
-from miniUnicorn.config.schema import Config
+from miniunicorn.bus.events import OutboundMessage
+from miniunicorn.bus.queue import MessageBus
+from miniunicorn.channels.base import BaseChannel
+from miniunicorn.channels.manager import ChannelManager
+from miniunicorn.config.schema import Config
 
 
 class _MockChannel(BaseChannel):

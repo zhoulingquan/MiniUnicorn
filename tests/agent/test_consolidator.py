@@ -4,12 +4,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniUnicorn.agent.memory import (
+from miniunicorn.agent.memory import (
     _ARCHIVE_SUMMARY_MAX_CHARS,
     Consolidator,
     MemoryStore,
 )
-from miniUnicorn.session.manager import Session
+from miniunicorn.session.manager import Session
 
 
 @pytest.fixture
@@ -79,7 +79,7 @@ class TestConsolidatorSummarize:
 class TestConsolidatorArchiveErrorHandling:
     """archive() must fall back to raw_archive when the LLM returns an error
     response (finish_reason == 'error'), e.g. overloaded / quota exceeded.
-    See https://github.com/HKUDS/miniUnicorn/issues/3244
+    See https://github.com/HKUDS/miniunicorn/issues/3244
     """
 
     async def test_archive_falls_back_on_error_finish_reason(self, consolidator, mock_provider, store):
@@ -318,7 +318,7 @@ class TestCompactIdleSession:
     @pytest.fixture
     def real_consolidator(self, store, mock_provider):
         """Create a Consolidator with a real SessionManager (not a mock)."""
-        from miniUnicorn.session.manager import SessionManager
+        from miniunicorn.session.manager import SessionManager
 
         sessions = SessionManager(store.workspace)
         return Consolidator(
@@ -480,8 +480,8 @@ class TestConsolidatorSessionRefresh:
     @pytest.mark.asyncio
     async def test_reloads_before_empty_session_guard(self, tmp_path):
         """A stale empty reference must not skip a non-empty cached session."""
-        from miniUnicorn.agent.memory import Consolidator, MemoryStore
-        from miniUnicorn.session.manager import Session, SessionManager
+        from miniunicorn.agent.memory import Consolidator, MemoryStore
+        from miniunicorn.session.manager import Session, SessionManager
 
         store = MemoryStore(tmp_path)
         provider = MagicMock()
@@ -523,8 +523,8 @@ class TestConsolidatorSessionRefresh:
         """After compact_idle_session replaces the session, a concurrent
         maybe_consolidate_by_tokens with the old reference should use the
         fresh session from cache instead of overwriting."""
-        from miniUnicorn.agent.memory import Consolidator, MemoryStore
-        from miniUnicorn.session.manager import SessionManager
+        from miniunicorn.agent.memory import Consolidator, MemoryStore
+        from miniunicorn.session.manager import SessionManager
 
         store = MemoryStore(tmp_path)
         provider = MagicMock()

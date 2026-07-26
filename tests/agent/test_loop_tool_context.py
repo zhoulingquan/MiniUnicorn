@@ -3,10 +3,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniUnicorn.agent.loop import AgentLoop
-from miniUnicorn.bus.queue import MessageBus
-from miniUnicorn.providers.base import LLMResponse, ToolCallRequest
-from miniUnicorn.agent.tools.context import RequestContext
+from miniunicorn.agent.loop import AgentLoop
+from miniunicorn.bus.queue import MessageBus
+from miniunicorn.providers.base import LLMResponse, ToolCallRequest
+from miniunicorn.agent.tools.context import RequestContext
 
 
 class _ContextRecordingTool:

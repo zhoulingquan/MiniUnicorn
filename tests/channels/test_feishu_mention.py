@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from miniUnicorn.channels.feishu import FeishuChannel
+from miniunicorn.channels.feishu import FeishuChannel
 
 
 def _make_channel(bot_open_id: str | None = None) -> FeishuChannel:

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from miniUnicorn.security.workspace_access import workspace_sandbox_status
+from miniunicorn.security.workspace_access import workspace_sandbox_status
 
 
 def test_workspace_sandbox_disabled(tmp_path: Path) -> None:

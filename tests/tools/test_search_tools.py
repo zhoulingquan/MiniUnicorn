@@ -10,10 +10,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniUnicorn.agent.loop import AgentLoop
-from miniUnicorn.agent.subagent import SubagentManager, SubagentStatus
-from miniUnicorn.agent.tools.search import FindFilesTool, GrepTool
-from miniUnicorn.bus.queue import MessageBus
+from miniunicorn.agent.loop import AgentLoop
+from miniunicorn.agent.subagent import SubagentManager, SubagentStatus
+from miniunicorn.agent.tools.search import FindFilesTool, GrepTool
+from miniunicorn.bus.queue import MessageBus
 
 
 @pytest.mark.asyncio

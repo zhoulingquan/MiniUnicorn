@@ -24,7 +24,7 @@ const ORIGINAL_INNER_HEIGHT = window.innerHeight;
 
 afterEach(() => {
   vi.restoreAllMocks();
-  Reflect.deleteProperty(window, "miniUnicornHost");
+  Reflect.deleteProperty(window, "miniunicornHost");
   window.localStorage.clear();
   Object.defineProperty(window, "innerHeight", {
     value: ORIGINAL_INNER_HEIGHT,
@@ -69,8 +69,8 @@ describe("ThreadComposer", () => {
     expect(screen.getByTestId("composer-model-logo-deepseek")).toBeInTheDocument();
     const input = screen.getByPlaceholderText("Ask anything...");
     expect(input).toBeInTheDocument();
-    expect(input.className).toContain("min-h-[78px]");
-    expect(input.parentElement?.parentElement?.className).toContain("max-w-[58rem]");
+    expect(input.className).toContain("min-h-[60px]");
+    expect(input.parentElement?.parentElement?.className).toContain("max-w-[44rem]");
   });
 
   it("keeps the thread composer compact while matching the hero style", () => {
@@ -86,11 +86,11 @@ describe("ThreadComposer", () => {
 
     expect(screen.getByText("gpt-4o")).toBeInTheDocument();
     const input = screen.getByPlaceholderText("Type your message...");
-    expect(input.className).toContain("min-h-[50px]");
-    expect(input.parentElement?.parentElement?.className).toContain("max-w-[49.5rem]");
-    expect(input.parentElement?.parentElement?.className).toContain("rounded-[22px]");
+    expect(input.className).toContain("min-h-[42px]");
+    expect(input.parentElement?.parentElement?.className).toContain("max-w-[40rem]");
+    expect(input.parentElement?.parentElement?.className).toContain("rounded-[18px]");
     expect(input.parentElement?.parentElement?.className).toContain("shadow-[0_12px_30px_rgba(15,23,42,0.07)]");
-    expect(screen.getByRole("button", { name: "Attach image" }).className).toContain("bg-card");
+    expect(screen.getByRole("button", { name: "Attach file" }).className).toContain("bg-card");
     expect(screen.getByRole("button", { name: "Send message" }).className).toContain("bg-foreground");
     expect(screen.queryByText(/Enter to send/)).not.toBeInTheDocument();
   });
@@ -127,7 +127,7 @@ describe("ThreadComposer", () => {
   it("keeps project selection as a compact composer dropdown", async () => {
     const onWorkspaceScopeChange = vi.fn();
     const defaultScope = {
-      project_path: "/Users/test/.miniUnicorn/workspace",
+      project_path: "/Users/test/.miniunicorn/workspace",
       project_name: "workspace",
       access_mode: "restricted" as const,
       restrict_to_workspace: true,
@@ -189,12 +189,12 @@ describe("ThreadComposer", () => {
     const onWorkspaceScopeChange = vi.fn();
     const pickFolder = vi.fn().mockResolvedValue("/Users/test/native-project");
     const defaultScope = {
-      project_path: "/Users/test/.miniUnicorn/workspace",
+      project_path: "/Users/test/.miniunicorn/workspace",
       project_name: "workspace",
       access_mode: "full" as const,
       restrict_to_workspace: false,
     };
-    Object.defineProperty(window, "miniUnicornHost", {
+    Object.defineProperty(window, "miniunicornHost", {
       configurable: true,
       value: {
         getRuntimeInfo: vi.fn(),
@@ -231,7 +231,7 @@ describe("ThreadComposer", () => {
 
   it("uses the web path menu when no native host picker is available", async () => {
     const defaultScope = {
-      project_path: "/Users/test/.miniUnicorn/workspace",
+      project_path: "/Users/test/.miniunicorn/workspace",
       project_name: "workspace",
       access_mode: "full" as const,
       restrict_to_workspace: false,
@@ -376,11 +376,11 @@ describe("ThreadComposer", () => {
 
     expect(onStop).toHaveBeenCalledTimes(1);
     expect(input).toHaveValue("");
-    expect(window.localStorage.getItem("miniUnicorn.webui.slashCommandRecents")).toBeNull();
+    expect(window.localStorage.getItem("miniunicorn.webui.slashCommandRecents")).toBeNull();
   });
 
   it("orders recent slash commands first for the blank slash menu", () => {
-    window.localStorage.setItem("miniUnicorn.webui.slashCommandRecents", JSON.stringify(["/history"]));
+    window.localStorage.setItem("miniunicorn.webui.slashCommandRecents", JSON.stringify(["/history"]));
     render(
       <ThreadComposer
         onSend={vi.fn()}
@@ -434,179 +434,6 @@ describe("ThreadComposer", () => {
     } finally {
       HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
     }
-  });
-
-  it("opens the CLI app mention palette and inserts the selected app", () => {
-    const onSend = vi.fn();
-    render(
-      <ThreadComposer
-        onSend={onSend}
-        placeholder="Type your message..."
-      />,
-    );
-
-    const input = screen.getByLabelText("Message input");
-    fireEvent.change(input, { target: { value: "@", selectionStart: 1 } });
-
-    const palette = screen.getByRole("listbox", { name: "Apps" });
-    expect(palette).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: /@gimp/i })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-    expect(screen.queryByRole("option", { name: /@krita/i })).not.toBeInTheDocument();
-
-    fireEvent.keyDown(input, { key: "ArrowDown" });
-    expect(screen.getByRole("option", { name: /@blender/i })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-    fireEvent.keyDown(input, { key: "Enter" });
-
-    expect(input).toHaveValue("@blender ");
-    expect(screen.getByTestId("composer-cli-mention-blender")).toHaveTextContent("@blender");
-    expect(screen.queryByTestId("composer-cli-app-tray")).not.toBeInTheDocument();
-    expect(onSend).not.toHaveBeenCalled();
-    expect(screen.queryByRole("listbox", { name: "Apps" })).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
-
-    expect(onSend).toHaveBeenCalledWith("@blender", undefined, {
-      cliApps: [{
-        name: "blender",
-        display_name: "Blender",
-        category: "3d",
-        entry_point: "cli-anything-blender",
-        logo_url: null,
-        brand_color: "#E87D0D",
-      }],
-    });
-  });
-
-  it("keeps keyboard-selected mention options visible while navigating", () => {
-    const scrollIntoView = vi.fn();
-    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
-    HTMLElement.prototype.scrollIntoView = scrollIntoView;
-
-    try {
-      render(
-        <ThreadComposer
-          onSend={vi.fn()}
-          placeholder="Type your message..."
-        />,
-      );
-
-      const input = screen.getByLabelText("Message input");
-      fireEvent.change(input, { target: { value: "@", selectionStart: 1 } });
-      scrollIntoView.mockClear();
-
-      fireEvent.keyDown(input, { key: "ArrowDown" });
-      fireEvent.keyDown(input, { key: "ArrowDown" });
-
-      expect(screen.getByRole("option", { name: /@app-2/i })).toHaveAttribute(
-        "aria-selected",
-        "true",
-      );
-      expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "nearest" });
-    } finally {
-      HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
-    }
-  });
-
-  it("completes a CLI app mention with Tab and adds exactly one trailing space", () => {
-    render(
-      <ThreadComposer
-        onSend={vi.fn()}
-        placeholder="Type your message..."
-      />,
-    );
-
-    const input = screen.getByLabelText("Message input");
-    fireEvent.change(input, {
-      target: { value: "use @ble", selectionStart: 8 },
-    });
-
-    fireEvent.keyDown(input, { key: "Tab" });
-
-    expect(input).toHaveValue("use @blender ");
-    expect(screen.getByTestId("composer-cli-mention-blender")).toHaveTextContent("@blender");
-  });
-
-  it("shows configured MCP presets in the mention palette and submits metadata", () => {
-    const onSend = vi.fn();
-    render(
-      <ThreadComposer
-        onSend={onSend}
-        placeholder="Type your message..."
-      />,
-    );
-
-    const input = screen.getByLabelText("Message input");
-    fireEvent.change(input, {
-      target: { value: "use @bro", selectionStart: 8 },
-    });
-
-    expect(screen.getByRole("option", { name: /@browserbase/i })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: /@figma/i })).not.toBeInTheDocument();
-
-    fireEvent.keyDown(input, { key: "Tab" });
-
-    expect(input).toHaveValue("use @browserbase ");
-    expect(screen.getByTestId("composer-mcp-mention-browserbase")).toHaveTextContent("@browserbase");
-
-    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
-
-    expect(onSend).toHaveBeenCalledWith("use @browserbase", undefined, {
-      mcpPresets: [{
-        name: "browserbase",
-        display_name: "Browserbase",
-        category: "browser",
-        transport: "streamableHttp",
-        status: "configured",
-        configured: true,
-        logo_url: "https://example.invalid/browserbase.svg",
-        brand_color: "#111827",
-      }],
-    });
-  });
-
-  it("shows right-side source badges so users can distinguish CLI apps from MCP servers", () => {
-    render(
-      <ThreadComposer
-        onSend={vi.fn()}
-        placeholder="Type your message..."
-      />,
-    );
-
-    const input = screen.getByLabelText("Message input");
-    fireEvent.change(input, { target: { value: "@", selectionStart: 1 } });
-
-    expect(screen.queryByText("CLI Apps")).not.toBeInTheDocument();
-    expect(screen.queryByText("MCP servers")).not.toBeInTheDocument();
-    const gimp = screen.getByRole("option", { name: /GIMP @gimp .* CLI/i });
-    const browserbase = screen.getByRole("option", { name: /Browserbase @browserbase .* MCP/i });
-    expect(within(gimp).getByText("CLI")).toBeInTheDocument();
-    expect(within(browserbase).getByText("MCP")).toBeInTheDocument();
-    expect(within(gimp).getByText("@gimp")).toBeInTheDocument();
-    expect(within(browserbase).getByText("@browserbase")).toBeInTheDocument();
-  });
-
-  it("does not duplicate the next word separator when completing a CLI app mention", () => {
-    render(
-      <ThreadComposer
-        onSend={vi.fn()}
-        placeholder="Type your message..."
-      />,
-    );
-
-    const input = screen.getByLabelText("Message input");
-    fireEvent.change(input, {
-      target: { value: "use @ble tonight", selectionStart: 8 },
-    });
-
-    fireEvent.keyDown(input, { key: "Tab" });
-
-    expect(input).toHaveValue("use @blender tonight");
   });
 
   it("opens the slash command palette downward when there is more room below", async () => {

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from miniUnicorn.agent.tools.apply_patch import ApplyPatchTool
+from miniunicorn.agent.tools.apply_patch import ApplyPatchTool
 
 
 def test_apply_patch_edits_replace(tmp_path):

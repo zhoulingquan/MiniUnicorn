@@ -4,8 +4,8 @@ import time
 
 import pytest
 
-from miniUnicorn.cron.service import CronService
-from miniUnicorn.cron.types import CronJob, CronPayload, CronSchedule
+from miniunicorn.cron.service import CronService
+from miniunicorn.cron.types import CronJob, CronPayload, CronSchedule
 
 
 async def _wait_until(predicate, *, timeout: float = 1.0, interval: float = 0.01) -> None:
@@ -742,7 +742,7 @@ def test_register_system_job_preserves_last_run_at_ms(tmp_path) -> None:
     job = service.get_job("dream")
     assert job is not None
     job.state.last_run_at_ms = last_ms
-    job.state.run_history.append(__import__("miniUnicorn.cron.types", fromlist=["CronRunRecord"]).CronRunRecord(
+    job.state.run_history.append(__import__("miniunicorn.cron.types", fromlist=["CronRunRecord"]).CronRunRecord(
         run_at_ms=last_ms, status="ok", duration_ms=100,
     ))
     service._save_store()

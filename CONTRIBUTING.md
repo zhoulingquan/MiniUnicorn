@@ -10,7 +10,7 @@ MiniUnicorn 基于一个简单的理念：好的工具应当平静、清晰、�
 
 ## 仓库信息
 
-- 仓库：<https://github.com/zhoulingquan/mini-Unicorn>
+- 仓库：<https://github.com/zhoulingquan/miniunicorn>
 - 许可证：MIT
 - 主分支：`main`（稳定发布）
 
@@ -22,8 +22,8 @@ MiniUnicorn 基于一个简单的理念：好的工具应当平静、清晰、�
 
 ```bash
 # 克隆仓库
-git clone https://github.com/zhoulingquan/mini-Unicorn.git
-cd mini-Unicorn
+git clone https://github.com/zhoulingquan/miniunicorn.git
+cd miniunicorn
 
 # 用 uv 安装依赖（推荐）
 uv sync --all-extras
@@ -32,10 +32,10 @@ uv sync --all-extras
 uv run pytest tests/
 
 # 代码检查（全规则）
-uv run ruff check miniUnicorn
+uv run ruff check miniunicorn
 
 # 格式检查
-uv run ruff format --check miniUnicorn
+uv run ruff format --check miniunicorn
 ```
 
 ## 开发流程
@@ -54,8 +54,8 @@ uv run ruff format --check miniUnicorn
 3. 提交前确保以下检查通过：
 
    ```bash
-   uv run ruff check miniUnicorn
-   uv run ruff format --check miniUnicorn
+   uv run ruff check miniunicorn
+   uv run ruff format --check miniunicorn
    uv run pytest tests/
    ```
 
@@ -100,4 +100,4 @@ uv run ruff format --check miniUnicorn
 
 ## 有问题？
 
-欢迎打开 [Issue](https://github.com/zhoulingquan/mini-Unicorn/issues) 进行讨论。感谢你为 MiniUnicorn 投入的时间与用心。
+欢迎打开 [Issue](https://github.com/zhoulingquan/miniunicorn/issues) 进行讨论。感谢你为 MiniUnicorn 投入的时间与用心。

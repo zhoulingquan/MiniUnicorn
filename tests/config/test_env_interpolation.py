@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from miniUnicorn.config.loader import (
+from miniunicorn.config.loader import (
     _resolve_env_vars,
     load_config,
     resolve_config_env_vars,

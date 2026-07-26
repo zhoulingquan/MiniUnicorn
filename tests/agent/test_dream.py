@@ -6,10 +6,10 @@ import pytest
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from miniUnicorn.agent.memory import Dream, MemoryStore
-from miniUnicorn.agent.runner import AgentRunResult
-from miniUnicorn.agent.skills import BUILTIN_SKILLS_DIR
-from miniUnicorn.utils.gitstore import LineAge
+from miniunicorn.agent.memory import Dream, MemoryStore
+from miniunicorn.agent.runner import AgentRunResult
+from miniunicorn.agent.skills import BUILTIN_SKILLS_DIR
+from miniunicorn.utils.gitstore import LineAge
 
 
 @pytest.fixture

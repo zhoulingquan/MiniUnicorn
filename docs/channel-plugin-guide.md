@@ -6,10 +6,10 @@ Build a custom MiniUnicorn channel in three steps: subclass, package, install.
 
 ## How It Works
 
-MiniUnicorn discovers channel plugins via Python [entry points](https://packaging.python.org/en/latest/specifications/entry-points/). When `miniUnicorn gateway` starts, it scans:
+MiniUnicorn discovers channel plugins via Python [entry points](https://packaging.python.org/en/latest/specifications/entry-points/). When `miniunicorn gateway` starts, it scans:
 
-1. Built-in channels in `MiniUnicorn/channels/`
-2. External packages registered under the `MiniUnicorn.channels` entry point group
+1. Built-in channels in `miniunicorn/channels/`
+2. External packages registered under the `miniunicorn.channels` entry point group
 
 If a matching config section has `"enabled": true`, the channel is instantiated and started.
 
@@ -20,8 +20,8 @@ We'll build a minimal webhook channel that receives messages via HTTP POST and s
 ### Project Structure
 
 ```text
-MiniUnicorn-channel-webhook/
-├── miniUnicorn_channel_webhook/
+miniunicorn-channel-webhook/
+├── miniunicorn_channel_webhook/
 │   ├── __init__.py          # re-export WebhookChannel
 │   └── channel.py           # channel implementation
 └── pyproject.toml
@@ -30,14 +30,14 @@ MiniUnicorn-channel-webhook/
 ### 1. Create Your Channel
 
 ```python
-# miniUnicorn_channel_webhook/__init__.py
-from miniUnicorn_channel_webhook.channel import WebhookChannel
+# miniunicorn_channel_webhook/__init__.py
+from miniunicorn_channel_webhook.channel import WebhookChannel
 
 __all__ = ["WebhookChannel"]
 ```
 
 ```python
-# miniUnicorn_channel_webhook/channel.py
+# miniunicorn_channel_webhook/channel.py
 import asyncio
 from typing import Any
 
@@ -45,10 +45,10 @@ from aiohttp import web
 from loguru import logger
 from pydantic import Field
 
-from MiniUnicorn.channels.base import BaseChannel
-from MiniUnicorn.bus.events import OutboundMessage
-from MiniUnicorn.bus.queue import MessageBus
-from MiniUnicorn.config.schema import Base
+from miniunicorn.channels.base import BaseChannel
+from miniunicorn.bus.events import OutboundMessage
+from miniunicorn.bus.queue import MessageBus
+from miniunicorn.config.schema import Base
 
 
 class WebhookConfig(Base):
@@ -133,19 +133,19 @@ class WebhookChannel(BaseChannel):
 ```toml
 # pyproject.toml
 [project]
-name = "MiniUnicorn-channel-webhook"
+name = "miniunicorn-channel-webhook"
 version = "0.1.0"
-dependencies = ["miniUnicorn-ai", "aiohttp"]
+dependencies = ["miniunicorn-ai", "aiohttp"]
 
-[project.entry-points."MiniUnicorn.channels"]
-webhook = "miniUnicorn_channel_webhook:WebhookChannel"
+[project.entry-points."miniunicorn.channels"]
+webhook = "miniunicorn_channel_webhook:WebhookChannel"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["miniUnicorn_channel_webhook"]
+packages = ["miniunicorn_channel_webhook"]
 ```
 
 The key (`webhook`) becomes the config section name. The value points to your `BaseChannel` subclass.
@@ -154,11 +154,11 @@ The key (`webhook`) becomes the config section name. The value points to your `B
 
 ```bash
 pip install -e .
-MiniUnicorn plugins list      # verify "Webhook" shows as "plugin"
-miniUnicorn onboard           # auto-adds default config for detected plugins
+miniunicorn plugins list      # verify "Webhook" shows as "plugin"
+miniunicorn onboard           # auto-adds default config for detected plugins
 ```
 
-Edit `~/.miniUnicorn/config.json`:
+Edit `~/.miniunicorn/config.json`:
 
 ```json
 {
@@ -175,7 +175,7 @@ Edit `~/.miniUnicorn/config.json`:
 ### 4. Run & Test
 
 ```bash
-miniUnicorn gateway
+miniunicorn gateway
 ```
 
 In another terminal:
@@ -223,8 +223,8 @@ Channels that don't need interactive login (e.g. Telegram with bot token, Discor
 
 Users trigger interactive login via:
 ```bash
-miniUnicorn channels login <channel_name>
-miniUnicorn channels login <channel_name> --force  # re-authenticate
+miniunicorn channels login <channel_name>
+miniunicorn channels login <channel_name> --force  # re-authenticate
 ```
 
 ### Provided by Base
@@ -233,7 +233,7 @@ miniUnicorn channels login <channel_name> --force  # re-authenticate
 |-------------------|-------------|
 | `_handle_message(sender_id, chat_id, content, media?, metadata?, session_key?)` | **Call this when you receive a message.** Checks `is_allowed()`, then publishes to the bus. Automatically sets `_wants_stream` if `supports_streaming` is true. |
 | `is_allowed(sender_id)` | Checks against `config.allow_from`; `"*"` allows all, `[]` denies all. |
-| `default_config()` (classmethod) | Returns default config dict for `miniUnicorn onboard`. Override to declare your fields. |
+| `default_config()` (classmethod) | Returns default config dict for `miniunicorn onboard`. Override to declare your fields. |
 | `transcribe_audio(file_path)` | Transcribes audio via Groq Whisper (if configured). |
 | `supports_streaming` (property) | `True` when config has `"streaming": true` **and** subclass overrides `send_delta()`. |
 | `is_running` | Returns `self._running`. |
@@ -465,15 +465,15 @@ Recommended rendering:
 
 `BaseChannel.is_allowed()` reads the permission list via `getattr(self.config, "allow_from", [])`. This works for Pydantic models where `allow_from` is a real Python attribute, but **fails silently for plain `dict`** — `dict` has no `allow_from` attribute, so `getattr` always returns the default `[]`, causing all messages to be denied.
 
-Built-in channels use Pydantic config models (subclassing `Base` from `MiniUnicorn.config.schema`). Plugin channels **must do the same**.
+Built-in channels use Pydantic config models (subclassing `Base` from `miniunicorn.config.schema`). Plugin channels **must do the same**.
 
 ### Pattern
 
-1. Define a Pydantic model inheriting from `MiniUnicorn.config.schema.Base`:
+1. Define a Pydantic model inheriting from `miniunicorn.config.schema.Base`:
 
 ```python
 from pydantic import Field
-from MiniUnicorn.config.schema import Base
+from miniunicorn.config.schema import Base
 
 class WebhookConfig(Base):
     """Webhook channel configuration."""
@@ -488,7 +488,7 @@ class WebhookConfig(Base):
 
 ```python
 from typing import Any
-from MiniUnicorn.bus.queue import MessageBus
+from miniunicorn.bus.queue import MessageBus
 
 class WebhookChannel(BaseChannel):
     def __init__(self, config: Any, bus: MessageBus):
@@ -507,7 +507,7 @@ async def start(self) -> None:
 
 `allowFrom` is handled automatically by `_handle_message()` — you don't need to check it yourself.
 
-Override `default_config()` so `miniUnicorn onboard` auto-populates `config.json`:
+Override `default_config()` so `miniunicorn onboard` auto-populates `config.json`:
 
 ```python
 @classmethod
@@ -523,25 +523,25 @@ If not overridden, the base class returns `{"enabled": false}`.
 
 | What | Format | Example |
 |------|--------|---------|
-| PyPI package | `MiniUnicorn-channel-{name}` | `MiniUnicorn-channel-webhook` |
+| PyPI package | `miniunicorn-channel-{name}` | `miniunicorn-channel-webhook` |
 | Entry point key | `{name}` | `webhook` |
 | Config section | `channels.{name}` | `channels.webhook` |
-| Python package | `miniUnicorn_channel_{name}` | `miniUnicorn_channel_webhook` |
+| Python package | `miniunicorn_channel_{name}` | `miniunicorn_channel_webhook` |
 
 ## Local Development
 
 ```bash
-git clone https://github.com/you/MiniUnicorn-channel-webhook
-cd MiniUnicorn-channel-webhook
+git clone https://github.com/you/miniunicorn-channel-webhook
+cd miniunicorn-channel-webhook
 pip install -e .
-MiniUnicorn plugins list    # should show "Webhook" as "plugin"
-miniUnicorn gateway         # test end-to-end
+miniunicorn plugins list    # should show "Webhook" as "plugin"
+miniunicorn gateway         # test end-to-end
 ```
 
 ## Verify
 
 ```bash
-$ MiniUnicorn plugins list
+$ miniunicorn plugins list
 
   Name       Source    Enabled
   telegram   builtin  yes

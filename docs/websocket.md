@@ -37,7 +37,7 @@ Add to `config.json` under `channels.websocket`:
 ### 2. Start MiniUnicorn
 
 ```bash
-miniUnicorn gateway
+miniunicorn gateway
 ```
 
 You should see:
@@ -255,7 +255,7 @@ For production deployments where `websocketRequiresToken: true`, use short-lived
 
 ### How it works
 
-1. Client sends `GET {tokenIssuePath}` with `Authorization: Bearer {tokenIssueSecret}` (or `X-MiniUnicorn-Auth` header).
+1. Client sends `GET {tokenIssuePath}` with `Authorization: Bearer {tokenIssueSecret}` (or `x-miniunicorn-Auth` header).
 2. Server responds with a one-time-use token:
 
 ```json

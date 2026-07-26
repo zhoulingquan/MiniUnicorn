@@ -1,10 +1,10 @@
 # Configuration
 
-Config file: `~/.miniUnicorn/config.json`
+Config file: `~/.miniunicorn/config.json`
 
 > [!NOTE]
 > If your config file is older than the current schema, you can refresh it without overwriting your existing values:
-> run `miniUnicorn onboard`, then answer `N` when asked whether to overwrite the config.
+> run `miniunicorn onboard`, then answer `N` when asked whether to overwrite the config.
 > MiniUnicorn will merge in missing default fields and keep your current settings.
 
 ## Environment Variables for Secrets
@@ -26,7 +26,7 @@ Instead of storing secrets directly in `config.json`, you can use `${VAR_NAME}` 
 }
 ```
 
-Any string value in `config.json` can use `${VAR_NAME}`. Resolution runs once at startup, in memory only — resolved values are never written back to disk, so editing config through `miniUnicorn onboard` or the WebUI preserves the placeholder.
+Any string value in `config.json` can use `${VAR_NAME}`. Resolution runs once at startup, in memory only — resolved values are never written back to disk, so editing config through `miniunicorn onboard` or the WebUI preserves the placeholder.
 
 If a referenced variable is unset, MiniUnicorn fails fast at startup with `ValueError: Environment variable 'NAME' referenced in config is not set`.
 
@@ -74,15 +74,15 @@ Pick whatever fits your deployment — MiniUnicorn only reads `os.environ` at st
 **systemd** — use `EnvironmentFile=` in the service unit to load variables from a file that only the deploying user can read:
 
 ```ini
-# /etc/systemd/system/MiniUnicorn.service (excerpt)
+# /etc/systemd/system/miniunicorn.service (excerpt)
 [Service]
-EnvironmentFile=/home/youruser/miniUnicorn_secrets.env
-User=MiniUnicorn
+EnvironmentFile=/home/youruser/miniunicorn_secrets.env
+User=miniunicorn
 ExecStart=...
 ```
 
 ```bash
-# /home/youruser/miniUnicorn_secrets.env (mode 600, owned by youruser)
+# /home/youruser/miniunicorn_secrets.env (mode 600, owned by youruser)
 TELEGRAM_TOKEN=your-token-here
 IMAP_PASSWORD=your-password-here
 ```
@@ -90,9 +90,9 @@ IMAP_PASSWORD=your-password-here
 **Docker** — pass an env file to the locally built image (one `KEY=VALUE` per line), or use `-e KEY=value`:
 
 ```bash
-docker run --rm --env-file=./MiniUnicorn.env \
-  -v ~/.miniUnicorn:/home/miniUnicorn/.miniUnicorn \
-  miniUnicorn agent -m "Hello"
+docker run --rm --env-file=./miniunicorn.env \
+  -v ~/.miniunicorn:/home/miniunicorn/.miniunicorn \
+  miniunicorn agent -m "Hello"
 ```
 
 **direnv** — drop a `.envrc` in your working directory and run `direnv allow`:
@@ -107,13 +107,13 @@ export ANTHROPIC_API_KEY=...
 
 ```bash
 # 1Password — references in .env.tpl look like `op://Vault/Item/field`
-op run --env-file=.env.tpl -- miniUnicorn agent
+op run --env-file=.env.tpl -- miniunicorn agent
 
 # pass (passwordstore.org)
-ANTHROPIC_API_KEY="$(pass show api/anthropic)" miniUnicorn agent
+ANTHROPIC_API_KEY="$(pass show api/anthropic)" miniunicorn agent
 
 # Bitwarden
-ANTHROPIC_API_KEY="$(bw get password api/anthropic)" miniUnicorn agent
+ANTHROPIC_API_KEY="$(bw get password api/anthropic)" miniunicorn agent
 ```
 
 ## Providers
@@ -164,14 +164,14 @@ ANTHROPIC_API_KEY="$(bw get password api/anthropic)" miniUnicorn agent
 | `stepfun` | LLM (Step Fun/阶跃星辰) | [platform.stepfun.com](https://platform.stepfun.com) |
 | `ovms` | LLM (local, OpenVINO Model Server) | [docs.openvino.ai](https://docs.openvino.ai/2026/model-server/ovms_docs_llm_quickstart.html) |
 | `vllm` | LLM (local, any OpenAI-compatible server) | — |
-| `openai_codex` | LLM (Codex, OAuth) | `MiniUnicorn provider login openai-codex` |
-| `github_copilot` | LLM (GitHub Copilot, OAuth) | `MiniUnicorn provider login github-copilot` |
+| `openai_codex` | LLM (Codex, OAuth) | `miniunicorn provider login openai-codex` |
+| `github_copilot` | LLM (GitHub Copilot, OAuth) | `miniunicorn provider login github-copilot` |
 | `qianfan` | LLM (Baidu Qianfan) | [cloud.baidu.com](https://cloud.baidu.com/doc/qianfan/s/Hmh4suq26) |
 
 <details>
 <summary><b>OpenAI</b></summary>
 
-By default, OpenAI uses `apiType: "auto"`: MiniUnicorn calls Chat Completions normally and routes GPT-5/o-series or explicit `reasoningEffort` requests through the Responses API when useful. You can force a specific API surface:
+By default, OpenAI uses `apiType: "auto"`: Miniunicorn calls Chat Completions normally and routes GPT-5/o-series or explicit `reasoningEffort` requests through the Responses API when useful. You can force a specific API surface:
 
 ```json
 {
@@ -391,7 +391,7 @@ Model-specific fields can be supplied with `extraBody`; MiniUnicorn merges it in
 
 Use `apiBase` only for a custom Bedrock Runtime endpoint URL, such as a VPC endpoint or proxy. It is not needed for normal AWS regions.
 
-Current scope: MiniUnicorn passes `messages`, `system`, `inferenceConfig`, `toolConfig`, and `additionalModelRequestFields`. Bedrock Prompt Management, Guardrails, `serviceTier`, and other top-level Converse options are not first-class config fields yet.
+Current scope: Miniunicorn passes `messages`, `system`, `inferenceConfig`, `toolConfig`, and `additionalModelRequestFields`. Bedrock Prompt Management, Guardrails, `serviceTier`, and other top-level Converse options are not first-class config fields yet.
 
 **6. Quick checks**
 
@@ -407,7 +407,7 @@ export AWS_REGION="us-east-1"
 Then run:
 
 ```bash
-miniUnicorn agent -m "Reply with one short sentence."
+miniunicorn agent -m "Reply with one short sentence."
 ```
 
 </details>
@@ -417,14 +417,14 @@ miniUnicorn agent -m "Reply with one short sentence."
 <summary><b>OpenAI Codex (OAuth)</b></summary>
 
 Codex uses OAuth instead of API keys. Requires a ChatGPT Plus or Pro account.
-No `providers.openaiCodex` block is needed in `config.json`; `MiniUnicorn provider login` stores the OAuth session outside config.
+No `providers.openaiCodex` block is needed in `config.json`; `miniunicorn provider login` stores the OAuth session outside config.
 
 **1. Login:**
 ```bash
-MiniUnicorn provider login openai-codex
+miniunicorn provider login openai-codex
 ```
 
-**2. Set model** (merge into `~/.miniUnicorn/config.json`):
+**2. Set model** (merge into `~/.miniunicorn/config.json`):
 ```json
 {
   "agents": {
@@ -437,13 +437,13 @@ MiniUnicorn provider login openai-codex
 
 **3. Chat:**
 ```bash
-miniUnicorn agent -m "Hello!"
+miniunicorn agent -m "Hello!"
 
 # Target a specific workspace/config locally
-miniUnicorn agent -c ~/.miniUnicorn-telegram/config.json -m "Hello!"
+miniunicorn agent -c ~/.miniunicorn-telegram/config.json -m "Hello!"
 
 # One-off workspace override on top of that config
-miniUnicorn agent -c ~/.miniUnicorn-telegram/config.json -w /tmp/miniUnicorn-telegram-test -m "Hello!"
+miniunicorn agent -c ~/.miniunicorn-telegram/config.json -w /tmp/miniunicorn-telegram-test -m "Hello!"
 ```
 
 > Docker users: use `docker run -it` for interactive OAuth login.
@@ -455,14 +455,14 @@ miniUnicorn agent -c ~/.miniUnicorn-telegram/config.json -w /tmp/miniUnicorn-tel
 <summary><b>GitHub Copilot (OAuth)</b></summary>
 
 GitHub Copilot uses OAuth instead of API keys. Requires a [GitHub account with a plan](https://github.com/features/copilot/plans) configured.
-No `providers.githubCopilot` block is needed in `config.json`; `MiniUnicorn provider login` stores the OAuth session outside config.
+No `providers.githubCopilot` block is needed in `config.json`; `miniunicorn provider login` stores the OAuth session outside config.
 
 **1. Login:**
 ```bash
-MiniUnicorn provider login github-copilot
+miniunicorn provider login github-copilot
 ```
 
-**2. Set model** (merge into `~/.miniUnicorn/config.json`):
+**2. Set model** (merge into `~/.miniunicorn/config.json`):
 ```json
 {
   "agents": {
@@ -475,13 +475,13 @@ MiniUnicorn provider login github-copilot
 
 **3. Chat:**
 ```bash
-miniUnicorn agent -m "Hello!"
+miniunicorn agent -m "Hello!"
 
 # Target a specific workspace/config locally
-miniUnicorn agent -c ~/.miniUnicorn-telegram/config.json -m "Hello!"
+miniunicorn agent -c ~/.miniunicorn-telegram/config.json -m "Hello!"
 
 # One-off workspace override on top of that config
-miniUnicorn agent -c ~/.miniUnicorn-telegram/config.json -w /tmp/miniUnicorn-telegram-test -m "Hello!"
+miniunicorn agent -c ~/.miniunicorn-telegram/config.json -w /tmp/miniunicorn-telegram-test -m "Hello!"
 ```
 
 > Docker users: use `docker run -it` for interactive OAuth login.
@@ -686,7 +686,7 @@ Run a local model with Ollama, then add to config:
 ollama run llama3.2
 ```
 
-**2. Add to config** (partial — merge into `~/.miniUnicorn/config.json`):
+**2. Add to config** (partial — merge into `~/.miniunicorn/config.json`):
 ```json
 {
   "providers": {
@@ -718,7 +718,7 @@ ollama run llama3.2
 - Load a model (e.g., Llama, Mistral, Qwen)
 - Click "Start Server" (default port: 1234)
 
-**2. Add to config** (partial — merge into `~/.miniUnicorn/config.json`):
+**2. Add to config** (partial — merge into `~/.miniunicorn/config.json`):
 ```json
 {
   "providers": {
@@ -753,7 +753,7 @@ ollama run llama3.2
 - Open Atomic Chat, download a model, and keep the app running. The local API is enabled by default.
 - Copy the model ID exposed by the local API. For example, the model ID for `Qwen 3 32B` might be `qwen3-32b`.
 
-**2. Add to config** (partial — merge into `~/.miniUnicorn/config.json`):
+**2. Add to config** (partial — merge into `~/.miniunicorn/config.json`):
 
 ```json
 {
@@ -831,7 +831,7 @@ docker run -d \
   --target_device GPU
 ```
 
-**3. Add to config** (partial — merge into `~/.miniUnicorn/config.json`):
+**3. Add to config** (partial — merge into `~/.miniunicorn/config.json`):
 
 ```json
 {
@@ -864,7 +864,7 @@ Run your own model with vLLM or any OpenAI-compatible server, then add to config
 vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8000
 ```
 
-**2. Add to config** (partial — merge into `~/.miniUnicorn/config.json`):
+**2. Add to config** (partial — merge into `~/.miniunicorn/config.json`):
 
 *Provider (set API key to null for local servers):*
 ```json
@@ -894,22 +894,22 @@ vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8000
 <details>
 <summary><b>Adding a New Provider (Developer Guide)</b></summary>
 
-MiniUnicorn uses a **Provider Registry** (`MiniUnicorn/providers/registry.py`) as the single source of truth.
+MiniUnicorn uses a **Provider Registry** (`miniunicorn/providers/registry.py`) as the single source of truth.
 Adding a new provider only takes **2 steps** — no if-elif chains to touch.
 
-**Step 1.** Add a `ProviderSpec` entry to `PROVIDERS` in `MiniUnicorn/providers/registry.py`:
+**Step 1.** Add a `ProviderSpec` entry to `PROVIDERS` in `miniunicorn/providers/registry.py`:
 
 ```python
 ProviderSpec(
     name="myprovider",                   # config field name
     keywords=("myprovider", "mymodel"),  # model-name keywords for auto-matching
     env_key="MYPROVIDER_API_KEY",        # env var name
-    display_name="My Provider",          # shown in `miniUnicorn status`
+    display_name="My Provider",          # shown in `miniunicorn status`
     default_api_base="https://api.myprovider.com/v1",  # OpenAI-compatible endpoint
 )
 ```
 
-**Step 2.** Add a field to `ProvidersConfig` in `miniUnicorn/config/schema.py`:
+**Step 2.** Add a field to `ProvidersConfig` in `miniunicorn/config/schema.py`:
 
 ```python
 class ProvidersConfig(BaseModel):
@@ -917,7 +917,7 @@ class ProvidersConfig(BaseModel):
     myprovider: ProviderConfig = ProviderConfig()
 ```
 
-That's it! Environment variables, model routing, config matching, and `miniUnicorn status` display will all work automatically.
+That's it! Environment variables, model routing, config matching, and `miniunicorn status` display will all work automatically.
 
 **Common `ProviderSpec` options:**
 
@@ -1034,7 +1034,7 @@ When `modelPreset` is `null` or omitted, startup uses the implicit `default` pre
 
 ## Channel Settings
 
-Global settings that apply to all channels. Configure under the `channels` section in `~/.miniUnicorn/config.json`:
+Global settings that apply to all channels. Configure under the `channels` section in `~/.miniunicorn/config.json`:
 
 ```json
 {
@@ -1102,7 +1102,7 @@ When a channel `send()` raises, MiniUnicorn retries at the channel-manager layer
 
 ## Web Tools
 
-MiniUnicorn incorporates basic tools for accessing the web. These include searching via APIs, and fetching arbitrary web pages in Markdown format. They are enabled by default, and can be configured in `~/.miniUnicorn/config.json` under `tools.web`.
+MiniUnicorn incorporates basic tools for accessing the web. These include searching via APIs, and fetching arbitrary web pages in Markdown format. They are enabled by default, and can be configured in `~/.miniunicorn/config.json` under `tools.web`.
 
 If you want to disable them, which removes both `web_search` and `web_fetch` from the tool list sent to the LLM, set `tools.web.enable` to `false`:
 
@@ -1142,7 +1142,7 @@ If you need to allow trusted private ranges such as Tailscale / CGNAT addresses,
 
 ### Web Search
 
-MiniUnicorn 内置 5 个搜索后端，`provider="auto"` 时并发调用所有后端，首个成功即返回（剩余后端后台写入缓存供下次命中）。配置在 `~/.miniUnicorn/config.json` 顶层 `web_search` 字段（与 `tools.web` 平级，独立于 `web_fetch`）。
+MiniUnicorn 内置 5 个搜索后端，`provider="auto"` 时并发调用所有后端，首个成功即返回（剩余后端后台写入缓存供下次命中）。配置在 `~/.miniunicorn/config.json` 顶层 `web_search` 字段（与 `tools.web` 平级，独立于 `web_fetch`）。
 
 | 后端 | 类型 | 需要 Key | 说明 |
 |------|------|----------|------|
@@ -1316,7 +1316,7 @@ For API keys, tokens, and other secrets, see [Environment Variables for Secrets]
 | `tools.exec.pathAppend` | `""` | Extra directories to append to `PATH` when running shell commands (e.g. `/usr/sbin` for `ufw`). |
 | `channels.*.allowFrom` | omitted | Access control per channel. Omit to use pairing-only mode; set `["*"]` to allow everyone; or list specific user IDs. See [Pairing](#pairing) for details. |
 
-**Docker security**: The official Docker image runs as a non-root user (`MiniUnicorn`, UID 1000) with bubblewrap pre-installed. When using `docker-compose.yml`, the container drops all Linux capabilities except `SYS_ADMIN` (required for bwrap's namespace isolation).
+**Docker security**: The official Docker image runs as a non-root user (`miniunicorn`, UID 1000) with bubblewrap pre-installed. When using `docker-compose.yml`, the container drops all Linux capabilities except `SYS_ADMIN` (required for bwrap's namespace isolation).
 
 
 ## Pairing
@@ -1379,8 +1379,8 @@ You can find user IDs in the output of `/pairing list`.
 From the terminal:
 
 ```bash
-miniUnicorn agent -m "/pairing list"
-miniUnicorn agent -m "/pairing approve ABCD-EFGH"
+miniunicorn agent -m "/pairing list"
+miniunicorn agent -m "/pairing approve ABCD-EFGH"
 ```
 
 

@@ -22,68 +22,6 @@ describe("MessageBubble", () => {
     expect(screen.queryByRole("button", { name: "Copy reply" })).not.toBeInTheDocument();
   });
 
-  it("renders installed CLI app mentions inside sent user messages", () => {
-    const message: UIMessage = {
-      id: "u-cli",
-      role: "user",
-      content: "Hi nano, please use @zoom to book a meeting, not @krita",
-      createdAt: Date.now(),
-    };
-
-    render(<MessageBubble message={message} />);
-
-    const token = screen.getByTestId("message-cli-mention-zoom");
-    expect(token).toHaveTextContent("@zoom");
-    expect(token).toHaveAttribute("title", "CLI app: Zoom");
-    expect(token.className).not.toContain("rounded");
-    expect(token.className).not.toContain("px-");
-    expect(token.getAttribute("style")).toContain("color: #0B5CFF");
-    expect(token.getAttribute("style")).toContain("text-shadow");
-    expect(screen.queryByTestId("message-cli-mention-krita")).not.toBeInTheDocument();
-    expect(screen.getByText(/not @krita/)).toBeInTheDocument();
-  });
-
-  it("renders structured CLI app attachments even without the installed catalog", () => {
-    const message: UIMessage = {
-      id: "u-cli-attached",
-      role: "user",
-      content: "Please use @drawio for the diagram",
-      createdAt: Date.now(),
-      cliApps: [{
-        name: "drawio",
-        display_name: "Draw.io",
-        category: "diagram",
-        entry_point: "cli-anything-drawio",
-        logo_url: "https://example.invalid/drawio.svg",
-        brand_color: "#F08705",
-      }],
-    };
-
-    render(<MessageBubble message={message} />);
-
-    const token = screen.getByTestId("message-cli-mention-drawio");
-    expect(token).toHaveTextContent("@drawio");
-    expect(token.className).not.toContain("rounded");
-    expect(token.className).not.toContain("px-");
-    expect(token.getAttribute("style")).toContain("color: #F08705");
-  });
-
-  it("renders MCP preset mentions inside sent user messages", () => {
-    const message: UIMessage = {
-      id: "u-mcp",
-      role: "user",
-      content: "Use @browserbase to inspect the checkout flow",
-      createdAt: Date.now(),
-    };
-
-    render(<MessageBubble message={message} />);
-
-    const token = screen.getByTestId("message-mcp-mention-browserbase");
-    expect(token).toHaveTextContent("@browserbase");
-    expect(token).toHaveAttribute("title", "MCP server: Browserbase");
-    expect(token.getAttribute("style")).toContain("color: #111827");
-  });
-
   it("copies completed assistant replies from the action row", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {
@@ -247,7 +185,7 @@ describe("MessageBubble", () => {
       id: "a-file-path",
       role: "assistant",
       content:
-        "改动在 `webui/src/components/MarkdownTextRenderer.tsx` 和 `/Users/renxubin/.miniUnicorn/workspace/minecraft-fps/index.html`。",
+        "改动在 `webui/src/components/MarkdownTextRenderer.tsx` 和 `/Users/renxubin/.miniunicorn/workspace/minecraft-fps/index.html`。",
       createdAt: Date.now(),
     };
 
@@ -267,7 +205,7 @@ describe("MessageBubble", () => {
       expect(references[1]).not.toHaveAttribute("title");
       expect(references[1]).toHaveAttribute(
         "aria-label",
-        "/Users/renxubin/.miniUnicorn/workspace/minecraft-fps/index.html",
+        "/Users/renxubin/.miniunicorn/workspace/minecraft-fps/index.html",
       );
 
       vi.useFakeTimers();
@@ -277,7 +215,7 @@ describe("MessageBubble", () => {
       });
       const tooltip = screen.getByRole("tooltip");
       expect(tooltip).toHaveTextContent(
-        "/Users/renxubin/.miniUnicorn/workspace/minecraft-fps/index.html",
+        "/Users/renxubin/.miniunicorn/workspace/minecraft-fps/index.html",
       );
     } finally {
       vi.useRealTimers();

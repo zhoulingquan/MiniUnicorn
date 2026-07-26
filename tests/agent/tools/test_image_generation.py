@@ -37,7 +37,7 @@ _PNG_DATA_URL = "data:image/png;base64," + base64.b64encode(_PNG_BYTES).decode()
 
 def test_default_disabled():
     """默认 enabled=False, preset="default", 无需任何凭证。"""
-    from miniUnicorn.config.schema import Config
+    from miniunicorn.config.schema import Config
 
     cfg = Config.model_validate({})
     assert cfg.tools.image_generation.enabled is False
@@ -48,7 +48,7 @@ def test_default_disabled():
 
 def test_enabled_without_preset_auto_falls_back_to_default():
     """启用时 preset 为空字符串自动回退到 "default"。"""
-    from miniUnicorn.agent.tools.image_generation.config import ImageGenerationConfig
+    from miniunicorn.agent.tools.image_generation.config import ImageGenerationConfig
 
     cfg = ImageGenerationConfig(enabled=True, preset="")
     # model_validator 把空串回退到 "default"
@@ -57,7 +57,7 @@ def test_enabled_without_preset_auto_falls_back_to_default():
 
 def test_invalid_api_type_raises():
     """apiType 必须在白名单内 (Literal 已保证, 这里二次确认)。"""
-    from miniUnicorn.agent.tools.image_generation.config import (
+    from miniunicorn.agent.tools.image_generation.config import (
         ImageGenerationProviderConfig,
     )
     from pydantic import ValidationError
@@ -68,7 +68,7 @@ def test_invalid_api_type_raises():
 
 def test_invalid_api_type_on_config_raises():
     """ImageGenerationConfig 启用时 apiType 必须在白名单。"""
-    from miniUnicorn.agent.tools.image_generation.config import ImageGenerationConfig
+    from miniunicorn.agent.tools.image_generation.config import ImageGenerationConfig
     from pydantic import ValidationError
 
     with pytest.raises(ValidationError):
@@ -77,7 +77,7 @@ def test_invalid_api_type_on_config_raises():
 
 def test_invalid_response_format_raises():
     """responseFormat 必须是 b64_json 或 url。"""
-    from miniUnicorn.agent.tools.image_generation.config import ImageGenerationConfig
+    from miniunicorn.agent.tools.image_generation.config import ImageGenerationConfig
     from pydantic import ValidationError
 
     with pytest.raises(ValidationError):
@@ -86,7 +86,7 @@ def test_invalid_response_format_raises():
 
 def test_snake_and_camel_case_accepted():
     """snake_case 与 camelCase 都应被接受 (preset / apiType / responseFormat)。"""
-    from miniUnicorn.config.schema import Config
+    from miniunicorn.config.schema import Config
 
     # camelCase
     cfg_camel = Config.model_validate({
@@ -132,7 +132,7 @@ def test_snake_and_camel_case_accepted():
 
 def test_max_images_per_turn_bounds():
     """max_images_per_turn 必须在 1-8 之间。"""
-    from miniUnicorn.agent.tools.image_generation.config import ImageGenerationConfig
+    from miniunicorn.agent.tools.image_generation.config import ImageGenerationConfig
     from pydantic import ValidationError
 
     with pytest.raises(ValidationError):
@@ -143,7 +143,7 @@ def test_max_images_per_turn_bounds():
 
 def test_three_api_types_accepted():
     """三种 apiType 都应被接受。"""
-    from miniUnicorn.agent.tools.image_generation.config import ImageGenerationConfig
+    from miniunicorn.agent.tools.image_generation.config import ImageGenerationConfig
 
     for api_type in ("images_generations", "chat_completions", "dashscope_multimodal"):
         cfg = ImageGenerationConfig(enabled=True, api_type=api_type)  # type: ignore[arg-type]
@@ -171,7 +171,7 @@ def test_three_api_types_accepted():
 )
 def test_infer_api_type_from_provider(provider, expected):
     """infer_api_type_from_provider 根据 provider 名推断 image api_type。"""
-    from miniUnicorn.agent.tools.image_generation.config import infer_api_type_from_provider
+    from miniunicorn.agent.tools.image_generation.config import infer_api_type_from_provider
 
     assert infer_api_type_from_provider(provider) == expected
 
@@ -197,7 +197,7 @@ def test_infer_api_type_from_provider(provider, expected):
 )
 def test_infer_response_format_from_provider(provider, expected):
     """infer_response_format_from_provider 根据 provider 名推断 image response_format。"""
-    from miniUnicorn.agent.tools.image_generation.config import (
+    from miniunicorn.agent.tools.image_generation.config import (
         infer_response_format_from_provider,
     )
 
@@ -214,7 +214,7 @@ def _write_png(path: Path) -> None:
 
 
 def test_path_guard_workspace_image_ok():
-    from miniUnicorn.agent.tools.image_generation.path_guard import resolve_allowed_image_path
+    from miniunicorn.agent.tools.image_generation.path_guard import resolve_allowed_image_path
 
     with tempfile.TemporaryDirectory() as ws_tmp, tempfile.TemporaryDirectory() as media_tmp:
         ws = Path(ws_tmp)
@@ -226,7 +226,7 @@ def test_path_guard_workspace_image_ok():
 
 
 def test_path_guard_media_image_ok():
-    from miniUnicorn.agent.tools.image_generation.path_guard import resolve_allowed_image_path
+    from miniunicorn.agent.tools.image_generation.path_guard import resolve_allowed_image_path
 
     with tempfile.TemporaryDirectory() as ws_tmp, tempfile.TemporaryDirectory() as media_tmp:
         ws = Path(ws_tmp)
@@ -238,7 +238,7 @@ def test_path_guard_media_image_ok():
 
 
 def test_path_guard_outside_rejected():
-    from miniUnicorn.agent.tools.image_generation.path_guard import (
+    from miniunicorn.agent.tools.image_generation.path_guard import (
         ReferenceImageError,
         resolve_allowed_image_path,
     )
@@ -254,7 +254,7 @@ def test_path_guard_outside_rejected():
 
 
 def test_path_guard_traversal_rejected():
-    from miniUnicorn.agent.tools.image_generation.path_guard import (
+    from miniunicorn.agent.tools.image_generation.path_guard import (
         ReferenceImageError,
         resolve_allowed_image_path,
     )
@@ -271,7 +271,7 @@ def test_path_guard_traversal_rejected():
 
 def test_path_guard_mime_forgery_rejected():
     """扩展名是 .png 但内容非图片应被拒绝。"""
-    from miniUnicorn.agent.tools.image_generation.path_guard import (
+    from miniunicorn.agent.tools.image_generation.path_guard import (
         ReferenceImageError,
         resolve_allowed_image_path,
     )
@@ -286,7 +286,7 @@ def test_path_guard_mime_forgery_rejected():
 
 
 def test_path_guard_nonexistent_rejected():
-    from miniUnicorn.agent.tools.image_generation.path_guard import (
+    from miniunicorn.agent.tools.image_generation.path_guard import (
         ReferenceImageError,
         resolve_allowed_image_path,
     )
@@ -299,7 +299,7 @@ def test_path_guard_nonexistent_rejected():
 
 
 def test_path_guard_unsupported_extension_rejected():
-    from miniUnicorn.agent.tools.image_generation.path_guard import (
+    from miniunicorn.agent.tools.image_generation.path_guard import (
         ReferenceImageError,
         resolve_allowed_image_path,
     )
@@ -334,8 +334,8 @@ def _mock_response(status_code: int = 200, json_data: dict | None = None, text: 
 @pytest.mark.asyncio
 async def test_images_generations_adapter_b64_json():
     """images_generations 协议: 解析 data[].b64_json 字段。"""
-    from miniUnicorn.agent.tools.image_generation.config import ImageGenerationProviderConfig
-    from miniUnicorn.agent.tools.image_generation.providers.images_generations import (
+    from miniunicorn.agent.tools.image_generation.config import ImageGenerationProviderConfig
+    from miniunicorn.agent.tools.image_generation.providers.images_generations import (
         ImagesGenerationsAdapter,
     )
 
@@ -364,8 +364,8 @@ async def test_images_generations_adapter_b64_json():
 @pytest.mark.asyncio
 async def test_images_generations_adapter_url_response():
     """images_generations 协议 response_format=url: 自动下载转 data URL。"""
-    from miniUnicorn.agent.tools.image_generation.config import ImageGenerationProviderConfig
-    from miniUnicorn.agent.tools.image_generation.providers.images_generations import (
+    from miniunicorn.agent.tools.image_generation.config import ImageGenerationProviderConfig
+    from miniunicorn.agent.tools.image_generation.providers.images_generations import (
         ImagesGenerationsAdapter,
     )
 
@@ -402,8 +402,8 @@ async def test_images_generations_adapter_url_response():
 @pytest.mark.asyncio
 async def test_images_edits_uploads_image_only(tmp_path):
     """images_generations /images/edits: 上传 image 文件, 不上传 mask。"""
-    from miniUnicorn.agent.tools.image_generation.config import ImageGenerationProviderConfig
-    from miniUnicorn.agent.tools.image_generation.providers.images_generations import (
+    from miniunicorn.agent.tools.image_generation.config import ImageGenerationProviderConfig
+    from miniunicorn.agent.tools.image_generation.providers.images_generations import (
         ImagesGenerationsAdapter,
     )
 
@@ -438,8 +438,8 @@ async def test_images_edits_uploads_image_only(tmp_path):
 @pytest.mark.asyncio
 async def test_chat_completions_adapter_parses_images():
     """chat_completions 协议: 解析 message.images[].image_url.url 字段。"""
-    from miniUnicorn.agent.tools.image_generation.config import ImageGenerationProviderConfig
-    from miniUnicorn.agent.tools.image_generation.providers.chat_completions import (
+    from miniunicorn.agent.tools.image_generation.config import ImageGenerationProviderConfig
+    from miniunicorn.agent.tools.image_generation.providers.chat_completions import (
         ChatCompletionsAdapter,
     )
 
@@ -480,8 +480,8 @@ async def test_chat_completions_adapter_parses_images():
 @pytest.mark.asyncio
 async def test_chat_completions_adapter_with_reference_images():
     """chat_completions 协议: 参考图以 image_url 形式拼入 messages content。"""
-    from miniUnicorn.agent.tools.image_generation.config import ImageGenerationProviderConfig
-    from miniUnicorn.agent.tools.image_generation.providers.chat_completions import (
+    from miniunicorn.agent.tools.image_generation.config import ImageGenerationProviderConfig
+    from miniunicorn.agent.tools.image_generation.providers.chat_completions import (
         ChatCompletionsAdapter,
     )
 
@@ -522,8 +522,8 @@ async def test_chat_completions_adapter_with_reference_images():
 @pytest.mark.asyncio
 async def test_dashscope_adapter_parses_url_response():
     """dashscope_multimodal 协议: 解析 output.choices[].message.content[].image URL 并下载。"""
-    from miniUnicorn.agent.tools.image_generation.config import ImageGenerationProviderConfig
-    from miniUnicorn.agent.tools.image_generation.providers.dashscope_multimodal import (
+    from miniunicorn.agent.tools.image_generation.config import ImageGenerationProviderConfig
+    from miniunicorn.agent.tools.image_generation.providers.dashscope_multimodal import (
         DashscopeMultimodalAdapter,
     )
 
@@ -567,9 +567,9 @@ async def test_dashscope_adapter_parses_url_response():
 @pytest.mark.asyncio
 async def test_dashscope_adapter_error_response():
     """dashscope 错误响应: code/message 字段存在时应抛 ImageGenerationError。"""
-    from miniUnicorn.agent.tools.image_generation.config import ImageGenerationProviderConfig
-    from miniUnicorn.agent.tools.image_generation.providers.base import ImageGenerationError
-    from miniUnicorn.agent.tools.image_generation.providers.dashscope_multimodal import (
+    from miniunicorn.agent.tools.image_generation.config import ImageGenerationProviderConfig
+    from miniunicorn.agent.tools.image_generation.providers.base import ImageGenerationError
+    from miniunicorn.agent.tools.image_generation.providers.dashscope_multimodal import (
         DashscopeMultimodalAdapter,
     )
 
@@ -605,12 +605,12 @@ def isolated_media(monkeypatch, tmp_path):
     media_root.mkdir()
     # patch 所有内部调用 get_media_dir 的入口
     monkeypatch.setattr(
-        "miniUnicorn.agent.tools.image_generation.tool.get_media_dir",
+        "miniunicorn.agent.tools.image_generation.tool.get_media_dir",
         lambda: media_root,
     )
-    monkeypatch.setattr("miniUnicorn.utils.artifacts.get_media_dir", lambda: media_root)
+    monkeypatch.setattr("miniunicorn.utils.artifacts.get_media_dir", lambda: media_root)
     monkeypatch.setattr(
-        "miniUnicorn.agent.tools.image_generation.path_guard.get_media_dir",
+        "miniunicorn.agent.tools.image_generation.path_guard.get_media_dir",
         lambda: media_root,
     )
     return media_root
@@ -625,12 +625,12 @@ def image_tool(isolated_media):
     ImageGenerationProviderConfig 实例传入。这里直接构造 tool 实例,
     跳过 create() 流程以隔离单元测试。
     """
-    from miniUnicorn.agent.tools.image_generation import ImageGenerationTool
-    from miniUnicorn.agent.tools.image_generation.config import (
+    from miniunicorn.agent.tools.image_generation import ImageGenerationTool
+    from miniunicorn.agent.tools.image_generation.config import (
         ImageGenerationConfig,
         ImageGenerationProviderConfig,
     )
-    from miniUnicorn.agent.tools.image_generation.providers.base import (
+    from miniunicorn.agent.tools.image_generation.providers.base import (
         GeneratedImageResponse,
         ImageGenerationAdapter,
     )
@@ -756,7 +756,7 @@ async def test_tool_reference_image_outside_rejected(image_tool):
 @pytest.mark.asyncio
 async def test_tool_adapter_error_returns_error(image_tool):
     """adapter 抛 ImageGenerationError: 工具返回 error, 不崩溃。"""
-    from miniUnicorn.agent.tools.image_generation.providers.base import (
+    from miniunicorn.agent.tools.image_generation.providers.base import (
         ImageGenerationError,
     )
 
@@ -771,7 +771,7 @@ async def test_tool_adapter_error_returns_error(image_tool):
 @pytest.mark.asyncio
 async def test_tool_empty_response_returns_error(image_tool):
     """adapter 返回空 images: 工具返回 error。"""
-    from miniUnicorn.agent.tools.image_generation.providers.base import (
+    from miniunicorn.agent.tools.image_generation.providers.base import (
         GeneratedImageResponse,
     )
 
@@ -785,8 +785,8 @@ async def test_tool_empty_response_returns_error(image_tool):
 @pytest.mark.asyncio
 async def test_tool_adapter_none_returns_error(isolated_media, monkeypatch):
     """未配置 adapter (provider_config 为 None): 返回 error 而不是崩溃。"""
-    from miniUnicorn.agent.tools.image_generation import ImageGenerationTool
-    from miniUnicorn.agent.tools.image_generation.config import ImageGenerationConfig
+    from miniunicorn.agent.tools.image_generation import ImageGenerationTool
+    from miniunicorn.agent.tools.image_generation.config import ImageGenerationConfig
 
     cfg = ImageGenerationConfig(
         enabled=True,
@@ -821,7 +821,7 @@ def _make_fake_signature(
     extra_headers: dict[str, str] | None = None,
     extra_body: dict[str, Any] | None = None,
 ) -> SimpleNamespace:
-    """构造一个假的 ProviderSignature (与 miniUnicorn.providers.factory.ProviderSignature 同字段)。"""
+    """构造一个假的 ProviderSignature (与 miniunicorn.providers.factory.ProviderSignature 同字段)。"""
     return SimpleNamespace(
         model=model,
         provider="openai",
@@ -853,8 +853,8 @@ def _make_fake_snapshot(*, signature=None, model="dall-e-3") -> SimpleNamespace:
 
 def test_tool_create_resolves_preset_credentials():
     """create() 通过 provider_snapshot_loader(preset_name=...) 解析 preset 拿凭证。"""
-    from miniUnicorn.agent.tools.image_generation import ImageGenerationTool
-    from miniUnicorn.agent.tools.image_generation.config import ImageGenerationConfig
+    from miniunicorn.agent.tools.image_generation import ImageGenerationTool
+    from miniunicorn.agent.tools.image_generation.config import ImageGenerationConfig
 
     cfg = ImageGenerationConfig(
         enabled=True,
@@ -900,8 +900,8 @@ def test_tool_create_resolves_preset_credentials():
 
 def test_tool_create_default_preset_passes_default_to_loader():
     """preset="default" 时, create() 仍以 preset_name="default" 调用 loader。"""
-    from miniUnicorn.agent.tools.image_generation import ImageGenerationTool
-    from miniUnicorn.agent.tools.image_generation.config import ImageGenerationConfig
+    from miniunicorn.agent.tools.image_generation import ImageGenerationTool
+    from miniunicorn.agent.tools.image_generation.config import ImageGenerationConfig
 
     cfg = ImageGenerationConfig(
         enabled=True,
@@ -936,8 +936,8 @@ def test_tool_create_default_preset_passes_default_to_loader():
 
 def test_tool_create_loader_failure_returns_tool_without_provider():
     """provider_snapshot_loader 抛异常时, create() 仍返回 tool 实例但 provider_config=None。"""
-    from miniUnicorn.agent.tools.image_generation import ImageGenerationTool
-    from miniUnicorn.agent.tools.image_generation.config import ImageGenerationConfig
+    from miniunicorn.agent.tools.image_generation import ImageGenerationTool
+    from miniunicorn.agent.tools.image_generation.config import ImageGenerationConfig
 
     cfg = ImageGenerationConfig(
         enabled=True,
@@ -970,8 +970,8 @@ def test_tool_create_legacy_tuple_signature():
     False 分支, api_key/api_base 等保持 None, 但仍构造 provider_config 实例
     (api_type/response_format 来自 cfg, 其余为 None)。
     """
-    from miniUnicorn.agent.tools.image_generation import ImageGenerationTool
-    from miniUnicorn.agent.tools.image_generation.config import ImageGenerationConfig
+    from miniunicorn.agent.tools.image_generation import ImageGenerationTool
+    from miniunicorn.agent.tools.image_generation.config import ImageGenerationConfig
 
     cfg = ImageGenerationConfig(
         enabled=True,
@@ -1039,8 +1039,8 @@ def test_tool_create_infers_api_type_from_provider(
 
     provider_name 优先于 provider
     """
-    from miniUnicorn.agent.tools.image_generation import ImageGenerationTool
-    from miniUnicorn.agent.tools.image_generation.config import ImageGenerationConfig
+    from miniunicorn.agent.tools.image_generation import ImageGenerationTool
+    from miniunicorn.agent.tools.image_generation.config import ImageGenerationConfig
 
     # cfg 故意配成与推断结果不同的值, 验证运行时确实用推断值
     cfg_api_type = (
@@ -1081,8 +1081,8 @@ def test_tool_create_infers_api_type_from_provider(
 
 def test_tool_loader_discovers_image_generation():
     """ToolLoader 应自动发现 ImageGenerationTool 类。"""
-    from miniUnicorn.agent.tools import ToolLoader
-    from miniUnicorn.agent.tools.image_generation import ImageGenerationTool
+    from miniunicorn.agent.tools import ToolLoader
+    from miniunicorn.agent.tools.image_generation import ImageGenerationTool
 
     loader = ToolLoader()
     discovered = loader.discover()
@@ -1094,8 +1094,8 @@ def test_tool_loader_discovers_image_generation():
 
 def test_tool_schema_has_required_prompt_only():
     """工具 schema 的 required 字段应只有 prompt。"""
-    from miniUnicorn.agent.tools.image_generation import ImageGenerationTool
-    from miniUnicorn.agent.tools.image_generation.config import (
+    from miniunicorn.agent.tools.image_generation import ImageGenerationTool
+    from miniunicorn.agent.tools.image_generation.config import (
         ImageGenerationConfig,
         ImageGenerationProviderConfig,
     )

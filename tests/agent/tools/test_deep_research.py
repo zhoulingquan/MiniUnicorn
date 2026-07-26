@@ -16,11 +16,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniUnicorn.agent.tools.deep_research.config import DeepResearchConfig
-from miniUnicorn.agent.tools.deep_research.tool import DeepResearchTool, LLMCallError
-from miniUnicorn.agent.tools.web_search.backends.base import BackendResponse, SearchResult
-from miniUnicorn.agent.tools.web_search.config import WebSearchConfig
-from miniUnicorn.providers.base import LLMResponse
+from miniunicorn.agent.tools.deep_research.config import DeepResearchConfig
+from miniunicorn.agent.tools.deep_research.tool import DeepResearchTool, LLMCallError
+from miniunicorn.agent.tools.web_search.backends.base import BackendResponse, SearchResult
+from miniunicorn.agent.tools.web_search.config import WebSearchConfig
+from miniunicorn.providers.base import LLMResponse
 
 
 # ---------------------------------------------------------------------------

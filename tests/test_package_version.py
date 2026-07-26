@@ -19,14 +19,14 @@ def test_source_checkout_import_uses_pyproject_version_without_metadata() -> Non
         import types
 
         sys.path.insert(0, {str(repo_root)!r})
-        fake = types.ModuleType("miniUnicorn.miniUnicorn")
-        fake.MiniUnicorn = object
+        fake = types.ModuleType("miniunicorn.miniunicorn")
+        fake.Miniunicorn = object
         fake.RunResult = object
-        sys.modules["miniUnicorn.miniUnicorn"] = fake
+        sys.modules["miniunicorn.miniunicorn"] = fake
 
-        import miniUnicorn
+        import miniunicorn
 
-        print(miniUnicorn.__version__)
+        print(miniunicorn.__version__)
         """
     )
 

@@ -2,20 +2,20 @@
 
 | Command | Description |
 |---------|-------------|
-| `miniUnicorn onboard` | Initialize config & workspace at `~/.miniUnicorn/` |
-| `miniUnicorn onboard --wizard` | Launch the interactive onboarding wizard |
-| `miniUnicorn onboard -c <config> -w <workspace>` | Initialize or refresh a specific instance config and workspace |
-| `miniUnicorn agent -m "..."` | Chat with the agent |
-| `miniUnicorn agent -w <workspace>` | Chat against a specific workspace |
-| `miniUnicorn agent -w <workspace> -c <config>` | Chat against a specific workspace/config |
-| `miniUnicorn agent` | Interactive chat mode |
-| `miniUnicorn agent --no-markdown` | Show plain-text replies |
-| `miniUnicorn agent --logs` | Show runtime logs during chat |
-| `MiniUnicorn serve` | Start the OpenAI-compatible API |
-| `miniUnicorn gateway` | Start the gateway |
-| `miniUnicorn status` | Show status |
-| `MiniUnicorn provider login openai-codex` | OAuth login for providers |
-| `miniUnicorn channels login <channel>` | Authenticate a channel interactively |
-| `miniUnicorn channels status` | Show channel status |
+| `miniunicorn onboard` | Initialize config & workspace at `~/.miniunicorn/` |
+| `miniunicorn onboard --wizard` | Launch the interactive onboarding wizard |
+| `miniunicorn onboard -c <config> -w <workspace>` | Initialize or refresh a specific instance config and workspace |
+| `miniunicorn agent -m "..."` | Chat with the agent |
+| `miniunicorn agent -w <workspace>` | Chat against a specific workspace |
+| `miniunicorn agent -w <workspace> -c <config>` | Chat against a specific workspace/config |
+| `miniunicorn agent` | Interactive chat mode |
+| `miniunicorn agent --no-markdown` | Show plain-text replies |
+| `miniunicorn agent --logs` | Show runtime logs during chat |
+| `miniunicorn serve` | Start the OpenAI-compatible API |
+| `miniunicorn gateway` | Start the gateway |
+| `miniunicorn status` | Show status |
+| `miniunicorn provider login openai-codex` | OAuth login for providers |
+| `miniunicorn channels login <channel>` | Authenticate a channel interactively |
+| `miniunicorn channels status` | Show channel status |
 
 Interactive mode exits: `exit`, `quit`, `/exit`, `/quit`, `:q`, or `Ctrl+D`.

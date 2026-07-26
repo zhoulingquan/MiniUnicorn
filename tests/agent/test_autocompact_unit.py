@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniUnicorn.agent.autocompact import AutoCompact
-from miniUnicorn.session.manager import Session, SessionManager
+from miniunicorn.agent.autocompact import AutoCompact
+from miniunicorn.session.manager import Session, SessionManager
 
 
 def _make_session(

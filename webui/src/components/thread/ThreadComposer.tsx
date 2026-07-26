@@ -31,7 +31,7 @@ import {
 } from "@/hooks/useAttachedImages";
 import { useClipboardAndDrop } from "@/hooks/useClipboardAndDrop";
 import { useSlashCommandPalette } from "@/hooks/useSlashCommandPalette";
-import type { SendImage, SendOptions } from "@/hooks/useMiniUnicornStream";
+import type { SendImage, SendOptions } from "@/hooks/useMiniunicornStream";
 import {
   Tooltip,
   TooltipContent,

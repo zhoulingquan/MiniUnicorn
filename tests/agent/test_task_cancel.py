@@ -9,15 +9,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniUnicorn.config.schema import AgentDefaults
+from miniunicorn.config.schema import AgentDefaults
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
 
 def _make_loop(*, tools_config=None):
     """Create a minimal AgentLoop with mocked dependencies."""
-    from miniUnicorn.agent.loop import AgentLoop
-    from miniUnicorn.bus.queue import MessageBus
+    from miniunicorn.agent.loop import AgentLoop
+    from miniunicorn.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
@@ -25,9 +25,9 @@ def _make_loop(*, tools_config=None):
     workspace = MagicMock()
     workspace.__truediv__ = MagicMock(return_value=MagicMock())
 
-    with patch("miniUnicorn.agent.loop.ContextBuilder"), \
-         patch("miniUnicorn.agent.loop.SessionManager"), \
-         patch("miniUnicorn.agent.loop.SubagentManager") as MockSubMgr:
+    with patch("miniunicorn.agent.loop.ContextBuilder"), \
+         patch("miniunicorn.agent.loop.SessionManager"), \
+         patch("miniunicorn.agent.loop.SubagentManager") as MockSubMgr:
         MockSubMgr.return_value.cancel_by_session = AsyncMock(return_value=0)
         loop = AgentLoop(bus=bus, provider=provider, workspace=workspace, tools_config=tools_config)
     return loop, bus
@@ -36,9 +36,9 @@ def _make_loop(*, tools_config=None):
 class TestHandleStop:
     @pytest.mark.asyncio
     async def test_stop_no_active_task(self):
-        from miniUnicorn.bus.events import InboundMessage
-        from miniUnicorn.command.builtin import cmd_stop
-        from miniUnicorn.command.router import CommandContext
+        from miniunicorn.bus.events import InboundMessage
+        from miniunicorn.command.builtin import cmd_stop
+        from miniunicorn.command.router import CommandContext
 
         loop, bus = _make_loop()
         msg = InboundMessage(channel="test", sender_id="u1", chat_id="c1", content="/stop")
@@ -48,9 +48,9 @@ class TestHandleStop:
 
     @pytest.mark.asyncio
     async def test_stop_cancels_active_task(self):
-        from miniUnicorn.bus.events import InboundMessage
-        from miniUnicorn.command.builtin import cmd_stop
-        from miniUnicorn.command.router import CommandContext
+        from miniunicorn.bus.events import InboundMessage
+        from miniunicorn.command.builtin import cmd_stop
+        from miniunicorn.command.router import CommandContext
 
         loop, bus = _make_loop()
         cancelled = asyncio.Event()
@@ -75,9 +75,9 @@ class TestHandleStop:
 
     @pytest.mark.asyncio
     async def test_stop_cancels_multiple_tasks(self):
-        from miniUnicorn.bus.events import InboundMessage
-        from miniUnicorn.command.builtin import cmd_stop
-        from miniUnicorn.command.router import CommandContext
+        from miniunicorn.bus.events import InboundMessage
+        from miniunicorn.command.builtin import cmd_stop
+        from miniunicorn.command.router import CommandContext
 
         loop, bus = _make_loop()
         events = [asyncio.Event(), asyncio.Event()]
@@ -103,8 +103,8 @@ class TestHandleStop:
 
 class TestDispatch:
     def test_exec_tool_not_registered_when_disabled(self):
-        from miniUnicorn.config.schema import ToolsConfig
-        from miniUnicorn.agent.tools.shell import ExecToolConfig
+        from miniunicorn.config.schema import ToolsConfig
+        from miniunicorn.agent.tools.shell import ExecToolConfig
 
         loop, _bus = _make_loop(tools_config=ToolsConfig(exec=ExecToolConfig(enable=False)))
 
@@ -112,7 +112,7 @@ class TestDispatch:
 
     @pytest.mark.asyncio
     async def test_dispatch_processes_and_publishes(self):
-        from miniUnicorn.bus.events import InboundMessage, OutboundMessage
+        from miniunicorn.bus.events import InboundMessage, OutboundMessage
 
         loop, bus = _make_loop()
         msg = InboundMessage(channel="test", sender_id="u1", chat_id="c1", content="hello")
@@ -125,7 +125,7 @@ class TestDispatch:
 
     @pytest.mark.asyncio
     async def test_dispatch_streaming_preserves_message_metadata(self):
-        from miniUnicorn.bus.events import InboundMessage
+        from miniunicorn.bus.events import InboundMessage
 
         loop, bus = _make_loop()
         msg = InboundMessage(
@@ -162,7 +162,7 @@ class TestDispatch:
 
     @pytest.mark.asyncio
     async def test_processing_lock_serializes(self):
-        from miniUnicorn.bus.events import InboundMessage, OutboundMessage
+        from miniunicorn.bus.events import InboundMessage, OutboundMessage
 
         loop, bus = _make_loop()
         order = []
@@ -186,8 +186,8 @@ class TestDispatch:
 class TestSubagentCancellation:
     @pytest.mark.asyncio
     async def test_cancel_by_session(self):
-        from miniUnicorn.agent.subagent import SubagentManager
-        from miniUnicorn.bus.queue import MessageBus
+        from miniunicorn.agent.subagent import SubagentManager
+        from miniunicorn.bus.queue import MessageBus
 
         bus = MessageBus()
         provider = MagicMock()
@@ -219,8 +219,8 @@ class TestSubagentCancellation:
 
     @pytest.mark.asyncio
     async def test_cancel_by_session_no_tasks(self):
-        from miniUnicorn.agent.subagent import SubagentManager
-        from miniUnicorn.bus.queue import MessageBus
+        from miniunicorn.agent.subagent import SubagentManager
+        from miniunicorn.bus.queue import MessageBus
 
         bus = MessageBus()
         provider = MagicMock()
@@ -235,9 +235,9 @@ class TestSubagentCancellation:
 
     @pytest.mark.asyncio
     async def test_subagent_preserves_reasoning_fields_in_tool_turn(self, monkeypatch, tmp_path):
-        from miniUnicorn.agent.subagent import SubagentManager
-        from miniUnicorn.bus.queue import MessageBus
-        from miniUnicorn.providers.base import LLMResponse, ToolCallRequest
+        from miniunicorn.agent.subagent import SubagentManager
+        from miniunicorn.bus.queue import MessageBus
+        from miniunicorn.providers.base import LLMResponse, ToolCallRequest
 
         bus = MessageBus()
         provider = MagicMock()
@@ -269,9 +269,9 @@ class TestSubagentCancellation:
         async def fake_execute(self, **kwargs):
             return "tool result"
 
-        monkeypatch.setattr("miniUnicorn.agent.tools.filesystem.ListDirTool.execute", fake_execute)
+        monkeypatch.setattr("miniunicorn.agent.tools.filesystem.ListDirTool.execute", fake_execute)
 
-        from miniUnicorn.agent.subagent import SubagentStatus
+        from miniunicorn.agent.subagent import SubagentStatus
         status = SubagentStatus(task_id="sub-1", label="label", task_description="do task", started_at=time.monotonic())
         await mgr._run_subagent("sub-1", "do task", "label", {"channel": "test", "chat_id": "c1"}, status)
 
@@ -285,10 +285,10 @@ class TestSubagentCancellation:
 
     @pytest.mark.asyncio
     async def test_subagent_exec_tool_not_registered_when_disabled(self, tmp_path):
-        from miniUnicorn.agent.subagent import SubagentManager
-        from miniUnicorn.bus.queue import MessageBus
-        from miniUnicorn.agent.tools.shell import ExecToolConfig
-        from miniUnicorn.config.schema import ToolsConfig
+        from miniunicorn.agent.subagent import SubagentManager
+        from miniunicorn.bus.queue import MessageBus
+        from miniunicorn.agent.tools.shell import ExecToolConfig
+        from miniunicorn.config.schema import ToolsConfig
 
         bus = MessageBus()
         provider = MagicMock()
@@ -313,7 +313,7 @@ class TestSubagentCancellation:
 
         mgr.runner.run = AsyncMock(side_effect=fake_run)
 
-        from miniUnicorn.agent.subagent import SubagentStatus
+        from miniunicorn.agent.subagent import SubagentStatus
         status = SubagentStatus(task_id="sub-1", label="label", task_description="do task", started_at=time.monotonic())
         await mgr._run_subagent("sub-1", "do task", "label", {"channel": "test", "chat_id": "c1"}, status)
 
@@ -322,9 +322,9 @@ class TestSubagentCancellation:
 
     @pytest.mark.asyncio
     async def test_subagent_announces_error_when_tool_execution_fails(self, monkeypatch, tmp_path):
-        from miniUnicorn.agent.subagent import SubagentManager
-        from miniUnicorn.bus.queue import MessageBus
-        from miniUnicorn.providers.base import LLMResponse, ToolCallRequest
+        from miniunicorn.agent.subagent import SubagentManager
+        from miniunicorn.bus.queue import MessageBus
+        from miniunicorn.providers.base import LLMResponse, ToolCallRequest
 
         bus = MessageBus()
         provider = MagicMock()
@@ -349,9 +349,9 @@ class TestSubagentCancellation:
                 return "first result"
             raise RuntimeError("boom")
 
-        monkeypatch.setattr("miniUnicorn.agent.tools.filesystem.ListDirTool.execute", fake_execute)
+        monkeypatch.setattr("miniunicorn.agent.tools.filesystem.ListDirTool.execute", fake_execute)
 
-        from miniUnicorn.agent.subagent import SubagentStatus
+        from miniunicorn.agent.subagent import SubagentStatus
         status = SubagentStatus(task_id="sub-1", label="label", task_description="do task", started_at=time.monotonic())
         await mgr._run_subagent("sub-1", "do task", "label", {"channel": "test", "chat_id": "c1"}, status)
 
@@ -365,9 +365,9 @@ class TestSubagentCancellation:
 
     @pytest.mark.asyncio
     async def test_cancel_by_session_cancels_running_subagent_tool(self, monkeypatch, tmp_path):
-        from miniUnicorn.agent.subagent import SubagentManager, SubagentStatus
-        from miniUnicorn.bus.queue import MessageBus
-        from miniUnicorn.providers.base import LLMResponse, ToolCallRequest
+        from miniunicorn.agent.subagent import SubagentManager, SubagentStatus
+        from miniunicorn.bus.queue import MessageBus
+        from miniunicorn.providers.base import LLMResponse, ToolCallRequest
 
         bus = MessageBus()
         provider = MagicMock()
@@ -395,7 +395,7 @@ class TestSubagentCancellation:
                 cancelled.set()
                 raise
 
-        monkeypatch.setattr("miniUnicorn.agent.tools.filesystem.ListDirTool.execute", fake_execute)
+        monkeypatch.setattr("miniunicorn.agent.tools.filesystem.ListDirTool.execute", fake_execute)
 
         task = asyncio.create_task(
             mgr._run_subagent(
@@ -421,8 +421,8 @@ class TestSubagentAnnounceSessionKey:
 
     def _make_mgr(self):
         """Create a SubagentManager with mocked deps and its bus."""
-        from miniUnicorn.agent.subagent import SubagentManager
-        from miniUnicorn.bus.queue import MessageBus
+        from miniunicorn.agent.subagent import SubagentManager
+        from miniunicorn.bus.queue import MessageBus
 
         bus = MessageBus()
         provider = MagicMock()
@@ -476,7 +476,7 @@ class TestSubagentAnnounceSessionKey:
     @pytest.mark.asyncio
     async def test_session_key_flows_through_run_subagent(self):
         """Verify session_key in origin propagates from _run_subagent to _announce_result."""
-        from miniUnicorn.agent.subagent import SubagentStatus
+        from miniunicorn.agent.subagent import SubagentStatus
 
         mgr, bus = self._make_mgr()
 

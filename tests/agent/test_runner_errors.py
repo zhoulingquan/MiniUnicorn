@@ -7,15 +7,15 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniUnicorn.config.schema import AgentDefaults
-from miniUnicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from miniunicorn.config.schema import AgentDefaults
+from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
 
 @pytest.mark.asyncio
 async def test_runner_returns_structured_tool_error():
-    from miniUnicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
 
     provider = MagicMock(spec=LLMProvider)
     provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
@@ -48,7 +48,7 @@ async def test_runner_returns_structured_tool_error():
 async def test_llm_error_not_appended_to_session_messages():
     """When LLM returns finish_reason='error', the error content must NOT be
     appended to the messages list (prevents polluting session history)."""
-    from miniUnicorn.agent.runner import (
+    from miniunicorn.agent.runner import (
         AgentRunSpec,
         AgentRunner,
         _PERSISTED_MODEL_ERROR_PLACEHOLDER,
@@ -81,7 +81,7 @@ async def test_llm_error_not_appended_to_session_messages():
 @pytest.mark.asyncio
 async def test_llm_arrearage_error_surfaces_clear_message():
     """Arrearage errors yield a clear user-facing message, not a raw dump (#3006)."""
-    from miniUnicorn.agent.runner import AgentRunSpec, AgentRunner, _ARREARAGE_ERROR_MESSAGE
+    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner, _ARREARAGE_ERROR_MESSAGE
 
     provider = MagicMock(spec=LLMProvider)
     provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
@@ -105,7 +105,7 @@ async def test_llm_arrearage_error_surfaces_clear_message():
 
 @pytest.mark.asyncio
 async def test_runner_tool_error_sets_final_content():
-    from miniUnicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
 
     provider = MagicMock(spec=LLMProvider)
 
@@ -139,7 +139,7 @@ async def test_runner_tool_error_sets_final_content():
 async def test_runner_tool_error_preserves_tool_results_in_messages():
     """When a tool raises a fatal error, its results must still be appended
     to messages so the session never contains orphan tool_calls (#2943)."""
-    from miniUnicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
 
     provider = MagicMock(spec=LLMProvider)
 

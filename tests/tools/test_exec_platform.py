@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from miniUnicorn.agent.tools.shell import ExecTool
+from miniunicorn.agent.tools.shell import ExecTool
 
 _WINDOWS_ENV_KEYS = {
     "APPDATA", "LOCALAPPDATA", "ProgramData",
@@ -26,7 +26,7 @@ _WINDOWS_ENV_KEYS = {
 class TestBuildEnvUnix:
 
     def test_expected_keys(self):
-        with patch("miniUnicorn.agent.tools.shell._IS_WINDOWS", False):
+        with patch("miniunicorn.agent.tools.shell._IS_WINDOWS", False):
             env = ExecTool()._build_env()
         # PATH 显式传入，确保 bash 子进程能找到基本命令（不依赖 profile 设置）
         expected = {"HOME", "LANG", "TERM", "PYTHONUNBUFFERED", "PATH"}
@@ -36,14 +36,14 @@ class TestBuildEnvUnix:
 
     def test_home_from_environ(self, monkeypatch):
         monkeypatch.setenv("HOME", "/Users/dev")
-        with patch("miniUnicorn.agent.tools.shell._IS_WINDOWS", False):
+        with patch("miniunicorn.agent.tools.shell._IS_WINDOWS", False):
             env = ExecTool()._build_env()
         assert env["HOME"] == "/Users/dev"
 
     def test_secrets_excluded(self, monkeypatch):
         monkeypatch.setenv("OPENAI_API_KEY", "sk-secret")
         monkeypatch.setenv("MINIUNICORN_TOKEN", "tok-secret")
-        with patch("miniUnicorn.agent.tools.shell._IS_WINDOWS", False):
+        with patch("miniunicorn.agent.tools.shell._IS_WINDOWS", False):
             env = ExecTool()._build_env()
         assert "OPENAI_API_KEY" not in env
         assert "MINIUNICORN_TOKEN" not in env
@@ -60,14 +60,14 @@ class TestBuildEnvWindows:
     }
 
     def test_expected_keys(self):
-        with patch("miniUnicorn.agent.tools.shell._IS_WINDOWS", True):
+        with patch("miniunicorn.agent.tools.shell._IS_WINDOWS", True):
             env = ExecTool()._build_env()
         assert set(env) == self._EXPECTED_KEYS
 
     def test_secrets_excluded(self, monkeypatch):
         monkeypatch.setenv("OPENAI_API_KEY", "sk-secret")
         monkeypatch.setenv("MINIUNICORN_TOKEN", "tok-secret")
-        with patch("miniUnicorn.agent.tools.shell._IS_WINDOWS", True):
+        with patch("miniunicorn.agent.tools.shell._IS_WINDOWS", True):
             env = ExecTool()._build_env()
         assert "OPENAI_API_KEY" not in env
         assert "MINIUNICORN_TOKEN" not in env
@@ -76,7 +76,7 @@ class TestBuildEnvWindows:
 
     def test_path_has_sensible_default(self):
         with (
-            patch("miniUnicorn.agent.tools.shell._IS_WINDOWS", True),
+            patch("miniunicorn.agent.tools.shell._IS_WINDOWS", True),
             patch.dict("os.environ", {}, clear=True),
         ):
             env = ExecTool()._build_env()
@@ -84,7 +84,7 @@ class TestBuildEnvWindows:
 
     def test_systemroot_forwarded(self, monkeypatch):
         monkeypatch.setenv("SYSTEMROOT", r"D:\Windows")
-        with patch("miniUnicorn.agent.tools.shell._IS_WINDOWS", True):
+        with patch("miniunicorn.agent.tools.shell._IS_WINDOWS", True):
             env = ExecTool()._build_env()
         assert env["SYSTEMROOT"] == r"D:\Windows"
 
@@ -98,7 +98,7 @@ class TestSpawnUnix:
     @pytest.mark.asyncio
     async def test_uses_bash(self):
         with (
-            patch("miniUnicorn.agent.tools.shell._IS_WINDOWS", False),
+            patch("miniunicorn.agent.tools.shell._IS_WINDOWS", False),
             patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec,
         ):
             mock_exec.return_value = AsyncMock()
@@ -120,7 +120,7 @@ class TestSpawnWindows:
     async def test_single_line_uses_shell(self):
         env = {"COMSPEC": r"C:\Windows\system32\cmd.exe", "PATH": ""}
         with (
-            patch("miniUnicorn.agent.tools.shell._IS_WINDOWS", True),
+            patch("miniunicorn.agent.tools.shell._IS_WINDOWS", True),
             patch("asyncio.create_subprocess_shell", new_callable=AsyncMock) as mock_shell,
         ):
             mock_shell.return_value = AsyncMock()
@@ -136,7 +136,7 @@ class TestSpawnWindows:
     async def test_single_line_passes_cwd_and_env(self):
         env = {"PATH": "/usr/bin"}
         with (
-            patch("miniUnicorn.agent.tools.shell._IS_WINDOWS", True),
+            patch("miniunicorn.agent.tools.shell._IS_WINDOWS", True),
             patch("asyncio.create_subprocess_shell", new_callable=AsyncMock) as mock_shell,
         ):
             mock_shell.return_value = AsyncMock()
@@ -150,7 +150,7 @@ class TestSpawnWindows:
     async def test_multiline_uses_powershell(self):
         env = {"PATH": ""}
         with (
-            patch("miniUnicorn.agent.tools.shell._IS_WINDOWS", True),
+            patch("miniunicorn.agent.tools.shell._IS_WINDOWS", True),
             patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec,
         ):
             mock_exec.return_value = AsyncMock()
@@ -191,8 +191,8 @@ class TestPathAppendPlatform:
             return mock_proc
 
         with (
-            patch("miniUnicorn.agent.tools.shell._IS_WINDOWS", False),
-            patch("miniUnicorn.agent.tools.shell.os.pathsep", ":"),
+            patch("miniunicorn.agent.tools.shell._IS_WINDOWS", False),
+            patch("miniunicorn.agent.tools.shell.os.pathsep", ":"),
             patch.object(ExecTool, "_spawn", side_effect=capture_spawn),
             patch.object(ExecTool, "_guard_command", return_value=None),
         ):
@@ -217,8 +217,8 @@ class TestPathAppendPlatform:
             return mock_proc
 
         with (
-            patch("miniUnicorn.agent.tools.shell._IS_WINDOWS", True),
-            patch("miniUnicorn.agent.tools.shell.os.pathsep", ";"),
+            patch("miniunicorn.agent.tools.shell._IS_WINDOWS", True),
+            patch("miniunicorn.agent.tools.shell.os.pathsep", ";"),
             patch.object(ExecTool, "_spawn", side_effect=capture_spawn),
             patch.object(ExecTool, "_guard_command", return_value=None),
         ):
@@ -242,7 +242,7 @@ class TestSandboxPlatform:
         mock_proc.returncode = 0
 
         with (
-            patch("miniUnicorn.agent.tools.shell._IS_WINDOWS", True),
+            patch("miniunicorn.agent.tools.shell._IS_WINDOWS", True),
             patch.object(ExecTool, "_spawn", return_value=mock_proc) as mock_spawn,
             patch.object(ExecTool, "_guard_command", return_value=None),
         ):
@@ -261,8 +261,8 @@ class TestSandboxPlatform:
         mock_proc.returncode = 0
 
         with (
-            patch("miniUnicorn.agent.tools.shell._IS_WINDOWS", False),
-            patch("miniUnicorn.agent.tools.shell.wrap_command", return_value="bwrap -- sh -c ls") as mock_wrap,
+            patch("miniunicorn.agent.tools.shell._IS_WINDOWS", False),
+            patch("miniunicorn.agent.tools.shell.wrap_command", return_value="bwrap -- sh -c ls") as mock_wrap,
             patch.object(ExecTool, "_spawn", return_value=mock_proc) as mock_spawn,
             patch.object(ExecTool, "_guard_command", return_value=None),
         ):
@@ -290,7 +290,7 @@ class TestExecuteEndToEnd:
         mock_proc.returncode = 0
 
         with (
-            patch("miniUnicorn.agent.tools.shell._IS_WINDOWS", True),
+            patch("miniunicorn.agent.tools.shell._IS_WINDOWS", True),
             patch.object(ExecTool, "_spawn", return_value=mock_proc),
             patch.object(ExecTool, "_guard_command", return_value=None),
         ):
@@ -308,7 +308,7 @@ class TestExecuteEndToEnd:
         mock_proc.returncode = 0
 
         with (
-            patch("miniUnicorn.agent.tools.shell._IS_WINDOWS", False),
+            patch("miniunicorn.agent.tools.shell._IS_WINDOWS", False),
             patch.object(ExecTool, "_spawn", return_value=mock_proc),
             patch.object(ExecTool, "_guard_command", return_value=None),
         ):
@@ -392,7 +392,7 @@ class TestWindowsMultilineExec:
         mock_proc.returncode = 0
 
         with (
-            patch("miniUnicorn.agent.tools.shell._IS_WINDOWS", True),
+            patch("miniunicorn.agent.tools.shell._IS_WINDOWS", True),
             patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec,
             patch.object(ExecTool, "_guard_command", return_value=None),
         ):
@@ -413,7 +413,7 @@ class TestWindowsMultilineExec:
         mock_proc.returncode = 0
 
         with (
-            patch("miniUnicorn.agent.tools.shell._IS_WINDOWS", True),
+            patch("miniunicorn.agent.tools.shell._IS_WINDOWS", True),
             patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec,
             patch.object(ExecTool, "_guard_command", return_value=None),
         ):
@@ -432,7 +432,7 @@ class TestWindowsMultilineExec:
         mock_proc.returncode = 0
 
         with (
-            patch("miniUnicorn.agent.tools.shell._IS_WINDOWS", True),
+            patch("miniunicorn.agent.tools.shell._IS_WINDOWS", True),
             patch.object(ExecTool, "_spawn", return_value=mock_proc) as mock_spawn,
             patch.object(ExecTool, "_guard_command", return_value=None),
         ):
@@ -449,7 +449,7 @@ class TestWindowsMultilineExec:
         mock_proc.returncode = 0
 
         with (
-            patch("miniUnicorn.agent.tools.shell._IS_WINDOWS", False),
+            patch("miniunicorn.agent.tools.shell._IS_WINDOWS", False),
             patch.object(ExecTool, "_spawn", return_value=mock_proc) as mock_spawn,
             patch.object(ExecTool, "_guard_command", return_value=None),
         ):

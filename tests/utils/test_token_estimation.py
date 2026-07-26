@@ -1,4 +1,4 @@
-from miniUnicorn.utils.helpers import estimate_prompt_tokens_chain
+from miniunicorn.utils.helpers import estimate_prompt_tokens_chain
 
 
 class _NoCounterProvider:

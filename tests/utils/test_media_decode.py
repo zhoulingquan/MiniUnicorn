@@ -1,4 +1,4 @@
-"""Tests for ``MiniUnicorn.utils.media_decode``."""
+"""Tests for ``miniunicorn.utils.media_decode``."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import base64
 
 import pytest
 
-from miniUnicorn.utils.media_decode import (
+from miniunicorn.utils.media_decode import (
     DEFAULT_MAX_BYTES,
     FileSizeExceededError,
     MAX_FILE_SIZE,
@@ -67,8 +67,8 @@ def test_saved_file_lives_under_media_dir(tmp_path) -> None:
 
 def test_legacy_symbols_reexported_from_api_server() -> None:
     """Existing tests import ``_save_base64_data_url`` / ``_FileSizeExceededError``
-    from ``MiniUnicorn.api.server`` — keep the aliases working."""
-    from miniUnicorn.api import server
+    from ``miniunicorn.api.server`` — keep the aliases working."""
+    from miniunicorn.api import server
 
     assert server._save_base64_data_url is save_base64_data_url
     assert server._FileSizeExceededError is FileSizeExceededError

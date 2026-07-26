@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 try:
-    from miniUnicorn.channels import qq
+    from miniunicorn.channels import qq
 
     QQ_AVAILABLE = getattr(qq, "QQ_AVAILABLE", False)
 except ImportError:
@@ -22,8 +22,8 @@ except ImportError:
 if not QQ_AVAILABLE:
     pytest.skip("QQ dependencies not installed (qq-botpy)", allow_module_level=True)
 
-from miniUnicorn.bus.queue import MessageBus
-from miniUnicorn.channels.qq import QQChannel, QQConfig
+from miniunicorn.bus.queue import MessageBus
+from miniunicorn.channels.qq import QQChannel, QQConfig
 
 
 class _FakeApi:

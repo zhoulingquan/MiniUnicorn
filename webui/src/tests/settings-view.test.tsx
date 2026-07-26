@@ -126,7 +126,7 @@ const installedAnyGen = {
 
 function renderSettingsView(
   options: {
-    initialSection?: "advanced" | "models";
+    initialSection?: "advanced" | "models" | "apps";
     onSettingsChange?: (payload: SettingsPayload) => void;
   } = {},
 ) {
@@ -181,9 +181,9 @@ describe("SettingsView Apps catalog", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    renderSettingsView();
+    renderSettingsView({ initialSection: "apps" });
 
-    expect(await screen.findByRole("heading", { name: "Apps" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "CLI Apps" })).toBeInTheDocument();
     expect(await screen.findByText("AnyGen")).toBeInTheDocument();
     const uninstall = screen.getByRole("button", { name: "Uninstall CLI" });
 

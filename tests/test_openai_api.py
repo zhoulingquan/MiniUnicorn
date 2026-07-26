@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import pytest_asyncio
 
-from miniUnicorn.api.server import (
+from miniunicorn.api.server import (
     API_CHAT_ID,
     API_SESSION_KEY,
     _chat_completion_response,
@@ -373,7 +373,7 @@ async def test_empty_response_retry_then_success(aiohttp_client) -> None:
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
 @pytest.mark.asyncio
 async def test_empty_response_falls_back(aiohttp_client) -> None:
-    from miniUnicorn.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
+    from miniunicorn.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
 
     call_count = 0
 
@@ -402,7 +402,7 @@ async def test_empty_response_falls_back(aiohttp_client) -> None:
 @pytest.mark.asyncio
 async def test_process_direct_accepts_media() -> None:
     """process_direct should forward media paths to _process_message."""
-    from miniUnicorn.agent.loop import AgentLoop
+    from miniunicorn.agent.loop import AgentLoop
 
     loop = AgentLoop.__new__(AgentLoop)
     loop._connect_mcp = AsyncMock()

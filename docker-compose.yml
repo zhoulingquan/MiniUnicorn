@@ -1,10 +1,10 @@
 # MiniUnicorn Docker Compose 部署配置
 #
 # 快速启动:
-#   docker compose up -d miniUnicorn-gateway
+#   docker compose up -d miniunicorn-gateway
 #   → 浏览器访问 http://localhost:${WEBUI_PORT:-8765}
 #
-# 配置持久化:宿主机 ~/.miniUnicorn/ 挂载到容器内 /home/miniUnicorn/.miniUnicorn/
+# 配置持久化:宿主机 ~/.miniunicorn/ 挂载到容器内 /home/miniunicorn/.miniunicorn/
 # 首次启动后,在 WebUI 的"设置 → 模型配置"里填入 LLM API Key 即可对话。
 #
 # 自定义端口:复制 .env.example 为 .env 修改端口,或直接 export WEBUI_PORT=9000
@@ -15,7 +15,7 @@ x-common-config: &common-config
     dockerfile: Dockerfile
   image: miniunicorn:local
   volumes:
-    - ${MINIUNICORN_CONFIG:-${HOME}/.miniUnicorn}:/home/miniUnicorn/.miniUnicorn
+    - ${MINIUNICORN_CONFIG:-${HOME}/.miniunicorn}:/home/miniunicorn/.miniunicorn
   # drop all caps, only add SYS_ADMIN for bubblewrap sandbox
   cap_drop:
     - ALL
@@ -41,8 +41,8 @@ x-common-config: &common-config
         memory: 256M
 
 services:
-  miniUnicorn-gateway:
-    container_name: miniUnicorn-gateway
+  miniunicorn-gateway:
+    container_name: miniunicorn-gateway
     <<: *common-config
     command: ["gateway"]
     restart: unless-stopped
@@ -55,11 +55,11 @@ services:
       retries: 3
       start_period: 15s
 
-  miniUnicorn-api:
-    container_name: miniUnicorn-api
+  miniunicorn-api:
+    container_name: miniunicorn-api
     <<: *common-config
     command:
-      ["serve", "--host", "0.0.0.0", "-w", "/home/miniUnicorn/.miniUnicorn/api-workspace"]
+      ["serve", "--host", "0.0.0.0", "-w", "/home/miniunicorn/.miniunicorn/api-workspace"]
     restart: unless-stopped
     ports:
       - "127.0.0.1:${API_PORT:-8900}:8900"
@@ -70,7 +70,7 @@ services:
       retries: 3
       start_period: 10s
 
-  miniUnicorn-cli:
+  miniunicorn-cli:
     <<: *common-config
     profiles:
       - cli

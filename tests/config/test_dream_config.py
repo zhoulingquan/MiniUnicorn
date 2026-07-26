@@ -1,4 +1,4 @@
-from miniUnicorn.config.schema import DreamConfig
+from miniunicorn.config.schema import DreamConfig
 
 
 def test_dream_config_defaults_to_nightly_cron() -> None:

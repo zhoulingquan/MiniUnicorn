@@ -5,12 +5,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniUnicorn.agent.loop import AgentLoop, TurnContext, TurnState
-from miniUnicorn.bus.events import InboundMessage
-from miniUnicorn.bus.queue import MessageBus
-from miniUnicorn.config.schema import ChannelsConfig
-from miniUnicorn.providers.base import LLMResponse
-from miniUnicorn.utils.document import reference_non_image_attachments
+from miniunicorn.agent.loop import AgentLoop, TurnContext, TurnState
+from miniunicorn.bus.events import InboundMessage
+from miniunicorn.bus.queue import MessageBus
+from miniunicorn.config.schema import ChannelsConfig
+from miniunicorn.providers.base import LLMResponse
+from miniunicorn.utils.document import reference_non_image_attachments
 
 
 def _make_loop(tmp_path: Path, channels_config: ChannelsConfig | None = None) -> AgentLoop:
@@ -40,7 +40,7 @@ async def test_state_restore_extracts_documents_by_default(
         calls.append((content, media))
         return f"{content}\n\n[File: report.txt]\nQuarterly revenue is $5M", []
 
-    monkeypatch.setattr("miniUnicorn.agent._state_machine.extract_documents", fake_extract_documents)
+    monkeypatch.setattr("miniunicorn.agent._state_machine.extract_documents", fake_extract_documents)
 
     ctx = TurnContext(
         msg=InboundMessage(
@@ -74,7 +74,7 @@ async def test_state_restore_references_documents_when_extraction_disabled(
     def fail_extract_documents(content: str, media: list[str]) -> tuple[str, list[str]]:
         raise AssertionError("document extraction should be disabled")
 
-    monkeypatch.setattr("miniUnicorn.agent._state_machine.extract_documents", fail_extract_documents)
+    monkeypatch.setattr("miniunicorn.agent._state_machine.extract_documents", fail_extract_documents)
 
     ctx = TurnContext(
         msg=InboundMessage(
@@ -118,7 +118,7 @@ async def test_pending_followup_references_documents_when_extraction_disabled(
     def fail_extract_documents(content: str, media: list[str]) -> tuple[str, list[str]]:
         raise AssertionError("document extraction should be disabled")
 
-    monkeypatch.setattr("miniUnicorn.agent._state_machine.extract_documents", fail_extract_documents)
+    monkeypatch.setattr("miniunicorn.agent._state_machine.extract_documents", fail_extract_documents)
 
     pending_queue: asyncio.Queue[InboundMessage] = asyncio.Queue()
     await pending_queue.put(

@@ -1,4 +1,4 @@
-"""End-to-end integration tests for the upgraded miniUnicorn full chain.
+"""End-to-end integration tests for the upgraded miniunicorn full chain.
 
 Covers the upgraded components and their wiring:
   * Planner (planner.py) -> Plan/PlanStep, create_plan
@@ -25,18 +25,18 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniUnicorn.agent.planner import Planner, Plan, PlanStep, StepStatus
-from miniUnicorn.agent.subagent_registry import SubagentRegistry
-from miniUnicorn.agent.tools.context import RequestContext
-from miniUnicorn.agent.tools.delegate import DelegateTool
-from miniUnicorn.agent.tools.execute_plan import ExecutePlanTool
-from miniUnicorn.agent.context_governor import ContextGovernor
-from miniUnicorn.agent.reflection import Reflection
-from miniUnicorn.agent.turn_budget import TurnBudget
-from miniUnicorn.agent.vector_memory import NoOpVectorStore, VectorMemoryStore
-from miniUnicorn.bus.queue import MessageBus
-from miniUnicorn.config.schema import AgentDefaults
-from miniUnicorn.providers.base import LLMProvider, LLMResponse
+from miniunicorn.agent.planner import Planner, Plan, PlanStep, StepStatus
+from miniunicorn.agent.subagent_registry import SubagentRegistry
+from miniunicorn.agent.tools.context import RequestContext
+from miniunicorn.agent.tools.delegate import DelegateTool
+from miniunicorn.agent.tools.execute_plan import ExecutePlanTool
+from miniunicorn.agent.context_governor import ContextGovernor
+from miniunicorn.agent.reflection import Reflection
+from miniunicorn.agent.turn_budget import TurnBudget
+from miniunicorn.agent.vector_memory import NoOpVectorStore, VectorMemoryStore
+from miniunicorn.bus.queue import MessageBus
+from miniunicorn.config.schema import AgentDefaults
+from miniunicorn.providers.base import LLMProvider, LLMResponse
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
@@ -47,7 +47,7 @@ _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
 def _make_subagent_manager(tmp_path: Path) -> "SubagentManager":  # type: ignore[name-defined]
     """Build a real SubagentManager with a mock provider (no real LLM)."""
-    from miniUnicorn.agent.subagent import SubagentManager
+    from miniunicorn.agent.subagent import SubagentManager
 
     provider = MagicMock(spec=LLMProvider)
     provider.get_default_model.return_value = "test-model"
@@ -187,7 +187,7 @@ async def test_delegate_with_registry(tmp_path):
 @pytest.mark.asyncio
 async def test_subagent_spawn_and_wait_overrides(tmp_path):
     """spawn_and_wait forwards overrides to _run_subagent_direct / AgentRunSpec."""
-    from miniUnicorn.agent.subagent import SubagentManager
+    from miniunicorn.agent.subagent import SubagentManager
 
     provider = MagicMock(spec=LLMProvider)
     provider.get_default_model.return_value = "test-model"
@@ -238,7 +238,7 @@ async def test_subagent_spawn_and_wait_overrides(tmp_path):
 
 def test_spawn_and_wait_signature_has_overrides():
     """Contract check: spawn_and_wait exposes the three override parameters."""
-    from miniUnicorn.agent.subagent import SubagentManager
+    from miniunicorn.agent.subagent import SubagentManager
 
     sig = inspect.signature(SubagentManager.spawn_and_wait)
     params = sig.parameters
@@ -263,7 +263,7 @@ def test_vector_memory_noop_store_contract():
 
 def test_vector_memory_store_disabled_when_no_sqlite_vec(tmp_path, monkeypatch):
     """VectorMemoryStore degrades to disabled when sqlite-vec is unavailable."""
-    from miniUnicorn.agent import vector_memory as vm
+    from miniunicorn.agent import vector_memory as vm
 
     def _fail_load(_conn):
         return False
@@ -281,7 +281,7 @@ def test_vector_memory_store_disabled_when_no_sqlite_vec(tmp_path, monkeypatch):
 
 def test_create_vector_store_falls_back_to_noop(tmp_path, monkeypatch):
     """create_vector_store returns NoOpVectorStore when sqlite-vec is missing."""
-    from miniUnicorn.agent import vector_memory as vm
+    from miniunicorn.agent import vector_memory as vm
 
     monkeypatch.setattr(vm, "_try_load_sqlite_vec", lambda _conn: False)
     store = vm.create_vector_store(tmp_path / "vec.db", embedding_dim=4)
@@ -355,7 +355,7 @@ async def test_reflection_persistence(tmp_path, monkeypatch):
     # Control timestamps so the two entries land in distinct minutes — the
     # JSONL filter uses strict `>` on the "YYYY-MM-DD HH:MM" string, so two
     # entries written within the same minute would otherwise be indistinguishable.
-    from miniUnicorn.agent import reflection as reflection_mod
+    from miniunicorn.agent import reflection as reflection_mod
 
     fake_clock = {"tick": 0}
 

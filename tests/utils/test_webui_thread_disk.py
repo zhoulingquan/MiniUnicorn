@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from miniUnicorn.webui.thread_disk import delete_webui_thread, webui_thread_file_path
-from miniUnicorn.webui.transcript import append_transcript_object, webui_transcript_path
+from miniunicorn.webui.thread_disk import delete_webui_thread, webui_thread_file_path
+from miniunicorn.webui.transcript import append_transcript_object, webui_transcript_path
 
 
 def test_delete_webui_thread_removes_legacy_json_and_transcript(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("miniUnicorn.config.paths.get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("miniunicorn.config.paths.get_data_dir", lambda: tmp_path)
     key = "websocket:k1"
     json_path = webui_thread_file_path(key)
     json_path.parent.mkdir(parents=True, exist_ok=True)

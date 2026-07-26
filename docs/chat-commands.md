@@ -56,9 +56,9 @@ Preset names come from the top-level `modelPresets` config. Switching is runtime
 
 ## Periodic Tasks
 
-The gateway wakes up every 30 minutes and checks `HEARTBEAT.md` in your workspace (`~/.miniUnicorn/workspace/HEARTBEAT.md`). If the file has tasks, the agent executes them and delivers results to your most recently active chat channel.
+The gateway wakes up every 30 minutes and checks `HEARTBEAT.md` in your workspace (`~/.miniunicorn/workspace/HEARTBEAT.md`). If the file has tasks, the agent executes them and delivers results to your most recently active chat channel.
 
-**Setup:** edit `~/.miniUnicorn/workspace/HEARTBEAT.md` (created automatically by `miniUnicorn onboard`):
+**Setup:** edit `~/.miniunicorn/workspace/HEARTBEAT.md` (created automatically by `miniunicorn onboard`):
 
 ```markdown
 ## Periodic Tasks
@@ -69,4 +69,4 @@ The gateway wakes up every 30 minutes and checks `HEARTBEAT.md` in your workspac
 
 The agent can also manage this file itself — ask it to "add a periodic task" and it will update `HEARTBEAT.md` for you.
 
-> **Note:** The gateway must be running (`miniUnicorn gateway`) and you must have chatted with the bot at least once so it knows which channel to deliver to.
+> **Note:** The gateway must be running (`miniunicorn gateway`) and you must have chatted with the bot at least once so it knows which channel to deliver to.

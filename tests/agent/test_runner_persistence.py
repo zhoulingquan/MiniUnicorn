@@ -8,13 +8,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniUnicorn.config.schema import AgentDefaults
-from miniUnicorn.providers.base import LLMResponse, ToolCallRequest
+from miniunicorn.config.schema import AgentDefaults
+from miniunicorn.providers.base import LLMResponse, ToolCallRequest
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
 async def test_runner_persists_large_tool_results_for_follow_up_calls(tmp_path):
-    from miniUnicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
 
     provider = MagicMock()
     captured_second_call: list[dict] = []
@@ -51,13 +51,13 @@ async def test_runner_persists_large_tool_results_for_follow_up_calls(tmp_path):
     tool_message = next(msg for msg in captured_second_call if msg.get("role") == "tool")
     assert "[tool output persisted]" in tool_message["content"]
     assert "tool-results" in tool_message["content"]
-    assert (tmp_path / ".miniUnicorn" / "tool-results" / "test_runner" / "call_big.txt").exists()
+    assert (tmp_path / ".miniunicorn" / "tool-results" / "test_runner" / "call_big.txt").exists()
 
 
 def test_persist_tool_result_prunes_old_session_buckets(tmp_path):
-    from miniUnicorn.utils.helpers import maybe_persist_tool_result
+    from miniunicorn.utils.helpers import maybe_persist_tool_result
 
-    root = tmp_path / ".miniUnicorn" / "tool-results"
+    root = tmp_path / ".miniunicorn" / "tool-results"
     old_bucket = root / "old_session"
     recent_bucket = root / "recent_session"
     old_bucket.mkdir(parents=True)
@@ -84,9 +84,9 @@ def test_persist_tool_result_prunes_old_session_buckets(tmp_path):
 
 
 def test_persist_tool_result_leaves_no_temp_files(tmp_path):
-    from miniUnicorn.utils.helpers import maybe_persist_tool_result
+    from miniunicorn.utils.helpers import maybe_persist_tool_result
 
-    root = tmp_path / ".miniUnicorn" / "tool-results"
+    root = tmp_path / ".miniunicorn" / "tool-results"
     maybe_persist_tool_result(
         tmp_path,
         "current:session",
@@ -100,16 +100,16 @@ def test_persist_tool_result_leaves_no_temp_files(tmp_path):
 
 
 def test_persist_tool_result_logs_cleanup_failures(monkeypatch, tmp_path):
-    from miniUnicorn.utils.helpers import maybe_persist_tool_result
+    from miniunicorn.utils.helpers import maybe_persist_tool_result
 
     warnings: list[str] = []
 
     monkeypatch.setattr(
-        "miniUnicorn.utils.helpers._cleanup_tool_result_buckets",
+        "miniunicorn.utils.helpers._cleanup_tool_result_buckets",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("busy")),
     )
     monkeypatch.setattr(
-        "miniUnicorn.utils.helpers.logger.exception",
+        "miniunicorn.utils.helpers.logger.exception",
         lambda message, *args: warnings.append(message.format(*args)),
     )
 
@@ -124,7 +124,7 @@ def test_persist_tool_result_logs_cleanup_failures(monkeypatch, tmp_path):
     assert "[tool output persisted]" in persisted
     assert warnings and "Failed to clean stale tool result buckets" in warnings[0]
 async def test_runner_keeps_going_when_tool_result_persistence_fails():
-    from miniUnicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
 
     provider = MagicMock()
     captured_second_call: list[dict] = []
@@ -147,7 +147,7 @@ async def test_runner_keeps_going_when_tool_result_persistence_fails():
     tools.execute = AsyncMock(return_value="tool result")
 
     runner = AgentRunner(provider)
-    with patch("miniUnicorn.agent.runner.maybe_persist_tool_result", side_effect=RuntimeError("disk full")):
+    with patch("miniunicorn.agent.runner.maybe_persist_tool_result", side_effect=RuntimeError("disk full")):
         result = await runner.run(AgentRunSpec(
             initial_messages=[{"role": "user", "content": "do task"}],
             tools=tools,

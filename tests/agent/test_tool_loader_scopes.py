@@ -1,10 +1,10 @@
 import pytest
 
-from miniUnicorn.agent.tools.base import Tool
-from miniUnicorn.agent.tools.context import ToolContext
-from miniUnicorn.agent.tools.loader import ToolLoader
-from miniUnicorn.agent.tools.registry import ToolRegistry
-from miniUnicorn.config.schema import Config
+from miniunicorn.agent.tools.base import Tool
+from miniunicorn.agent.tools.context import ToolContext
+from miniunicorn.agent.tools.loader import ToolLoader
+from miniunicorn.agent.tools.registry import ToolRegistry
+from miniunicorn.config.schema import Config
 
 
 class _CoreOnlyTool(Tool):

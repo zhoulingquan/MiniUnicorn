@@ -9,7 +9,7 @@ describe("MarkdownTextRenderer", () => {
 
     const image = screen.getByRole("img", { name: "Diagram" });
     expect(image).toHaveAttribute("src", "/api/media/sig/payload");
-    expect(screen.getByRole("link", { name: "Open Diagram" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Open image: Diagram" })).toHaveAttribute(
       "href",
       "/api/media/sig/payload",
     );
@@ -17,12 +17,12 @@ describe("MarkdownTextRenderer", () => {
   });
 
   it("renders markdown videos as inline players", () => {
-    render(<MarkdownTextRenderer>![miniUnicorn-intro.mp4](/api/media/sig/video)</MarkdownTextRenderer>);
+    render(<MarkdownTextRenderer>![miniunicorn-intro.mp4](/api/media/sig/video)</MarkdownTextRenderer>);
 
-    const video = screen.getByLabelText("Video attachment: miniUnicorn-intro.mp4");
+    const video = screen.getByLabelText("Video attachment: miniunicorn-intro.mp4");
     expect(video.tagName).toBe("VIDEO");
     expect(video).toHaveAttribute("src", "/api/media/sig/video");
     expect(video).toHaveAttribute("controls");
-    expect(screen.queryByRole("img", { name: "miniUnicorn-intro.mp4" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "miniunicorn-intro.mp4" })).not.toBeInTheDocument();
   });
 });

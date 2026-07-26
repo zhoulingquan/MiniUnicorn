@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from miniUnicorn.agent.tools.shell import ExecTool
+from miniunicorn.agent.tools.shell import ExecTool
 
 _UNIX_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="Unix shell commands")
 

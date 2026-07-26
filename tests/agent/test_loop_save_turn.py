@@ -4,14 +4,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniUnicorn.agent.context import ContextBuilder
-from miniUnicorn.agent.loop import AgentLoop
-from miniUnicorn.bus.events import InboundMessage
-from miniUnicorn.bus.queue import MessageBus
-from miniUnicorn.providers.base import LLMResponse
-from miniUnicorn.session.goal_state import GOAL_STATE_KEY
-from miniUnicorn.session.manager import Session, SessionManager
-from miniUnicorn.session.webui_turns import (
+from miniunicorn.agent.context import ContextBuilder
+from miniunicorn.agent.loop import AgentLoop
+from miniunicorn.bus.events import InboundMessage
+from miniunicorn.bus.queue import MessageBus
+from miniunicorn.providers.base import LLMResponse
+from miniunicorn.session.goal_state import GOAL_STATE_KEY
+from miniunicorn.session.manager import Session, SessionManager
+from miniunicorn.session.webui_turns import (
     TITLE_GENERATION_MAX_TOKENS,
     TITLE_GENERATION_REASONING_EFFORT,
     WEBUI_SESSION_METADATA_KEY,
@@ -19,12 +19,12 @@ from miniUnicorn.session.webui_turns import (
     WebuiTurnCoordinator,
     maybe_generate_webui_title,
 )
-from miniUnicorn.utils.llm_runtime import LLMRuntime
+from miniunicorn.utils.llm_runtime import LLMRuntime
 
 
 def _mk_loop() -> AgentLoop:
     loop = AgentLoop.__new__(AgentLoop)
-    from miniUnicorn.config.schema import AgentDefaults
+    from miniunicorn.config.schema import AgentDefaults
 
     loop.max_tool_result_chars = AgentDefaults().max_tool_result_chars
     return loop
@@ -143,7 +143,7 @@ def test_webui_title_update_uses_captured_llm_runtime(
         return False
 
     monkeypatch.setattr(
-        "miniUnicorn.session.webui_turns.maybe_generate_webui_title_after_turn",
+        "miniunicorn.session.webui_turns.maybe_generate_webui_title_after_turn",
         fake_title_after_turn,
     )
     coordinator = WebuiTurnCoordinator(
@@ -707,8 +707,8 @@ async def test_next_turn_after_crash_closes_pending_user_turn_before_new_input(t
 
 @pytest.mark.asyncio
 async def test_stop_preserves_runtime_checkpoint_for_next_turn(tmp_path: Path) -> None:
-    from miniUnicorn.command.builtin import cmd_stop
-    from miniUnicorn.command.router import CommandContext
+    from miniunicorn.command.builtin import cmd_stop
+    from miniunicorn.command.router import CommandContext
 
     loop = _make_full_loop(tmp_path)
     loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]

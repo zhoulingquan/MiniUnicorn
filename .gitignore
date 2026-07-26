@@ -2,7 +2,7 @@
 .worktrees/
 .worktree/
 .env
-.miniUnicorn-config/
+.miniunicorn-config/
 
 # Claude / AI assistant artifacts
 docs/superpowers/

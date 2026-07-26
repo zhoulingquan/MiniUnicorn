@@ -13,9 +13,9 @@ import websockets
 from websockets.exceptions import ConnectionClosed
 from websockets.frames import Close
 
-from miniUnicorn.bus.events import OUTBOUND_META_AGENT_UI, OutboundMessage
-from miniUnicorn.bus.queue import MessageBus
-from miniUnicorn.channels.websocket import (
+from miniunicorn.bus.events import OUTBOUND_META_AGENT_UI, OutboundMessage
+from miniunicorn.bus.queue import MessageBus
+from miniunicorn.channels.websocket import (
     WebSocketChannel,
     WebSocketConfig,
     _is_valid_chat_id,
@@ -28,11 +28,11 @@ from miniUnicorn.channels.websocket import (
     _parse_request_path,
     publish_runtime_model_update,
 )
-from miniUnicorn.config.loader import load_config, save_config
-from miniUnicorn.config.schema import Config, ModelPresetConfig
-from miniUnicorn.session import webui_turns as wth
-from miniUnicorn.session.manager import SessionManager
-from miniUnicorn.webui.settings_api import settings_payload, update_provider_settings
+from miniunicorn.config.loader import load_config, save_config
+from miniunicorn.config.schema import Config, ModelPresetConfig
+from miniunicorn.session import webui_turns as wth
+from miniunicorn.session.manager import SessionManager
+from miniunicorn.webui.settings_api import settings_payload, update_provider_settings
 
 # -- Shared helpers (aligned with test_websocket_integration.py) ---------------
 
@@ -62,7 +62,7 @@ def bus() -> MagicMock:
 @pytest.fixture(autouse=True)
 def isolate_webui_workspace_state(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
-        "miniUnicorn.webui.workspaces.get_webui_dir",
+        "miniunicorn.webui.workspaces.get_webui_dir",
         lambda: tmp_path / "webui",
     )
 
@@ -188,7 +188,7 @@ def test_issue_route_secret_matches_bearer_and_header() -> None:
     secret = "my-secret"
     bearer_headers = Headers([("Authorization", "Bearer my-secret")])
     assert _issue_route_secret_matches(bearer_headers, secret) is True
-    x_headers = Headers([("X-MiniUnicorn-Auth", "my-secret")])
+    x_headers = Headers([("x-miniunicorn-Auth", "my-secret")])
     assert _issue_route_secret_matches(x_headers, secret) is True
     wrong = Headers([("Authorization", "Bearer other")])
     assert _issue_route_secret_matches(wrong, secret) is False
@@ -650,7 +650,7 @@ async def test_send_stages_external_media_as_signed_url(monkeypatch, tmp_path) -
     def fake_media_dir(channel: str | None = None):
         return ws_media if channel == "websocket" else media_root
 
-    monkeypatch.setattr("miniUnicorn.channels.websocket.channel.get_media_dir", fake_media_dir)
+    monkeypatch.setattr("miniunicorn.channels.websocket.channel.get_media_dir", fake_media_dir)
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
@@ -864,7 +864,7 @@ async def test_send_delta_stream_end_rewrites_local_markdown_image(monkeypatch, 
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    monkeypatch.setattr("miniUnicorn.channels.websocket.channel.get_media_dir", fake_media_dir)
+    monkeypatch.setattr("miniunicorn.channels.websocket.channel.get_media_dir", fake_media_dir)
     channel = WebSocketChannel(
         {"enabled": True, "allowFrom": ["*"], "streaming": True},
         bus,
@@ -896,7 +896,7 @@ async def test_send_delta_stream_end_rewrites_inline_final_text(monkeypatch, tmp
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    monkeypatch.setattr("miniUnicorn.channels.websocket.channel.get_media_dir", fake_media_dir)
+    monkeypatch.setattr("miniunicorn.channels.websocket.channel.get_media_dir", fake_media_dir)
     channel = WebSocketChannel(
         {"enabled": True, "allowFrom": ["*"], "streaming": True},
         bus,
@@ -1194,7 +1194,7 @@ async def test_maybe_push_turn_run_wall_clock_skips_when_no_active_turn() -> Non
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
-    from miniUnicorn.session import webui_turns as wth
+    from miniunicorn.session import webui_turns as wth
 
     wth._WEBSOCKET_TURN_WALL_STARTED_AT.clear()
     await channel._maybe_push_turn_run_wall_clock("chat-1")
@@ -1207,7 +1207,7 @@ async def test_maybe_push_turn_run_wall_clock_replays_running() -> None:
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
-    from miniUnicorn.session import webui_turns as wth
+    from miniunicorn.session import webui_turns as wth
 
     wth._WEBSOCKET_TURN_WALL_STARTED_AT.clear()
     try:
@@ -1367,7 +1367,7 @@ async def test_wrong_path_returns_404(bus: MagicMock) -> None:
 
 
 def test_registry_discovers_websocket_channel() -> None:
-    from miniUnicorn.channels.registry import load_channel_class
+    from miniunicorn.channels.registry import load_channel_class
 
     cls = load_channel_class("websocket")
     assert cls.name == "websocket"
@@ -1436,7 +1436,7 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
     )
     # web_search was removed; only web.fetch.use_jina_reader remains configurable
     save_config(config, config_path)
-    monkeypatch.setattr("miniUnicorn.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
 
     channel = _ch(bus, port=port)
     channel._api_tokens["tok"] = time.monotonic() + 300
@@ -1466,7 +1466,7 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         assert body["web"]["fetch"]["use_jina_reader"] is True
         assert body["runtime"]["config_path"] == str(config_path)
         workspace_path = body["runtime"]["workspace_path"].replace("\\", "/")
-        assert workspace_path.endswith("/.miniUnicorn/workspace")
+        assert workspace_path.endswith("/.miniunicorn/workspace")
         assert body["runtime"]["gateway_port"] == 8765
         assert body["advanced"]["exec_enabled"] is True
         assert body["advanced"]["webui_allow_local_service_access"] is True
@@ -1690,7 +1690,7 @@ async def test_bootstrap_exposes_native_surface(bus: MagicMock) -> None:
     try:
         response = await _http_get(
             f"http://127.0.0.1:{port}/webui/bootstrap",
-            headers={"X-MiniUnicorn-Auth": "native-secret"},
+            headers={"x-miniunicorn-Auth": "native-secret"},
         )
         assert response.status_code == 200
         body = response.json()
@@ -1712,7 +1712,7 @@ def test_settings_payload_normalizes_camel_case_provider(
     config = Config()
     config.agents.defaults.provider = "deepseek"
     save_config(config, config_path)
-    monkeypatch.setattr("miniUnicorn.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
 
     body = settings_payload()
     assert body["agent"]["provider"] == "deepseek"
@@ -1723,7 +1723,7 @@ def test_settings_payload_exposes_api_type_only_for_openai_compat(monkeypatch, t
     config = Config()
     config.providers.deepseek.api_type = "chat_completions"
     save_config(config, config_path)
-    monkeypatch.setattr("miniUnicorn.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
 
     body = settings_payload()
     # api_type field is only exposed for openai provider; other providers use "auto"
@@ -1735,7 +1735,7 @@ def test_settings_payload_reports_workspace_sandbox(monkeypatch, tmp_path) -> No
     config = Config()
     config.tools.restrict_to_workspace = True
     save_config(config, config_path)
-    monkeypatch.setattr("miniUnicorn.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
     monkeypatch.setenv("MINIUNICORN_SANDBOX_ENFORCED", "macos_app_sandbox")
 
     body = settings_payload()
@@ -1751,7 +1751,7 @@ def test_settings_payload_reports_workspace_sandbox(monkeypatch, tmp_path) -> No
 def test_settings_payload_includes_native_runtime_surface(monkeypatch, tmp_path) -> None:
     config_path = tmp_path / "config.json"
     save_config(Config(), config_path)
-    monkeypatch.setattr("miniUnicorn.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
 
     body = settings_payload(
         surface="native",
@@ -1771,7 +1771,7 @@ def test_settings_payload_includes_native_runtime_surface(monkeypatch, tmp_path)
 def test_update_provider_settings_ignores_api_type_for_non_openai(monkeypatch, tmp_path) -> None:
     config_path = tmp_path / "config.json"
     save_config(Config(), config_path)
-    monkeypatch.setattr("miniUnicorn.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
 
     body = update_provider_settings({
         "provider": ["custom"],
@@ -2203,7 +2203,7 @@ def test_sessions_list_includes_active_run_started_at() -> None:
     from websockets.datastructures import Headers
     from websockets.http11 import Request
 
-    from miniUnicorn.session import webui_turns as wth
+    from miniunicorn.session import webui_turns as wth
 
     bus = MagicMock()
     channel = _ch(bus)
@@ -2276,9 +2276,9 @@ def test_handle_webui_thread_get_returns_json(tmp_path, monkeypatch) -> None:
     from websockets.datastructures import Headers
     from websockets.http11 import Request
 
-    from miniUnicorn.webui.transcript import append_transcript_object
+    from miniunicorn.webui.transcript import append_transcript_object
 
-    monkeypatch.setattr("miniUnicorn.config.paths.get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("miniunicorn.config.paths.get_data_dir", lambda: tmp_path)
     key = "websocket:c1"
     append_transcript_object(key, {"event": "user", "chat_id": "c1", "text": "hi"})
     bus = MagicMock()

@@ -6,11 +6,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniUnicorn.agent.loop import AgentLoop
-from miniUnicorn.agent.tools.message import MessageTool
-from miniUnicorn.bus.events import InboundMessage, OutboundMessage
-from miniUnicorn.bus.queue import MessageBus
-from miniUnicorn.providers.base import LLMResponse, ToolCallRequest
+from miniunicorn.agent.loop import AgentLoop
+from miniunicorn.agent.tools.message import MessageTool
+from miniunicorn.bus.events import InboundMessage, OutboundMessage
+from miniunicorn.bus.queue import MessageBus
+from miniunicorn.providers.base import LLMResponse, ToolCallRequest
 
 
 def _make_loop(tmp_path: Path) -> AgentLoop:
@@ -156,7 +156,7 @@ class TestMessageToolTurnTracking:
 
     def test_sent_in_turn_tracks_same_target(self) -> None:
         tool = MessageTool()
-        from miniUnicorn.agent.tools.context import RequestContext
+        from miniunicorn.agent.tools.context import RequestContext
         tool.set_context(RequestContext(channel="feishu", chat_id="chat1"))
         assert not tool._sent_in_turn
         tool._sent_in_turn = True

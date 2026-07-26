@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 try:
-    from miniUnicorn.channels import qq
+    from miniunicorn.channels import qq
 
     QQ_AVAILABLE = getattr(qq, "QQ_AVAILABLE", False)
 except ImportError:
@@ -15,9 +15,9 @@ except ImportError:
 if not QQ_AVAILABLE:
     pytest.skip("QQ dependencies not installed (qq-botpy)", allow_module_level=True)
 
-from miniUnicorn.bus.events import OutboundMessage
-from miniUnicorn.bus.queue import MessageBus
-from miniUnicorn.channels.qq import (
+from miniunicorn.bus.events import OutboundMessage
+from miniunicorn.bus.queue import MessageBus
+from miniunicorn.channels.qq import (
     QQ_FILE_TYPE_FILE,
     QQ_FILE_TYPE_IMAGE,
     QQChannel,

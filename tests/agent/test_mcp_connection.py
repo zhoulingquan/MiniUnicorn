@@ -9,12 +9,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniUnicorn.agent.loop import AgentLoop
-from miniUnicorn.agent.tools import mcp as mcp_runtime
-from miniUnicorn.agent.tools.base import Tool
-from miniUnicorn.bus.queue import MessageBus
-from miniUnicorn.config.loader import load_config, save_config
-from miniUnicorn.config.schema import MCPServerConfig
+from miniunicorn.agent.loop import AgentLoop
+from miniunicorn.agent.tools import mcp as mcp_runtime
+from miniunicorn.agent.tools.base import Tool
+from miniunicorn.bus.queue import MessageBus
+from miniunicorn.config.loader import load_config, save_config
+from miniunicorn.config.schema import MCPServerConfig
 
 
 class _FakeMcpTool(Tool):
@@ -61,7 +61,7 @@ async def test_connect_mcp_retries_when_no_servers_connect(tmp_path, monkeypatch
         attempts += 1
         return {}
 
-    monkeypatch.setattr("miniUnicorn.agent.tools.mcp.connect_mcp_servers", _fake_connect)
+    monkeypatch.setattr("miniunicorn.agent.tools.mcp.connect_mcp_servers", _fake_connect)
 
     await loop._connect_mcp()
     await loop._connect_mcp()
@@ -77,7 +77,7 @@ async def test_reload_mcp_servers_adds_and_removes_tools_without_restart(
     monkeypatch: pytest.MonkeyPatch,
 ):
     config_path = tmp_path / "config.json"
-    monkeypatch.setattr("miniUnicorn.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
     config = load_config()
     config.tools.mcp_servers["browserbase"] = MCPServerConfig(
         type="stdio",
@@ -100,7 +100,7 @@ async def test_reload_mcp_servers_adds_and_removes_tools_without_restart(
             stacks[name] = stack
         return stacks
 
-    monkeypatch.setattr("miniUnicorn.agent.tools.mcp.connect_mcp_servers", _fake_connect)
+    monkeypatch.setattr("miniunicorn.agent.tools.mcp.connect_mcp_servers", _fake_connect)
     loop = _make_loop(tmp_path, mcp_servers={})
 
     added = await mcp_runtime.reload_servers(loop, loop.tools)
@@ -129,7 +129,7 @@ async def test_request_mcp_reload_reaches_runtime_control_without_restart(
     monkeypatch: pytest.MonkeyPatch,
 ):
     config_path = tmp_path / "config.json"
-    monkeypatch.setattr("miniUnicorn.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
     config = load_config()
     config.tools.mcp_servers["browserbase"] = MCPServerConfig(
         type="stdio",
@@ -152,7 +152,7 @@ async def test_request_mcp_reload_reaches_runtime_control_without_restart(
             stacks[name] = stack
         return stacks
 
-    monkeypatch.setattr("miniUnicorn.agent.tools.mcp.connect_mcp_servers", _fake_connect)
+    monkeypatch.setattr("miniunicorn.agent.tools.mcp.connect_mcp_servers", _fake_connect)
     loop = _make_loop(tmp_path, mcp_servers={})
 
     async def _handle_one_runtime_control() -> None:
@@ -190,7 +190,7 @@ async def test_reload_mcp_servers_retries_configured_server_without_live_stack(
     monkeypatch: pytest.MonkeyPatch,
 ):
     config_path = tmp_path / "config.json"
-    monkeypatch.setattr("miniUnicorn.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
     config = load_config()
     config.tools.mcp_servers["browserbase"] = MCPServerConfig(
         type="stdio",
@@ -207,7 +207,7 @@ async def test_reload_mcp_servers_retries_configured_server_without_live_stack(
             stacks[name] = stack
         return stacks
 
-    monkeypatch.setattr("miniUnicorn.agent.tools.mcp.connect_mcp_servers", _fake_connect)
+    monkeypatch.setattr("miniunicorn.agent.tools.mcp.connect_mcp_servers", _fake_connect)
     loop = _make_loop(tmp_path, mcp_servers={"browserbase": config.tools.mcp_servers["browserbase"]})
 
     result = await mcp_runtime.reload_servers(loop, loop.tools)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from miniUnicorn.session.goal_state import (
+from miniunicorn.session.goal_state import (
     GOAL_STATE_KEY,
     discard_legacy_goal_state_key,
     goal_state_runtime_lines,
@@ -11,7 +11,7 @@ from miniUnicorn.session.goal_state import (
     runner_wall_llm_timeout_s,
     sustained_goal_active,
 )
-from miniUnicorn.session.manager import SessionManager
+from miniunicorn.session.manager import SessionManager
 
 
 def test_runtime_lines_empty_when_no_metadata():

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from miniUnicorn.cli.stream import StreamRenderer, ThinkingSpinner
-from miniUnicorn.config.schema import AgentDefaults, Config
+from miniunicorn.cli.stream import StreamRenderer, ThinkingSpinner
+from miniunicorn.config.schema import AgentDefaults, Config
 
 
 def test_bot_name_and_icon_defaults_preserve_current_branding() -> None:

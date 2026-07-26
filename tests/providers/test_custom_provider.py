@@ -3,12 +3,12 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from miniUnicorn.providers.openai_compat_provider import OpenAICompatProvider
-from miniUnicorn.providers.registry import find_by_name
+from miniunicorn.providers.openai_compat_provider import OpenAICompatProvider
+from miniunicorn.providers.registry import find_by_name
 
 
 def test_custom_provider_parse_handles_empty_choices() -> None:
-    with patch("miniUnicorn.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider()
     response = SimpleNamespace(choices=[])
 
@@ -19,7 +19,7 @@ def test_custom_provider_parse_handles_empty_choices() -> None:
 
 
 def test_custom_provider_parse_accepts_plain_string_response() -> None:
-    with patch("miniUnicorn.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider()
 
     result = provider._parse("hello from backend")
@@ -29,7 +29,7 @@ def test_custom_provider_parse_accepts_plain_string_response() -> None:
 
 
 def test_custom_provider_parse_accepts_dict_response() -> None:
-    with patch("miniUnicorn.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider()
 
     result = provider._parse({

@@ -1,7 +1,7 @@
 """Heartbeat 辅函数单元测试:active_hours 时段判断。"""
 from datetime import time as dt_time
 
-from miniUnicorn.cli._heartbeat import _is_within_active_hours, _parse_hhmm
+from miniunicorn.cli._heartbeat import _is_within_active_hours, _parse_hhmm
 from zoneinfo import ZoneInfo
 
 
@@ -43,7 +43,7 @@ class TestIsWithinActiveHours:
         from datetime import datetime
         # 模拟中午 12:00
         fake_now = datetime(2026, 1, 1, 12, 0, tzinfo=self.tz)
-        with mock.patch("miniUnicorn.cli._heartbeat.datetime") as m:
+        with mock.patch("miniunicorn.cli._heartbeat.datetime") as m:
             m.now.return_value = fake_now
             result = _is_within_active_hours({"start": "08:00", "end": "24:00"}, self.tz)
         assert result is True
@@ -53,7 +53,7 @@ class TestIsWithinActiveHours:
         import unittest.mock as mock
         from datetime import datetime
         fake_now = datetime(2026, 1, 1, 3, 0, tzinfo=self.tz)
-        with mock.patch("miniUnicorn.cli._heartbeat.datetime") as m:
+        with mock.patch("miniunicorn.cli._heartbeat.datetime") as m:
             m.now.return_value = fake_now
             result = _is_within_active_hours({"start": "08:00", "end": "24:00"}, self.tz)
         assert result is False
@@ -63,7 +63,7 @@ class TestIsWithinActiveHours:
         import unittest.mock as mock
         from datetime import datetime
         fake_now = datetime(2026, 1, 1, 23, 0, tzinfo=self.tz)
-        with mock.patch("miniUnicorn.cli._heartbeat.datetime") as m:
+        with mock.patch("miniunicorn.cli._heartbeat.datetime") as m:
             m.now.return_value = fake_now
             result = _is_within_active_hours({"start": "22:00", "end": "06:00"}, self.tz)
         assert result is True
@@ -73,7 +73,7 @@ class TestIsWithinActiveHours:
         import unittest.mock as mock
         from datetime import datetime
         fake_now = datetime(2026, 1, 1, 2, 0, tzinfo=self.tz)
-        with mock.patch("miniUnicorn.cli._heartbeat.datetime") as m:
+        with mock.patch("miniunicorn.cli._heartbeat.datetime") as m:
             m.now.return_value = fake_now
             result = _is_within_active_hours({"start": "22:00", "end": "06:00"}, self.tz)
         assert result is True
@@ -83,7 +83,7 @@ class TestIsWithinActiveHours:
         import unittest.mock as mock
         from datetime import datetime
         fake_now = datetime(2026, 1, 1, 12, 0, tzinfo=self.tz)
-        with mock.patch("miniUnicorn.cli._heartbeat.datetime") as m:
+        with mock.patch("miniunicorn.cli._heartbeat.datetime") as m:
             m.now.return_value = fake_now
             result = _is_within_active_hours({"start": "22:00", "end": "06:00"}, self.tz)
         assert result is False

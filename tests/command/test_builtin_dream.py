@@ -4,10 +4,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from miniUnicorn.bus.events import InboundMessage
-from miniUnicorn.command.builtin import cmd_dream_log, cmd_dream_restore
-from miniUnicorn.command.router import CommandContext
-from miniUnicorn.utils.gitstore import CommitInfo
+from miniunicorn.bus.events import InboundMessage
+from miniunicorn.command.builtin import cmd_dream_log, cmd_dream_restore
+from miniunicorn.command.router import CommandContext
+from miniunicorn.utils.gitstore import CommitInfo
 
 
 class _FakeStore:

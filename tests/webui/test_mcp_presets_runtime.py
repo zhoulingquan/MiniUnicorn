@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from miniUnicorn.agent.tools import mcp as mcp_presets_runtime
+from miniunicorn.agent.tools import mcp as mcp_presets_runtime
 
 
 def test_mcp_preset_runtime_lines_describe_tool_prefix() -> None:

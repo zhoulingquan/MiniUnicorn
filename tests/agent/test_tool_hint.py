@@ -1,7 +1,7 @@
-"""Tests for tool hint formatting (MiniUnicorn.utils.tool_hints)."""
+"""Tests for tool hint formatting (miniunicorn.utils.tool_hints)."""
 
-from miniUnicorn.utils.tool_hints import format_tool_hints
-from miniUnicorn.providers.base import ToolCallRequest
+from miniunicorn.utils.tool_hints import format_tool_hints
+from miniunicorn.providers.base import ToolCallRequest
 
 
 def _tc(name: str, args) -> ToolCallRequest:

@@ -7,7 +7,7 @@
     },
     "error": {
       "title": "无法连接到 MiniUnicorn",
-      "gatewayHint": "请确认 gateway 已启动（`miniUnicorn gateway`），并且当前页面与 gateway 运行在同一台机器上。"
+      "gatewayHint": "请确认 gateway 已启动（`miniunicorn gateway`），并且当前页面与 gateway 运行在同一台机器上。"
     },
     "auth": {
       "title": "需要验证",
@@ -73,7 +73,7 @@
       "appearance": "外观",
       "models": "模型",
       "providers": "提供商",
-      "browser": "搜网",
+      "browser": "搜索",
       "cliApps": "CLI 应用",
       "mcp": "MCP",
       "advanced": "安全",
@@ -768,6 +768,19 @@
       "retry": "重试"
     }
   },
+  "version": {
+    "current": "当前版本 v{{version}}",
+    "updateAvailable": "发现新版本 v{{version}}",
+    "upToDate": "已是最新版本",
+    "dialog": {
+      "title": "发现新版本 v{{version}}",
+      "description": "当前版本 v{{current}},最新版本 v{{latest}}。请根据你的部署方式选择对应的升级命令。",
+      "upgradeMethods": "选择你的部署方式:",
+      "source": "源码",
+      "restartHint": "升级后请重启服务:miniunicorn gateway",
+      "viewRelease": "查看发布说明"
+    }
+  },
   "errors": {
     "messageTooBig": {
       "title": "消息过大",
@@ -1228,7 +1241,7 @@
         "token": "Token",
         "token_desc": "登录凭证（可手动填写或扫码后自动获取）",
         "state_dir": "状态目录",
-        "state_dir_desc": "保存登录态的目录（留空使用默认 ~/.miniUnicorn/weixin/）",
+        "state_dir_desc": "保存登录态的目录（留空使用默认 ~/.miniunicorn/weixin/）",
         "poll_timeout": "长轮询超时",
         "poll_timeout_desc": "长轮询超时秒数"
       }

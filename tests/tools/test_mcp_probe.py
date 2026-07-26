@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniUnicorn.agent.tools.mcp import _probe_http_url, connect_mcp_servers
-from miniUnicorn.agent.tools.registry import ToolRegistry
+from miniunicorn.agent.tools.mcp import _probe_http_url, connect_mcp_servers
+from miniunicorn.agent.tools.registry import ToolRegistry
 
 
 # ---------------------------------------------------------------------------
@@ -87,7 +87,7 @@ async def test_probe_not_called_for_stdio():
         called = True
         return await original_probe(url, **kw)
 
-    with patch("miniUnicorn.agent.tools.mcp._probe_http_url", _spy_probe):
+    with patch("miniunicorn.agent.tools.mcp._probe_http_url", _spy_probe):
         cfg = MagicMock()
         cfg.type = "stdio"
         cfg.url = None

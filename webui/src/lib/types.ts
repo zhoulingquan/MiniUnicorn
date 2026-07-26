@@ -203,7 +203,7 @@ export interface BootstrapResponse {
   model_name?: string | null;
   runtime_surface?: RuntimeSurface;
   runtime_capabilities?: RuntimeCapabilities;
-  /** 后端 miniUnicorn.__version__,用于顶栏 logo 旁显示版本号。 */
+  /** 后端 miniunicorn.__version__,用于顶栏 logo 旁显示版本号。 */
   version?: string;
 }
 

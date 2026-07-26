@@ -41,7 +41,7 @@ export async function fetchBootstrap(
 ): Promise<BootstrapResponse> {
   const headers: Record<string, string> = {};
   if (secret) {
-    headers["X-MiniUnicorn-Auth"] = secret;
+    headers["x-miniunicorn-Auth"] = secret;
   }
   const res = await fetch(`${baseUrl}/webui/bootstrap`, {
     method: "GET",
@@ -71,7 +71,7 @@ export function deriveWsUrl(
   wsUrl?: string | null,
 ): string {
   const query = `?token=${encodeURIComponent(token)}`;
-  if (wsUrl && /^(wss?|miniUnicorn-host):\/\//i.test(wsUrl)) {
+  if (wsUrl && /^(wss?|miniunicorn-host):\/\//i.test(wsUrl)) {
     const join = wsUrl.includes("?") ? "&" : "?";
     return `${wsUrl}${join}token=${encodeURIComponent(token)}`;
   }

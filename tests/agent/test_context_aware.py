@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from miniUnicorn.agent.tools.context import ContextAware, RequestContext
+from miniunicorn.agent.tools.context import ContextAware, RequestContext
 
 
 class _ContextTool:

@@ -2,7 +2,7 @@
 
 MiniUnicorn 通过 `generate_image` 工具支持文生图与参考图编辑。在 WebUI 中开启 **Image Generation** 后，对话中即可调用，并支持基于上一张生成图的迭代编辑。
 
-该功能默认关闭。在 `~/.miniUnicorn/config.json` 中启用并指定一个已配置的 `model_preset`，重启网关后生效。
+该功能默认关闭。在 `~/.miniunicorn/config.json` 中启用并指定一个已配置的 `model_preset`，重启网关后生效。
 
 ## 快速上手
 
@@ -64,7 +64,7 @@ MiniUnicorn 通过 `generate_image` 工具支持文生图与参考图编辑。�
 
 ## 协议适配器说明
 
-注册表只维护 3 种通用协议适配器（见 [providers/__init__.py](../miniUnicorn/agent/tools/image_generation/providers/__init__.py)），不内置任何具体厂商适配器。所有 provider 通过 `apiType` 选择走哪个协议。
+注册表只维护 3 种通用协议适配器（见 [providers/__init__.py](../miniunicorn/agent/tools/image_generation/providers/__init__.py)），不内置任何具体厂商适配器。所有 provider 通过 `apiType` 选择走哪个协议。
 
 ### images_generations（OpenAI 标准）
 
@@ -247,8 +247,8 @@ MiniUnicorn 通过 `generate_image` 工具支持文生图与参考图编辑。�
 生成的图片按以下结构落盘：
 
 ```text
-~/.miniUnicorn/media/generated/YYYY-MM-DD/img_<id>.<ext>
-~/.miniUnicorn/media/generated/YYYY-MM-DD/img_<id>.json
+~/.miniunicorn/media/generated/YYYY-MM-DD/img_<id>.<ext>
+~/.miniunicorn/media/generated/YYYY-MM-DD/img_<id>.json
 ```
 
 JSON sidecar 字段：

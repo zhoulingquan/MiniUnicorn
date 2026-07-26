@@ -10,26 +10,26 @@ If you want each instance to have its own dedicated workspace from the start, pa
 
 ```bash
 # Create separate instance configs and workspaces
-miniUnicorn onboard --config ~/.miniUnicorn-telegram/config.json --workspace ~/.miniUnicorn-telegram/workspace
-miniUnicorn onboard --config ~/.miniUnicorn-discord/config.json --workspace ~/.miniUnicorn-discord/workspace
-miniUnicorn onboard --config ~/.miniUnicorn-feishu/config.json --workspace ~/.miniUnicorn-feishu/workspace
+miniunicorn onboard --config ~/.miniunicorn-telegram/config.json --workspace ~/.miniunicorn-telegram/workspace
+miniunicorn onboard --config ~/.miniunicorn-discord/config.json --workspace ~/.miniunicorn-discord/workspace
+miniunicorn onboard --config ~/.miniunicorn-feishu/config.json --workspace ~/.miniunicorn-feishu/workspace
 ```
 
 **Configure each instance:**
 
-Edit `~/.miniUnicorn-telegram/config.json`, `~/.miniUnicorn-discord/config.json`, etc. with different channel settings. The workspace you passed during `onboard` is saved into each config as that instance's default workspace.
+Edit `~/.miniunicorn-telegram/config.json`, `~/.miniunicorn-discord/config.json`, etc. with different channel settings. The workspace you passed during `onboard` is saved into each config as that instance's default workspace.
 
 **Run instances:**
 
 ```bash
 # Instance A - Telegram bot
-miniUnicorn gateway --config ~/.miniUnicorn-telegram/config.json
+miniunicorn gateway --config ~/.miniunicorn-telegram/config.json
 
 # Instance B - Discord bot
-miniUnicorn gateway --config ~/.miniUnicorn-discord/config.json
+miniunicorn gateway --config ~/.miniunicorn-discord/config.json
 
 # Instance C - Feishu bot with custom port
-miniUnicorn gateway --config ~/.miniUnicorn-feishu/config.json --port 18792
+miniunicorn gateway --config ~/.miniunicorn-feishu/config.json --port 18792
 ```
 
 ## Path Resolution
@@ -39,21 +39,21 @@ When using `--config`, MiniUnicorn derives its runtime data directory from the c
 To open a CLI session against one of these instances locally:
 
 ```bash
-miniUnicorn agent -c ~/.miniUnicorn-telegram/config.json -m "Hello from Telegram instance"
-miniUnicorn agent -c ~/.miniUnicorn-discord/config.json -m "Hello from Discord instance"
+miniunicorn agent -c ~/.miniunicorn-telegram/config.json -m "Hello from Telegram instance"
+miniunicorn agent -c ~/.miniunicorn-discord/config.json -m "Hello from Discord instance"
 
 # Optional one-off workspace override
-miniUnicorn agent -c ~/.miniUnicorn-telegram/config.json -w /tmp/miniUnicorn-telegram-test
+miniunicorn agent -c ~/.miniunicorn-telegram/config.json -w /tmp/miniunicorn-telegram-test
 ```
 
-> `miniUnicorn agent` starts a local CLI agent using the selected workspace/config. It does not attach to or proxy through an already running `miniUnicorn gateway` process.
+> `miniunicorn agent` starts a local CLI agent using the selected workspace/config. It does not attach to or proxy through an already running `miniunicorn gateway` process.
 
 | Component | Resolved From | Example |
 |-----------|---------------|---------|
-| **Config** | `--config` path | `~/.miniUnicorn-A/config.json` |
-| **Workspace** | `--workspace` or config | `~/.miniUnicorn-A/workspace/` |
-| **Cron Jobs** | config directory | `~/.miniUnicorn-A/cron/` |
-| **Media / runtime state** | config directory | `~/.miniUnicorn-A/media/` |
+| **Config** | `--config` path | `~/.miniunicorn-A/config.json` |
+| **Workspace** | `--workspace` or config | `~/.miniunicorn-A/workspace/` |
+| **Cron Jobs** | config directory | `~/.miniunicorn-A/cron/` |
+| **Media / runtime state** | config directory | `~/.miniunicorn-A/media/` |
 
 ## How It Works
 
@@ -73,7 +73,7 @@ Example config:
 {
   "agents": {
     "defaults": {
-      "workspace": "~/.miniUnicorn-telegram/workspace",
+      "workspace": "~/.miniunicorn-telegram/workspace",
       "model": "anthropic/claude-sonnet-4-6"
     }
   },
@@ -92,8 +92,8 @@ Example config:
 Start separate instances:
 
 ```bash
-miniUnicorn gateway --config ~/.miniUnicorn-telegram/config.json
-miniUnicorn gateway --config ~/.miniUnicorn-discord/config.json
+miniunicorn gateway --config ~/.miniunicorn-telegram/config.json
+miniunicorn gateway --config ~/.miniunicorn-discord/config.json
 ```
 
 Each gateway instance binds to `gateway.host` (default `127.0.0.1`),
@@ -106,7 +106,7 @@ public or LAN-facing address.
 Override workspace for one-off runs when needed:
 
 ```bash
-miniUnicorn gateway --config ~/.miniUnicorn-telegram/config.json --workspace /tmp/miniUnicorn-telegram-test
+miniunicorn gateway --config ~/.miniunicorn-telegram/config.json --workspace /tmp/miniunicorn-telegram-test
 ```
 
 ## Common Use Cases

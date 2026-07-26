@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from miniUnicorn.utils.document import (
+from miniunicorn.utils.document import (
     SUPPORTED_EXTENSIONS,
     _is_text_extension,
     extract_text,

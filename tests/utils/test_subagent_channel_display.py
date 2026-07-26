@@ -1,6 +1,6 @@
 """Tests for subagent announce text shaping on external channel surfaces."""
 
-from miniUnicorn.utils.subagent_channel_display import (
+from miniunicorn.utils.subagent_channel_display import (
     scrub_subagent_announce_body,
     scrub_subagent_messages_for_channel,
 )

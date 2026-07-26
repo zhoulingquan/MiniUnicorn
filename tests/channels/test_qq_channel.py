@@ -7,7 +7,7 @@ import pytest
 
 # Check optional QQ dependencies before running tests
 try:
-    from miniUnicorn.channels import qq
+    from miniunicorn.channels import qq
     QQ_AVAILABLE = getattr(qq, "QQ_AVAILABLE", False)
 except ImportError:
     QQ_AVAILABLE = False
@@ -17,9 +17,9 @@ if not QQ_AVAILABLE:
 
 import aiohttp
 
-from miniUnicorn.bus.events import OutboundMessage
-from miniUnicorn.bus.queue import MessageBus
-from miniUnicorn.channels.qq import QQChannel, QQConfig
+from miniunicorn.bus.events import OutboundMessage
+from miniunicorn.bus.queue import MessageBus
+from miniunicorn.channels.qq import QQChannel, QQConfig
 
 
 class _FakeApi:

@@ -5,9 +5,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniUnicorn.agent.runner import AgentRunResult
-from miniUnicorn.agent.subagent import SubagentManager, SubagentStatus
-from miniUnicorn.bus.queue import MessageBus
+from miniunicorn.agent.runner import AgentRunResult
+from miniunicorn.agent.subagent import SubagentManager, SubagentStatus
+from miniunicorn.bus.queue import MessageBus
 
 
 @pytest.mark.asyncio

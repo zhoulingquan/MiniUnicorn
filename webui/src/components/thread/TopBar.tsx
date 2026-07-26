@@ -11,6 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { VersionBadge } from "@/components/VersionBadge";
 import type { ThemeMode } from "@/hooks/useTheme";
 import { providerDisplayLabel, resolveCustomBrand, type ProviderBrand } from "@/lib/provider-brand";
 import { cn } from "@/lib/utils";
@@ -85,11 +86,7 @@ export function TopBar({
           <span className="text-sm font-semibold text-foreground truncate">
             {t("app.brand")}
           </span>
-          {version ? (
-            <span className="text-[10px] font-medium text-muted-foreground/70 shrink-0">
-              v{version}
-            </span>
-          ) : null}
+          <VersionBadge version={version} />
         </div>
         <div className="flex items-center -space-x-1">
           <Button

@@ -57,5 +57,5 @@ beforeEach(async () => {
   await i18n.changeLanguage("en");
   document.documentElement.lang = "en";
   document.title = "MiniUnicorn";
-  localStorage.setItem("miniUnicorn.locale", "en");
+  localStorage.setItem("miniunicorn.locale", "en");
 });

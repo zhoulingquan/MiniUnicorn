@@ -1,0 +1,53 @@
+"""Async message queue for decoupled channel-agent communication."""
+
+import asyncio
+
+from miniunicorn.bus.events import InboundMessage, OutboundMessage
+
+
+class MessageBus:
+    """
+    Async message bus that decouples chat channels from the agent core.
+
+    Channels push messages to the inbound queue, and the agent processes
+    them and pushes responses to the outbound queue.
+    """
+
+    # 队列容量上限:防止消费端长期阻塞导致消息无限堆积引发 OOM。
+    # 1000 条足以缓冲正常峰值流量;超出时 publish_* 会 await 阻塞,
+    # 形成自然背压(backpressure)而非无界增长。
+    _MAX_QUEUE_SIZE = 1000
+
+    def __init__(self):
+        self.inbound: asyncio.Queue[InboundMessage] = asyncio.Queue(
+            maxsize=self._MAX_QUEUE_SIZE
+        )
+        self.outbound: asyncio.Queue[OutboundMessage] = asyncio.Queue(
+            maxsize=self._MAX_QUEUE_SIZE
+        )
+
+    async def publish_inbound(self, msg: InboundMessage) -> None:
+        """Publish a message from a channel to the agent."""
+        await self.inbound.put(msg)
+
+    async def consume_inbound(self) -> InboundMessage:
+        """Consume the next inbound message (blocks until available)."""
+        return await self.inbound.get()
+
+    async def publish_outbound(self, msg: OutboundMessage) -> None:
+        """Publish a response from the agent to channels."""
+        await self.outbound.put(msg)
+
+    async def consume_outbound(self) -> OutboundMessage:
+        """Consume the next outbound message (blocks until available)."""
+        return await self.outbound.get()
+
+    @property
+    def inbound_size(self) -> int:
+        """Number of pending inbound messages."""
+        return self.inbound.qsize()
+
+    @property
+    def outbound_size(self) -> int:
+        """Number of pending outbound messages."""
+        return self.outbound.qsize()

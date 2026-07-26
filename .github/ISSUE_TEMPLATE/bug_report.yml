@@ -47,8 +47,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: MiniUnicorn Version
-      description: Run `miniUnicorn --version` or `pip show miniUnicorn-ai`
+      label: Miniunicorn Version
+      description: Run `miniunicorn --version` or `pip show miniunicorn-ai`
       placeholder: e.g., 0.2.0
     validations:
       required: true

@@ -12,25 +12,25 @@ WORKDIR /app
 # hook from hatch_build.py even for this metadata-only install.
 COPY pyproject.toml README.md LICENSE THIRD_PARTY_NOTICES.md hatch_build.py ./
 COPY uv.lock ./
-RUN mkdir -p miniUnicorn && touch miniUnicorn/__init__.py && \
+RUN mkdir -p miniunicorn && touch miniunicorn/__init__.py && \
     uv pip install --system --no-cache . && \
-    rm -rf miniUnicorn
+    rm -rf miniunicorn
 
 # Copy the full source and install
-COPY miniUnicorn/ miniUnicorn/
+COPY miniunicorn/ miniunicorn/
 COPY webui/ webui/
 RUN uv pip install --system --no-cache .
 
 # Create non-root user and config directory
-RUN useradd -m -u 1000 -s /bin/bash miniUnicorn && \
-    mkdir -p /home/miniUnicorn/.miniUnicorn && \
-    chown -R miniUnicorn:miniUnicorn /home/miniUnicorn /app
+RUN useradd -m -u 1000 -s /bin/bash miniunicorn && \
+    mkdir -p /home/miniunicorn/.miniunicorn && \
+    chown -R miniunicorn:miniunicorn /home/miniunicorn /app
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/entrypoint.sh
 
-USER miniUnicorn
-ENV HOME=/home/miniUnicorn
+USER miniunicorn
+ENV HOME=/home/miniunicorn
 
 # WebUI/WebSocket channel port
 EXPOSE 8765

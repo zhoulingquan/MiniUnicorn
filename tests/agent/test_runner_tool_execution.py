@@ -7,10 +7,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniUnicorn.agent.tools.base import Tool
-from miniUnicorn.agent.tools.registry import ToolRegistry
-from miniUnicorn.config.schema import AgentDefaults
-from miniUnicorn.providers.base import LLMResponse, ToolCallRequest
+from miniunicorn.agent.tools.base import Tool
+from miniunicorn.agent.tools.registry import ToolRegistry
+from miniunicorn.config.schema import AgentDefaults
+from miniunicorn.providers.base import LLMResponse, ToolCallRequest
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
@@ -59,7 +59,7 @@ class _DelayTool(Tool):
 
 @pytest.mark.asyncio
 async def test_runner_batches_read_only_tools_before_exclusive_work():
-    from miniUnicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
 
     tools = ToolRegistry()
     shared_events: list[str] = []
@@ -98,7 +98,7 @@ async def test_runner_batches_read_only_tools_before_exclusive_work():
 
 @pytest.mark.asyncio
 async def test_runner_does_not_batch_exclusive_read_only_tools():
-    from miniUnicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
 
     tools = ToolRegistry()
     shared_events: list[str] = []
@@ -141,7 +141,7 @@ async def test_runner_does_not_batch_exclusive_read_only_tools():
 
 @pytest.mark.asyncio
 async def test_runner_blocks_repeated_external_fetches():
-    from miniUnicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
 
     provider = MagicMock()
     captured_final_call: list[dict] = []

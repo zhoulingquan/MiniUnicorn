@@ -7,16 +7,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniUnicorn.agent.hook import AgentHookContext
-from miniUnicorn.agent.runner import AgentRunResult
-from miniUnicorn.agent.subagent import (
+from miniunicorn.agent.hook import AgentHookContext
+from miniunicorn.agent.runner import AgentRunResult
+from miniunicorn.agent.subagent import (
     SubagentManager,
     SubagentStatus,
     _SubagentHook,
 )
-from miniUnicorn.bus.events import OutboundMessage, make_session_key, session_key_base
-from miniUnicorn.bus.queue import MessageBus
-from miniUnicorn.providers.base import LLMProvider
+from miniunicorn.bus.events import OutboundMessage, make_session_key, session_key_base
+from miniunicorn.bus.queue import MessageBus
+from miniunicorn.providers.base import LLMProvider
 
 
 # ---------------------------------------------------------------------------
