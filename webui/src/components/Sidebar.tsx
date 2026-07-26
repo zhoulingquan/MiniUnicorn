@@ -72,7 +72,7 @@ export function Sidebar(props: SidebarProps) {
         !props.hostChromeInset && "border-r border-sidebar-border/60",
       )}
     >
-      {/* 品牌区：折叠态仅显示文字，展开态显示完整品牌名 */}
+      {/* 品牌区：折叠态仅显示文字，展开态显示完整品牌名 + 右侧收起按钮 */}
       <div
         className={cn(
           "flex items-center gap-2 px-3",
@@ -88,6 +88,18 @@ export function Sidebar(props: SidebarProps) {
         {collapsed && (
           <span className="text-base font-bold text-sidebar-foreground">M</span>
         )}
+        {/* 展开态且非 host chrome 时，收起按钮放品牌区右侧 */}
+        {!collapsed && !props.hostChromeInset ? (
+          <Button
+            type="button"
+            variant="ghost"
+            aria-label={t("sidebar.collapse")}
+            onClick={props.onCollapse}
+            className="ml-auto h-8 w-8 shrink-0 rounded-xl text-sidebar-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground"
+          >
+            <Menu className="h-4 w-4" />
+          </Button>
+        ) : null}
       </div>
       <div
         className={cn(
@@ -96,17 +108,6 @@ export function Sidebar(props: SidebarProps) {
           collapsed && "flex w-14 flex-col items-center px-0",
         )}
       >
-        {!collapsed && !props.hostChromeInset ? (
-          <Button
-            type="button"
-            variant="ghost"
-            aria-label={t("sidebar.collapse")}
-            onClick={props.onCollapse}
-            className="h-8 w-full justify-start rounded-xl px-3 text-sidebar-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground"
-          >
-            <Menu className="h-4 w-4" />
-          </Button>
-        ) : null}
         {collapsed && props.onExpand ? (
           <SidebarActionButton
             collapsed
