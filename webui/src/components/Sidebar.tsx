@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import {
   Archive,
-  Menu,
+  PanelLeft,
   Search,
   Settings,
   SquarePen,
@@ -97,7 +97,7 @@ export function Sidebar(props: SidebarProps) {
             onClick={props.onCollapse}
             className="ml-auto h-8 w-8 shrink-0 rounded-xl text-sidebar-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground"
           >
-            <Menu className="h-4 w-4" />
+            <PanelLeft className="h-4 w-4" />
           </Button>
         ) : null}
       </div>
@@ -113,7 +113,7 @@ export function Sidebar(props: SidebarProps) {
             collapsed
             label={t("sidebar.expand")}
             onClick={props.onExpand}
-            icon={<Menu className="h-4 w-4" />}
+            icon={<PanelLeft className="h-4 w-4" />}
           />
         ) : null}
         <SidebarActionButton
