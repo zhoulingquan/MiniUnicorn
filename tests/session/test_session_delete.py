@@ -192,6 +192,56 @@ def test_legacy_collision_keeps_old_file_creates_independent_v2(tmp_path: Path) 
     assert session2.messages == []  # 独立空会话,不复制 key1 的数据
 
 
+def test_delete_session_removes_legacy_workspace_file(tmp_path: Path) -> None:
+    """删除一个仍是 legacy 命名(从未被加载迁移)的会话,应清理磁盘文件。
+
+    回归测试:旧版 ``delete_session`` 只删 V2 路径,导致从未被点开过(未触发
+    ``_migrate_legacy``)的 legacy 会话文件残留在 ``sessions_dir`` 下,刷新后
+    ``list_sessions`` 通过 glob 又把它列出,造成"删除后刷新又出现"的 Bug。
+    """
+    import json
+
+    sm = SessionManager(tmp_path)
+    key = "telegram:legacy-unloaded"
+
+    # 手动写一个旧命名文件,模拟从未被 get_or_create 加载过的会话
+    legacy_path = sm._get_workspace_legacy_session_path(key)
+    legacy_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(legacy_path, "w", encoding="utf-8") as f:
+        f.write(
+            json.dumps(
+                {
+                    "_type": "metadata",
+                    "key": key,
+                    "created_at": "2026-01-01T00:00:00",
+                    "updated_at": "2026-01-01T00:00:00",
+                    "metadata": {},
+                    "last_consolidated": 0,
+                }
+            )
+            + "\n"
+        )
+        f.write(json.dumps({"role": "user", "content": "legacy unloaded"}) + "\n")
+
+    # 删除前:V2 不存在,legacy 存在,list_sessions 能列出
+    v2_path = sm._get_session_path(key)
+    assert not v2_path.exists()
+    assert legacy_path.exists()
+    listed = [s["key"] for s in sm.list_sessions()]
+    assert key in listed
+
+    # 删除:应返回 True(删掉了 legacy 文件)
+    assert sm.delete_session(key) is True
+
+    # legacy 与 V2 文件都不存在
+    assert not legacy_path.exists()
+    assert not v2_path.exists()
+
+    # list_sessions 不再返回该会话(刷新后侧边栏不会复活)
+    listed_after = [s["key"] for s in sm.list_sessions()]
+    assert key not in listed_after
+
+
 # ---------------------------------------------------------------------------
 # Tombstone / generation: late save must not resurrect deleted session
 # ---------------------------------------------------------------------------

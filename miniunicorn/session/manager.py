@@ -832,6 +832,11 @@ class SessionManager:
         确保新 Session 与旧引用的 generation 不冲突。
         """
         path = self._get_session_path(key)
+        # 同时清理 legacy 命名格式的遗留文件。list_sessions 通过 glob 扫描整个
+        # sessions_dir,会扫到从未被 get_or_create 加载过(未触发 _migrate_legacy)
+        # 的 legacy 文件;若只删 V2 路径,刷新后侧边栏会把这些会话重新列出。
+        legacy_workspace_path = self._get_workspace_legacy_session_path(key)
+        legacy_global_path = self._get_legacy_session_path(key)
         self.invalidate(key)
         # 写 tombstone:递增 generation,记录删除时刻。
         # _load/_get_or_create 创建新 Session 时使用 max(当前 gen, tombstone+1)。
@@ -839,14 +844,16 @@ class SessionManager:
         new_gen = current_gen + 1
         self._generations[key] = new_gen
         self._tombstones[key] = new_gen
-        if not path.exists():
-            return False
-        try:
-            path.unlink()
-            return True
-        except OSError as e:
-            logger.warning("Failed to delete session file {}: {}", path, e)
-            return False
+        removed_any = False
+        for candidate in (path, legacy_workspace_path, legacy_global_path):
+            if not candidate.exists():
+                continue
+            try:
+                candidate.unlink()
+                removed_any = True
+            except OSError as e:
+                logger.warning("Failed to delete session file {}: {}", candidate, e)
+        return removed_any
 
     def rewind_to_user_message(self, key: str, user_message_index: int) -> int:
         """Truncate session messages to remove the N-th user message and everything after.
