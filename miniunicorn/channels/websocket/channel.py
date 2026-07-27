@@ -46,6 +46,8 @@ from miniunicorn.utils.media_decode import (
     save_base64_data_url,
 )
 from miniunicorn.webui.cli_apps_api import (
+    cli_apps_action,  # noqa: F401 — re-exported as test monkeypatch target
+    cli_apps_payload,  # noqa: F401 — re-exported as test monkeypatch target
     normalize_cli_app_mentions,
 )
 from miniunicorn.webui.mcp_presets_api import (
