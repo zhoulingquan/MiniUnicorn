@@ -144,15 +144,25 @@ def append_transcript_object(session_key: str, obj: dict[str, Any]) -> None:
 
 
 def delete_webui_transcript(session_key: str) -> bool:
-    path = webui_transcript_path(session_key)
-    if not path.is_file():
-        return False
-    try:
-        path.unlink()
-        return True
-    except OSError as e:
-        logger.warning("Failed to delete webui transcript {}: {}", path, e)
-        return False
+    """Remove the transcript file for *session_key*.
+
+    同时清理 V2 与 legacy 命名路径:旧版只删 V2(``<prefix>--<sha256>.jsonl``),
+    导致从未被加载迁移的 legacy 文件(``<safe_key_legacy>.jsonl``)残留,
+    WebUI 侧边栏删除后刷新又出现。此处与 SessionManager.delete_session 对齐。
+    """
+    removed_any = False
+    for path in (
+        webui_transcript_path(session_key),
+        get_webui_dir() / f"{SessionManager.safe_key_legacy(session_key)}.jsonl",
+    ):
+        if not path.is_file():
+            continue
+        try:
+            path.unlink()
+            removed_any = True
+        except OSError as e:
+            logger.warning("Failed to delete webui transcript {}: {}", path, e)
+    return removed_any
 
 
 def rewind_webui_transcript_to_user(
