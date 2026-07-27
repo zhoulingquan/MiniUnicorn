@@ -28,37 +28,22 @@ def test_mcp_presets_payload_lists_supported_cards(
     names = {preset["name"] for preset in payload["presets"]}
 
     assert {
-        "browserbase",
         "playwright",
         "github",
-        "figma",
         "context7",
-        "firecrawl",
-        "exa",
-        "microsoft-learn",
-        "aws-docs",
-        "postman",
+        "sequential-thinking",
+        "fetch",
+        "filesystem",
+        "memory",
+        "puppeteer",
+        "time",
     }.issubset(names)
     # brave-search / tavily 已移至 web_search backends，不再作为 MCP preset 暴露
     assert "brave-search" not in names
     assert "tavily" not in names
-    browserbase = next(preset for preset in payload["presets"] if preset["name"] == "browserbase")
-    assert browserbase["installed"] is False
-    assert browserbase["install_supported"] is True
-    assert browserbase["required_fields"][0]["configured"] is False
-    assert "browserbaseApiKey" not in browserbase["connection_summary"]
-    manifest = browserbase["manifest"]
-    assert manifest["schema"] == "agent-app.v1"
-    assert manifest["id"] == "browserbase"
-    assert manifest["source"] == "mcp-preset"
-    assert manifest["capabilities"][0]["type"] == "mcp"
-    assert manifest["capabilities"][0]["transport"] == "streamableHttp"
-    assert manifest["install"]["strategy"] == "config"
-    assert manifest["remove"]["verification"] == ["config_absent"]
-    assert manifest["trust"]["review_status"] == "builtin_preset"
 
 
-def test_enable_browserbase_writes_scrubbed_config_payload(
+def test_enable_github_writes_scrubbed_config_payload(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -67,8 +52,8 @@ def test_enable_browserbase_writes_scrubbed_config_payload(
     payload = mcp_presets_action(
         "enable",
         {
-            "name": ["browserbase"],
-            "browserbase_api_key": ["bb_live_secret"],
+            "name": ["github"],
+            "api_key": ["ghp_test_token_value"],
         },
     )
 
@@ -76,22 +61,22 @@ def test_enable_browserbase_writes_scrubbed_config_payload(
     assert payload["last_action"]["ok"] is True
     assert payload["last_action"]["installed"] is True
     assert payload["last_action"]["verification"] == ["config_present"]
-    preset = next(row for row in payload["presets"] if row["name"] == "browserbase")
+    preset = next(row for row in payload["presets"] if row["name"] == "github")
     assert preset["installed"] is True
     assert preset["configured"] is True
-    assert "bb_live_secret" not in str(payload)
+    assert "ghp_test_token_value" not in str(payload)
     config = load_config()
-    assert "browserbaseApiKey=bb_live_secret" in config.tools.mcp_servers["browserbase"].url
+    assert config.tools.mcp_servers["github"].env["GITHUB_PERSONAL_ACCESS_TOKEN"] == "ghp_test_token_value"
 
 
 def test_enable_requires_missing_secret(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     _use_config(tmp_path, monkeypatch)
 
     with pytest.raises(McpPresetError) as exc:
-        mcp_presets_action("enable", {"name": ["browserbase"]})
+        mcp_presets_action("enable", {"name": ["github"]})
 
     assert exc.value.status == 400
-    assert "Browserbase API key" in exc.value.message
+    assert "GitHub Personal Access Token" in exc.value.message
 
 
 def test_enable_context7_optional_api_key_appends_arg(
@@ -132,33 +117,6 @@ def test_enable_stdio_preset_uses_config_scoped_cwd(
     cwd = config.tools.mcp_servers["playwright"].cwd
     assert cwd == str(tmp_path / "mcp" / "playwright")
     assert (tmp_path / "mcp" / "playwright").is_dir()
-
-
-def test_enable_no_auth_remote_presets_write_url(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _use_config(tmp_path, monkeypatch)
-
-    mcp_presets_action("enable", {"name": ["microsoft-learn"]})
-    mcp_presets_action("enable", {"name": ["exa"]})
-
-    config = load_config()
-    assert config.tools.mcp_servers["microsoft-learn"].url == "https://learn.microsoft.com/api/mcp"
-    assert config.tools.mcp_servers["exa"].url == "https://mcp.exa.ai/mcp"
-
-
-def test_enable_firecrawl_writes_scrubbed_env(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _use_config(tmp_path, monkeypatch)
-
-    payload = mcp_presets_action(
-        "enable",
-        {
-            "name": ["firecrawl"],
-            "firecrawl_api_key": ["fc-secret"],
-        },
-    )
-
-    assert "fc-secret" not in str(payload)
-    config = load_config()
-    assert config.tools.mcp_servers["firecrawl"].env["FIRECRAWL_API_KEY"] == "fc-secret"
 
 
 def test_remove_mcp_preset_updates_config(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -254,22 +212,23 @@ def test_test_mcp_preset_scrubs_connection_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _use_config(tmp_path, monkeypatch)
-    mcp_presets_action(
-        "enable",
+    custom_mcp_action(
+        "custom",
         {
-            "name": ["browserbase"],
-            "browserbase_api_key": ["bb_live_secret"],
+            "name": ["custom-remote"],
+            "transport": ["streamableHttp"],
+            "url": ["https://example.invalid/mcp?token=bb_live_secret"],
         },
     )
 
     async def fake_connect(_servers, _registry):
         raise RuntimeError(
-            "failed https://mcp.browserbase.com/mcp?browserbaseApiKey=bb_live_secret"
+            "failed https://example.invalid/mcp?token=bb_live_secret"
         )
 
     monkeypatch.setattr("miniunicorn.agent.tools.mcp.connect_mcp_servers", fake_connect)
 
-    payload = asyncio.run(mcp_presets_test_action({"name": ["browserbase"]}))
+    payload = asyncio.run(mcp_presets_test_action({"name": ["custom-remote"]}))
 
     assert payload["last_action"]["ok"] is False
     assert "bb_live_secret" not in str(payload)
@@ -291,9 +250,9 @@ def test_normalize_mcp_preset_mentions_keeps_known_presets_only() -> None:
     payload = normalize_mcp_preset_mentions(
         [
             {
-                "name": "browserbase",
-                "display_name": "Browserbase",
-                "transport": "streamableHttp",
+                "name": "playwright",
+                "display_name": "Playwright",
+                "transport": "stdio",
                 "configured": True,
                 "logo_url": "https://example.invalid/logo.svg",
             },
@@ -304,9 +263,9 @@ def test_normalize_mcp_preset_mentions_keeps_known_presets_only() -> None:
 
     assert payload == [
         {
-            "name": "browserbase",
-            "display_name": "Browserbase",
-            "transport": "streamableHttp",
+            "name": "playwright",
+            "display_name": "Playwright",
+            "transport": "stdio",
             "configured": True,
             "logo_url": "https://example.invalid/logo.svg",
         }

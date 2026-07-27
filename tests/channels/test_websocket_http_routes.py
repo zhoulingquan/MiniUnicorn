@@ -216,13 +216,13 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
         lambda: {
             "presets": [
                 {
-                    "name": "browserbase",
-                    "display_name": "Browserbase",
+                    "name": "playwright",
+                    "display_name": "Playwright",
                     "category": "browser",
                     "description": "Cloud browser automation",
-                    "docs_url": "https://docs.browserbase.com/integrations/mcp/configuration",
+                    "docs_url": "https://docs.playwright.com/integrations/mcp/configuration",
                     "transport": "streamableHttp",
-                    "requires": "Browserbase API key",
+                    "requires": "Playwright API key",
                     "note": "",
                     "install_supported": True,
                     "installed": False,
@@ -294,25 +294,25 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
             headers=auth,
         )
         assert catalog.status_code == 200
-        assert catalog.json()["presets"][0]["name"] == "browserbase"
+        assert catalog.json()["presets"][0]["name"] == "playwright"
 
         enabled = await _http_get(
-            "http://127.0.0.1:29913/api/settings/mcp-presets/enable?name=browserbase",
+            "http://127.0.0.1:29913/api/settings/mcp-presets/enable?name=playwright",
             headers={
                 **auth,
-                "x-miniunicorn-MCP-Values": json.dumps({"browserbase_api_key": "bb_live_secret"}),
+                "x-miniunicorn-MCP-Values": json.dumps({"playwright_api_key": "bb_live_secret"}),
             },
         )
         assert enabled.status_code == 200
-        assert preset_queries[-1][1]["browserbase_api_key"] == ["bb_live_secret"]
+        assert preset_queries[-1][1]["playwright_api_key"] == ["bb_live_secret"]
         body = enabled.json()
         assert "bb_live_secret" not in enabled.text
         # hot_reload runs in background; message no longer carries the reload suffix.
-        assert body["last_action"]["message"] == "enable:browserbase"
+        assert body["last_action"]["message"] == "enable:playwright"
         assert body["restart_required_sections"] == ["runtime"]
 
         bad_header = await _http_get(
-            "http://127.0.0.1:29913/api/settings/mcp-presets/enable?name=browserbase",
+            "http://127.0.0.1:29913/api/settings/mcp-presets/enable?name=playwright",
             headers={**auth, "x-miniunicorn-MCP-Values": "[]"},
         )
         assert bad_header.status_code == 400

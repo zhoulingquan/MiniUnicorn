@@ -81,9 +81,9 @@ async def test_reload_mcp_servers_adds_and_removes_tools_without_restart(
     config_path = tmp_path / "config.json"
     monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
     config = load_config()
-    config.tools.mcp_servers["browserbase"] = MCPServerConfig(
+    config.tools.mcp_servers["playwright"] = MCPServerConfig(
         type="stdio",
-        command="browserbase-mcp",
+        command="playwright-mcp",
     )
     save_config(config)
 
@@ -108,21 +108,21 @@ async def test_reload_mcp_servers_adds_and_removes_tools_without_restart(
     added = await mcp_runtime.reload_servers(loop, loop.tools)
 
     assert added["ok"] is True
-    assert added["added"] == ["browserbase"]
-    assert loop.tools.has("mcp_browserbase_navigate")
-    assert "browserbase" in loop._mcp_stacks
+    assert added["added"] == ["playwright"]
+    assert loop.tools.has("mcp_playwright_navigate")
+    assert "playwright" in loop._mcp_stacks
 
     config = load_config()
-    del config.tools.mcp_servers["browserbase"]
+    del config.tools.mcp_servers["playwright"]
     save_config(config)
 
     removed = await mcp_runtime.reload_servers(loop, loop.tools)
 
     assert removed["ok"] is True
-    assert removed["removed"] == ["browserbase"]
-    assert not loop.tools.has("mcp_browserbase_navigate")
-    assert "browserbase" not in loop._mcp_stacks
-    assert closed == ["browserbase"]
+    assert removed["removed"] == ["playwright"]
+    assert not loop.tools.has("mcp_playwright_navigate")
+    assert "playwright" not in loop._mcp_stacks
+    assert closed == ["playwright"]
 
 
 @pytest.mark.asyncio
@@ -133,9 +133,9 @@ async def test_request_mcp_reload_reaches_runtime_control_without_restart(
     config_path = tmp_path / "config.json"
     monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
     config = load_config()
-    config.tools.mcp_servers["browserbase"] = MCPServerConfig(
+    config.tools.mcp_servers["playwright"] = MCPServerConfig(
         type="stdio",
-        command="browserbase-mcp",
+        command="playwright-mcp",
     )
     save_config(config)
 
@@ -167,12 +167,12 @@ async def test_request_mcp_reload_reaches_runtime_control_without_restart(
     await consumer
 
     assert result["ok"] is True
-    assert result["added"] == ["browserbase"]
+    assert result["added"] == ["playwright"]
     assert result["requires_restart"] is False
-    assert loop.tools.has("mcp_browserbase_navigate")
+    assert loop.tools.has("mcp_playwright_navigate")
 
     config = load_config()
-    del config.tools.mcp_servers["browserbase"]
+    del config.tools.mcp_servers["playwright"]
     save_config(config)
 
     consumer = asyncio.create_task(_handle_one_runtime_control())
@@ -180,10 +180,10 @@ async def test_request_mcp_reload_reaches_runtime_control_without_restart(
     await consumer
 
     assert result["ok"] is True
-    assert result["removed"] == ["browserbase"]
+    assert result["removed"] == ["playwright"]
     assert result["requires_restart"] is False
-    assert not loop.tools.has("mcp_browserbase_navigate")
-    assert closed == ["browserbase"]
+    assert not loop.tools.has("mcp_playwright_navigate")
+    assert closed == ["playwright"]
 
 
 @pytest.mark.asyncio
@@ -194,9 +194,9 @@ async def test_reload_mcp_servers_retries_configured_server_without_live_stack(
     config_path = tmp_path / "config.json"
     monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
     config = load_config()
-    config.tools.mcp_servers["browserbase"] = MCPServerConfig(
+    config.tools.mcp_servers["playwright"] = MCPServerConfig(
         type="stdio",
-        command="browserbase-mcp",
+        command="playwright-mcp",
     )
     save_config(config)
 
@@ -211,7 +211,7 @@ async def test_reload_mcp_servers_retries_configured_server_without_live_stack(
 
     monkeypatch.setattr("miniunicorn.agent.tools.mcp.connect_mcp_servers", _fake_connect)
     loop = _make_loop(
-        tmp_path, mcp_servers={"browserbase": config.tools.mcp_servers["browserbase"]}
+        tmp_path, mcp_servers={"playwright": config.tools.mcp_servers["playwright"]}
     )
 
     result = await mcp_runtime.reload_servers(loop, loop.tools)
@@ -219,6 +219,6 @@ async def test_reload_mcp_servers_retries_configured_server_without_live_stack(
     assert result["ok"] is True
     assert result["added"] == []
     assert result["changed"] == []
-    assert result["retried"] == ["browserbase"]
-    assert loop.tools.has("mcp_browserbase_navigate")
+    assert result["retried"] == ["playwright"]
+    assert loop.tools.has("mcp_playwright_navigate")
     await loop.close_mcp()
