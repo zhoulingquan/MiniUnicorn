@@ -127,17 +127,42 @@ vi.mock("@/hooks/useTheme", async () => {
   };
 });
 
-vi.mock("@/lib/bootstrap", () => ({
-  fetchBootstrap: vi.fn().mockResolvedValue({
+vi.mock("@/lib/bootstrap", () => {
+  // Real BootstrapError class so App.tsx's `instanceof` checks work.
+  class BootstrapError extends Error {
+    readonly status: number;
+    constructor(message: string, status: number) {
+      super(message);
+      this.name = "BootstrapError";
+      this.status = status;
+    }
+    get isAuth() {
+      return this.status === 401 || this.status === 403;
+    }
+    get isTransient() {
+      return this.status === 0 || (this.status >= 500 && this.status < 600);
+    }
+  }
+  const fetchBootstrap = vi.fn().mockResolvedValue({
     token: "tok",
     ws_path: "/",
     expires_in: 300,
-  }),
-  deriveWsUrl: vi.fn(() => "ws://test"),
-  loadSavedSecret: vi.fn(() => ""),
-  saveSecret: vi.fn(),
-  clearSavedSecret: vi.fn(),
-}));
+  });
+  // fetchBootstrapWithRetry delegates to fetchBootstrap so tests that
+  // mock fetchBootstrap's return values keep working.
+  const fetchBootstrapWithRetry = vi.fn(
+    async (baseUrl?: string, secret?: string) => fetchBootstrap(baseUrl ?? "", secret ?? ""),
+  );
+  return {
+    BootstrapError,
+    fetchBootstrap,
+    fetchBootstrapWithRetry,
+    deriveWsUrl: vi.fn(() => "ws://test"),
+    loadSavedSecret: vi.fn(() => ""),
+    saveSecret: vi.fn(),
+    clearSavedSecret: vi.fn(),
+  };
+});
 
 vi.mock("@/lib/miniunicorn-client", () => {
   class MockClient {
@@ -165,7 +190,7 @@ vi.mock("@/lib/miniunicorn-client", () => {
   return { MiniunicornClient: MockClient };
 });
 
-import { deriveWsUrl, fetchBootstrap } from "@/lib/bootstrap";
+import { deriveWsUrl, fetchBootstrap, fetchBootstrapWithRetry } from "@/lib/bootstrap";
 import App from "@/App";
 
 describe("App layout", () => {
@@ -185,6 +210,10 @@ describe("App layout", () => {
       ws_path: "/",
       expires_in: 300,
     });
+    // fetchBootstrapWithRetry delegates to fetchBootstrap by default.
+    vi.mocked(fetchBootstrapWithRetry).mockReset().mockImplementation(
+      async (baseUrl?: string, secret?: string) => fetchBootstrap(baseUrl ?? "", secret ?? ""),
+    );
     vi.mocked(deriveWsUrl).mockReset().mockReturnValue("ws://test");
     vi.stubGlobal(
       "fetch",

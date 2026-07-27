@@ -4,7 +4,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from miniunicorn.providers.openai_compat_provider import OpenAICompatProvider
-from miniunicorn.providers.registry import find_by_name
 
 
 def test_custom_provider_parse_handles_empty_choices() -> None:
@@ -32,17 +31,21 @@ def test_custom_provider_parse_accepts_dict_response() -> None:
     with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider()
 
-    result = provider._parse({
-        "choices": [{
-            "message": {"content": "hello from dict"},
-            "finish_reason": "stop",
-        }],
-        "usage": {
-            "prompt_tokens": 1,
-            "completion_tokens": 2,
-            "total_tokens": 3,
-        },
-    })
+    result = provider._parse(
+        {
+            "choices": [
+                {
+                    "message": {"content": "hello from dict"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 1,
+                "completion_tokens": 2,
+                "total_tokens": 3,
+            },
+        }
+    )
 
     assert result.finish_reason == "stop"
     assert result.content == "hello from dict"
@@ -57,25 +60,29 @@ def test_custom_provider_parse_chunks_accepts_plain_text_chunks() -> None:
 
 
 def test_custom_provider_parse_chunks_deduplicates_parallel_tool_call_ids() -> None:
-    chunks = [{
-        "choices": [{
-            "finish_reason": "tool_calls",
-            "delta": {
-                "tool_calls": [
-                    {
-                        "index": 0,
-                        "id": "call_dup",
-                        "function": {"name": "read_file", "arguments": '{"path":"a.txt"}'},
+    chunks = [
+        {
+            "choices": [
+                {
+                    "finish_reason": "tool_calls",
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call_dup",
+                                "function": {"name": "read_file", "arguments": '{"path":"a.txt"}'},
+                            },
+                            {
+                                "index": 1,
+                                "id": "call_dup",
+                                "function": {"name": "read_file", "arguments": '{"path":"b.txt"}'},
+                            },
+                        ],
                     },
-                    {
-                        "index": 1,
-                        "id": "call_dup",
-                        "function": {"name": "read_file", "arguments": '{"path":"b.txt"}'},
-                    },
-                ],
-            },
-        }],
-    }]
+                }
+            ],
+        }
+    ]
 
     result = OpenAICompatProvider._parse_chunks(chunks)
     ids = [tool_call.id for tool_call in result.tool_calls or []]

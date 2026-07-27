@@ -181,7 +181,8 @@ class TestFormatSummary:
         """verbatim_recent 用户消息原文应拼接到 summary 之后（防改写偏离）。"""
         last_active = datetime(2026, 1, 1)
         result = AutoCompact._format_summary(
-            "summary text", last_active,
+            "summary text",
+            last_active,
             verbatim=["把订单号改成 12345", "再帮我加一条备注"],
         )
         assert "Recent user messages (verbatim):" in result
@@ -296,7 +297,8 @@ class TestArchiveDelegates:
         await ac._archive("cli:test")
 
         ac.consolidator.compact_idle_session.assert_awaited_once_with(
-            "cli:test", ac._RECENT_SUFFIX_MESSAGES,
+            "cli:test",
+            ac._RECENT_SUFFIX_MESSAGES,
         )
 
     @pytest.mark.asyncio
@@ -419,12 +421,14 @@ class TestPrepareSession:
         """When _summaries is empty, summary should come from metadata (cold path)."""
         ac = _make_autocompact()
         last_active = datetime(2026, 5, 13, 14, 0, 0)
-        session = _make_session(metadata={
-            "_last_summary": {
-                "text": "Cold summary.",
-                "last_active": last_active.isoformat(),
-            },
-        })
+        session = _make_session(
+            metadata={
+                "_last_summary": {
+                    "text": "Cold summary.",
+                    "last_active": last_active.isoformat(),
+                },
+            }
+        )
 
         result_session, summary = ac.prepare_session(session, "cli:test")
 
@@ -455,12 +459,14 @@ class TestPrepareSession:
     def test_hot_path_takes_priority_over_metadata(self):
         """Hot path (_summaries) should take priority over metadata."""
         ac = _make_autocompact()
-        session = _make_session(metadata={
-            "_last_summary": {
-                "text": "Cold summary.",
-                "last_active": datetime(2026, 1, 1).isoformat(),
-            },
-        })
+        session = _make_session(
+            metadata={
+                "_last_summary": {
+                    "text": "Cold summary.",
+                    "last_active": datetime(2026, 1, 1).isoformat(),
+                },
+            }
+        )
         last_active = datetime(2026, 5, 13, 14, 0, 0)
         ac._summaries["cli:test"] = ("Hot summary.", last_active, [])
 

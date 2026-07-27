@@ -83,9 +83,7 @@ class QRCodeAuthHandler(ABC):
         """获取扫码 URL 与后续轮询用的 token。"""
 
     @abstractmethod
-    async def poll_status(
-        self, token: str, query: dict[str, list[str]]
-    ) -> PollResult:
+    async def poll_status(self, token: str, query: dict[str, list[str]]) -> PollResult:
         """轮询扫码状态。成功时返回的 ``credentials`` 字段名将与本
         频道的 Config 类字段对齐，便于直接持久化。"""
 
@@ -239,9 +237,7 @@ def _decode_poll_token(token: str) -> Tuple[str, str]:
     except ValueError as exc:
         raise ValueError(f"invalid poll token format: {exc}") from exc
 
-    expected = hmac.new(
-        _POLL_TOKEN_SECRET, task_id.encode(), hashlib.sha256
-    ).hexdigest()
+    expected = hmac.new(_POLL_TOKEN_SECRET, task_id.encode(), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(sig, expected):
         raise ValueError("invalid poll token signature")
 
@@ -327,9 +323,7 @@ class FeishuQRCodeAuthHandler(QRCodeAuthHandler):
                 init_data = init_resp.json()
                 methods = init_data.get("supported_auth_methods", [])
                 if "client_secret" not in methods:
-                    raise RuntimeError(
-                        f"feishu unsupported auth methods: {methods}"
-                    )
+                    raise RuntimeError(f"feishu unsupported auth methods: {methods}")
 
                 # step 2: begin
                 begin_resp = await client.post(
@@ -368,9 +362,7 @@ class FeishuQRCodeAuthHandler(QRCodeAuthHandler):
             interval=int(begin_data.get("interval") or 5),
         )
 
-    async def poll_status(
-        self, token: str, query: dict[str, list[str]]
-    ) -> PollResult:
+    async def poll_status(self, token: str, query: dict[str, list[str]]) -> PollResult:
         domain = await self._resolve_domain(query)
         endpoint = _feishu_accounts_domain(domain) + _FEISHU_REGISTER_ENDPOINT
 
@@ -378,9 +370,7 @@ class FeishuQRCodeAuthHandler(QRCodeAuthHandler):
             async with create_ssrf_safe_client(timeout=10) as client:
                 resp = await client.post(
                     endpoint,
-                    content=urlencode(
-                        {"action": "poll", "device_code": token, "tp": "ob_app"}
-                    ),
+                    content=urlencode({"action": "poll", "device_code": token, "tp": "ob_app"}),
                     headers={
                         "Content-Type": "application/x-www-form-urlencoded",
                     },
@@ -480,10 +470,7 @@ class WeixinQRCodeAuthHandler(QRCodeAuthHandler):
         if qrcode_img_content.startswith("http"):
             scan_url = qrcode_img_content
         else:
-            scan_url = (
-                f"https://liteapp.weixin.qq.com/q/7GiQu1"
-                f"?qrcode={qrcode}&bot_type=3"
-            )
+            scan_url = f"https://liteapp.weixin.qq.com/q/7GiQu1?qrcode={qrcode}&bot_type=3"
 
         return QRCodeResult(
             scan_url=scan_url,
@@ -492,9 +479,7 @@ class WeixinQRCodeAuthHandler(QRCodeAuthHandler):
             interval=3,
         )
 
-    async def poll_status(
-        self, token: str, query: dict[str, list[str]]
-    ) -> PollResult:
+    async def poll_status(self, token: str, query: dict[str, list[str]]) -> PollResult:
         base_url = await self._resolve_base_url(query)
         # 同 fetch_qrcode：base_url 可被客户端覆盖，必须 SSRF 校验。
         ok, err = validate_url_target(base_url)
@@ -589,9 +574,7 @@ class WecomQRCodeAuthHandler(QRCodeAuthHandler):
             interval=3,
         )
 
-    async def poll_status(
-        self, token: str, query: dict[str, list[str]]
-    ) -> PollResult:
+    async def poll_status(self, token: str, query: dict[str, list[str]]) -> PollResult:
         query_url = f"{_WECOM_AUTH_ORIGIN}/ai/qc/query_result?scode={quote(token)}"
         try:
             async with create_ssrf_safe_client(timeout=10) as client:
@@ -689,9 +672,7 @@ class DingtalkQRCodeAuthHandler(QRCodeAuthHandler):
             interval=3,
         )
 
-    async def poll_status(
-        self, token: str, query: dict[str, list[str]]
-    ) -> PollResult:
+    async def poll_status(self, token: str, query: dict[str, list[str]]) -> PollResult:
         try:
             async with create_ssrf_safe_client(timeout=10) as client:
                 resp = await client.post(
@@ -760,17 +741,13 @@ class QQQRCodeAuthHandler(QRCodeAuthHandler):
             raise RuntimeError(f"QQ create_bind_task failed: {exc}") from exc
 
         if data.get("retcode") != 0:
-            raise RuntimeError(
-                f"QQ create_bind_task error: {data.get('msg', '')}"
-            )
+            raise RuntimeError(f"QQ create_bind_task error: {data.get('msg', '')}")
 
         task_id = (data.get("data") or {}).get("task_id")
         if not task_id:
             raise RuntimeError("QQ create_bind_task returned empty task_id")
 
-        params = urlencode(
-            {"task_id": task_id, "_wv": "2", "source": PROJECT_NAME}
-        )
+        params = urlencode({"task_id": task_id, "_wv": "2", "source": PROJECT_NAME})
         scan_url = f"https://{self._PORTAL_HOST}{self._FRONTEND_PATH}?{params}"
         poll_token = _encode_poll_token(task_id, aes_key)
 
@@ -781,9 +758,7 @@ class QQQRCodeAuthHandler(QRCodeAuthHandler):
             interval=3,
         )
 
-    async def poll_status(
-        self, token: str, query: dict[str, list[str]]
-    ) -> PollResult:
+    async def poll_status(self, token: str, query: dict[str, list[str]]) -> PollResult:
         try:
             task_id, aes_key = _decode_poll_token(token)
         except ValueError as exc:

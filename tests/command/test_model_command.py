@@ -58,7 +58,12 @@ def _ctx(loop: AgentLoop, raw: str, args: str = "") -> CommandContext:
 def _ctx_session(loop: AgentLoop, raw: str, args: str = "") -> CommandContext:
     msg = InboundMessage(channel="cli", sender_id="user", chat_id="direct", content=raw)
     return CommandContext(
-        msg=msg, session=MagicMock(), key=msg.session_key, raw=raw, args=args, loop=loop,
+        msg=msg,
+        session=MagicMock(),
+        key=msg.session_key,
+        raw=raw,
+        args=args,
+        loop=loop,
     )
 
 
@@ -110,7 +115,7 @@ async def test_model_command_unknown_preset_keeps_old_state(tmp_path) -> None:
     out = await cmd_model(_ctx(loop, "/model missing", args="missing"))
 
     assert "Could not switch model preset" in out.content
-    assert "\"model_preset" not in out.content
+    assert '"model_preset' not in out.content
     assert "Available presets: `default`, `fast`" in out.content
     assert loop.model_preset is None
     assert loop.model == "base-model"

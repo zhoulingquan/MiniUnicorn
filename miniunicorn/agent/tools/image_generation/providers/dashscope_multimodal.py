@@ -196,9 +196,7 @@ class DashscopeMultimodalAdapter(ImageGenerationAdapter):
                         images.append(data_url)
 
         if not images:
-            raise ImageGenerationError(
-                f"dashscope response parsed no images: {str(data)[:300]}"
-            )
+            raise ImageGenerationError(f"dashscope response parsed no images: {str(data)[:300]}")
 
         return GeneratedImageResponse(images=images, raw=data)
 

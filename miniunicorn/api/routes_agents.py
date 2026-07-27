@@ -6,6 +6,7 @@ exposes a stateless ``router`` object with handlers for the
 ``/api/agents*`` endpoints. The dispatcher in ``channels/websocket.py``
 calls these handlers and wraps their return values in HTTP responses.
 """
+
 from __future__ import annotations
 
 import re

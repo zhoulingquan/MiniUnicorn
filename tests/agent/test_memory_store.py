@@ -173,7 +173,7 @@ class TestHistoryWithCursor:
         def failing_replace(*args, **kwargs):
             raise RuntimeError("Simulated failure")
 
-        monkeypatch.setattr('os.replace', failing_replace)
+        monkeypatch.setattr("os.replace", failing_replace)
 
         with pytest.raises(RuntimeError):
             store._write_entries(entries)
@@ -469,6 +469,7 @@ class TestSingleWriterPathValidation:
     def test_assert_writer_allowed_warns_for_wrong_role(self, caplog):
         """角色不在白名单中应记录 warning（不抛异常，避免破坏现有流程）。"""
         import logging
+
         with caplog.at_level(logging.WARNING, logger="loguru"):
             MemoryStore._assert_writer_allowed("main_agent", "memory/MEMORY.md")
         # 应有 warning 记录（main_agent 不允许直接写 MEMORY.md）

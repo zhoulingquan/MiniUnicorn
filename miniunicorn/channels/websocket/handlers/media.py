@@ -9,7 +9,12 @@ from miniunicorn.webui.media_api import serve_signed_media
 from .._http_router import RouteContext, router
 
 
-@router.route(r"^/api/media/(?P<sig>[A-Za-z0-9_-]+)/(?P<payload>[A-Za-z0-9_-]+)$", regex=True)
+@router.route(
+    r"^/api/media/(?P<sig>[A-Za-z0-9_-]+)/(?P<payload>[A-Za-z0-9_-]+)$",
+    regex=True,
+    methods={"GET"},
+    public=True,
+)
 def fetch_media(ctx: RouteContext) -> Response:
     """Serve a single media file previously signed via
     ``_sign_media_path``. Validates the signature, decodes the

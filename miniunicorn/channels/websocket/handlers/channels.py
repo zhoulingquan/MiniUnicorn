@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from websockets.http11 import Response
 
-from .._http_routes import _http_error, _http_json_response
 from .._http_router import RouteContext, router
+from .._http_routes import _http_error, _http_json_response
 from ._common import require_auth
 
 
-@router.route("/api/channels")
+@router.route("/api/channels", methods={"GET"})
 @require_auth
 def list(ctx: RouteContext) -> Response:
     """List all available channels and their current configuration."""
@@ -22,7 +22,7 @@ def list(ctx: RouteContext) -> Response:
     return _http_json_response(payload)
 
 
-@router.route("/api/channels/update")
+@router.route("/api/channels/update", methods={"GET", "POST"})
 @require_auth
 def update(ctx: RouteContext) -> Response:
     """Create or update a single channel's configuration."""
@@ -38,7 +38,7 @@ def update(ctx: RouteContext) -> Response:
     return _http_json_response(payload)
 
 
-@router.route("/api/channels/delete")
+@router.route("/api/channels/delete", methods={"GET", "POST"})
 @require_auth
 def delete(ctx: RouteContext) -> Response:
     """Remove a channel's configuration."""
@@ -54,7 +54,7 @@ def delete(ctx: RouteContext) -> Response:
     return _http_json_response(payload)
 
 
-@router.route("/api/channels/qrcode")
+@router.route("/api/channels/qrcode", methods={"GET", "POST"})
 @require_auth
 def qrcode_begin(ctx: RouteContext) -> Response:
     """Begin a QR code login flow for a channel (currently feishu only)."""
@@ -73,7 +73,7 @@ def qrcode_begin(ctx: RouteContext) -> Response:
     return _http_json_response(payload)
 
 
-@router.route("/api/channels/qrcode/status")
+@router.route("/api/channels/qrcode/status", methods={"GET"})
 @require_auth
 def qrcode_status(ctx: RouteContext) -> Response:
     """Poll the status of a QR code login flow."""

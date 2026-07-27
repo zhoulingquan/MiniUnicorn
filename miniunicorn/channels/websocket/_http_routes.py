@@ -42,6 +42,99 @@ _MCP_PRESET_ACTIONS_BY_PATH = {
 _MCP_VALUES_HEADER = "x-miniunicorn-MCP-Values"
 _MCP_VALUES_HEADER_MAX_BYTES = 64 * 1024
 
+# 通用敏感字段 header:前端把 api_key / config / backends_json 等秘密放进这个
+# JSON 对象 header,而不是 URL query,避免秘密进入日志/Referer/浏览器历史。
+# 与 MCP 专用 header 平行,但面向所有需要携带秘密的路由(provider/web-search/
+# channel/model-config 等)。支持分块({base}/{base}-1/...),总字节上限 256KB。
+_SENSITIVE_VALUES_HEADER = "x-miniunicorn-Values"
+_SENSITIVE_VALUES_HEADER_MAX_BYTES = 256 * 1024
+
+# Skill ZIP 分块上传的 header 数量与总字节上限。前端在超过限制时提前报错,
+# 不再产生服务端必然拒绝的请求(避免触发协议 header 数量上限)。
+SKILL_ZIP_MAX_HEADERS = 200
+SKILL_ZIP_MAX_TOTAL_BYTES = 32 * 1024 * 1024  # 32 MiB
+
+
+class ChunkedHeaderLimitError(ValueError):
+    """分块 header 超过数量或总字节上限时抛出。"""
+
+
+def collect_chunked_header_limited(
+    headers: Any,
+    base_name: str,
+    *,
+    max_count: int,
+    max_total_bytes: int,
+) -> str:
+    """与 :func:`collect_chunked_header` 相同,但强制数量与字节上限。
+
+    超过上限抛出 :class:`ChunkedHeaderLimitError`,调用方应返回 413 给客户端。
+    """
+    parts: dict[int, str] = {}
+    first = headers.get(base_name)
+    if first:
+        parts[0] = first
+    for key, value in headers.raw_items():
+        lower = key.lower()
+        prefix = f"{base_name.lower()}-"
+        if lower.startswith(prefix):
+            suffix = key[len(base_name) + 1 :]
+            try:
+                idx = int(suffix)
+            except ValueError:
+                continue
+            parts[idx] = value
+    if not parts:
+        return ""
+    if len(parts) > max_count:
+        raise ChunkedHeaderLimitError(
+            f"too many {base_name} header chunks ({len(parts)} > {max_count})"
+        )
+    total = sum(len(v.encode("utf-8")) for v in parts.values())
+    if total > max_total_bytes:
+        raise ChunkedHeaderLimitError(
+            f"{base_name} header payload too large ({total} > {max_total_bytes} bytes)"
+        )
+    return "".join(parts[i] for i in sorted(parts))
+
+
+def _merge_sensitive_values_header(
+    request: WsRequest, query: dict[str, list[str]]
+) -> dict[str, list[str]]:
+    """把 ``x-miniunicorn-Values`` chunked JSON header 合并进 *query*。
+
+    - header 缺失或为空 → 原样返回 *query*(不复制,调用方不应修改)。
+    - header 存在 → JSON 解码为对象,字符串值覆盖 query 中同名 key,非字符串值
+      JSON 序列化后写入。超限或格式错误时忽略(不阻断请求,handler 仍可从 query
+      读取非敏感字段)。
+    """
+    raw = collect_chunked_header_limited(
+        request.headers,
+        _SENSITIVE_VALUES_HEADER,
+        max_count=256,
+        max_total_bytes=_SENSITIVE_VALUES_HEADER_MAX_BYTES,
+    )
+    if not raw:
+        return query
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return query
+    if not isinstance(payload, dict):
+        return query
+    merged = {key: list(values) for key, values in query.items()}
+    for key, value in payload.items():
+        if not isinstance(key, str) or not key:
+            continue
+        if value is None:
+            continue
+        if isinstance(value, str):
+            text = value
+        else:
+            text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        merged[key] = [text]
+    return merged
+
 
 def _human_readable_size(num_bytes: int) -> str:
     """把字节数格式化为人类可读的字符串(1024 进制)。"""

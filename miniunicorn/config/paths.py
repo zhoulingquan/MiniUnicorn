@@ -14,6 +14,7 @@ def get_config_path() -> Path:
     that importing this module never triggers a circular import during startup.
     """
     from miniunicorn.config.loader import get_config_path as _loader_get_config_path
+
     return _loader_get_config_path()
 
 
@@ -59,7 +60,11 @@ def get_workspace_path(workspace: str | None = None) -> Path:
 
 def is_default_workspace(workspace: str | Path | None) -> bool:
     """Return whether a workspace resolves to MiniUnicorn's default workspace path."""
-    current = Path(workspace).expanduser() if workspace is not None else Path.home() / ".miniunicorn" / "workspace"
+    current = (
+        Path(workspace).expanduser()
+        if workspace is not None
+        else Path.home() / ".miniunicorn" / "workspace"
+    )
     default = Path.home() / ".miniunicorn" / "workspace"
     return current.resolve(strict=False) == default.resolve(strict=False)
 

@@ -22,8 +22,38 @@ def _read_pyproject_version() -> str | None:
     return data.get("project", {}).get("version")
 
 
+@lru_cache(maxsize=1)
+def _read_installed_version() -> str | None:
+    """Read the version from installed metadata (importlib.metadata).
+
+    Returns ``None`` when the distribution is not installed (e.g. running
+    directly from a source checkout without ``pip install``). Used as a
+    fallback when the source-tree ``pyproject.toml`` is unavailable.
+    """
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+    except ImportError:  # pragma: no cover — Python 3.8+ always has importlib.metadata
+        return None
+    try:
+        return version("miniunicorn-ai")
+    except PackageNotFoundError:
+        return None
+    except Exception:  # pragma: no cover — defensive against broken metadata backends
+        return None
+
+
 def _resolve_version() -> str:
-    return _read_pyproject_version() or "0.3.0"
+    """Resolve the runtime version per design §4.6.
+
+    Order of precedence:
+      1. Source-tree ``pyproject.toml`` (works for editable installs and
+         source checkouts; always reflects the latest committed version).
+      2. ``importlib.metadata.version("miniunicorn-ai")`` (works for
+         wheel/sdist installs where the source tree is absent).
+      3. Explicit ``"0.0.0+unknown"`` development sentinel — never return a
+         misleading historical hardcoded version like the old ``0.3.0``.
+    """
+    return _read_pyproject_version() or _read_installed_version() or "0.0.0+unknown"
 
 
 __version__ = _resolve_version()
@@ -40,6 +70,7 @@ def __getattr__(name: str):
     if module_path is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     from importlib import import_module
+
     mod = import_module(module_path, __name__)
     val = getattr(mod, name)
     globals()[name] = val

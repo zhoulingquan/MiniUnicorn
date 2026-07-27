@@ -232,8 +232,8 @@ def test_exec_extract_absolute_paths_ignores_urls() -> None:
     "command",
     [
         'curl -s -o /dev/null -w "%{http_code}" https://www.google.com',
-        'wget -q -O - http://example.com 2>&1 | head -c 100',
-        'python3 -c "import urllib.request; print(urllib.request.urlopen(\'http://example.com\').read()[:100])"',
+        "wget -q -O - http://example.com 2>&1 | head -c 100",
+        "python3 -c \"import urllib.request; print(urllib.request.urlopen('http://example.com').read()[:100])\"",
     ],
 )
 def test_exec_guard_allows_public_urls(tmp_path, command: str) -> None:
@@ -280,9 +280,7 @@ def test_exec_guard_blocks_home_path_outside_workspace(tmp_path) -> None:
     tool = ExecTool(restrict_to_workspace=True)
     error = tool._guard_command("cat ~/.miniunicorn/config.json", str(tmp_path))
     assert error is not None
-    assert error.startswith(
-        "Error: Command blocked by safety guard (path outside working dir)"
-    )
+    assert error.startswith("Error: Command blocked by safety guard (path outside working dir)")
     assert "hard policy boundary" in error
 
 
@@ -290,9 +288,7 @@ def test_exec_guard_blocks_quoted_home_path_outside_workspace(tmp_path) -> None:
     tool = ExecTool(restrict_to_workspace=True)
     error = tool._guard_command('cat "~/.miniunicorn/config.json"', str(tmp_path))
     assert error is not None
-    assert error.startswith(
-        "Error: Command blocked by safety guard (path outside working dir)"
-    )
+    assert error.startswith("Error: Command blocked by safety guard (path outside working dir)")
     assert "hard policy boundary" in error
 
 
@@ -346,9 +342,7 @@ def test_exec_guard_blocks_windows_drive_root_outside_workspace(monkeypatch) -> 
     tool = ExecTool(restrict_to_workspace=True)
     error = tool._guard_command("dir E:\\", "E:\\workspace")
     assert error is not None
-    assert error.startswith(
-        "Error: Command blocked by safety guard (path outside working dir)"
-    )
+    assert error.startswith("Error: Command blocked by safety guard (path outside working dir)")
     assert "hard policy boundary" in error
 
 
@@ -375,7 +369,7 @@ def test_exec_guard_blocks_non_benign_dev_path(tmp_path) -> None:
 
 
 def test_exec_extract_absolute_paths_ignores_pipe_tilde() -> None:
-    cmd = "python query.py --query '{job=\"app\"} |~ \"error\"'"
+    cmd = 'python query.py --query \'{job="app"} |~ "error"\''
     paths = ExecTool._extract_absolute_paths(cmd)
     assert not any(p.startswith("~") for p in paths)
 

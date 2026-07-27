@@ -102,14 +102,17 @@ MiniUnicorn 通过 `generate_image` 工具支持文生图与参考图编辑。�
 
 ### OpenAI（gpt-image-1 / dall-e-3）
 
+OpenAI 官方端点通过 `custom` provider 配置（OpenAI 已不再作为内置 provider 字段存在）。
+
 ```json
 {
   "agents": {
     "model_presets": {
       "my_openai": {
-        "provider": "openai",
+        "provider": "custom",
         "model": "gpt-image-1",
-        "apiKey": "${OPENAI_API_KEY}"
+        "apiKey": "${OPENAI_API_KEY}",
+        "apiBase": "https://api.openai.com/v1"
       }
     }
   },
@@ -211,9 +214,10 @@ MiniUnicorn 通过 `generate_image` 工具支持文生图与参考图编辑。�
   "agents": {
     "model_presets": {
       "my_openai_hq": {
-        "provider": "openai",
+        "provider": "custom",
         "model": "gpt-image-1",
         "apiKey": "${OPENAI_API_KEY}",
+        "apiBase": "https://api.openai.com/v1",
         "extraBody": {
           "quality": "high"
         }

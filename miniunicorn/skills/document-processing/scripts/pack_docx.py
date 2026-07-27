@@ -38,10 +38,12 @@ def _fix_xml_space(content: bytes) -> bytes:
         text = content.decode("utf-8")
         # 匹配 <w:t> 标签内含前后空格但未声明 xml:space 的情况
         text = re.sub(
-            r'<w:t(?![^>]*xml:space)>([^<]*\s[^<]*)</w:t>',
-            lambda m: f'<w:t xml:space="preserve">{m.group(1)}</w:t>'
-            if m.group(1).startswith(" ") or m.group(1).endswith(" ")
-            else m.group(0),
+            r"<w:t(?![^>]*xml:space)>([^<]*\s[^<]*)</w:t>",
+            lambda m: (
+                f'<w:t xml:space="preserve">{m.group(1)}</w:t>'
+                if m.group(1).startswith(" ") or m.group(1).endswith(" ")
+                else m.group(0)
+            ),
             text,
         )
         return text.encode("utf-8")

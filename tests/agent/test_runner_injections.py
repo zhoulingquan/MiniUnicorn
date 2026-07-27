@@ -17,11 +17,13 @@ _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
 def _make_injection_callback(queue: asyncio.Queue):
     """Return an async callback that drains *queue* into a list of dicts."""
+
     async def inject_cb():
         items = []
         while not queue.empty():
             items.append(await queue.get())
         return items
+
     return inject_cb
 
 
@@ -33,25 +35,31 @@ def _make_loop(tmp_path):
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
 
-    with patch("miniunicorn.agent.loop.ContextBuilder"), \
-         patch("miniunicorn.agent.loop.SessionManager"), \
-         patch("miniunicorn.agent.loop.SubagentManager") as MockSubMgr:
+    with (
+        patch("miniunicorn.agent.loop.ContextBuilder"),
+        patch("miniunicorn.agent.loop.SessionManager"),
+        patch("miniunicorn.agent.loop.SubagentManager") as MockSubMgr,
+    ):
         MockSubMgr.return_value.cancel_by_session = AsyncMock(return_value=0)
         loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path)
     return loop
 
+
 @pytest.mark.asyncio
 async def test_drain_injections_returns_empty_when_no_callback():
     """No injection_callback → empty list."""
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     runner = AgentRunner(provider)
     tools = MagicMock()
     tools.get_definitions.return_value = []
     spec = AgentRunSpec(
-        initial_messages=[], tools=tools, model="m",
-        max_iterations=1, max_tool_result_chars=1000,
+        initial_messages=[],
+        tools=tools,
+        model="m",
+        max_iterations=1,
+        max_tool_result_chars=1000,
         injection_callback=None,
     )
     result = await runner._drain_injections(spec)
@@ -61,7 +69,7 @@ async def test_drain_injections_returns_empty_when_no_callback():
 @pytest.mark.asyncio
 async def test_drain_injections_extracts_content_from_inbound_messages():
     """Should extract .content from InboundMessage objects."""
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
     from miniunicorn.bus.events import InboundMessage
 
     provider = MagicMock()
@@ -78,8 +86,11 @@ async def test_drain_injections_extracts_content_from_inbound_messages():
         return msgs
 
     spec = AgentRunSpec(
-        initial_messages=[], tools=tools, model="m",
-        max_iterations=1, max_tool_result_chars=1000,
+        initial_messages=[],
+        tools=tools,
+        model="m",
+        max_iterations=1,
+        max_tool_result_chars=1000,
         injection_callback=cb,
     )
     result = await runner._drain_injections(spec)
@@ -92,7 +103,7 @@ async def test_drain_injections_extracts_content_from_inbound_messages():
 @pytest.mark.asyncio
 async def test_drain_injections_passes_limit_to_callback_when_supported():
     """Limit-aware callbacks can preserve overflow in their own queue."""
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner, _MAX_INJECTIONS_PER_TURN
+    from miniunicorn.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRunSpec
     from miniunicorn.bus.events import InboundMessage
 
     provider = MagicMock()
@@ -111,8 +122,11 @@ async def test_drain_injections_passes_limit_to_callback_when_supported():
         return msgs[:limit]
 
     spec = AgentRunSpec(
-        initial_messages=[], tools=tools, model="m",
-        max_iterations=1, max_tool_result_chars=1000,
+        initial_messages=[],
+        tools=tools,
+        model="m",
+        max_iterations=1,
+        max_tool_result_chars=1000,
         injection_callback=cb,
     )
     result = await runner._drain_injections(spec)
@@ -127,7 +141,7 @@ async def test_drain_injections_passes_limit_to_callback_when_supported():
 @pytest.mark.asyncio
 async def test_drain_injections_skips_empty_content():
     """Messages with blank content should be filtered out."""
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
     from miniunicorn.bus.events import InboundMessage
 
     provider = MagicMock()
@@ -145,8 +159,11 @@ async def test_drain_injections_skips_empty_content():
         return msgs
 
     spec = AgentRunSpec(
-        initial_messages=[], tools=tools, model="m",
-        max_iterations=1, max_tool_result_chars=1000,
+        initial_messages=[],
+        tools=tools,
+        model="m",
+        max_iterations=1,
+        max_tool_result_chars=1000,
         injection_callback=cb,
     )
     result = await runner._drain_injections(spec)
@@ -156,7 +173,7 @@ async def test_drain_injections_skips_empty_content():
 @pytest.mark.asyncio
 async def test_drain_injections_handles_callback_exception():
     """If the callback raises, return empty list (error is logged)."""
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     runner = AgentRunner(provider)
@@ -167,8 +184,11 @@ async def test_drain_injections_handles_callback_exception():
         raise RuntimeError("boom")
 
     spec = AgentRunSpec(
-        initial_messages=[], tools=tools, model="m",
-        max_iterations=1, max_tool_result_chars=1000,
+        initial_messages=[],
+        tools=tools,
+        model="m",
+        max_iterations=1,
+        max_tool_result_chars=1000,
         injection_callback=cb,
     )
     result = await runner._drain_injections(spec)
@@ -178,7 +198,7 @@ async def test_drain_injections_handles_callback_exception():
 @pytest.mark.asyncio
 async def test_checkpoint1_injects_after_tool_execution():
     """Follow-up messages are injected after tool execution, before next LLM call."""
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
     from miniunicorn.bus.events import InboundMessage
 
     provider = MagicMock()
@@ -210,29 +230,35 @@ async def test_checkpoint1_injects_after_tool_execution():
     )
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "hello"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=5,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        injection_callback=inject_cb,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "hello"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=5,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            injection_callback=inject_cb,
+        )
+    )
 
     assert result.had_injections is True
     assert result.final_content == "final answer"
     # The second call should have the injected user message
     assert call_count["n"] == 2
     last_messages = captured_messages[-1]
-    injected = [m for m in last_messages if m.get("role") == "user" and m.get("content") == "follow-up question"]
+    injected = [
+        m
+        for m in last_messages
+        if m.get("role") == "user" and m.get("content") == "follow-up question"
+    ]
     assert len(injected) == 1
 
 
 @pytest.mark.asyncio
 async def test_checkpoint2_injects_after_final_response_with_resuming_stream():
     """After final response, if injections exist, stream_end should get resuming=True."""
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
     from miniunicorn.agent.hook import AgentHook, AgentHookContext
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
     from miniunicorn.bus.events import InboundMessage
 
     provider = MagicMock()
@@ -268,15 +294,17 @@ async def test_checkpoint2_injects_after_final_response_with_resuming_stream():
     )
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "hello"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=5,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        hook=TrackingHook(),
-        injection_callback=inject_cb,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "hello"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=5,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            hook=TrackingHook(),
+            injection_callback=inject_cb,
+        )
+    )
 
     assert result.had_injections is True
     assert result.final_content == "second answer"
@@ -290,7 +318,7 @@ async def test_checkpoint2_injects_after_final_response_with_resuming_stream():
 @pytest.mark.asyncio
 async def test_checkpoint2_preserves_final_response_in_history_before_followup():
     """A follow-up injected after a final answer must still see that answer in history."""
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
     from miniunicorn.bus.events import InboundMessage
 
     provider = MagicMock()
@@ -316,14 +344,16 @@ async def test_checkpoint2_preserves_final_response_in_history_before_followup()
     )
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "hello"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=5,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        injection_callback=inject_cb,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "hello"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=5,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            injection_callback=inject_cb,
+        )
+    )
 
     assert result.final_content == "second answer"
     assert call_count["n"] == 2
@@ -350,9 +380,11 @@ async def test_loop_injected_followup_preserves_image_media(tmp_path):
     from miniunicorn.bus.queue import MessageBus
 
     image_path = tmp_path / "followup.png"
-    image_path.write_bytes(base64.b64decode(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+yF9kAAAAASUVORK5CYII="
-    ))
+    image_path.write_bytes(
+        base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+yF9kAAAAASUVORK5CYII="
+        )
+    )
 
     bus = MessageBus()
     provider = MagicMock()
@@ -372,13 +404,15 @@ async def test_loop_injected_followup_preserves_image_media(tmp_path):
     loop.tools.get_definitions = MagicMock(return_value=[])
 
     pending_queue = asyncio.Queue()
-    await pending_queue.put(InboundMessage(
-        channel="cli",
-        sender_id="u",
-        chat_id="c",
-        content="",
-        media=[str(image_path)],
-    ))
+    await pending_queue.put(
+        InboundMessage(
+            channel="cli",
+            sender_id="u",
+            chat_id="c",
+            content="",
+            media=[str(image_path)],
+        )
+    )
 
     final_content, _, _, _, had_injections = await loop._run_agent_loop(
         [{"role": "user", "content": "hello"}],
@@ -391,7 +425,8 @@ async def test_loop_injected_followup_preserves_image_media(tmp_path):
     assert had_injections is True
     assert call_count["n"] == 2
     injected_user_messages = [
-        message for message in captured_messages[-1]
+        message
+        for message in captured_messages[-1]
         if message.get("role") == "user" and isinstance(message.get("content"), list)
     ]
     assert injected_user_messages
@@ -405,7 +440,7 @@ async def test_loop_injected_followup_preserves_image_media(tmp_path):
 @pytest.mark.asyncio
 async def test_runner_merges_multiple_injected_user_messages_without_losing_media():
     """Multiple injected follow-ups should not create lossy consecutive user messages."""
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     call_count = {"n": 0}
@@ -437,14 +472,16 @@ async def test_runner_merges_multiple_injected_user_messages_without_losing_medi
         return []
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "hello"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=5,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        injection_callback=inject_cb,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "hello"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=5,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            injection_callback=inject_cb,
+        )
+    )
 
     assert result.final_content == "second answer"
     assert call_count["n"] == 2
@@ -454,9 +491,7 @@ async def test_runner_merges_multiple_injected_user_messages_without_losing_medi
     injected = user_messages[-1]
     assert isinstance(injected["content"], list)
     assert any(
-        block.get("type") == "image_url"
-        for block in injected["content"]
-        if isinstance(block, dict)
+        block.get("type") == "image_url" for block in injected["content"] if isinstance(block, dict)
     )
     assert any(
         block.get("type") == "text" and block.get("text") == "and answer briefly"
@@ -468,7 +503,7 @@ async def test_runner_merges_multiple_injected_user_messages_without_losing_medi
 @pytest.mark.asyncio
 async def test_injection_cycles_capped_at_max():
     """Injection cycles should be capped at _MAX_INJECTION_CYCLES."""
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner, _MAX_INJECTION_CYCLES
+    from miniunicorn.agent.runner import _MAX_INJECTION_CYCLES, AgentRunner, AgentRunSpec
     from miniunicorn.bus.events import InboundMessage
 
     provider = MagicMock()
@@ -488,18 +523,24 @@ async def test_injection_cycles_capped_at_max():
         drain_count["n"] += 1
         # Only inject for the first _MAX_INJECTION_CYCLES drains
         if drain_count["n"] <= _MAX_INJECTION_CYCLES:
-            return [InboundMessage(channel="cli", sender_id="u", chat_id="c", content=f"msg-{drain_count['n']}")]
+            return [
+                InboundMessage(
+                    channel="cli", sender_id="u", chat_id="c", content=f"msg-{drain_count['n']}"
+                )
+            ]
         return []
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "start"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=20,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        injection_callback=inject_cb,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "start"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=20,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            injection_callback=inject_cb,
+        )
+    )
 
     assert result.had_injections is True
     # Should be capped: _MAX_INJECTION_CYCLES injection rounds + 1 final round
@@ -509,7 +550,7 @@ async def test_injection_cycles_capped_at_max():
 @pytest.mark.asyncio
 async def test_no_injections_flag_is_false_by_default():
     """had_injections should be False when no injection callback or no messages."""
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
 
@@ -521,13 +562,15 @@ async def test_no_injections_flag_is_false_by_default():
     tools.get_definitions.return_value = []
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "hi"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "hi"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     assert result.had_injections is False
 
@@ -625,9 +668,9 @@ async def test_followup_routed_to_pending_queue(tmp_path):
 async def test_pending_queue_preserves_overflow_for_next_injection_cycle(tmp_path):
     """Pending queue should leave overflow messages queued for later drains."""
     from miniunicorn.agent.loop import AgentLoop
+    from miniunicorn.agent.runner import _MAX_INJECTIONS_PER_TURN
     from miniunicorn.bus.events import InboundMessage
     from miniunicorn.bus.queue import MessageBus
-    from miniunicorn.agent.runner import _MAX_INJECTIONS_PER_TURN
 
     bus = MessageBus()
     provider = MagicMock()
@@ -647,12 +690,14 @@ async def test_pending_queue_preserves_overflow_for_next_injection_cycle(tmp_pat
     pending_queue = asyncio.Queue()
     total_followups = _MAX_INJECTIONS_PER_TURN + 2
     for idx in range(total_followups):
-        await pending_queue.put(InboundMessage(
-            channel="cli",
-            sender_id="u",
-            chat_id="c",
-            content=f"follow-up-{idx}",
-        ))
+        await pending_queue.put(
+            InboundMessage(
+                channel="cli",
+                sender_id="u",
+                chat_id="c",
+                content=f"follow-up-{idx}",
+            )
+        )
 
     final_content, _, _, _, had_injections = await loop._run_agent_loop(
         [{"role": "user", "content": "hello"}],
@@ -683,7 +728,9 @@ async def test_pending_queue_full_falls_back_to_queued_task(tmp_path):
     loop._dispatch = AsyncMock()  # type: ignore[method-assign]
 
     pending = asyncio.Queue(maxsize=1)
-    pending.put_nowait(InboundMessage(channel="cli", sender_id="u", chat_id="c", content="already queued"))
+    pending.put_nowait(
+        InboundMessage(channel="cli", sender_id="u", chat_id="c", content="already queued")
+    )
     loop._pending_queues["cli:c"] = pending
 
     run_task = asyncio.create_task(loop.run())
@@ -721,8 +768,12 @@ async def test_dispatch_republishes_leftover_queue_messages(tmp_path):
     pending = asyncio.Queue(maxsize=20)
     session_key = "cli:c"
     loop._pending_queues[session_key] = pending
-    pending.put_nowait(InboundMessage(channel="cli", sender_id="u", chat_id="c", content="leftover-1"))
-    pending.put_nowait(InboundMessage(channel="cli", sender_id="u", chat_id="c", content="leftover-2"))
+    pending.put_nowait(
+        InboundMessage(channel="cli", sender_id="u", chat_id="c", content="leftover-1")
+    )
+    pending.put_nowait(
+        InboundMessage(channel="cli", sender_id="u", chat_id="c", content="leftover-2")
+    )
 
     # Execute the cleanup logic from the finally block
     queue = loop._pending_queues.pop(session_key, None)
@@ -750,7 +801,7 @@ async def test_dispatch_republishes_leftover_queue_messages(tmp_path):
 @pytest.mark.asyncio
 async def test_drain_injections_on_fatal_tool_error():
     """Pending injections should be drained even when a fatal tool error occurs."""
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
     from miniunicorn.bus.events import InboundMessage
 
     provider = MagicMock()
@@ -780,21 +831,24 @@ async def test_drain_injections_on_fatal_tool_error():
     )
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "hello"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=5,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        fail_on_tool_error=True,
-        injection_callback=inject_cb,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "hello"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=5,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            fail_on_tool_error=True,
+            injection_callback=inject_cb,
+        )
+    )
 
     assert result.had_injections is True
     assert result.final_content == "reply to follow-up"
     # The injection should be in the messages history
     injected = [
-        m for m in result.messages
+        m
+        for m in result.messages
         if m.get("role") == "user" and m.get("content") == "follow-up after error"
     ]
     assert len(injected) == 1
@@ -803,7 +857,7 @@ async def test_drain_injections_on_fatal_tool_error():
 @pytest.mark.asyncio
 async def test_drain_injections_on_llm_error():
     """Pending injections should be drained when the LLM returns an error finish_reason."""
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
     from miniunicorn.bus.events import InboundMessage
 
     provider = MagicMock()
@@ -829,27 +883,32 @@ async def test_drain_injections_on_llm_error():
     inject_cb = _make_injection_callback(injection_queue)
 
     await injection_queue.put(
-        InboundMessage(channel="cli", sender_id="u", chat_id="c", content="follow-up after LLM error")
+        InboundMessage(
+            channel="cli", sender_id="u", chat_id="c", content="follow-up after LLM error"
+        )
     )
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[
-            {"role": "user", "content": "hello"},
-            {"role": "assistant", "content": "previous response"},
-            {"role": "user", "content": "trigger error"},
-        ],
-        tools=tools,
-        model="test-model",
-        max_iterations=5,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        injection_callback=inject_cb,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[
+                {"role": "user", "content": "hello"},
+                {"role": "assistant", "content": "previous response"},
+                {"role": "user", "content": "trigger error"},
+            ],
+            tools=tools,
+            model="test-model",
+            max_iterations=5,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            injection_callback=inject_cb,
+        )
+    )
 
     assert result.had_injections is True
     assert result.final_content == "recovered answer"
     injected = [
-        m for m in result.messages
+        m
+        for m in result.messages
         if m.get("role") == "user" and "follow-up after LLM error" in str(m.get("content", ""))
     ]
     assert len(injected) == 1
@@ -858,7 +917,7 @@ async def test_drain_injections_on_llm_error():
 @pytest.mark.asyncio
 async def test_drain_injections_on_empty_final_response():
     """Pending injections should be drained when the runner exits due to empty response."""
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner, _MAX_EMPTY_RETRIES
+    from miniunicorn.agent.runner import _MAX_EMPTY_RETRIES, AgentRunner, AgentRunSpec
     from miniunicorn.bus.events import InboundMessage
 
     provider = MagicMock()
@@ -883,23 +942,26 @@ async def test_drain_injections_on_empty_final_response():
     )
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[
-            {"role": "user", "content": "hello"},
-            {"role": "assistant", "content": "previous response"},
-            {"role": "user", "content": "trigger empty"},
-        ],
-        tools=tools,
-        model="test-model",
-        max_iterations=10,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        injection_callback=inject_cb,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[
+                {"role": "user", "content": "hello"},
+                {"role": "assistant", "content": "previous response"},
+                {"role": "user", "content": "trigger empty"},
+            ],
+            tools=tools,
+            model="test-model",
+            max_iterations=10,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            injection_callback=inject_cb,
+        )
+    )
 
     assert result.had_injections is True
     assert result.final_content == "answer after empty"
     injected = [
-        m for m in result.messages
+        m
+        for m in result.messages
         if m.get("role") == "user" and "follow-up after empty" in str(m.get("content", ""))
     ]
     assert len(injected) == 1
@@ -913,7 +975,7 @@ async def test_drain_injections_on_max_iterations():
     injections are appended to messages but not processed by the LLM.
     The key point is they are consumed from the queue to prevent re-publish.
     """
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
     from miniunicorn.bus.events import InboundMessage
 
     provider = MagicMock()
@@ -923,7 +985,9 @@ async def test_drain_injections_on_max_iterations():
         call_count["n"] += 1
         return LLMResponse(
             content="",
-            tool_calls=[ToolCallRequest(id=f"c{call_count['n']}", name="read_file", arguments={"path": "x"})],
+            tool_calls=[
+                ToolCallRequest(id=f"c{call_count['n']}", name="read_file", arguments={"path": "x"})
+            ],
             usage={},
         )
 
@@ -936,18 +1000,22 @@ async def test_drain_injections_on_max_iterations():
     inject_cb = _make_injection_callback(injection_queue)
 
     await injection_queue.put(
-        InboundMessage(channel="cli", sender_id="u", chat_id="c", content="follow-up after max iters")
+        InboundMessage(
+            channel="cli", sender_id="u", chat_id="c", content="follow-up after max iters"
+        )
     )
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "hello"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=2,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        injection_callback=inject_cb,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "hello"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=2,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            injection_callback=inject_cb,
+        )
+    )
 
     assert result.stop_reason == "max_iterations"
     assert result.had_injections is True
@@ -955,7 +1023,8 @@ async def test_drain_injections_on_max_iterations():
     assert injection_queue.empty()
     # The injection message is appended to conversation history
     injected = [
-        m for m in result.messages
+        m
+        for m in result.messages
         if m.get("role") == "user" and m.get("content") == "follow-up after max iters"
     ]
     assert len(injected) == 1
@@ -965,7 +1034,7 @@ async def test_drain_injections_on_max_iterations():
 async def test_drain_injections_set_flag_when_followup_arrives_after_last_iteration():
     """Late follow-ups drained in max_iterations should still flip had_injections."""
     from miniunicorn.agent.hook import AgentHook
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
     from miniunicorn.bus.events import InboundMessage
 
     provider = MagicMock()
@@ -975,7 +1044,9 @@ async def test_drain_injections_set_flag_when_followup_arrives_after_last_iterat
         call_count["n"] += 1
         return LLMResponse(
             content="",
-            tool_calls=[ToolCallRequest(id=f"c{call_count['n']}", name="read_file", arguments={"path": "x"})],
+            tool_calls=[
+                ToolCallRequest(id=f"c{call_count['n']}", name="read_file", arguments={"path": "x"})
+            ],
             usage={},
         )
 
@@ -1004,21 +1075,24 @@ async def test_drain_injections_set_flag_when_followup_arrives_after_last_iterat
                 )
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "hello"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=2,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        injection_callback=inject_cb,
-        hook=InjectOnLastAfterIterationHook(),
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "hello"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=2,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            injection_callback=inject_cb,
+            hook=InjectOnLastAfterIterationHook(),
+        )
+    )
 
     assert result.stop_reason == "max_iterations"
     assert result.had_injections is True
     assert injection_queue.empty()
     injected = [
-        m for m in result.messages
+        m
+        for m in result.messages
         if m.get("role") == "user" and m.get("content") == "late follow-up after max iters"
     ]
     assert len(injected) == 1
@@ -1027,7 +1101,7 @@ async def test_drain_injections_set_flag_when_followup_arrives_after_last_iterat
 @pytest.mark.asyncio
 async def test_injection_cycle_cap_on_error_path():
     """Injection cycles should be capped even when every iteration hits an LLM error."""
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner, _MAX_INJECTION_CYCLES
+    from miniunicorn.agent.runner import _MAX_INJECTION_CYCLES, AgentRunner, AgentRunSpec
     from miniunicorn.bus.events import InboundMessage
 
     provider = MagicMock()
@@ -1051,24 +1125,29 @@ async def test_injection_cycle_cap_on_error_path():
     async def inject_cb():
         drain_count["n"] += 1
         if drain_count["n"] <= _MAX_INJECTION_CYCLES:
-            return [InboundMessage(channel="cli", sender_id="u", chat_id="c", content=f"msg-{drain_count['n']}")]
+            return [
+                InboundMessage(
+                    channel="cli", sender_id="u", chat_id="c", content=f"msg-{drain_count['n']}"
+                )
+            ]
         return []
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[
-            {"role": "user", "content": "hello"},
-            {"role": "assistant", "content": "previous"},
-            {"role": "user", "content": "trigger error"},
-        ],
-        tools=tools,
-        model="test-model",
-        max_iterations=20,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        injection_callback=inject_cb,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[
+                {"role": "user", "content": "hello"},
+                {"role": "assistant", "content": "previous"},
+                {"role": "user", "content": "trigger error"},
+            ],
+            tools=tools,
+            model="test-model",
+            max_iterations=20,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            injection_callback=inject_cb,
+        )
+    )
 
     assert result.had_injections is True
     # Should cap: _MAX_INJECTION_CYCLES drained rounds + 1 final round that breaks
     assert call_count["n"] == _MAX_INJECTION_CYCLES + 1
-

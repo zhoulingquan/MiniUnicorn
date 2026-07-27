@@ -27,10 +27,7 @@ class FileSnapshot:
     @property
     def countable(self) -> bool:
         return (
-            self.text is not None
-            and not self.binary
-            and not self.oversized
-            and not self.unreadable
+            self.text is not None and not self.binary and not self.oversized and not self.unreadable
         )
 
 
@@ -184,13 +181,15 @@ def prepare_file_edit_trackers(
             continue
         seen.add(resolved)
         before = read_file_snapshot(path)
-        trackers.append(FileEditTracker(
-            call_id=str(call_id or ""),
-            tool=tool_name,
-            path=path,
-            display_path=display_file_edit_path(path, workspace),
-            before=before,
-        ))
+        trackers.append(
+            FileEditTracker(
+                call_id=str(call_id or ""),
+                tool=tool_name,
+                path=path,
+                display_path=display_file_edit_path(path, workspace),
+                before=before,
+            )
+        )
     return trackers
 
 
@@ -406,12 +405,16 @@ class StreamingFileEditTracker:
             now = time.monotonic()
             if state.should_emit_pending(added, deleted, now):
                 state.mark_pending_emitted(added, deleted, now)
-                await self._emit([build_file_edit_pending_event(
-                    call_id=state.call_id or state.key,
-                    tool_name=state.name,
-                    added=added,
-                    deleted=deleted,
-                )])
+                await self._emit(
+                    [
+                        build_file_edit_pending_event(
+                            call_id=state.call_id or state.key,
+                            tool_name=state.name,
+                            added=added,
+                            deleted=deleted,
+                        )
+                    ]
+                )
             return
         if state.tracker is None:
             tool = self._tools.get(state.name) if hasattr(self._tools, "get") else None
@@ -430,11 +433,15 @@ class StreamingFileEditTracker:
         if not state.should_emit(added, deleted, now):
             return
         state.mark_emitted(added, deleted, now)
-        await self._emit([build_file_edit_live_event(
-            state.tracker,
-            added=added,
-            deleted=deleted,
-        )])
+        await self._emit(
+            [
+                build_file_edit_live_event(
+                    state.tracker,
+                    added=added,
+                    deleted=deleted,
+                )
+            ]
+        )
 
     async def _update_apply_patch(self, state: _StreamingFileEditState) -> None:
         if _json_bool_true(state.arguments, "dry_run"):
@@ -454,7 +461,9 @@ class StreamingFileEditTracker:
                 continue
 
             segment_start = m.start()
-            segment_end = path_matches[i + 1].start() if i + 1 < len(path_matches) else len(state.arguments)
+            segment_end = (
+                path_matches[i + 1].start() if i + 1 < len(path_matches) else len(state.arguments)
+            )
             segment = state.arguments[segment_start:segment_end]
 
             action_match = re.search(r'"action"\s*:\s*"(replace|add)"', segment)
@@ -480,11 +489,13 @@ class StreamingFileEditTracker:
             if not file_state.should_emit(added, deleted, now):
                 continue
             file_state.mark_emitted(added, deleted, now)
-            events.append(build_file_edit_live_event(
-                file_state.tracker,
-                added=added,
-                deleted=deleted,
-            ))
+            events.append(
+                build_file_edit_live_event(
+                    file_state.tracker,
+                    added=added,
+                    deleted=deleted,
+                )
+            )
         if events:
             await self._emit(events)
 
@@ -502,11 +513,13 @@ class StreamingFileEditTracker:
                 ):
                     continue
                 file_state.mark_emitted(added, deleted, now)
-                events.append(build_file_edit_live_event(
-                    file_state.tracker,
-                    added=added,
-                    deleted=deleted,
-                ))
+                events.append(
+                    build_file_edit_live_event(
+                        file_state.tracker,
+                        added=added,
+                        deleted=deleted,
+                    )
+                )
             if state.tracker is None:
                 continue
             added, deleted = state.live_diff_counts()
@@ -517,11 +530,13 @@ class StreamingFileEditTracker:
             ):
                 continue
             state.mark_emitted(added, deleted, now)
-            events.append(build_file_edit_live_event(
-                state.tracker,
-                added=added,
-                deleted=deleted,
-            ))
+            events.append(
+                build_file_edit_live_event(
+                    state.tracker,
+                    added=added,
+                    deleted=deleted,
+                )
+            )
         if events:
             await self._emit(events)
 
@@ -540,7 +555,9 @@ class StreamingFileEditTracker:
     def canonical_call_id_for(self, tool_call: Any) -> str | None:
         for state in self._states.values():
             if state.matches_final_tool_call(tool_call):
-                return state.call_id or (state.tracker.call_id if state.tracker else None) or state.key
+                return (
+                    state.call_id or (state.tracker.call_id if state.tracker else None) or state.key
+                )
         return None
 
     async def error_unmatched(
@@ -675,10 +692,13 @@ class _StreamingPatchFileState:
             return True
         if added == self.last_emitted_added and deleted == self.last_emitted_deleted:
             return False
-        if max(
-            abs(added - self.last_emitted_added),
-            abs(deleted - self.last_emitted_deleted),
-        ) >= _LIVE_EMIT_LINE_STEP:
+        if (
+            max(
+                abs(added - self.last_emitted_added),
+                abs(deleted - self.last_emitted_deleted),
+            )
+            >= _LIVE_EMIT_LINE_STEP
+        ):
             return True
         return now - self.last_emit_at >= _LIVE_EMIT_INTERVAL_S
 
@@ -752,10 +772,13 @@ class _StreamingFileEditState:
             return True
         if added == self.last_emitted_added and deleted == self.last_emitted_deleted:
             return False
-        if max(
-            abs(added - self.last_emitted_added),
-            abs(deleted - self.last_emitted_deleted),
-        ) >= _LIVE_EMIT_LINE_STEP:
+        if (
+            max(
+                abs(added - self.last_emitted_added),
+                abs(deleted - self.last_emitted_deleted),
+            )
+            >= _LIVE_EMIT_LINE_STEP
+        ):
             return True
         return now - self.last_emit_at >= _LIVE_EMIT_INTERVAL_S
 
@@ -770,10 +793,13 @@ class _StreamingFileEditState:
             return True
         if added == self.last_pending_added and deleted == self.last_pending_deleted:
             return False
-        if max(
-            abs(added - self.last_pending_added),
-            abs(deleted - self.last_pending_deleted),
-        ) >= _LIVE_EMIT_LINE_STEP:
+        if (
+            max(
+                abs(added - self.last_pending_added),
+                abs(deleted - self.last_pending_deleted),
+            )
+            >= _LIVE_EMIT_LINE_STEP
+        ):
             return True
         return now - self.last_pending_at >= _LIVE_EMIT_INTERVAL_S
 
@@ -843,7 +869,7 @@ def _extract_json_string_prefix(source: str, key: str) -> str | None:
             elif ch == "t":
                 out.append("\t")
             elif ch == "u":
-                digits = source[i + 1:i + 5]
+                digits = source[i + 1 : i + 5]
                 if len(digits) < 4:
                     break
                 try:
@@ -884,7 +910,7 @@ def _extract_complete_json_string(source: str, key: str) -> str | None:
             elif ch == "t":
                 out.append("\t")
             elif ch == "u":
-                digits = source[i + 1:i + 5]
+                digits = source[i + 1 : i + 5]
                 if len(digits) < 4:
                     return None
                 try:

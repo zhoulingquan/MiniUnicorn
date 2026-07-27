@@ -85,6 +85,22 @@ interface PendingNewChat {
   resolve: (chatId: string) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  /** Client-generated id echoed by the server on ``attached`` so we can
+   * distinguish a response to our pending request from a stale ``attached``
+   * frame arriving after a reconnect. */
+  requestId: string;
+}
+
+/** Generate a per-request correlation id. Uses crypto.randomUUID when
+ * available and falls back to a timestamp+random string. */
+function makeRequestId(): string {
+  try {
+    const g = globalThis as unknown as { crypto?: { randomUUID?: () => string } };
+    if (g.crypto?.randomUUID) return g.crypto.randomUUID();
+  } catch {
+    // ignore — fall through to manual id
+  }
+  return `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export interface MiniunicornClientOptions {
@@ -138,7 +154,7 @@ export class MiniunicornClient {
   // and must not schedule a reconnect or flip status back to "reconnecting".
   private intentionallyClosed = false;
 
-  constructor(private options: MiniUnicornClientOptions) {
+  constructor(private options: MiniunicornClientOptions) {
     this.shouldReconnect = options.reconnect ?? true;
     this.maxBackoffMs = options.maxBackoffMs ?? 15_000;
     this.socketFactory =
@@ -297,14 +313,18 @@ export class MiniunicornClient {
     if (this.pendingNewChat) {
       return Promise.reject(new Error("newChat already in flight"));
     }
+    const requestId = makeRequestId();
     return new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.pendingNewChat = null;
+        if (this.pendingNewChat?.requestId === requestId) {
+          this.pendingNewChat = null;
+        }
         reject(new Error("newChat timed out"));
       }, timeoutMs);
-      this.pendingNewChat = { resolve, reject, timer };
+      this.pendingNewChat = { resolve, reject, timer, requestId };
       this.queueSend({
         type: "new_chat",
+        request_id: requestId,
         ...(workspaceScope ? { workspace_scope: workspaceScope } : {}),
       });
     });
@@ -402,10 +422,24 @@ export class MiniunicornClient {
 
     if (parsed.event === "attached") {
       this.knownChats.add(parsed.chat_id);
-      if (this.pendingNewChat) {
-        clearTimeout(this.pendingNewChat.timer);
-        this.pendingNewChat.resolve(parsed.chat_id);
-        this.pendingNewChat = null;
+      const attachedReqId = (parsed as { request_id?: unknown }).request_id;
+      const pending = this.pendingNewChat;
+      if (pending) {
+        // Only resolve the pending promise when the server echoed our
+        // request_id back. If the server (legacy) didn't echo an id we
+        // fall back to the old behavior and accept any ``attached`` as
+        // the answer. A mismatched id means this ``attached`` is a stale
+        // frame from a previous request (e.g. after a reconnect) and must
+        // be ignored for resolution purposes.
+        const matchesPending =
+          typeof attachedReqId === "string"
+            ? attachedReqId === pending.requestId
+            : true;
+        if (matchesPending) {
+          clearTimeout(pending.timer);
+          pending.resolve(parsed.chat_id);
+          this.pendingNewChat = null;
+        }
       }
       this.dispatch(parsed.chat_id, parsed);
       return;
@@ -478,7 +512,7 @@ export class MiniunicornClient {
       this.pendingInboundByChat.set(chatId, q);
     }
     q.push(ev);
-    const over = q.length - MiniUnicornClient.PENDING_INBOUND_MAX;
+    const over = q.length - MiniunicornClient.PENDING_INBOUND_MAX;
     if (over > 0) {
       q.splice(0, over);
     }

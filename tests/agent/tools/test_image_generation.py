@@ -17,8 +17,8 @@ import json
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -57,10 +57,11 @@ def test_enabled_without_preset_auto_falls_back_to_default():
 
 def test_invalid_api_type_raises():
     """apiType 必须在白名单内 (Literal 已保证, 这里二次确认)。"""
+    from pydantic import ValidationError
+
     from miniunicorn.agent.tools.image_generation.config import (
         ImageGenerationProviderConfig,
     )
-    from pydantic import ValidationError
 
     with pytest.raises(ValidationError):
         ImageGenerationProviderConfig(api_type="totally_unknown_protocol")  # type: ignore[arg-type]
@@ -68,8 +69,9 @@ def test_invalid_api_type_raises():
 
 def test_invalid_api_type_on_config_raises():
     """ImageGenerationConfig 启用时 apiType 必须在白名单。"""
-    from miniunicorn.agent.tools.image_generation.config import ImageGenerationConfig
     from pydantic import ValidationError
+
+    from miniunicorn.agent.tools.image_generation.config import ImageGenerationConfig
 
     with pytest.raises(ValidationError):
         ImageGenerationConfig(enabled=True, api_type="totally_unknown_protocol")  # type: ignore[arg-type]
@@ -77,8 +79,9 @@ def test_invalid_api_type_on_config_raises():
 
 def test_invalid_response_format_raises():
     """responseFormat 必须是 b64_json 或 url。"""
-    from miniunicorn.agent.tools.image_generation.config import ImageGenerationConfig
     from pydantic import ValidationError
+
+    from miniunicorn.agent.tools.image_generation.config import ImageGenerationConfig
 
     with pytest.raises(ValidationError):
         ImageGenerationConfig(enabled=True, response_format="weird_format")  # type: ignore[arg-type]
@@ -89,19 +92,21 @@ def test_snake_and_camel_case_accepted():
     from miniunicorn.config.schema import Config
 
     # camelCase
-    cfg_camel = Config.model_validate({
-        "tools": {
-            "imageGeneration": {
-                "enabled": True,
-                "preset": "my_openai",
-                "apiType": "chat_completions",
-                "responseFormat": "url",
-                "defaultAspectRatio": "16:9",
-                "maxImagesPerTurn": 2,
-                "saveDir": "out",
-            }
-        },
-    })
+    cfg_camel = Config.model_validate(
+        {
+            "tools": {
+                "imageGeneration": {
+                    "enabled": True,
+                    "preset": "my_openai",
+                    "apiType": "chat_completions",
+                    "responseFormat": "url",
+                    "defaultAspectRatio": "16:9",
+                    "maxImagesPerTurn": 2,
+                    "saveDir": "out",
+                }
+            },
+        }
+    )
     ig_camel = cfg_camel.tools.image_generation
     assert ig_camel.enabled is True
     assert ig_camel.preset == "my_openai"
@@ -112,19 +117,21 @@ def test_snake_and_camel_case_accepted():
     assert ig_camel.save_dir == "out"
 
     # snake_case
-    cfg_snake = Config.model_validate({
-        "tools": {
-            "image_generation": {
-                "enabled": True,
-                "preset": "p1",
-                "api_type": "images_generations",
-                "response_format": "b64_json",
-                "default_aspect_ratio": "1:1",
-                "max_images_per_turn": 4,
-                "save_dir": "generated",
-            }
-        },
-    })
+    cfg_snake = Config.model_validate(
+        {
+            "tools": {
+                "image_generation": {
+                    "enabled": True,
+                    "preset": "p1",
+                    "api_type": "images_generations",
+                    "response_format": "b64_json",
+                    "default_aspect_ratio": "1:1",
+                    "max_images_per_turn": 4,
+                    "save_dir": "generated",
+                }
+            },
+        }
+    )
     ig_snake = cfg_snake.tools.image_generation
     assert ig_snake.api_type == "images_generations"
     assert ig_snake.response_format == "b64_json"
@@ -132,8 +139,9 @@ def test_snake_and_camel_case_accepted():
 
 def test_max_images_per_turn_bounds():
     """max_images_per_turn 必须在 1-8 之间。"""
-    from miniunicorn.agent.tools.image_generation.config import ImageGenerationConfig
     from pydantic import ValidationError
+
+    from miniunicorn.agent.tools.image_generation.config import ImageGenerationConfig
 
     with pytest.raises(ValidationError):
         ImageGenerationConfig(enabled=True, max_images_per_turn=0)
@@ -243,8 +251,11 @@ def test_path_guard_outside_rejected():
         resolve_allowed_image_path,
     )
 
-    with tempfile.TemporaryDirectory() as ws_tmp, tempfile.TemporaryDirectory() as media_tmp, \
-            tempfile.TemporaryDirectory() as outside_tmp:
+    with (
+        tempfile.TemporaryDirectory() as ws_tmp,
+        tempfile.TemporaryDirectory() as media_tmp,
+        tempfile.TemporaryDirectory() as outside_tmp,
+    ):
         ws = Path(ws_tmp)
         media = Path(media_tmp)
         outside = Path(outside_tmp) / "outside.png"
@@ -318,7 +329,9 @@ def test_path_guard_unsupported_extension_rejected():
 # -----------------------------
 
 
-def _mock_response(status_code: int = 200, json_data: dict | None = None, text: str = "") -> MagicMock:
+def _mock_response(
+    status_code: int = 200, json_data: dict | None = None, text: str = ""
+) -> MagicMock:
     resp = MagicMock()
     resp.status_code = status_code
     resp.text = text or (json.dumps(json_data) if json_data else "")
@@ -347,7 +360,9 @@ async def test_images_generations_adapter_b64_json():
     fake_client.aclose = AsyncMock()
 
     adapter = ImagesGenerationsAdapter()
-    cfg = ImageGenerationProviderConfig(api_key="k", api_type="images_generations", response_format="b64_json")
+    cfg = ImageGenerationProviderConfig(
+        api_key="k", api_type="images_generations", response_format="b64_json"
+    )
     result = await adapter.generate(
         prompt="a cat",
         model="dall-e-3",
@@ -384,7 +399,9 @@ async def test_images_generations_adapter_url_response():
     fake_client.aclose = AsyncMock()
 
     adapter = ImagesGenerationsAdapter()
-    cfg = ImageGenerationProviderConfig(api_key="k", api_type="images_generations", response_format="url")
+    cfg = ImageGenerationProviderConfig(
+        api_key="k", api_type="images_generations", response_format="url"
+    )
     result = await adapter.generate(
         prompt="a cat",
         model="dall-e-3",
@@ -418,12 +435,18 @@ async def test_images_edits_uploads_image_only(tmp_path):
 
     adapter = ImagesGenerationsAdapter()
     cfg = ImageGenerationProviderConfig(
-        api_key="k", api_type="images_generations", response_format="b64_json",
+        api_key="k",
+        api_type="images_generations",
+        response_format="b64_json",
     )
     result = await adapter.generate(
-        prompt="edit", model="gpt-image-1", provider_config=cfg,
+        prompt="edit",
+        model="gpt-image-1",
+        provider_config=cfg,
         reference_images=[ref_img],
-        aspect_ratio="1:1", image_size=None, http_client=fake_client,
+        aspect_ratio="1:1",
+        image_size=None,
+        http_client=fake_client,
     )
     assert len(result.images) == 1
     # 验证请求 URL 走的是 /images/edits
@@ -443,14 +466,19 @@ async def test_chat_completions_adapter_parses_images():
         ChatCompletionsAdapter,
     )
 
-    fake_resp = _mock_response(200, {
-        "choices": [{
-            "message": {
-                "images": [{"image_url": {"url": _PNG_DATA_URL}}],
-                "content": "here is your image",
-            }
-        }]
-    })
+    fake_resp = _mock_response(
+        200,
+        {
+            "choices": [
+                {
+                    "message": {
+                        "images": [{"image_url": {"url": _PNG_DATA_URL}}],
+                        "content": "here is your image",
+                    }
+                }
+            ]
+        },
+    )
 
     fake_client = AsyncMock()
     fake_client.post = AsyncMock(return_value=fake_resp)
@@ -490,9 +518,9 @@ async def test_chat_completions_adapter_with_reference_images():
         ref_img = ws / "ref.png"
         _write_png(ref_img)
 
-        fake_resp = _mock_response(200, {
-            "choices": [{"message": {"images": [{"image_url": {"url": _PNG_DATA_URL}}]}}]
-        })
+        fake_resp = _mock_response(
+            200, {"choices": [{"message": {"images": [{"image_url": {"url": _PNG_DATA_URL}}]}}]}
+        )
         fake_client = AsyncMock()
         fake_client.post = AsyncMock(return_value=fake_resp)
         fake_client.aclose = AsyncMock()
@@ -527,15 +555,20 @@ async def test_dashscope_adapter_parses_url_response():
         DashscopeMultimodalAdapter,
     )
 
-    fake_resp = _mock_response(200, {
-        "output": {
-            "choices": [{
-                "message": {
-                    "content": [{"image": "https://dashscope-result.example.com/x.png"}]
-                }
-            }]
-        }
-    })
+    fake_resp = _mock_response(
+        200,
+        {
+            "output": {
+                "choices": [
+                    {
+                        "message": {
+                            "content": [{"image": "https://dashscope-result.example.com/x.png"}]
+                        }
+                    }
+                ]
+            }
+        },
+    )
 
     fake_download_resp = MagicMock()
     fake_download_resp.status_code = 200
@@ -573,11 +606,14 @@ async def test_dashscope_adapter_error_response():
         DashscopeMultimodalAdapter,
     )
 
-    fake_resp = _mock_response(200, {
-        "code": "InvalidApiKey",
-        "message": "Invalid API-key",
-        "request_id": "req-123",
-    })
+    fake_resp = _mock_response(
+        200,
+        {
+            "code": "InvalidApiKey",
+            "message": "Invalid API-key",
+            "request_id": "req-123",
+        },
+    )
 
     fake_client = AsyncMock()
     fake_client.post = AsyncMock(return_value=fake_resp)
@@ -587,8 +623,12 @@ async def test_dashscope_adapter_error_response():
     cfg = ImageGenerationProviderConfig(api_key="bad", api_type="dashscope_multimodal")
     with pytest.raises(ImageGenerationError, match="InvalidApiKey"):
         await adapter.generate(
-            prompt="x", model="m", provider_config=cfg,
-            reference_images=None, aspect_ratio=None, image_size=None,
+            prompt="x",
+            model="m",
+            provider_config=cfg,
+            reference_images=None,
+            aspect_ratio=None,
+            image_size=None,
             http_client=fake_client,
         )
 
@@ -824,8 +864,8 @@ def _make_fake_signature(
     """构造一个假的 ProviderSignature (与 miniunicorn.providers.factory.ProviderSignature 同字段)。"""
     return SimpleNamespace(
         model=model,
-        provider="openai",
-        provider_name="openai",
+        provider="custom",
+        provider_name="custom",
         api_key=api_key,
         api_base=api_base,
         extra_headers=extra_headers,
@@ -1046,9 +1086,7 @@ def test_tool_create_infers_api_type_from_provider(
     cfg_api_type = (
         "images_generations" if expected_api_type != "images_generations" else "chat_completions"
     )
-    cfg_response_format = (
-        "b64_json" if expected_response_format != "b64_json" else "url"
-    )
+    cfg_response_format = "b64_json" if expected_response_format != "b64_json" else "url"
     cfg = ImageGenerationConfig(
         enabled=True,
         preset="test",

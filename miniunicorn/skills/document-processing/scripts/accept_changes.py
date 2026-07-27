@@ -19,14 +19,14 @@ from pathlib import Path
 def _accept_in_document_xml(xml_text: str) -> str:
     """在 document.xml 中接受所有修订。"""
     # 1. 移除 <w:ins ...> 和 </w:ins> 标签,保留内部内容
-    xml_text = re.sub(r'<w:ins\b[^>]*>', '', xml_text)
-    xml_text = xml_text.replace('</w:ins>', '')
+    xml_text = re.sub(r"<w:ins\b[^>]*>", "", xml_text)
+    xml_text = xml_text.replace("</w:ins>", "")
     # 2. 移除整个 <w:del>...</w:del> 块(连同内容)
-    xml_text = re.sub(r'<w:del\b[^>]*>.*?</w:del>', '', xml_text, flags=re.DOTALL)
+    xml_text = re.sub(r"<w:del\b[^>]*>.*?</w:del>", "", xml_text, flags=re.DOTALL)
     # 3. 移除段落属性中的 <w:del/> 标记(段落合并标记)
-    xml_text = re.sub(r'<w:del\s*/>', '', xml_text)
+    xml_text = re.sub(r"<w:del\s*/>", "", xml_text)
     # 4. 移除 <w:rPr><w:del .../></w:rPr> 中的 del 标记
-    xml_text = re.sub(r'<w:del\b[^/>]*/>', '', xml_text)
+    xml_text = re.sub(r"<w:del\b[^/>]*/>", "", xml_text)
     return xml_text
 
 

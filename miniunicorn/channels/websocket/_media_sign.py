@@ -32,18 +32,22 @@ _MAX_DOCUMENT_BYTES = 50 * 1024 * 1024
 
 # Image MIME whitelist — matches the Composer's ``accept`` list. SVG is
 # explicitly excluded to avoid the XSS surface inside embedded scripts.
-_IMAGE_MIME_ALLOWED: frozenset[str] = frozenset({
-    "image/png",
-    "image/jpeg",
-    "image/webp",
-    "image/gif",
-})
+_IMAGE_MIME_ALLOWED: frozenset[str] = frozenset(
+    {
+        "image/png",
+        "image/jpeg",
+        "image/webp",
+        "image/gif",
+    }
+)
 
-_VIDEO_MIME_ALLOWED: frozenset[str] = frozenset({
-    "video/mp4",
-    "video/webm",
-    "video/quicktime",
-})
+_VIDEO_MIME_ALLOWED: frozenset[str] = frozenset(
+    {
+        "video/mp4",
+        "video/webm",
+        "video/quicktime",
+    }
+)
 
 # Document MIME whitelist — mirrors ``utils.document.SUPPORTED_EXTENSIONS``.
 # These files are base64-encoded client-side (bypassing the image Worker's
@@ -51,22 +55,24 @@ _VIDEO_MIME_ALLOWED: frozenset[str] = frozenset({
 # ``application/octet-stream`` is admitted because browsers return it for
 # .log/.toml/.ini/.cfg and other text formats; the original filename
 # extension is preserved via ``filename_hint`` for downstream parsing.
-_DOCUMENT_MIME_ALLOWED: frozenset[str] = frozenset({
-    "application/pdf",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    "text/plain",
-    "text/markdown",
-    "text/csv",
-    "application/json",
-    "application/xml",
-    "text/xml",
-    "text/html",
-    "application/x-yaml",
-    "text/yaml",
-    "application/octet-stream",
-})
+_DOCUMENT_MIME_ALLOWED: frozenset[str] = frozenset(
+    {
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "text/plain",
+        "text/markdown",
+        "text/csv",
+        "application/json",
+        "application/xml",
+        "text/xml",
+        "text/html",
+        "application/x-yaml",
+        "text/yaml",
+        "application/octet-stream",
+    }
+)
 
 _UPLOAD_MIME_ALLOWED: frozenset[str] = (
     _IMAGE_MIME_ALLOWED | _VIDEO_MIME_ALLOWED | _DOCUMENT_MIME_ALLOWED

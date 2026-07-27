@@ -323,8 +323,12 @@ async def test_subagent_registers_grep(tmp_path: Path) -> None:
     mgr.runner.run = fake_run
     mgr._announce_result = AsyncMock()
 
-    status = SubagentStatus(task_id="sub-1", label="label", task_description="search task", started_at=time.monotonic())
-    await mgr._run_subagent("sub-1", "search task", "label", {"channel": "cli", "chat_id": "direct"}, status)
+    status = SubagentStatus(
+        task_id="sub-1", label="label", task_description="search task", started_at=time.monotonic()
+    )
+    await mgr._run_subagent(
+        "sub-1", "search task", "label", {"channel": "cli", "chat_id": "direct"}, status
+    )
 
     assert "find_files" in captured["tool_names"]
     assert "grep" in captured["tool_names"]

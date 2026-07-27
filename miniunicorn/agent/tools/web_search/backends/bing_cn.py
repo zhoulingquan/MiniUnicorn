@@ -20,7 +20,9 @@ from miniunicorn.agent.tools.web_search.backends.base import (
     SearchResult,
 )
 
-_SEARCH_URL = "https://www.bing.com/search?format=rss&q={query}&count={count}&mkt=zh-CN&setlang=zh-CN"
+_SEARCH_URL = (
+    "https://www.bing.com/search?format=rss&q={query}&count={count}&mkt=zh-CN&setlang=zh-CN"
+)
 
 
 class BingCnBackend(SearchBackend):
@@ -46,7 +48,9 @@ class BingCnBackend(SearchBackend):
                 text = resp.text
         except Exception as e:
             logger.debug("bing_cn search failed: {}", e)
-            return BackendResponse(backend=self.name, error=f"bing_cn fetch failed: {type(e).__name__}: {e}")
+            return BackendResponse(
+                backend=self.name, error=f"bing_cn fetch failed: {type(e).__name__}: {e}"
+            )
 
         results = self._parse(text, count)
         if not results:

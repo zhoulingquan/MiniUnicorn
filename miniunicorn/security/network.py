@@ -33,14 +33,14 @@ import httpx
 _BLOCKED_NETWORKS = [
     ipaddress.ip_network("0.0.0.0/8"),
     ipaddress.ip_network("10.0.0.0/8"),
-    ipaddress.ip_network("100.64.0.0/10"),   # carrier-grade NAT
+    ipaddress.ip_network("100.64.0.0/10"),  # carrier-grade NAT
     ipaddress.ip_network("127.0.0.0/8"),
-    ipaddress.ip_network("169.254.0.0/16"),   # link-local / cloud metadata
+    ipaddress.ip_network("169.254.0.0/16"),  # link-local / cloud metadata
     ipaddress.ip_network("172.16.0.0/12"),
     ipaddress.ip_network("192.168.0.0/16"),
     ipaddress.ip_network("::1/128"),
-    ipaddress.ip_network("fc00::/7"),          # unique local
-    ipaddress.ip_network("fe80::/10"),         # link-local v6
+    ipaddress.ip_network("fc00::/7"),  # unique local
+    ipaddress.ip_network("fe80::/10"),  # link-local v6
 ]
 
 # Networks that are ALWAYS blocked, even if the operator adds them to the
@@ -49,11 +49,38 @@ _BLOCKED_NETWORKS = [
 # ::1) which must never be reachable from a server-side fetch context.
 _HARD_BLOCKED_NETWORKS = [
     ipaddress.ip_network("127.0.0.0/8"),
-    ipaddress.ip_network("169.254.0.0/16"),   # link-local / cloud metadata
+    ipaddress.ip_network("169.254.0.0/16"),  # link-local / cloud metadata
     ipaddress.ip_network("::1/128"),
 ]
 
 _URL_RE = re.compile(r"https?://[^\s\"'`;|<>]+", re.IGNORECASE)
+
+# 已知 HTTP 客户端命令名(小写,含 .exe 后缀)。这些工具对无 scheme 的
+# 主机/IP 参数会默认补 http://,因此 SSRF 检查必须覆盖这种形式。
+# 例如 `curl example.com` / `wget 169.254.169.254` 都会发起 HTTP 请求。
+_HTTP_CLIENT_BINARIES: frozenset[str] = frozenset(
+    {
+        "curl",
+        "curl.exe",
+        "wget",
+        "wget.exe",
+    }
+)
+
+# schemeless 目标参数的可接受首字符(用于在命令行中识别 URL candidate)。
+# 排除 '-'(选项标志)、数字开头的重定向(如 2>)、以及 shell 元字符。
+_SCHEMELESS_TARGET_RE = re.compile(
+    r"(?<![A-Za-z0-9])"
+    r"(?:"
+    r"localhost"  # localhost (no dot)
+    r"|"
+    r"(?:[A-Za-z][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}"  # domain.tld
+    r"|"
+    r"(?:\d{1,3}\.){3}\d{1,3}"  # IPv4 literal
+    r")"
+    r"(?::\d+)?"  # optional :port
+    r"(?:/[^\s\"'`;|<>]*)?"  # optional path
+)
 
 # SSRF 白名单使用 ContextVar 而非模块级 list 保存。
 # 同一进程内可能运行多个实例(如多 agent / 多请求上下文),若用模块级全局,
@@ -71,9 +98,9 @@ _allowed_networks_var: contextvars.ContextVar[
 # 因此 default 设为 None,由 _pin_dns_resolution / _check_dns_pin 在读取时
 # 统一处理 None → 空 dict,避免共享 dict 类本身作为默认值。
 _DNS_PIN_TTL_S: float = 30.0
-_pinned_dns_var: contextvars.ContextVar[
-    dict[str, tuple[frozenset[str], float]] | None
-] = contextvars.ContextVar("_pinned_dns_var", default=None)
+_pinned_dns_var: contextvars.ContextVar[dict[str, tuple[frozenset[str], float]] | None] = (
+    contextvars.ContextVar("_pinned_dns_var", default=None)
+)
 
 
 def _pin_dns_resolution(hostname: str, ips: list[str]) -> None:
@@ -214,9 +241,7 @@ def validate_url_target(url: str, *, allow_loopback: bool = False) -> tuple[bool
     return True, ""
 
 
-async def validate_url_target_async(
-    url: str, *, allow_loopback: bool = False
-) -> tuple[bool, str]:
+async def validate_url_target_async(url: str, *, allow_loopback: bool = False) -> tuple[bool, str]:
     """``validate_url_target`` 的异步版本。
 
     DNS 解析(``socket.getaddrinfo``)通过 ``asyncio.to_thread`` 放到线程池
@@ -299,13 +324,67 @@ def validate_resolved_url(url: str) -> tuple[bool, str]:
 
 
 def contains_internal_url(command: str, *, allow_loopback: bool = False) -> bool:
-    """Return True if the command string contains a URL targeting an internal/private address."""
+    """Return True if the command string contains a URL targeting an internal/private address.
+
+    覆盖两种形式:
+    1. 显式 ``http://`` / ``https://`` URL(原行为)。
+    2. 已知 HTTP 客户端(curl/wget 等)的无 scheme 主机/IP 参数 —— 这些工具
+       会默认补 ``http://``,因此 ``curl example.com`` 与 ``curl http://example.com``
+       等价,必须进入同一 ``validate_url_target`` 流程,否则可绕过 SSRF 检查。
+    """
     for m in _URL_RE.finditer(command):
         url = m.group(0)
         ok, _ = validate_url_target(url, allow_loopback=allow_loopback)
         if not ok:
             return True
+
+    # 检测已知 HTTP 客户端的无 scheme 参数。通过简单的 token 分词识别命令名,
+    # 后续非选项 token(不以 ``-`` 开头)若匹配域名/IPv4 形式,补 ``http://``
+    # 后再次校验。这样可避免对任意包含点号的命令(如 ``git config user.name``)
+    # 产生误报。
+    for target in _extract_schemeless_http_targets(command):
+        candidate = f"http://{target}"
+        ok, _ = validate_url_target(candidate, allow_loopback=allow_loopback)
+        if not ok:
+            return True
     return False
+
+
+def _extract_schemeless_http_targets(command: str) -> list[str]:
+    """从命令中提取已知 HTTP 客户端(curl/wget 等)的无 scheme URL 参数。
+
+    只在这些客户端的命令上下文中提取,避免对 ``git config user.email`` 等无关
+    命令误报。返回的 target 不含 scheme,调用方负责补全。
+    """
+    targets: list[str] = []
+    # 按空白/管道/重定向分词,识别命令名位置(管道后的第一个 token 也是命令)。
+    # 简单分词已足够:我们只需要在 curl/wget 之后找到非选项的 host-like token。
+    tokens = re.split(r"[\s|;&<>`()\[\]{}]+", command)
+    seen_client = False
+    for tok in tokens:
+        if not tok:
+            seen_client = False
+            continue
+        # 命令名:取 basename(去路径前缀),小写比对。
+        bare = tok.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].lower()
+        if bare in _HTTP_CLIENT_BINARIES:
+            seen_client = True
+            continue
+        # 遇到新的命令分隔(另一个非选项 token 但不是 client)时,停止当前 client 上下文。
+        if not seen_client:
+            continue
+        # 选项标志(-x / --option)跳过,但选项值不在此简单解析范围内;
+        # 误校验选项值只会产生 false positive(更安全),可接受。
+        if tok.startswith("-"):
+            continue
+        # 检查是否是 host-like target(域名或 IPv4)。
+        if _SCHEMELESS_TARGET_RE.fullmatch(tok) or _SCHEMELESS_TARGET_RE.match(tok):
+            # 取匹配到的 host 部分(可能含 :port / path)
+            m = _SCHEMELESS_TARGET_RE.match(tok)
+            if m:
+                targets.append(m.group(0))
+        # 一个 client 命令可能有多个 URL 参数(罕见),继续扫描。
+    return targets
 
 
 def _is_allowed_loopback_target(

@@ -1,23 +1,26 @@
 """Tests for MCP HTTP probe guard (prevents event-loop crash on unreachable servers)."""
+
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from miniunicorn.agent.tools.mcp import _probe_http_url, connect_mcp_servers
 from miniunicorn.agent.tools.registry import ToolRegistry
 
-
 # ---------------------------------------------------------------------------
 # _probe_http_url unit tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_probe_returns_true_for_open_port(tmp_path):
     """Start a trivial TCP server, probe should return True."""
     server = await asyncio.start_server(
-        lambda r, w: None, "127.0.0.1", 0,
+        lambda r, w: None,
+        "127.0.0.1",
+        0,
     )
     port = server.sockets[0].getsockname()[1]
     try:
@@ -42,6 +45,7 @@ async def test_probe_uses_default_port_for_http():
 # ---------------------------------------------------------------------------
 # connect_mcp_servers skips unreachable HTTP servers
 # ---------------------------------------------------------------------------
+
 
 def _make_http_cfg(url: str, transport: str = "streamableHttp"):
     cfg = MagicMock()

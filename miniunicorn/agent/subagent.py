@@ -53,11 +53,11 @@ class SubagentStatus:
     task_id: str
     label: str
     task_description: str
-    started_at: float          # time.monotonic()
+    started_at: float  # time.monotonic()
     phase: str = "initializing"  # initializing | awaiting_tools | tools_completed | final_response | done | error
     iteration: int = 0
-    tool_events: list = field(default_factory=list)   # [{name, status, detail}, ...]
-    usage: dict = field(default_factory=dict)          # token usage
+    tool_events: list = field(default_factory=list)  # [{name, status, detail}, ...]
+    usage: dict = field(default_factory=dict)  # token usage
     stop_reason: str | None = None
     error: str | None = None
 
@@ -113,12 +113,14 @@ class _SubagentHook(AgentHook):
         if not self._activity_enabled():
             return
         try:
-            await self._bus.publish_outbound(OutboundMessage(
-                channel=self._origin_channel,
-                chat_id=self._origin_chat_id,
-                content=content,
-                metadata=self._activity_metadata(),
-            ))
+            await self._bus.publish_outbound(
+                OutboundMessage(
+                    channel=self._origin_channel,
+                    chat_id=self._origin_chat_id,
+                    content=content,
+                    metadata=self._activity_metadata(),
+                )
+            )
         except Exception:
             logger.exception("Subagent [{}] failed to publish activity", self._task_id)
 
@@ -127,7 +129,9 @@ class _SubagentHook(AgentHook):
             args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
             logger.debug(
                 "Subagent [{}] executing: {} with arguments: {}",
-                self._task_id, tool_call.name, args_str,
+                self._task_id,
+                tool_call.name,
+                args_str,
             )
             # Forward "tool start" activity to subscribed clients.
             await self._publish_activity(f"[{self._label}] calling {tool_call.name}")
@@ -149,17 +153,13 @@ class _SubagentHook(AgentHook):
             status_str = event.get("status", "ok")
             detail = event.get("detail", "")
             suffix = f": {detail}" if detail else ""
-            await self._publish_activity(
-                f"[{self._label}] {name} {status_str}{suffix}"
-            )
+            await self._publish_activity(f"[{self._label}] {name} {status_str}{suffix}")
 
     async def emit_reasoning(self, reasoning_content: str | None) -> None:
         # Forward reasoning chunks (one-shot and streaming) to clients so the
         # subagent's thought process is visible alongside tool activity.
         if reasoning_content:
-            await self._publish_activity(
-                f"[{self._label}] thinking: {reasoning_content}"
-            )
+            await self._publish_activity(f"[{self._label}] thinking: {reasoning_content}")
 
 
 class SubagentManager:
@@ -201,9 +201,7 @@ class SubagentManager:
         self.restrict_to_workspace = restrict_to_workspace
         self.disabled_skills = set(disabled_skills or [])
         self.max_iterations = (
-            max_iterations
-            if max_iterations is not None
-            else defaults.max_tool_iterations
+            max_iterations if max_iterations is not None else defaults.max_tool_iterations
         )
         self.max_concurrent_subagents = (
             max_concurrent_subagents
@@ -359,7 +357,11 @@ class SubagentManager:
             self._session_tasks.setdefault(session_key, set()).add(task_id)
         try:
             result_status, result_content = await self._run_subagent_direct(
-                task_id, task, display_label, origin, status,
+                task_id,
+                task,
+                display_label,
+                origin,
+                status,
                 temperature=temperature,
                 workspace_scope=workspace_scope,
                 system_prompt_override=system_prompt_override,
@@ -395,7 +397,9 @@ class SubagentManager:
         # 通过信号量强制限制同时运行的子代理数量
         async with self._spawn_semaphore:
             try:
-                root = workspace_scope.project_path if workspace_scope is not None else self.workspace
+                root = (
+                    workspace_scope.project_path if workspace_scope is not None else self.workspace
+                )
                 cfg = None
                 if workspace_scope is not None:
                     cfg = self._subagent_tools_config()
@@ -413,27 +417,31 @@ class SubagentManager:
                     if self._llm_wall_timeout_for_session
                     else None
                 )
-                token = bind_workspace_scope(workspace_scope) if workspace_scope is not None else None
+                token = (
+                    bind_workspace_scope(workspace_scope) if workspace_scope is not None else None
+                )
                 # 子代理运行时 depth+1，使 delegate tool 能检测递归深度。
                 # ContextVar.set 返回 token，用于 finally 中 reset。
                 depth_token = _current_depth.set(_current_depth.get() + 1)
                 try:
-                    result = await self.runner.run(AgentRunSpec(
-                        initial_messages=messages,
-                        tools=tools,
-                        model=self.model,
-                        temperature=temperature,
-                        max_iterations=self.max_iterations,
-                        max_tool_result_chars=self.max_tool_result_chars,
-                        hook=_SubagentHook(task_id, status),
-                        max_iterations_message="Task completed but no final response was generated.",
-                        error_message=None,
-                        fail_on_tool_error=True,
-                        checkpoint_callback=_on_checkpoint,
-                        session_key=sess_key,
-                        workspace=root,
-                        llm_timeout_s=llm_timeout,
-                    ))
+                    result = await self.runner.run(
+                        AgentRunSpec(
+                            initial_messages=messages,
+                            tools=tools,
+                            model=self.model,
+                            temperature=temperature,
+                            max_iterations=self.max_iterations,
+                            max_tool_result_chars=self.max_tool_result_chars,
+                            hook=_SubagentHook(task_id, status),
+                            max_iterations_message="Task completed but no final response was generated.",
+                            error_message=None,
+                            fail_on_tool_error=True,
+                            checkpoint_callback=_on_checkpoint,
+                            session_key=sess_key,
+                            workspace=root,
+                            llm_timeout_s=llm_timeout,
+                        )
+                    )
                 finally:
                     _current_depth.reset(depth_token)
                     if token is not None:
@@ -444,20 +452,33 @@ class SubagentManager:
                 if result.stop_reason == "tool_error":
                     status.tool_events = list(result.tool_events)
                     await self._announce_result(
-                        task_id, label, task,
+                        task_id,
+                        label,
+                        task,
                         self._format_partial_progress(result),
-                        origin, "error", origin_message_id,
+                        origin,
+                        "error",
+                        origin_message_id,
                     )
                 elif result.stop_reason == "error":
                     await self._announce_result(
-                        task_id, label, task,
+                        task_id,
+                        label,
+                        task,
                         result.error or "Error: subagent execution failed.",
-                        origin, "error", origin_message_id,
+                        origin,
+                        "error",
+                        origin_message_id,
                     )
                 else:
-                    final_result = result.final_content or "Task completed but no final response was generated."
+                    final_result = (
+                        result.final_content
+                        or "Task completed but no final response was generated."
+                    )
                     logger.info("Subagent [{}] completed successfully", task_id)
-                    await self._announce_result(task_id, label, task, final_result, origin, "ok", origin_message_id)
+                    await self._announce_result(
+                        task_id, label, task, final_result, origin, "ok", origin_message_id
+                    )
 
             except Exception as e:
                 status.phase = "error"
@@ -465,7 +486,9 @@ class SubagentManager:
                 logger.exception("Subagent [{}] failed", task_id)
                 # 包裹 _announce_result 调用，避免通知失败掩盖原始错误
                 try:
-                    await self._announce_result(task_id, label, task, f"Error: {e}", origin, "error", origin_message_id)
+                    await self._announce_result(
+                        task_id, label, task, f"Error: {e}", origin, "error", origin_message_id
+                    )
                 except Exception:
                     logger.exception("Failed to announce subagent failure result")
 
@@ -529,7 +552,9 @@ class SubagentManager:
                 else None
             )
             sub_session_key = make_session_key(
-                origin["channel"], origin["chat_id"], f"sub:{task_id}",
+                origin["channel"],
+                origin["chat_id"],
+                f"sub:{task_id}",
             )
             origin_channel = origin.get("channel")
             origin_chat_id = origin.get("chat_id")
@@ -544,22 +569,24 @@ class SubagentManager:
             # 子代理运行时 depth+1，使 delegate tool 能检测递归深度。
             depth_token = _current_depth.set(_current_depth.get() + 1)
             try:
-                result = await self.runner.run(AgentRunSpec(
-                    initial_messages=messages,
-                    tools=tools,
-                    model=use_model,
-                    temperature=temperature,
-                    max_iterations=self.max_iterations,
-                    max_tool_result_chars=self.max_tool_result_chars,
-                    hook=hook,
-                    max_iterations_message="Task completed but no final response was generated.",
-                    error_message=None,
-                    fail_on_tool_error=True,
-                    checkpoint_callback=_on_checkpoint,
-                    session_key=sub_session_key,
-                    workspace=root,
-                    llm_timeout_s=llm_timeout,
-                ))
+                result = await self.runner.run(
+                    AgentRunSpec(
+                        initial_messages=messages,
+                        tools=tools,
+                        model=use_model,
+                        temperature=temperature,
+                        max_iterations=self.max_iterations,
+                        max_tool_result_chars=self.max_tool_result_chars,
+                        hook=hook,
+                        max_iterations_message="Task completed but no final response was generated.",
+                        error_message=None,
+                        fail_on_tool_error=True,
+                        checkpoint_callback=_on_checkpoint,
+                        session_key=sub_session_key,
+                        workspace=root,
+                        llm_timeout_s=llm_timeout,
+                    )
+                )
             finally:
                 _current_depth.reset(depth_token)
                 if token is not None:
@@ -572,7 +599,9 @@ class SubagentManager:
             elif result.stop_reason == "error":
                 return "error", result.error or "Error: subagent execution failed."
             else:
-                final = result.final_content or "Task completed but no final response was generated."
+                final = (
+                    result.final_content or "Task completed but no final response was generated."
+                )
                 logger.info("Subagent [{}] completed (direct)", task_id)
                 return "ok", final
 
@@ -625,7 +654,9 @@ class SubagentManager:
         )
 
         await self.bus.publish_inbound(msg)
-        logger.debug("Subagent [{}] announced result to {}:{}", task_id, origin['channel'], origin['chat_id'])
+        logger.debug(
+            "Subagent [{}] announced result to {}:{}", task_id, origin["channel"], origin["chat_id"]
+        )
 
     @staticmethod
     def _format_partial_progress(result) -> str:
@@ -668,15 +699,16 @@ class SubagentManager:
 
     async def cancel_by_session(self, session_key: str) -> int:
         """Cancel all subagents for the given session. Returns count cancelled."""
-        tasks = [self._running_tasks[tid] for tid in self._session_tasks.get(session_key, [])
-                 if tid in self._running_tasks and not self._running_tasks[tid].done()]
+        tasks = [
+            self._running_tasks[tid]
+            for tid in self._session_tasks.get(session_key, [])
+            if tid in self._running_tasks and not self._running_tasks[tid].done()
+        ]
         for t in tasks:
             t.cancel()
         # gather 加超时，避免某个子代理清理卡住导致 /stop 长时间无响应
         if tasks:
-            await asyncio.wait_for(
-                asyncio.gather(*tasks, return_exceptions=True), timeout=10.0
-            )
+            await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=10.0)
         return len(tasks)
 
     def get_running_count(self) -> int:
@@ -687,6 +719,5 @@ class SubagentManager:
         """Return the number of currently running subagents for a session."""
         tids = self._session_tasks.get(session_key, set())
         return sum(
-            1 for tid in tids
-            if tid in self._running_tasks and not self._running_tasks[tid].done()
+            1 for tid in tids if tid in self._running_tasks and not self._running_tasks[tid].done()
         )

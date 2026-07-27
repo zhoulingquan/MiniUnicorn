@@ -59,7 +59,7 @@ Default model is `google/gemini-3-flash-preview` if none is set.
 Optional config file: `~/.summarize/config.json`
 
 ```json
-{ "model": "openai/gpt-5.2" }
+{ "model": "deepseek/deepseek-chat" }
 ```
 
 Optional services:

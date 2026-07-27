@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from websockets.http11 import Response
 
-from .._http_routes import _http_error, _http_json_response
 from .._http_router import RouteContext, router
+from .._http_routes import _http_error, _http_json_response
 from ._common import require_auth, service_unavailable
 
 
-@router.route("/api/cron/jobs")
+@router.route("/api/cron/jobs", methods={"GET"})
 @require_auth
 def list(ctx: RouteContext) -> Response:
     """List all cron jobs (including system jobs and disabled ones)."""
@@ -24,7 +24,7 @@ def list(ctx: RouteContext) -> Response:
     return _http_json_response(payload)
 
 
-@router.route("/api/cron/jobs/create")
+@router.route("/api/cron/jobs/create", methods={"GET", "POST"})
 @require_auth
 def create(ctx: RouteContext) -> Response:
     """Create a new user cron job."""
@@ -42,7 +42,7 @@ def create(ctx: RouteContext) -> Response:
     return _http_json_response(payload)
 
 
-@router.route("/api/cron/jobs/delete")
+@router.route("/api/cron/jobs/delete", methods={"GET", "POST"})
 @require_auth
 def delete(ctx: RouteContext) -> Response:
     """Delete a cron job by id (system jobs are protected)."""
@@ -60,7 +60,7 @@ def delete(ctx: RouteContext) -> Response:
     return _http_json_response(payload)
 
 
-@router.route("/api/cron/jobs/toggle")
+@router.route("/api/cron/jobs/toggle", methods={"GET", "POST"})
 @require_auth
 def toggle(ctx: RouteContext) -> Response:
     """Enable or disable a cron job by id."""

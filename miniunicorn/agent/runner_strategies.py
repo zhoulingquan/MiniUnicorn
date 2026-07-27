@@ -8,6 +8,7 @@ and ``SnipHistoryStrategy``) still delegate to AgentRunner instance methods
 via ``GovernanceContext._runner`` to avoid a circular import with
 ``runner.py``.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -21,16 +22,25 @@ from miniunicorn.agent.tools.registry import ToolRegistry
 # ---------------------------------------------------------------------------
 _MICROCOMPACT_KEEP_RECENT = 10
 _MICROCOMPACT_MIN_CHARS = 500
-_COMPACTABLE_TOOLS = frozenset({
-    "read_file", "exec", "grep", "find_files",
-    "web_search", "web_fetch", "list_dir", "list_exec_sessions",
-})
+_COMPACTABLE_TOOLS = frozenset(
+    {
+        "read_file",
+        "exec",
+        "grep",
+        "find_files",
+        "web_search",
+        "web_fetch",
+        "list_dir",
+        "list_exec_sessions",
+    }
+)
 _BACKFILL_CONTENT = "[Tool result unavailable — call was interrupted or lost]"
 
 
 # ---------------------------------------------------------------------------
 # Governance implementation functions (moved from AgentRunner staticmethods).
 # ---------------------------------------------------------------------------
+
 
 def drop_orphan_tool_results(
     messages: list[dict[str, Any]],
@@ -89,12 +99,15 @@ def backfill_missing_tool_results(
         insert_at = assistant_idx + 1 + offset
         while insert_at < len(updated) and updated[insert_at].get("role") == "tool":
             insert_at += 1
-        updated.insert(insert_at, {
-            "role": "tool",
-            "tool_call_id": call_id,
-            "name": name,
-            "content": _BACKFILL_CONTENT,
-        })
+        updated.insert(
+            insert_at,
+            {
+                "role": "tool",
+                "tool_call_id": call_id,
+                "name": name,
+                "content": _BACKFILL_CONTENT,
+            },
+        )
         offset += 1
     return updated
 
@@ -147,6 +160,7 @@ def microcompact(
 # ---------------------------------------------------------------------------
 # Strategy classes
 # ---------------------------------------------------------------------------
+
 
 class _RunnerBoundStrategy:
     """Base for strategies that delegate to AgentRunner's existing methods."""

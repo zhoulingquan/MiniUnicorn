@@ -230,7 +230,10 @@ def test_payload_includes_miniunicorn_extension_registry(tmp_path: Path) -> None
     app = payload["apps"][0]
     assert app["name"] == "hyperframes"
     assert app["source"] == "extensions"
-    assert app["logo_url"] == "https://raw.githubusercontent.com/heygen-com/hyperframes/main/assets/logo.png"
+    assert (
+        app["logo_url"]
+        == "https://raw.githubusercontent.com/heygen-com/hyperframes/main/assets/logo.png"
+    )
     assert app["brand_color"] == "#111827"
     assert app["install_supported"] is True
     assert app["manifest"]["source"] == "miniunicorn-extension"
@@ -462,14 +465,24 @@ def test_fetch_skill_content_rejects_untrusted_urls(
 
     monkeypatch.setattr("miniunicorn.apps.cli.service.httpx.get", fail_get)
 
-    assert manager._fetch_skill_content({
-        "name": "evil",
-        "skill_md": "https://example.com/SKILL.md",
-    }) is None
-    assert manager._fetch_skill_content({
-        "name": "evil",
-        "skill_md": "skills/../evil/SKILL.md",
-    }) is None
+    assert (
+        manager._fetch_skill_content(
+            {
+                "name": "evil",
+                "skill_md": "https://example.com/SKILL.md",
+            }
+        )
+        is None
+    )
+    assert (
+        manager._fetch_skill_content(
+            {
+                "name": "evil",
+                "skill_md": "skills/../evil/SKILL.md",
+            }
+        )
+        is None
+    )
 
 
 def test_fetch_skill_content_allows_cli_anything_raw_skill_url(
@@ -492,10 +505,12 @@ def test_fetch_skill_content_allows_cli_anything_raw_skill_url(
 
     monkeypatch.setattr("miniunicorn.apps.cli.service.httpx.get", fake_get)
 
-    content = manager._fetch_skill_content({
-        "name": "gimp",
-        "skill_md": "https://raw.githubusercontent.com/HKUDS/CLI-Anything/main/skills/cli-anything-gimp/SKILL.md",
-    })
+    content = manager._fetch_skill_content(
+        {
+            "name": "gimp",
+            "skill_md": "https://raw.githubusercontent.com/HKUDS/CLI-Anything/main/skills/cli-anything-gimp/SKILL.md",
+        }
+    )
 
     assert content and "# Test" in content
     assert seen == [
@@ -523,11 +538,13 @@ def test_fetch_skill_content_uses_extension_raw_base_for_relative_skills(
 
     monkeypatch.setattr("miniunicorn.apps.cli.service.httpx.get", fake_get)
 
-    content = manager._fetch_skill_content({
-        "name": "hyperframes",
-        "skill_md": "skills/hyperframes/SKILL.md",
-        "_raw_base": "https://raw.githubusercontent.com/Re-bin/miniunicorn-extension/main",
-    })
+    content = manager._fetch_skill_content(
+        {
+            "name": "hyperframes",
+            "skill_md": "skills/hyperframes/SKILL.md",
+            "_raw_base": "https://raw.githubusercontent.com/Re-bin/miniunicorn-extension/main",
+        }
+    )
 
     assert content and "# HyperFrames" in content
     assert seen == [
@@ -585,13 +602,15 @@ def test_uninstall_uses_recorded_pip_distribution(
 ) -> None:
     manager = _manager(tmp_path)
     _seed_catalog(manager)
-    manager._save_installed({
-        "gimp": {
-            "entry_point": "cli-anything-gimp",
-            "pip_distribution": "actual-dist-name",
-            "entry_point_path": str(tmp_path / "bin" / "cli-anything-gimp"),
+    manager._save_installed(
+        {
+            "gimp": {
+                "entry_point": "cli-anything-gimp",
+                "pip_distribution": "actual-dist-name",
+                "entry_point_path": str(tmp_path / "bin" / "cli-anything-gimp"),
+            }
         }
-    })
+    )
     calls: list[list[str]] = []
 
     def fake_run(argv: list[str], *, timeout: int) -> subprocess.CompletedProcess[str]:
@@ -623,7 +642,9 @@ def test_uninstall_keeps_state_when_entry_point_still_available(
     )
     monkeypatch.setattr(
         "miniunicorn.apps.cli.service.shutil.which",
-        lambda command: "/usr/local/bin/cli-anything-gimp" if command == "cli-anything-gimp" else None,
+        lambda command: (
+            "/usr/local/bin/cli-anything-gimp" if command == "cli-anything-gimp" else None
+        ),
     )
 
     payload = manager.uninstall("gimp")
@@ -645,12 +666,14 @@ def test_uninstall_keeps_state_when_recorded_entry_point_still_exists(
     resolved = tmp_path / "bin" / "cli-anything-gimp"
     resolved.parent.mkdir()
     resolved.write_text("#!/bin/sh\n", encoding="utf-8")
-    manager._save_installed({
-        "gimp": {
-            "entry_point": "cli-anything-gimp",
-            "entry_point_path": str(resolved),
+    manager._save_installed(
+        {
+            "gimp": {
+                "entry_point": "cli-anything-gimp",
+                "entry_point_path": str(resolved),
+            }
         }
-    })
+    )
     monkeypatch.setattr(
         manager,
         "_run_argv",

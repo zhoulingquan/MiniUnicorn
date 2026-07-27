@@ -1,4 +1,5 @@
 """Configuration schema using Pydantic."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -42,10 +43,16 @@ class ChannelsConfig(Base):
     send_progress: bool = True  # stream agent's text progress to the channel
     send_tool_hints: bool = False  # stream tool-call hints (e.g. read_file("…"))
     show_reasoning: bool = True  # surface model reasoning when channel implements it
-    extract_document_text: bool = True  # extract text from document attachments before sending to the model
-    send_max_retries: int = Field(default=3, ge=0, le=10)  # Max delivery attempts (initial send included)
+    extract_document_text: bool = (
+        True  # extract text from document attachments before sending to the model
+    )
+    send_max_retries: int = Field(
+        default=3, ge=0, le=10
+    )  # Max delivery attempts (initial send included)
     transcription_provider: str = "groq"  # Voice transcription backend: "groq" or "openai"
-    transcription_language: str | None = Field(default=None, pattern=r"^[a-z]{2,3}$")  # Optional ISO-639-1 hint for audio transcription
+    transcription_language: str | None = Field(
+        default=None, pattern=r"^[a-z]{2,3}$"
+    )  # Optional ISO-639-1 hint for audio transcription
 
     # Built-in channel configs (QwenPaw-style explicit fields). None = not
     # configured / disabled; dict = parsed by the channel's own Config class
@@ -142,6 +149,7 @@ class ModelPresetConfig(Base):
 
     def to_generation_settings(self) -> Any:
         from miniunicorn.providers.base import GenerationSettings
+
         return GenerationSettings(
             temperature=self.temperature,
             max_tokens=self.max_tokens,
@@ -187,12 +195,20 @@ class AgentDefaults(Base):
         validation_alias=AliasChoices("toolHintMaxLength"),
         serialization_alias="toolHintMaxLength",
     )  # Max characters for tool hint display (e.g. "$ cd …/project && npm test")
-    reasoning_effort: str | None = None  # low / medium / high / adaptive / none — LLM thinking effort; None preserves the provider default
+    reasoning_effort: str | None = (
+        None  # low / medium / high / adaptive / none — LLM thinking effort; None preserves the provider default
+    )
     timezone: str = "UTC"  # IANA timezone, e.g. "Asia/Shanghai", "America/New_York"
-    bot_name: str = "MiniUnicorn"  # Display name shown in CLI prompts (e.g. "{name} is thinking...")
+    bot_name: str = (
+        "MiniUnicorn"  # Display name shown in CLI prompts (e.g. "{name} is thinking...")
+    )
     bot_icon: str = "🐱"  # Short icon (emoji or text) shown next to the bot name in CLI; "" to omit
-    unified_session: bool = False  # Share one session across all channels (single-user multi-device)
-    disabled_skills: list[str] = Field(default_factory=list)  # Skill names to exclude from loading (e.g. ["summarize", "skill-creator"])
+    unified_session: bool = (
+        False  # Share one session across all channels (single-user multi-device)
+    )
+    disabled_skills: list[str] = Field(
+        default_factory=list
+    )  # Skill names to exclude from loading (e.g. ["summarize", "skill-creator"])
     session_ttl_minutes: int = Field(
         default=1440,
         ge=0,
@@ -282,7 +298,9 @@ class ProviderConfig(Base):
     api_base: str | None = None
     api_type: Literal["auto", "chat_completions", "responses"] = "auto"  # Request API surface
     extra_headers: dict[str, str] | None = None  # Custom headers (e.g. APP-Code for AiHubMix)
-    extra_body: dict[str, Any] | None = None  # Extra provider request fields; shape depends on provider/API surface
+    extra_body: dict[str, Any] | None = (
+        None  # Extra provider request fields; shape depends on provider/API surface
+    )
 
 
 class ProvidersConfig(Base):
@@ -330,7 +348,6 @@ class ProvidersConfig(Base):
 
         同时拒绝与内置 provider 同名的自定义 provider，避免覆盖内置配置。
         """
-        _BUILTIN_PROVIDER_NAMES = {"custom", "deepseek", "opencode", "agnes", "openai"}
         for name in list(self.__pydantic_extra__.keys()):
             if name in _BUILTIN_PROVIDER_NAMES:
                 raise ValueError(f"自定义 provider 名 '{name}' 与内置 provider 冲突")
@@ -338,6 +355,13 @@ class ProvidersConfig(Base):
             if isinstance(value, dict):
                 self.__pydantic_extra__[name] = ProviderConfig.model_validate(value)
         return self
+
+
+# Names that collide with built-in provider fields declared on ProvidersConfig;
+# rejected as custom overrides to prevent shadowing the typed schema fields.
+_BUILTIN_PROVIDER_NAMES: frozenset[str] = frozenset(
+    {"custom", "deepseek", "opencode", "agnes"}
+)
 
 
 class HeartbeatConfig(Base):
@@ -384,6 +408,7 @@ class ApiConfig(Base):
         # 绑定到非本地地址时建议设置 api_key，避免公网暴露无鉴权
         if self.host not in ("127.0.0.1", "localhost", "::1") and not self.api_key:
             import logging
+
             logging.getLogger(__name__).warning(
                 "API 绑定到非本地地址 %s 但未设置 api_key，存在公网无鉴权暴露风险", self.host
             )
@@ -408,7 +433,9 @@ class MCPServerConfig(Base):
     url: str = ""  # HTTP/SSE: endpoint URL
     headers: dict[str, str] = Field(default_factory=dict)  # HTTP/SSE: custom headers
     tool_timeout: int = 30  # seconds before a tool call is cancelled
-    enabled_tools: list[str] = Field(default_factory=lambda: ["*"])  # Only register these tools; accepts raw MCP names or wrapped mcp_<server>_<tool> names; ["*"] = all tools; [] = no tools
+    enabled_tools: list[str] = Field(
+        default_factory=lambda: ["*"]
+    )  # Only register these tools; accepts raw MCP names or wrapped mcp_<server>_<tool> names; ["*"] = all tools; [] = no tools
 
     @model_validator(mode="after")
     def _validate_stdio_safety(self) -> "MCPServerConfig":
@@ -442,15 +469,14 @@ class MCPServerConfig(Base):
                 # 路径无法解析时只检查原始路径
                 resolved = raw_str
             if raw_str in blocked or resolved in blocked:
-                raise ValueError(
-                    f"MCP server cwd 不允许指向系统目录: {self.cwd}"
-                )
+                raise ValueError(f"MCP server cwd 不允许指向系统目录: {self.cwd}")
         return self
 
 
 def _lazy_default(module_path: str, class_name: str) -> Any:
     """Deferred import helper for ToolsConfig default factories."""
     import importlib
+
     module = importlib.import_module(module_path)
     return getattr(module, class_name)()
 
@@ -463,13 +489,35 @@ class ToolsConfig(Base):
     Base from schema.py).
     """
 
-    web: WebToolsConfig = Field(default_factory=lambda: _lazy_default("miniunicorn.agent.tools.web", "WebToolsConfig"))
-    exec: ExecToolConfig = Field(default_factory=lambda: _lazy_default("miniunicorn.agent.tools.shell", "ExecToolConfig"))
-    cli_apps: CliAppsToolConfig = Field(default_factory=lambda: _lazy_default("miniunicorn.agent.tools.cli_apps", "CliAppsToolConfig"))
-    my: MyToolConfig = Field(default_factory=lambda: _lazy_default("miniunicorn.agent.tools.self", "MyToolConfig"))
-    web_search: WebSearchConfig = Field(default_factory=lambda: _lazy_default("miniunicorn.agent.tools.web_search.config", "WebSearchConfig"))
-    deep_research: "DeepResearchConfig" = Field(default_factory=lambda: _lazy_default("miniunicorn.agent.tools.deep_research.config", "DeepResearchConfig"))
-    image_generation: "ImageGenerationConfig" = Field(default_factory=lambda: _lazy_default("miniunicorn.agent.tools.image_generation.config", "ImageGenerationConfig"))
+    web: WebToolsConfig = Field(
+        default_factory=lambda: _lazy_default("miniunicorn.agent.tools.web", "WebToolsConfig")
+    )
+    exec: ExecToolConfig = Field(
+        default_factory=lambda: _lazy_default("miniunicorn.agent.tools.shell", "ExecToolConfig")
+    )
+    cli_apps: CliAppsToolConfig = Field(
+        default_factory=lambda: _lazy_default(
+            "miniunicorn.agent.tools.cli_apps", "CliAppsToolConfig"
+        )
+    )
+    my: MyToolConfig = Field(
+        default_factory=lambda: _lazy_default("miniunicorn.agent.tools.self", "MyToolConfig")
+    )
+    web_search: WebSearchConfig = Field(
+        default_factory=lambda: _lazy_default(
+            "miniunicorn.agent.tools.web_search.config", "WebSearchConfig"
+        )
+    )
+    deep_research: "DeepResearchConfig" = Field(
+        default_factory=lambda: _lazy_default(
+            "miniunicorn.agent.tools.deep_research.config", "DeepResearchConfig"
+        )
+    )
+    image_generation: "ImageGenerationConfig" = Field(
+        default_factory=lambda: _lazy_default(
+            "miniunicorn.agent.tools.image_generation.config", "ImageGenerationConfig"
+        )
+    )
     # 默认开启工作区隔离,避免工具越权访问工作区外路径;已有 config.json 中的显式值会覆盖此默认
     restrict_to_workspace: bool = True
     webui_allow_local_service_access: bool = Field(
@@ -482,8 +530,12 @@ class ToolsConfig(Base):
         ),
     )  # allow WebUI Full Access shell checks against localhost services; legacy allowLocalPreviewAccess still reads
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
-    mcp_presets_auto_enabled: bool = False  # one-time flag: auto-enable no-credential MCP presets only once
-    ssrf_whitelist: list[str] = Field(default_factory=list)  # CIDR ranges to exempt from SSRF blocking (e.g. ["100.64.0.0/10"] for Tailscale)
+    mcp_presets_auto_enabled: bool = (
+        False  # one-time flag: auto-enable no-credential MCP presets only once
+    )
+    ssrf_whitelist: list[str] = Field(
+        default_factory=list
+    )  # CIDR ranges to exempt from SSRF blocking (e.g. ["100.64.0.0/10"] for Tailscale)
 
 
 class Config(BaseSettings):
@@ -521,9 +573,12 @@ class Config(BaseSettings):
         """Return the implicit `default` preset from agents.defaults fields."""
         d = self.agents.defaults
         return ModelPresetConfig(
-            model=d.model, provider=d.provider, max_tokens=d.max_tokens,
+            model=d.model,
+            provider=d.provider,
+            max_tokens=d.max_tokens,
             context_window_tokens=d.context_window_tokens,
-            temperature=d.temperature, reasoning_effort=d.reasoning_effort,
+            temperature=d.temperature,
+            reasoning_effort=d.reasoning_effort,
         )
 
     def resolve_preset(self, name: str | None = None) -> ModelPresetConfig:
@@ -541,7 +596,8 @@ class Config(BaseSettings):
         return Path(self.agents.defaults.workspace).expanduser()
 
     def _match_provider(
-        self, model: str | None = None,
+        self,
+        model: str | None = None,
         *,
         preset: ModelPresetConfig | None = None,
     ) -> tuple["ProviderConfig | None", str | None]:
@@ -558,7 +614,12 @@ class Config(BaseSettings):
             """
             if p is None:
                 # preset 自带凭证时,即使 providers.<name> 不存在也能构造
-                if resolved.api_key or resolved.api_base or resolved.extra_headers or resolved.extra_body:
+                if (
+                    resolved.api_key
+                    or resolved.api_base
+                    or resolved.extra_headers
+                    or resolved.extra_body
+                ):
                     return ProviderConfig(
                         api_key=resolved.api_key,
                         api_base=resolved.api_base,
@@ -566,13 +627,20 @@ class Config(BaseSettings):
                         extra_body=resolved.extra_body,
                     )
                 return None
-            if not (resolved.api_key or resolved.api_base or resolved.extra_headers or resolved.extra_body):
+            if not (
+                resolved.api_key
+                or resolved.api_base
+                or resolved.extra_headers
+                or resolved.extra_body
+            ):
                 return p
             return ProviderConfig(
                 api_key=resolved.api_key if resolved.api_key is not None else p.api_key,
                 api_base=resolved.api_base if resolved.api_base is not None else p.api_base,
                 api_type=p.api_type,
-                extra_headers=resolved.extra_headers if resolved.extra_headers is not None else p.extra_headers,
+                extra_headers=resolved.extra_headers
+                if resolved.extra_headers is not None
+                else p.extra_headers,
                 extra_body=resolved.extra_body if resolved.extra_body is not None else p.extra_body,
             )
 

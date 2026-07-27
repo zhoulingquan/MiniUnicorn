@@ -171,13 +171,14 @@ ANTHROPIC_API_KEY="$(bw get password api/anthropic)" miniunicorn agent
 <details>
 <summary><b>OpenAI</b></summary>
 
-By default, OpenAI uses `apiType: "auto"`: Miniunicorn calls Chat Completions normally and routes GPT-5/o-series or explicit `reasoningEffort` requests through the Responses API when useful. You can force a specific API surface:
+OpenAI 官方端点通过 `custom` provider 配置（OpenAI 已不再作为内置 provider 字段存在）。默认 `apiType: "auto"`：Miniunicorn 调用 Chat Completions，并在 GPT-5/o 系列或显式 `reasoningEffort` 请求时路由到 Responses API。可强制指定 API surface：
 
 ```json
 {
   "providers": {
-    "openai": {
+    "custom": {
       "apiKey": "${OPENAI_API_KEY}",
+      "apiBase": "https://api.openai.com/v1",
       "apiType": "chat_completions"
     }
   }
@@ -191,8 +192,9 @@ Valid `apiType` values are exactly `auto`, `chat_completions`, and `responses`.
 ```json
 {
   "providers": {
-    "openai": {
+    "custom": {
       "apiKey": "${OPENAI_API_KEY}",
+      "apiBase": "https://api.openai.com/v1",
       "apiType": "responses",
       "extraBody": {
         "tools": [{ "type": "web_search" }],
@@ -942,8 +944,8 @@ Existing configs do not need to change. If you do not set `modelPresets` or `age
 {
   "agents": {
     "defaults": {
-      "model": "openai/gpt-4.1",
-      "provider": "openai",
+      "model": "deepseek/deepseek-chat",
+      "provider": "deepseek",
       "maxTokens": 8192,
       "contextWindowTokens": 128000,
       "temperature": 0.1,
@@ -953,8 +955,8 @@ Existing configs do not need to change. If you do not set `modelPresets` or `age
   },
   "modelPresets": {
     "fast": {
-      "model": "openai/gpt-4.1-mini",
-      "provider": "openai",
+      "model": "deepseek/deepseek-chat",
+      "provider": "deepseek",
       "maxTokens": 4096,
       "contextWindowTokens": 128000,
       "temperature": 0.2,

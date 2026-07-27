@@ -1,4 +1,5 @@
 """Tool discovery and registration via package scanning."""
+
 from __future__ import annotations
 
 import importlib
@@ -11,16 +12,28 @@ from loguru import logger
 from miniunicorn.agent.tools.base import Tool
 from miniunicorn.agent.tools.registry import ToolRegistry
 
-_SKIP_MODULES = frozenset({
-    "base", "schema", "registry", "context", "loader", "config",
-    "file_state", "sandbox", "mcp", "__init__", "runtime_state",
-})
+_SKIP_MODULES = frozenset(
+    {
+        "base",
+        "schema",
+        "registry",
+        "context",
+        "loader",
+        "config",
+        "file_state",
+        "sandbox",
+        "mcp",
+        "__init__",
+        "runtime_state",
+    }
+)
 
 
 class ToolLoader:
     def __init__(self, package: Any = None, *, test_classes: list[type[Tool]] | None = None):
         if package is None:
             import miniunicorn.agent.tools as _pkg
+
             package = _pkg
         self._package = package
         self._test_classes = test_classes
@@ -100,12 +113,14 @@ class ToolLoader:
                         if is_plugin_source and tool.name in builtin_names:
                             logger.warning(
                                 "Plugin %s skipped: conflicts with built-in tool %s",
-                                cls_label, tool.name,
+                                cls_label,
+                                tool.name,
                             )
                             continue
                         logger.warning(
                             "Tool name collision: %s from %s overwrites existing",
-                            tool.name, cls_label,
+                            tool.name,
+                            cls_label,
                         )
                     registry.register(tool)
                     registered.append(tool.name)

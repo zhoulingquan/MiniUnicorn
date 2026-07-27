@@ -77,23 +77,31 @@ class ToolRegistry:
     ) -> tuple[Tool | None, dict[str, Any], str | None]:
         """Resolve, cast, and validate one tool call."""
         # Guard against invalid parameter types (e.g., list instead of dict)
-        if not isinstance(params, dict) and name in ('write_file', 'read_file'):
-            return None, params, (
-                f"Error: Tool '{name}' parameters must be a JSON object, got {type(params).__name__}. "
-                "Use named parameters: tool_name(param1=\"value1\", param2=\"value2\")"
+        if not isinstance(params, dict) and name in ("write_file", "read_file"):
+            return (
+                None,
+                params,
+                (
+                    f"Error: Tool '{name}' parameters must be a JSON object, got {type(params).__name__}. "
+                    'Use named parameters: tool_name(param1="value1", param2="value2")'
+                ),
             )
 
         tool = self._tools.get(name)
         if not tool:
-            return None, params, (
-                f"Error: Tool '{name}' not found. Available: {', '.join(self.tool_names)}"
+            return (
+                None,
+                params,
+                (f"Error: Tool '{name}' not found. Available: {', '.join(self.tool_names)}"),
             )
 
         cast_params = tool.cast_params(params)
         errors = tool.validate_params(cast_params)
         if errors:
-            return tool, cast_params, (
-                f"Error: Invalid parameters for tool '{name}': " + "; ".join(errors)
+            return (
+                tool,
+                cast_params,
+                (f"Error: Invalid parameters for tool '{name}': " + "; ".join(errors)),
             )
         return tool, cast_params, None
 

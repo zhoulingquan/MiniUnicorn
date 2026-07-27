@@ -1,7 +1,7 @@
 import pytest
 
-from miniunicorn.utils.evaluator import evaluate_response
 from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from miniunicorn.utils.evaluator import evaluate_response
 
 
 class DummyProvider(LLMProvider):

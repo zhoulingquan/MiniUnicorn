@@ -24,16 +24,18 @@ from miniunicorn.bus.events import (
 # Transient connection errors that warrant a single retry.
 # These typically happen when an MCP server restarts or a network
 # connection is interrupted between calls.
-_TRANSIENT_EXC_NAMES: frozenset[str] = frozenset((
-    "ClosedResourceError",
-    "BrokenResourceError",
-    "EndOfStream",
-    "BrokenPipeError",
-    "ConnectionResetError",
-    "ConnectionRefusedError",
-    "ConnectionAbortedError",
-    "ConnectionError",
-))
+_TRANSIENT_EXC_NAMES: frozenset[str] = frozenset(
+    (
+        "ClosedResourceError",
+        "BrokenResourceError",
+        "EndOfStream",
+        "BrokenPipeError",
+        "ConnectionResetError",
+        "ConnectionRefusedError",
+        "ConnectionAbortedError",
+        "ConnectionError",
+    )
+)
 
 _WINDOWS_SHELL_LAUNCHERS: frozenset[str] = frozenset(("npx", "npm", "pnpm", "yarn", "bunx"))
 
@@ -160,7 +162,8 @@ async def _probe_http_url(url: str, timeout: float = 3.0) -> bool:
         port = 443 if parsed.scheme == "https" else 80
     try:
         reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(host, port), timeout=timeout,
+            asyncio.open_connection(host, port),
+            timeout=timeout,
         )
         writer.close()
         await writer.wait_closed()
@@ -592,7 +595,9 @@ async def connect_mcp_servers(
             registered_count = 0
             matched_enabled_tools: set[str] = set()
             available_raw_names = [tool_def.name for tool_def in tools.tools]
-            available_wrapped_names = [_sanitize_name(f"mcp_{name}_{tool_def.name}") for tool_def in tools.tools]
+            available_wrapped_names = [
+                _sanitize_name(f"mcp_{name}_{tool_def.name}") for tool_def in tools.tools
+            ]
             for tool_def in tools.tools:
                 wrapped_name = _sanitize_name(f"mcp_{name}_{tool_def.name}")
                 if (
@@ -892,11 +897,15 @@ async def request_mcp_reload(bus: Any, *, timeout: float = 15.0) -> dict[str, An
             "message": "MCP hot reload timed out. Restart MiniUnicorn to pick up changes.",
             "requires_restart": True,
         }
-    return result if isinstance(result, dict) else {
-        "ok": False,
-        "message": "MCP hot reload returned an unexpected response.",
-        "requires_restart": True,
-    }
+    return (
+        result
+        if isinstance(result, dict)
+        else {
+            "ok": False,
+            "message": "MCP hot reload returned an unexpected response.",
+            "requires_restart": True,
+        }
+    )
 
 
 async def handle_runtime_control(state: Any, msg: InboundMessage, registry: ToolRegistry) -> bool:

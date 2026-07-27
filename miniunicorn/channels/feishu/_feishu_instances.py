@@ -77,7 +77,10 @@ def _normalize_feishu_instance(
     instance_id = validate_instance_id(str(raw_id))
     config["id"] = instance_id
     config["instanceId"] = instance_id
-    config.setdefault("name", "miniunicorn" if instance_id == DEFAULT_INSTANCE_ID else f"miniunicorn {instance_id}")
+    config.setdefault(
+        "name",
+        "miniunicorn" if instance_id == DEFAULT_INSTANCE_ID else f"miniunicorn {instance_id}",
+    )
     return config
 
 
@@ -155,7 +158,12 @@ def upsert_feishu_instance(
             instance.update(values)
             instance["id"] = instance_id
             instance["instanceId"] = instance_id
-            instance.setdefault("name", "miniunicorn" if instance_id == DEFAULT_INSTANCE_ID else f"miniunicorn {instance_id}")
+            instance.setdefault(
+                "name",
+                "miniunicorn"
+                if instance_id == DEFAULT_INSTANCE_ID
+                else f"miniunicorn {instance_id}",
+            )
             return canonical
 
     config = _normalize_feishu_instance(

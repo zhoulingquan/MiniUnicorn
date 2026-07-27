@@ -12,20 +12,20 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from miniunicorn.agent.tools.deep_research.config import DeepResearchConfig
-from miniunicorn.agent.tools.deep_research.tool import DeepResearchTool, LLMCallError
+from miniunicorn.agent.tools.deep_research.tool import DeepResearchTool
 from miniunicorn.agent.tools.web_search.backends.base import BackendResponse, SearchResult
 from miniunicorn.agent.tools.web_search.config import WebSearchConfig
 from miniunicorn.providers.base import LLMResponse
 
-
 # ---------------------------------------------------------------------------
 # 测试辅助
 # ---------------------------------------------------------------------------
+
 
 def _make_tool(
     *,
@@ -73,10 +73,19 @@ def _make_tool(
     )
 
     # Mock aggregator.search
-    results = search_results if search_results is not None else [
-        SearchResult(title=f"Result {i}", url=f"https://example.com/{i}", snippet=f"Snippet {i}", source_backend="test")
-        for i in range(3)
-    ]
+    results = (
+        search_results
+        if search_results is not None
+        else [
+            SearchResult(
+                title=f"Result {i}",
+                url=f"https://example.com/{i}",
+                snippet=f"Snippet {i}",
+                source_backend="test",
+            )
+            for i in range(3)
+        ]
+    )
 
     async def _fake_search(query, count, backend=None):
         return BackendResponse(backend="test", results=results)
@@ -88,6 +97,7 @@ def _make_tool(
 # ---------------------------------------------------------------------------
 # execute 入口测试
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_execute_empty_query_returns_error():
@@ -121,6 +131,7 @@ async def test_execute_whitespace_query_returns_error():
 # ---------------------------------------------------------------------------
 # 完整流程测试
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_full_workflow_success():
@@ -170,6 +181,7 @@ async def test_full_workflow_with_reflect_extra_queries():
 # reflect_rounds 多轮循环测试(核心修复点)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_reflect_rounds_multiple_iterations():
     """reflect_rounds=2 时应最多循环 2 次。
@@ -215,7 +227,11 @@ async def test_reflect_rounds_multiple_iterations():
     async def _fake_search(query, count, backend=None):
         return BackendResponse(
             backend="test",
-            results=[SearchResult(title="R", url=f"https://x.com/{query}", snippet="s", source_backend="test")],
+            results=[
+                SearchResult(
+                    title="R", url=f"https://x.com/{query}", snippet="s", source_backend="test"
+                )
+            ],
         )
 
     tool.aggregator.search = _fake_search
@@ -261,7 +277,9 @@ async def test_reflect_rounds_stops_on_sufficient():
     async def _fake_search(query, count, backend=None):
         return BackendResponse(
             backend="test",
-            results=[SearchResult(title="R", url="https://x.com", snippet="s", source_backend="test")],
+            results=[
+                SearchResult(title="R", url="https://x.com", snippet="s", source_backend="test")
+            ],
         )
 
     tool.aggregator.search = _fake_search
@@ -305,7 +323,9 @@ async def test_reflect_rounds_stops_on_budget_exhausted():
     async def _fake_search(query, count, backend=None):
         return BackendResponse(
             backend="test",
-            results=[SearchResult(title="R", url="https://x.com", snippet="s", source_backend="test")],
+            results=[
+                SearchResult(title="R", url="https://x.com", snippet="s", source_backend="test")
+            ],
         )
 
     tool.aggregator.search = _fake_search
@@ -318,6 +338,7 @@ async def test_reflect_rounds_stops_on_budget_exhausted():
 # ---------------------------------------------------------------------------
 # LLM 失败错误处理测试(核心修复点)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_plan_llm_failure_returns_explicit_error():
@@ -356,7 +377,9 @@ async def test_write_llm_failure_returns_explicit_error():
     async def _fake_search(query, count, backend=None):
         return BackendResponse(
             backend="test",
-            results=[SearchResult(title="R", url="https://x.com", snippet="s", source_backend="test")],
+            results=[
+                SearchResult(title="R", url="https://x.com", snippet="s", source_backend="test")
+            ],
         )
 
     tool.aggregator.search = _fake_search
@@ -397,7 +420,9 @@ async def test_reflect_llm_failure_does_not_block_write():
     async def _fake_search(query, count, backend=None):
         return BackendResponse(
             backend="test",
-            results=[SearchResult(title="R", url="https://x.com", snippet="s", source_backend="test")],
+            results=[
+                SearchResult(title="R", url="https://x.com", snippet="s", source_backend="test")
+            ],
         )
 
     tool.aggregator.search = _fake_search
@@ -429,6 +454,7 @@ async def test_write_empty_report_returns_error():
 # 搜索失败测试
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_all_searches_fail_returns_error():
     """所有搜索都失败时应返回错误。"""
@@ -456,6 +482,7 @@ async def test_all_searches_fail_returns_error():
 # 纯函数测试
 # ---------------------------------------------------------------------------
 
+
 class TestParseQueryList:
     def test_plain_json_array(self):
         result = DeepResearchTool._parse_query_list('["q1", "q2", "q3"]')
@@ -467,7 +494,9 @@ class TestParseQueryList:
 
     def test_with_prose_around(self):
         """LLM 可能在 JSON 前后加文字,正则应兜底提取。"""
-        result = DeepResearchTool._parse_query_list('Here are the queries: ["q1", "q2"] hope this helps')
+        result = DeepResearchTool._parse_query_list(
+            'Here are the queries: ["q1", "q2"] hope this helps'
+        )
         assert result == ["q1", "q2"]
 
     def test_empty_string(self):
@@ -528,10 +557,7 @@ class TestBuildResultsDigest:
         assert DeepResearchTool._build_results_digest([], 8) == ""
 
     def test_truncates_to_max_items(self):
-        results = [
-            {"title": f"T{i}", "snippet": f"S{i}"}
-            for i in range(20)
-        ]
+        results = [{"title": f"T{i}", "snippet": f"S{i}"} for i in range(20)]
         digest = DeepResearchTool._build_results_digest(results, max_items=5)
         # 应只含 5 条 + 1 条 "more" 提示
         assert digest.count("- ") == 5

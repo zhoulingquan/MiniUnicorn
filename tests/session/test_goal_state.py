@@ -96,7 +96,9 @@ def test_goal_state_ws_blob_active_shape():
 def test_sustained_goal_active_false_when_missing_or_completed():
     assert sustained_goal_active(None) is False
     assert sustained_goal_active({}) is False
-    assert sustained_goal_active({GOAL_STATE_KEY: {"status": "completed", "objective": "x"}}) is False
+    assert (
+        sustained_goal_active({GOAL_STATE_KEY: {"status": "completed", "objective": "x"}}) is False
+    )
 
 
 def test_sustained_goal_active_true_when_active():

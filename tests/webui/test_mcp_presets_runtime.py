@@ -9,11 +9,13 @@ def test_mcp_preset_runtime_lines_describe_tool_prefix() -> None:
     msg = SimpleNamespace(
         content="use @browserbase",
         metadata={
-            "mcp_presets": [{
-                "name": "browserbase",
-                "display_name": "Browserbase",
-                "transport": "streamableHttp",
-            }],
+            "mcp_presets": [
+                {
+                    "name": "browserbase",
+                    "display_name": "Browserbase",
+                    "transport": "streamableHttp",
+                }
+            ],
         },
     )
 
@@ -33,11 +35,13 @@ def test_mcp_preset_runtime_lines_warn_when_restart_needed() -> None:
     msg = SimpleNamespace(
         content="use @browserbase",
         metadata={
-            "mcp_presets": [{
-                "name": "browserbase",
-                "display_name": "Browserbase",
-                "transport": "streamableHttp",
-            }],
+            "mcp_presets": [
+                {
+                    "name": "browserbase",
+                    "display_name": "Browserbase",
+                    "transport": "streamableHttp",
+                }
+            ],
         },
     )
 
@@ -55,11 +59,13 @@ def test_mcp_preset_runtime_lines_warn_when_connection_not_live() -> None:
     msg = SimpleNamespace(
         content="use @browserbase",
         metadata={
-            "mcp_presets": [{
-                "name": "browserbase",
-                "display_name": "Browserbase",
-                "transport": "streamableHttp",
-            }],
+            "mcp_presets": [
+                {
+                    "name": "browserbase",
+                    "display_name": "Browserbase",
+                    "transport": "streamableHttp",
+                }
+            ],
         },
     )
 
@@ -75,6 +81,8 @@ def test_mcp_preset_runtime_lines_warn_when_connection_not_live() -> None:
 
 def test_mcp_preset_session_extra_only_persists_structured_mentions() -> None:
     assert mcp_presets_runtime.session_extra({}) == {}
-    assert mcp_presets_runtime.session_extra({
-        "mcp_presets": [{"name": "browserbase"}],
-    }) == {"mcp_presets": [{"name": "browserbase"}]}
+    assert mcp_presets_runtime.session_extra(
+        {
+            "mcp_presets": [{"name": "browserbase"}],
+        }
+    ) == {"mcp_presets": [{"name": "browserbase"}]}

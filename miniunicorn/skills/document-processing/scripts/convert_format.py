@@ -27,6 +27,7 @@ from pathlib import Path
 def docx_to_text(path: Path) -> str:
     """提取 .docx 全部文本。"""
     from docx import Document
+
     doc = Document(path)
     parts: list[str] = []
     for para in doc.paragraphs:
@@ -51,6 +52,7 @@ def docx_to_text(path: Path) -> str:
 def xlsx_to_csv(path: Path, output_dir: Path, stem: str) -> list[Path]:
     """转换 .xlsx 为多个 CSV(每个 sheet 一个)。"""
     from openpyxl import load_workbook
+
     wb = load_workbook(path, read_only=True, data_only=True)
     outputs: list[Path] = []
     try:
@@ -70,6 +72,7 @@ def xlsx_to_csv(path: Path, output_dir: Path, stem: str) -> list[Path]:
 def pptx_to_text(path: Path) -> str:
     """提取 .pptx 全部文本。"""
     from pptx import Presentation
+
     prs = Presentation(path)
     parts: list[str] = []
     for i, slide in enumerate(prs.slides, 1):
@@ -91,6 +94,7 @@ def pptx_to_text(path: Path) -> str:
 def pdf_to_text(path: Path) -> str:
     """提取 PDF 全部文本。"""
     from pypdf import PdfReader
+
     reader = PdfReader(path)
     parts: list[str] = []
     for i, page in enumerate(reader.pages, 1):
@@ -146,7 +150,7 @@ def docx_to_pdf(path: Path, output: Path) -> None:
         story.append(Spacer(1, 4))
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    pdf_doc = SimpleDocTemplate(str(output), pagesize=A4, topMargin=2*cm, bottomMargin=2*cm)
+    pdf_doc = SimpleDocTemplate(str(output), pagesize=A4, topMargin=2 * cm, bottomMargin=2 * cm)
     pdf_doc.build(story)
 
 
@@ -177,6 +181,7 @@ def convert(input_path: Path, target_format: str) -> None:
                 print(f"已转换: {input_path} → {o}")
         elif target_format == "txt":
             from openpyxl import load_workbook
+
             wb = load_workbook(input_path, read_only=True, data_only=True)
             parts: list[str] = []
             try:

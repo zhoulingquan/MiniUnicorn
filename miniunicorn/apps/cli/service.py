@@ -25,8 +25,12 @@ from miniunicorn.security.workspace_policy import is_path_within
 CLI_ANYTHING_REGISTRY_URL = "https://hkuds.github.io/CLI-Anything/registry.json"
 CLI_ANYTHING_PUBLIC_REGISTRY_URL = "https://hkuds.github.io/CLI-Anything/public_registry.json"
 CLI_ANYTHING_RAW_BASE = "https://raw.githubusercontent.com/HKUDS/CLI-Anything/main"
-MINIUNICORN_EXTENSION_REGISTRY_URL = "https://raw.githubusercontent.com/Re-bin/miniunicorn-extension/main/registry.json"
-MINIUNICORN_EXTENSION_RAW_BASE = "https://raw.githubusercontent.com/Re-bin/miniunicorn-extension/main"
+MINIUNICORN_EXTENSION_REGISTRY_URL = (
+    "https://raw.githubusercontent.com/Re-bin/miniunicorn-extension/main/registry.json"
+)
+MINIUNICORN_EXTENSION_RAW_BASE = (
+    "https://raw.githubusercontent.com/Re-bin/miniunicorn-extension/main"
+)
 _CATALOG_SOURCES = (
     ("harness", CLI_ANYTHING_REGISTRY_URL, CLI_ANYTHING_RAW_BASE, True),
     ("public", CLI_ANYTHING_PUBLIC_REGISTRY_URL, CLI_ANYTHING_RAW_BASE, True),
@@ -41,38 +45,42 @@ _SAFE_NPM_DIR_RE = re.compile(r"^[a-z0-9._-]+$", re.IGNORECASE)
 _MENTION_RE = re.compile(r"(^|[\s([{])@([a-z0-9_-]+)\b", re.IGNORECASE)
 _SHELL_META_CHARS = ("|", "&&", "||", ";", "$(", "`", ">", "<")
 _ENDORSEMENT_WORD_RE = re.compile(r"\bofficial\s+", re.IGNORECASE)
-_ARTIFACT_EXTENSIONS = frozenset({
-    ".csv",
-    ".drawio",
-    ".gif",
-    ".html",
-    ".jpeg",
-    ".jpg",
-    ".json",
-    ".md",
-    ".pdf",
-    ".png",
-    ".svg",
-    ".txt",
-    ".vsdx",
-    ".webp",
-    ".xml",
-})
+_ARTIFACT_EXTENSIONS = frozenset(
+    {
+        ".csv",
+        ".drawio",
+        ".gif",
+        ".html",
+        ".jpeg",
+        ".jpg",
+        ".json",
+        ".md",
+        ".pdf",
+        ".png",
+        ".svg",
+        ".txt",
+        ".vsdx",
+        ".webp",
+        ".xml",
+    }
+)
 _INLINE_ARTIFACT_EXTENSIONS = frozenset({".gif", ".jpeg", ".jpg", ".png", ".webp"})
-_ARTIFACT_IGNORE_DIRS = frozenset({
-    ".git",
-    ".hg",
-    ".mypy_cache",
-    ".miniunicorn",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".venv",
-    "__pycache__",
-    "build",
-    "dist",
-    "node_modules",
-    "venv",
-})
+_ARTIFACT_IGNORE_DIRS = frozenset(
+    {
+        ".git",
+        ".hg",
+        ".mypy_cache",
+        ".miniunicorn",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".venv",
+        "__pycache__",
+        "build",
+        "dist",
+        "node_modules",
+        "venv",
+    }
+)
 
 
 class CliAppError(ValueError):
@@ -220,10 +228,7 @@ def _is_pip_install_command(command: str) -> bool:
         tokens = shlex.split(command)
     except ValueError:
         return False
-    return (
-        len(tokens) >= 3
-        and tokens[:2] == ["pip", "install"]
-    ) or (
+    return (len(tokens) >= 3 and tokens[:2] == ["pip", "install"]) or (
         len(tokens) >= 5
         and tokens[1:4] == ["-m", "pip", "install"]
         and tokens[0] in {"python", "python3", sys.executable}
@@ -476,7 +481,9 @@ class CliAppManager:
                 if previous:
                     previous_source = str(previous.get("_source") or source)
                     merged_source = (
-                        previous_source if previous_source == source else f"{previous_source}+{source}"
+                        previous_source
+                        if previous_source == source
+                        else f"{previous_source}+{source}"
                     )
                     apps_by_name[key] = {**previous, **entry, "_source": merged_source}
                 else:
@@ -490,7 +497,11 @@ class CliAppManager:
         return f"cli-anything:{source}"
 
     def _trust_registry(self, app: dict[str, Any]) -> str:
-        return "miniunicorn-extension" if str(app.get("_source") or "") == "extensions" else "cli-anything"
+        return (
+            "miniunicorn-extension"
+            if str(app.get("_source") or "") == "extensions"
+            else "cli-anything"
+        )
 
     def get_app(self, name: str, *, force_refresh: bool = False) -> dict[str, Any]:
         wanted = name.lower()
@@ -626,30 +637,36 @@ class CliAppManager:
         strategy = self._strategy(app)
         skill_path = f"skills/{_safe_skill_name(name)}/SKILL.md"
         capabilities = [
-            compact_dict({
-                "type": "cli",
-                "entry_point": entry_point,
-                "package": self._package_ref(app),
-            }),
+            compact_dict(
+                {
+                    "type": "cli",
+                    "entry_point": entry_point,
+                    "package": self._package_ref(app),
+                }
+            ),
             {"type": "skill", "path": skill_path},
         ]
         install_supported = self._install_supported(app)
-        install = compact_dict({
-            "supported": install_supported,
-            "strategy": strategy,
-            "managed_paths": [skill_path],
-            "verification": ["entry_point_available"] if entry_point else [],
-        })
-        remove = compact_dict({
-            "supported": strategy != "unsupported",
-            "strategy": strategy,
-            "managed_paths": [skill_path],
-            "verification": (
-                ["package_manager_ok", "entry_point_absent", "managed_paths_absent"]
-                if strategy not in {"bundled", "unsupported"}
-                else ["miniunicorn_state_absent", "managed_paths_absent"]
-            ),
-        })
+        install = compact_dict(
+            {
+                "supported": install_supported,
+                "strategy": strategy,
+                "managed_paths": [skill_path],
+                "verification": ["entry_point_available"] if entry_point else [],
+            }
+        )
+        remove = compact_dict(
+            {
+                "supported": strategy != "unsupported",
+                "strategy": strategy,
+                "managed_paths": [skill_path],
+                "verification": (
+                    ["package_manager_ok", "entry_point_absent", "managed_paths_absent"]
+                    if strategy not in {"bundled", "unsupported"}
+                    else ["miniunicorn_state_absent", "managed_paths_absent"]
+                ),
+            }
+        )
         return app_manifest(
             app_id=name,
             display_name=str(app.get("display_name") or name),
@@ -723,7 +740,11 @@ class CliAppManager:
         package = str(app.get("pip_package") or "").strip() or self._pip_package_from_install(app)
         if not package:
             entry_point = str(app.get("entry_point") or "").strip()
-            package = entry_point if entry_point.startswith("cli-anything-") else f"cli-anything-{_brand_key(str(app['name']))}"
+            package = (
+                entry_point
+                if entry_point.startswith("cli-anything-")
+                else f"cli-anything-{_brand_key(str(app['name']))}"
+            )
         return [sys.executable, "-m", "pip", "uninstall", "-y", package]
 
     def _npm_argv(self, app: dict[str, Any], action: str) -> list[str]:
@@ -808,10 +829,14 @@ class CliAppManager:
         if strategy == "npm":
             return self._npm_argv(app, action)
         if strategy == "brew":
-            key = {"install": "install_cmd", "update": "update_cmd", "uninstall": "uninstall_cmd"}[action]
+            key = {"install": "install_cmd", "update": "update_cmd", "uninstall": "uninstall_cmd"}[
+                action
+            ]
             return self._split_safe_command(app, key, "brew")
         if strategy == "uv":
-            key = {"install": "install_cmd", "update": "update_cmd", "uninstall": "uninstall_cmd"}[action]
+            key = {"install": "install_cmd", "update": "update_cmd", "uninstall": "uninstall_cmd"}[
+                action
+            ]
             return self._split_safe_command(app, key, "uv")
         if strategy == "bundled":
             return None
@@ -848,7 +873,9 @@ class CliAppManager:
         skill_md = str(app.get("skill_md") or "").strip()
         if not skill_md:
             return None
-        url = _skill_content_url(skill_md, raw_base=str(app.get("_raw_base") or CLI_ANYTHING_RAW_BASE))
+        url = _skill_content_url(
+            skill_md, raw_base=str(app.get("_raw_base") or CLI_ANYTHING_RAW_BASE)
+        )
         if not url:
             return None
         try:
@@ -902,7 +929,13 @@ Use the `run_cli_app` tool with `name="{name}"` for command execution. Do not in
         if lines and lines[0].strip() == "---":
             for index, line in enumerate(lines[1:], start=1):
                 if line.strip() == "---":
-                    return "".join(lines[: index + 1]) + "\n" + note + "\n" + "".join(lines[index + 1 :])
+                    return (
+                        "".join(lines[: index + 1])
+                        + "\n"
+                        + note
+                        + "\n"
+                        + "".join(lines[index + 1 :])
+                    )
         return note + "\n" + content
 
     def install_skill(self, app: dict[str, Any]) -> Path:
@@ -939,7 +972,11 @@ Use the `run_cli_app` tool with `name="{name}"` for command execution. Do not in
                     "ok": True,
                     "message": f"CLI for {app['display_name']} is already available.",
                     "installed": True,
-                    "verification": ["entry_point_available", "state_recorded", "managed_paths_present"],
+                    "verification": [
+                        "entry_point_available",
+                        "state_recorded",
+                        "managed_paths_present",
+                    ],
                 }
             }
         if strategy == "bundled":
@@ -954,7 +991,9 @@ Use the `run_cli_app` tool with `name="{name}"` for command execution. Do not in
                         "verification": ["entry_point_available", "state_recorded"],
                     }
                 }
-            note = app.get("install_notes") or f"{app['display_name']} is bundled with its parent app."
+            note = (
+                app.get("install_notes") or f"{app['display_name']} is bundled with its parent app."
+            )
             raise CliAppError(str(note))
         argv = self._argv_for_action(app, "install")
         assert argv is not None
@@ -962,7 +1001,9 @@ Use the `run_cli_app` tool with `name="{name}"` for command execution. Do not in
         if strategy == "npm" and result.returncode != 0:
             result = self._retry_stale_npm_install(app, argv, result)
         if result.returncode != 0:
-            raise CliAppError(_truncate(result.stderr or result.stdout or "install failed"), status=500)
+            raise CliAppError(
+                _truncate(result.stderr or result.stdout or "install failed"), status=500
+            )
         self._record_installed(app)
         return self.payload() | {
             "last_action": {
@@ -991,7 +1032,9 @@ Use the `run_cli_app` tool with `name="{name}"` for command execution. Do not in
         assert argv is not None
         result = self._run_argv(argv, timeout=self.runtime.install_timeout)
         if result.returncode != 0:
-            raise CliAppError(_truncate(result.stderr or result.stdout or "update failed"), status=500)
+            raise CliAppError(
+                _truncate(result.stderr or result.stdout or "update failed"), status=500
+            )
         self._record_installed(app)
         return self.payload() | {
             "last_action": {
@@ -1017,7 +1060,9 @@ Use the `run_cli_app` tool with `name="{name}"` for command execution. Do not in
             assert argv is not None
             result = self._run_argv(argv, timeout=self.runtime.install_timeout)
             if result.returncode != 0:
-                raise CliAppError(_truncate(result.stderr or result.stdout or "uninstall failed"), status=500)
+                raise CliAppError(
+                    _truncate(result.stderr or result.stdout or "uninstall failed"), status=500
+                )
             still_managed = bool(managed_entry_path and Path(managed_entry_path).exists())
             still_available = bool(entry_point and shutil.which(entry_point))
             if still_managed or (not managed_entry_path and still_available):

@@ -14,14 +14,14 @@ from miniunicorn.agent.subagent import (
     SubagentStatus,
     _SubagentHook,
 )
-from miniunicorn.bus.events import OutboundMessage, make_session_key, session_key_base
+from miniunicorn.bus.events import make_session_key, session_key_base
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.providers.base import LLMProvider
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _manager(tmp_path: Path, **kw) -> SubagentManager:
     provider = MagicMock(spec=LLMProvider)
@@ -60,7 +60,9 @@ def _make_hook_context(**overrides) -> AgentHookContext:
 class TestSubagentStatus:
     def test_defaults(self):
         s = SubagentStatus(
-            task_id="abc", label="test", task_description="do stuff",
+            task_id="abc",
+            label="test",
+            task_description="do stuff",
             started_at=time.monotonic(),
         )
         assert s.phase == "initializing"
@@ -95,9 +97,13 @@ class TestSpawn:
     @pytest.mark.asyncio
     async def test_returns_string_with_task_id(self, tmp_path):
         sm = _manager(tmp_path)
-        sm.runner.run = AsyncMock(return_value=AgentRunResult(
-            final_content="done", messages=[], stop_reason="completed",
-        ))
+        sm.runner.run = AsyncMock(
+            return_value=AgentRunResult(
+                final_content="done",
+                messages=[],
+                stop_reason="completed",
+            )
+        )
         result = await sm.spawn("do something")
         assert "started" in result
         assert "id:" in result
@@ -106,9 +112,11 @@ class TestSpawn:
     async def test_creates_task_in_running_tasks(self, tmp_path):
         sm = _manager(tmp_path)
         block = asyncio.Event()
+
         async def _slow_run(spec):
             await block.wait()
             return AgentRunResult(final_content="done", messages=[], stop_reason="completed")
+
         sm.runner.run = _slow_run
 
         await sm.spawn("task", session_key="s1")
@@ -121,9 +129,13 @@ class TestSpawn:
     @pytest.mark.asyncio
     async def test_creates_status(self, tmp_path):
         sm = _manager(tmp_path)
-        sm.runner.run = AsyncMock(return_value=AgentRunResult(
-            final_content="done", messages=[], stop_reason="completed",
-        ))
+        sm.runner.run = AsyncMock(
+            return_value=AgentRunResult(
+                final_content="done",
+                messages=[],
+                stop_reason="completed",
+            )
+        )
         await sm.spawn("my task")
         await asyncio.sleep(0.1)
         # Status cleaned up after task completes
@@ -133,9 +145,11 @@ class TestSpawn:
     async def test_registers_in_session_tasks(self, tmp_path):
         sm = _manager(tmp_path)
         block = asyncio.Event()
+
         async def _slow_run(spec):
             await block.wait()
             return AgentRunResult(final_content="done", messages=[], stop_reason="completed")
+
         sm.runner.run = _slow_run
 
         await sm.spawn("task", session_key="s1")
@@ -150,9 +164,11 @@ class TestSpawn:
     async def test_no_session_key_no_registration(self, tmp_path):
         sm = _manager(tmp_path)
         block = asyncio.Event()
+
         async def _slow_run(spec):
             await block.wait()
             return AgentRunResult(final_content="done", messages=[], stop_reason="completed")
+
         sm.runner.run = _slow_run
 
         await sm.spawn("task")
@@ -165,9 +181,11 @@ class TestSpawn:
     async def test_label_defaults_to_truncated_task(self, tmp_path):
         sm = _manager(tmp_path)
         block = asyncio.Event()
+
         async def _slow_run(spec):
             await block.wait()
             return AgentRunResult(final_content="done", messages=[], stop_reason="completed")
+
         sm.runner.run = _slow_run
 
         long_task = "A" * 50
@@ -182,9 +200,11 @@ class TestSpawn:
     async def test_custom_label(self, tmp_path):
         sm = _manager(tmp_path)
         block = asyncio.Event()
+
         async def _slow_run(spec):
             await block.wait()
             return AgentRunResult(final_content="done", messages=[], stop_reason="completed")
+
         sm.runner.run = _slow_run
 
         await sm.spawn("task", label="Custom Label", session_key="s1")
@@ -197,9 +217,13 @@ class TestSpawn:
     @pytest.mark.asyncio
     async def test_cleanup_callback_removes_all_entries(self, tmp_path):
         sm = _manager(tmp_path)
-        sm.runner.run = AsyncMock(return_value=AgentRunResult(
-            final_content="done", messages=[], stop_reason="completed",
-        ))
+        sm.runner.run = AsyncMock(
+            return_value=AgentRunResult(
+                final_content="done",
+                messages=[],
+                stop_reason="completed",
+            )
+        )
         await sm.spawn("task", session_key="s1")
         await asyncio.sleep(0.1)
         assert len(sm._running_tasks) == 0
@@ -216,14 +240,25 @@ class TestRunSubagent:
     @pytest.mark.asyncio
     async def test_successful_run(self, tmp_path):
         sm = _manager(tmp_path)
-        sm.runner.run = AsyncMock(return_value=AgentRunResult(
-            final_content="Task done!", messages=[], stop_reason="completed",
-        ))
+        sm.runner.run = AsyncMock(
+            return_value=AgentRunResult(
+                final_content="Task done!",
+                messages=[],
+                stop_reason="completed",
+            )
+        )
         with patch.object(sm, "_announce_result", new_callable=AsyncMock) as mock_announce:
             await sm._run_subagent(
-                "t1", "do task", "label",
+                "t1",
+                "do task",
+                "label",
                 {"channel": "cli", "chat_id": "direct"},
-                SubagentStatus(task_id="t1", label="label", task_description="do task", started_at=time.monotonic()),
+                SubagentStatus(
+                    task_id="t1",
+                    label="label",
+                    task_description="do task",
+                    started_at=time.monotonic(),
+                ),
             )
             mock_announce.assert_called_once()
             assert mock_announce.call_args.args[-2] == "ok"
@@ -231,15 +266,24 @@ class TestRunSubagent:
     @pytest.mark.asyncio
     async def test_tool_error_run(self, tmp_path):
         sm = _manager(tmp_path)
-        sm.runner.run = AsyncMock(return_value=AgentRunResult(
-            final_content=None, messages=[], stop_reason="tool_error",
-            tool_events=[{"name": "read_file", "status": "error", "detail": "not found"}],
-        ))
-        status = SubagentStatus(task_id="t1", label="label", task_description="do task", started_at=time.monotonic())
+        sm.runner.run = AsyncMock(
+            return_value=AgentRunResult(
+                final_content=None,
+                messages=[],
+                stop_reason="tool_error",
+                tool_events=[{"name": "read_file", "status": "error", "detail": "not found"}],
+            )
+        )
+        status = SubagentStatus(
+            task_id="t1", label="label", task_description="do task", started_at=time.monotonic()
+        )
         with patch.object(sm, "_announce_result", new_callable=AsyncMock) as mock_announce:
             await sm._run_subagent(
-                "t1", "do task", "label",
-                {"channel": "cli", "chat_id": "direct"}, status,
+                "t1",
+                "do task",
+                "label",
+                {"channel": "cli", "chat_id": "direct"},
+                status,
             )
             assert mock_announce.call_args.args[-2] == "error"
 
@@ -247,11 +291,16 @@ class TestRunSubagent:
     async def test_exception_run(self, tmp_path):
         sm = _manager(tmp_path)
         sm.runner.run = AsyncMock(side_effect=RuntimeError("LLM down"))
-        status = SubagentStatus(task_id="t1", label="label", task_description="do task", started_at=time.monotonic())
+        status = SubagentStatus(
+            task_id="t1", label="label", task_description="do task", started_at=time.monotonic()
+        )
         with patch.object(sm, "_announce_result", new_callable=AsyncMock) as mock_announce:
             await sm._run_subagent(
-                "t1", "do task", "label",
-                {"channel": "cli", "chat_id": "direct"}, status,
+                "t1",
+                "do task",
+                "label",
+                {"channel": "cli", "chat_id": "direct"},
+                status,
             )
             assert status.phase == "error"
             assert "LLM down" in status.error
@@ -260,14 +309,23 @@ class TestRunSubagent:
     @pytest.mark.asyncio
     async def test_status_updated_on_success(self, tmp_path):
         sm = _manager(tmp_path)
-        sm.runner.run = AsyncMock(return_value=AgentRunResult(
-            final_content="ok", messages=[], stop_reason="completed",
-        ))
-        status = SubagentStatus(task_id="t1", label="label", task_description="do task", started_at=time.monotonic())
+        sm.runner.run = AsyncMock(
+            return_value=AgentRunResult(
+                final_content="ok",
+                messages=[],
+                stop_reason="completed",
+            )
+        )
+        status = SubagentStatus(
+            task_id="t1", label="label", task_description="do task", started_at=time.monotonic()
+        )
         with patch.object(sm, "_announce_result", new_callable=AsyncMock):
             await sm._run_subagent(
-                "t1", "do task", "label",
-                {"channel": "cli", "chat_id": "direct"}, status,
+                "t1",
+                "do task",
+                "label",
+                {"channel": "cli", "chat_id": "direct"},
+                status,
             )
             assert status.phase == "done"
             assert status.stop_reason == "completed"
@@ -286,8 +344,12 @@ class TestAnnounceResult:
         sm.bus.publish_inbound = AsyncMock(side_effect=lambda msg: published.append(msg))
 
         await sm._announce_result(
-            "t1", "label", "task", "result text",
-            {"channel": "cli", "chat_id": "direct"}, "ok",
+            "t1",
+            "label",
+            "task",
+            "result text",
+            {"channel": "cli", "chat_id": "direct"},
+            "ok",
         )
 
         assert len(published) == 1
@@ -304,8 +366,12 @@ class TestAnnounceResult:
         sm.bus.publish_inbound = AsyncMock(side_effect=lambda msg: published.append(msg))
 
         await sm._announce_result(
-            "t1", "label", "task", "result",
-            {"channel": "telegram", "chat_id": "123", "session_key": "s1"}, "ok",
+            "t1",
+            "label",
+            "task",
+            "result",
+            {"channel": "telegram", "chat_id": "123", "session_key": "s1"},
+            "ok",
         )
 
         assert published[0].session_key_override == "s1"
@@ -317,8 +383,12 @@ class TestAnnounceResult:
         sm.bus.publish_inbound = AsyncMock(side_effect=lambda msg: published.append(msg))
 
         await sm._announce_result(
-            "t1", "label", "task", "result",
-            {"channel": "telegram", "chat_id": "123"}, "ok",
+            "t1",
+            "label",
+            "task",
+            "result",
+            {"channel": "telegram", "chat_id": "123"},
+            "ok",
         )
 
         assert published[0].session_key_override == "telegram:123"
@@ -330,8 +400,12 @@ class TestAnnounceResult:
         sm.bus.publish_inbound = AsyncMock(side_effect=lambda msg: published.append(msg))
 
         await sm._announce_result(
-            "t1", "label", "task", "result",
-            {"channel": "cli", "chat_id": "direct"}, "ok",
+            "t1",
+            "label",
+            "task",
+            "result",
+            {"channel": "cli", "chat_id": "direct"},
+            "ok",
         )
 
         assert "completed successfully" in published[0].content
@@ -343,8 +417,12 @@ class TestAnnounceResult:
         sm.bus.publish_inbound = AsyncMock(side_effect=lambda msg: published.append(msg))
 
         await sm._announce_result(
-            "t1", "label", "task", "error details",
-            {"channel": "cli", "chat_id": "direct"}, "error",
+            "t1",
+            "label",
+            "task",
+            "error details",
+            {"channel": "cli", "chat_id": "direct"},
+            "error",
         )
 
         assert "failed" in published[0].content
@@ -356,8 +434,12 @@ class TestAnnounceResult:
         sm.bus.publish_inbound = AsyncMock(side_effect=lambda msg: published.append(msg))
 
         await sm._announce_result(
-            "t1", "label", "task", "result",
-            {"channel": "cli", "chat_id": "direct"}, "ok",
+            "t1",
+            "label",
+            "task",
+            "result",
+            {"channel": "cli", "chat_id": "direct"},
+            "ok",
             origin_message_id="msg-123",
         )
 
@@ -374,37 +456,44 @@ class TestFormatPartialProgress:
         return MagicMock(tool_events=tool_events or [], error=error)
 
     def test_completed_only(self):
-        result = self._make_result(tool_events=[
-            {"name": "read_file", "status": "ok", "detail": "file content"},
-            {"name": "exec", "status": "ok", "detail": "output"},
-        ])
+        result = self._make_result(
+            tool_events=[
+                {"name": "read_file", "status": "ok", "detail": "file content"},
+                {"name": "exec", "status": "ok", "detail": "output"},
+            ]
+        )
         text = SubagentManager._format_partial_progress(result)
         assert "Completed steps:" in text
         assert "read_file" in text
         assert "exec" in text
 
     def test_failure_only(self):
-        result = self._make_result(tool_events=[
-            {"name": "read_file", "status": "error", "detail": "not found"},
-        ])
+        result = self._make_result(
+            tool_events=[
+                {"name": "read_file", "status": "error", "detail": "not found"},
+            ]
+        )
         text = SubagentManager._format_partial_progress(result)
         assert "Failure:" in text
         assert "not found" in text
 
     def test_completed_and_failure(self):
-        result = self._make_result(tool_events=[
-            {"name": "read_file", "status": "ok", "detail": "content"},
-            {"name": "exec", "status": "error", "detail": "timeout"},
-        ])
+        result = self._make_result(
+            tool_events=[
+                {"name": "read_file", "status": "ok", "detail": "content"},
+                {"name": "exec", "status": "error", "detail": "timeout"},
+            ]
+        )
         text = SubagentManager._format_partial_progress(result)
         assert "Completed steps:" in text
         assert "Failure:" in text
 
     def test_limited_to_last_three(self):
-        result = self._make_result(tool_events=[
-            {"name": f"tool_{i}", "status": "ok", "detail": f"result_{i}"}
-            for i in range(5)
-        ])
+        result = self._make_result(
+            tool_events=[
+                {"name": f"tool_{i}", "status": "ok", "detail": f"result_{i}"} for i in range(5)
+            ]
+        )
         text = SubagentManager._format_partial_progress(result)
         assert "tool_2" in text
         assert "tool_3" in text
@@ -441,9 +530,11 @@ class TestCancelBySession:
     async def test_cancels_running_tasks(self, tmp_path):
         sm = _manager(tmp_path)
         block = asyncio.Event()
+
         async def _slow_run(spec):
             await block.wait()
             return AgentRunResult(final_content="done", messages=[], stop_reason="completed")
+
         sm.runner.run = _slow_run
 
         await sm.spawn("task1", session_key="s1")
@@ -464,9 +555,13 @@ class TestCancelBySession:
     @pytest.mark.asyncio
     async def test_already_done_not_counted(self, tmp_path):
         sm = _manager(tmp_path)
-        sm.runner.run = AsyncMock(return_value=AgentRunResult(
-            final_content="done", messages=[], stop_reason="completed",
-        ))
+        sm.runner.run = AsyncMock(
+            return_value=AgentRunResult(
+                final_content="done",
+                messages=[],
+                stop_reason="completed",
+            )
+        )
         await sm.spawn("task1", session_key="s1")
         await asyncio.sleep(0.1)  # Wait for completion
 
@@ -489,9 +584,11 @@ class TestRunningCounts:
     async def test_running_count_tracks_tasks(self, tmp_path):
         sm = _manager(tmp_path)
         block = asyncio.Event()
+
         async def _slow_run(spec):
             await block.wait()
             return AgentRunResult(final_content="done", messages=[], stop_reason="completed")
+
         sm.runner.run = _slow_run
 
         await sm.spawn("t1", session_key="s1")
@@ -528,7 +625,10 @@ class TestSubagentHook:
     @pytest.mark.asyncio
     async def test_after_iteration_updates_status(self):
         status = SubagentStatus(
-            task_id="t1", label="test", task_description="do", started_at=time.monotonic(),
+            task_id="t1",
+            label="test",
+            task_description="do",
+            started_at=time.monotonic(),
         )
         hook = _SubagentHook("t1", status)
         ctx = _make_hook_context(
@@ -551,7 +651,10 @@ class TestSubagentHook:
     @pytest.mark.asyncio
     async def test_after_iteration_sets_error(self):
         status = SubagentStatus(
-            task_id="t1", label="test", task_description="do", started_at=time.monotonic(),
+            task_id="t1",
+            label="test",
+            task_description="do",
+            started_at=time.monotonic(),
         )
         hook = _SubagentHook("t1", status)
         ctx = _make_hook_context(error="something broke")
@@ -572,12 +675,17 @@ class TestSubagentHookActivity:
     async def test_before_execute_tools_publishes_activity(self):
         bus = MessageBus()
         status = SubagentStatus(
-            task_id="t1", label="researcher", task_description="do",
+            task_id="t1",
+            label="researcher",
+            task_description="do",
             started_at=time.monotonic(),
         )
         hook = _SubagentHook(
-            "t1", status, bus=bus,
-            origin_channel="websocket", origin_chat_id="chat-1",
+            "t1",
+            status,
+            bus=bus,
+            origin_channel="websocket",
+            origin_chat_id="chat-1",
         )
         tool_call = MagicMock()
         tool_call.name = "read_file"
@@ -598,12 +706,17 @@ class TestSubagentHookActivity:
     async def test_after_iteration_publishes_tool_events(self):
         bus = MessageBus()
         status = SubagentStatus(
-            task_id="t2", label="worker", task_description="do",
+            task_id="t2",
+            label="worker",
+            task_description="do",
             started_at=time.monotonic(),
         )
         hook = _SubagentHook(
-            "t2", status, bus=bus,
-            origin_channel="websocket", origin_chat_id="chat-2",
+            "t2",
+            status,
+            bus=bus,
+            origin_channel="websocket",
+            origin_chat_id="chat-2",
         )
         ctx = _make_hook_context(
             iteration=1,
@@ -628,7 +741,9 @@ class TestSubagentHookActivity:
     async def test_no_bus_no_publish(self):
         """Hook without bus must not publish (backward-compat with _run_subagent)."""
         status = SubagentStatus(
-            task_id="t3", label="solo", task_description="do",
+            task_id="t3",
+            label="solo",
+            task_description="do",
             started_at=time.monotonic(),
         )
         hook = _SubagentHook("t3", status)  # no bus, no origin
@@ -644,12 +759,17 @@ class TestSubagentHookActivity:
     async def test_emit_reasoning_publishes_activity(self):
         bus = MessageBus()
         status = SubagentStatus(
-            task_id="t4", label="thinker", task_description="do",
+            task_id="t4",
+            label="thinker",
+            task_description="do",
             started_at=time.monotonic(),
         )
         hook = _SubagentHook(
-            "t4", status, bus=bus,
-            origin_channel="websocket", origin_chat_id="chat-4",
+            "t4",
+            status,
+            bus=bus,
+            origin_channel="websocket",
+            origin_chat_id="chat-4",
         )
         await hook.emit_reasoning("analyzing the problem")
         msg = bus.outbound.get_nowait()
@@ -661,12 +781,17 @@ class TestSubagentHookActivity:
     async def test_emit_reasoning_empty_no_publish(self):
         bus = MessageBus()
         status = SubagentStatus(
-            task_id="t5", label="quiet", task_description="do",
+            task_id="t5",
+            label="quiet",
+            task_description="do",
             started_at=time.monotonic(),
         )
         hook = _SubagentHook(
-            "t5", status, bus=bus,
-            origin_channel="websocket", origin_chat_id="chat-5",
+            "t5",
+            status,
+            bus=bus,
+            origin_channel="websocket",
+            origin_chat_id="chat-5",
         )
         await hook.emit_reasoning(None)
         await hook.emit_reasoning("")
@@ -719,16 +844,22 @@ class TestRunSubagentDirectSessionIsolation:
             captured_spec["session_key"] = spec.session_key
             captured_spec["hook"] = spec.hook
             return AgentRunResult(
-                final_content="done", messages=[], stop_reason="completed",
+                final_content="done",
+                messages=[],
+                stop_reason="completed",
             )
 
         sm.runner.run = _capture_run
         status = SubagentStatus(
-            task_id="abc123", label="worker", task_description="do",
+            task_id="abc123",
+            label="worker",
+            task_description="do",
             started_at=time.monotonic(),
         )
         await sm._run_subagent_direct(
-            "abc123", "do task", "worker",
+            "abc123",
+            "do task",
+            "worker",
             {"channel": "websocket", "chat_id": "chat-1", "session_key": "websocket:chat-1"},
             status,
         )
@@ -745,16 +876,22 @@ class TestRunSubagentDirectSessionIsolation:
         async def _capture_run(spec):
             captured_hook["hook"] = spec.hook
             return AgentRunResult(
-                final_content="done", messages=[], stop_reason="completed",
+                final_content="done",
+                messages=[],
+                stop_reason="completed",
             )
 
         sm.runner.run = _capture_run
         status = SubagentStatus(
-            task_id="t9", label="researcher", task_description="do",
+            task_id="t9",
+            label="researcher",
+            task_description="do",
             started_at=time.monotonic(),
         )
         await sm._run_subagent_direct(
-            "t9", "do task", "researcher",
+            "t9",
+            "do task",
+            "researcher",
             {"channel": "websocket", "chat_id": "chat-9", "session_key": "websocket:chat-9"},
             status,
         )
@@ -781,16 +918,22 @@ class TestRunSubagentDirectSessionIsolation:
 
         async def _noop_run(spec):
             return AgentRunResult(
-                final_content="done", messages=[], stop_reason="completed",
+                final_content="done",
+                messages=[],
+                stop_reason="completed",
             )
 
         sm.runner.run = _noop_run
         status = SubagentStatus(
-            task_id="t10", label="worker", task_description="do",
+            task_id="t10",
+            label="worker",
+            task_description="do",
             started_at=time.monotonic(),
         )
         await sm._run_subagent_direct(
-            "t10", "do task", "worker",
+            "t10",
+            "do task",
+            "worker",
             {"channel": "cli", "chat_id": "direct", "session_key": "cli:direct"},
             status,
         )

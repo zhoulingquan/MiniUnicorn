@@ -117,6 +117,7 @@ def _format_summary(summary: _PatchSummary) -> str:
 )
 class ApplyPatchTool(_FsTool):
     """Apply file edits by providing structured edit instructions."""
+
     _scopes = {"core", "subagent"}
 
     @property
@@ -161,10 +162,7 @@ class ApplyPatchTool(_FsTool):
                     if isinstance(path_val, str):
                         total_size += len(path_val)
             if total_size > _MAX_PATCH_SIZE:
-                return (
-                    f"Error: patch 内容过大({total_size} 字节),"
-                    f"上限 {_MAX_PATCH_SIZE}"
-                )
+                return f"Error: patch 内容过大({total_size} 字节),上限 {_MAX_PATCH_SIZE}"
 
             writes: dict[Path, str] = {}
             summaries: list[_PatchSummary] = []
@@ -221,9 +219,7 @@ class ApplyPatchTool(_FsTool):
                         action_name = "add"
 
                     summaries.append(
-                        _PatchSummary(
-                            action=action_name, path=path, added=added, deleted=deleted
-                        )
+                        _PatchSummary(action=action_name, path=path, added=added, deleted=deleted)
                     )
 
                 elif action == "replace":
@@ -272,9 +268,7 @@ class ApplyPatchTool(_FsTool):
                     writes[source] = new_norm
                     added, deleted = _line_diff_stats(content, new_norm)
                     summaries.append(
-                        _PatchSummary(
-                            action="update", path=path, added=added, deleted=deleted
-                        )
+                        _PatchSummary(action="update", path=path, added=added, deleted=deleted)
                     )
 
                 else:
@@ -305,9 +299,7 @@ class ApplyPatchTool(_FsTool):
 
             for path in writes:
                 self._file_states.record_write(path)
-            return "Patch applied:\n" + "\n".join(
-                _format_summary(summary) for summary in summaries
-            )
+            return "Patch applied:\n" + "\n".join(_format_summary(summary) for summary in summaries)
         except PermissionError as exc:
             return f"Error: {exc}"
         except _PatchError as exc:

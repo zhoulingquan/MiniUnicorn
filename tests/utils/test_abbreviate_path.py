@@ -1,6 +1,7 @@
 """Tests for abbreviate_path utility."""
 
 import os
+
 from miniunicorn.utils.path import abbreviate_path
 
 
@@ -9,7 +10,7 @@ class TestAbbreviatePathShort:
         assert abbreviate_path("/home/user/file.py") == "/home/user/file.py"
 
     def test_exact_max_len_unchanged(self):
-        path = "/a/b/c"  # 7 chars
+        # 7-char path passes through unchanged when max_len == 7
         assert abbreviate_path("/a/b/c", max_len=7) == "/a/b/c"
 
     def test_basename_only(self):

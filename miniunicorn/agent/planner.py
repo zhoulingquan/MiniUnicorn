@@ -9,6 +9,7 @@ This module is self-contained: it does not modify the existing ReAct loop
 in runner.py. The Planner class is called by run() only when use_planner
 is True; otherwise the legacy loop runs unchanged.
 """
+
 from __future__ import annotations
 
 import json
@@ -33,6 +34,7 @@ class StepStatus(str, Enum):
 @dataclass(slots=True)
 class PlanStep:
     """One step in an execution plan."""
+
     id: int
     action: str
     tool_hint: str | None = None
@@ -56,6 +58,7 @@ class PlanStep:
 @dataclass
 class Plan:
     """An execution plan produced by the Planner."""
+
     goal: str
     steps: list[PlanStep] = field(default_factory=list)
     replan_count: int = 0
@@ -153,9 +156,9 @@ class Planner:
             )
             return plan
 
-        completed_summary = "\n".join(
-            f"- Step {s.id} (DONE): {s.action}" for s in plan.completed_steps
-        ) or "(none)"
+        completed_summary = (
+            "\n".join(f"- Step {s.id} (DONE): {s.action}" for s in plan.completed_steps) or "(none)"
+        )
         try:
             response = await self.provider.chat_with_retry(
                 model=self.model,
@@ -221,12 +224,14 @@ class Planner:
             action = raw.get("action") or raw.get("description") or ""
             if not action:
                 continue
-            steps.append(PlanStep(
-                id=raw.get("id", next_id),
-                action=action,
-                tool_hint=raw.get("tool_hint"),
-                done_criteria=raw.get("done_criteria"),
-            ))
+            steps.append(
+                PlanStep(
+                    id=raw.get("id", next_id),
+                    action=action,
+                    tool_hint=raw.get("tool_hint"),
+                    done_criteria=raw.get("done_criteria"),
+                )
+            )
             next_id += 1
         if not steps:
             return Plan(goal=goal, steps=[PlanStep(id=1, action=goal)])

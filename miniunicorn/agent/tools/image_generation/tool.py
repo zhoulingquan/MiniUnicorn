@@ -32,7 +32,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-import httpx
 from loguru import logger
 
 from miniunicorn.agent.tools.base import Tool, tool_parameters
@@ -52,7 +51,12 @@ from miniunicorn.agent.tools.image_generation.providers.base import (
     ImageGenerationAdapter,
     ImageGenerationError,
 )
-from miniunicorn.agent.tools.schema import ArraySchema, IntegerSchema, StringSchema, tool_parameters_schema
+from miniunicorn.agent.tools.schema import (
+    ArraySchema,
+    IntegerSchema,
+    StringSchema,
+    tool_parameters_schema,
+)
 from miniunicorn.config.paths import get_media_dir
 from miniunicorn.utils.artifacts import (
     ArtifactError,
@@ -139,6 +143,7 @@ class ImageGenerationTool(Tool):
         cfg = getattr(ctx.config, "image_generation", None)
         if cfg is None:
             from miniunicorn.agent.tools.image_generation.config import ImageGenerationConfig
+
             cfg = ImageGenerationConfig()
 
         # 通过 provider_snapshot_loader 解析 preset 拿凭证 (与 deep_research 同模式)
@@ -153,7 +158,8 @@ class ImageGenerationTool(Tool):
             except Exception as exc:
                 logger.warning(
                     "image_generation: failed to load preset snapshot for '{}': {}",
-                    preset_name, exc,
+                    preset_name,
+                    exc,
                 )
                 snapshot = None
             if snapshot is not None:
@@ -186,13 +192,18 @@ class ImageGenerationTool(Tool):
                     extra_headers=extra_headers,
                     extra_body=extra_body,
                 )
-                if inferred_api_type != cfg.api_type or inferred_response_format != cfg.response_format:
+                if (
+                    inferred_api_type != cfg.api_type
+                    or inferred_response_format != cfg.response_format
+                ):
                     logger.info(
                         "image_generation: inferred from provider '{}': "
                         "api_type={} (config had {}), response_format={} (config had {})",
                         preset_provider,
-                        inferred_api_type, cfg.api_type,
-                        inferred_response_format, cfg.response_format,
+                        inferred_api_type,
+                        cfg.api_type,
+                        inferred_response_format,
+                        cfg.response_format,
                     )
 
         return cls(
@@ -307,7 +318,8 @@ class ImageGenerationTool(Tool):
                     if not resp.images:
                         logger.warning(
                             "image generation provider returned no images; breaking loop "
-                            "(artifacts so far: {})", len(artifacts),
+                            "(artifacts so far: {})",
+                            len(artifacts),
                         )
                         break
                     for data_url in resp.images:
@@ -327,7 +339,8 @@ class ImageGenerationTool(Tool):
                 if artifacts:
                     logger.warning(
                         "image generation partially failed: {} artifacts saved before error: {}",
-                        len(artifacts), exc,
+                        len(artifacts),
+                        exc,
                     )
                     return generated_image_tool_result(artifacts)
                 return _error_result(f"image generation failed: {exc}")
@@ -335,7 +348,8 @@ class ImageGenerationTool(Tool):
                 if artifacts:
                     logger.warning(
                         "artifact persistence partially failed: {} saved before error: {}",
-                        len(artifacts), exc,
+                        len(artifacts),
+                        exc,
                     )
                     return generated_image_tool_result(artifacts)
                 return _error_result(f"failed to store generated image: {exc}")

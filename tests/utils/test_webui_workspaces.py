@@ -7,8 +7,8 @@ from miniunicorn.webui.workspaces import (
     read_webui_default_access_mode,
     read_webui_workspace_state,
     webui_workspace_state_path,
-    write_webui_default_access_mode,
     workspaces_payload,
+    write_webui_default_access_mode,
 )
 
 
@@ -133,7 +133,9 @@ def test_webui_default_access_applies_to_unscoped_old_sessions(tmp_path, monkeyp
     assert new_scope.access_mode == "full"
 
 
-def test_webui_default_access_does_not_override_explicit_session_scope(tmp_path, monkeypatch) -> None:
+def test_webui_default_access_does_not_override_explicit_session_scope(
+    tmp_path, monkeypatch
+) -> None:
     monkeypatch.setattr("miniunicorn.webui.workspaces.get_webui_dir", lambda: tmp_path / "webui")
     default = tmp_path / "default"
     project = tmp_path / "project"

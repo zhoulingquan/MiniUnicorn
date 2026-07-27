@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from ._query import _query_first, _query_first_alias
+from ._query import _query_first_alias
 from ._runtime import QueryParams
 
 
@@ -255,15 +255,13 @@ def _scan_dangerous_calls(tree: ast.AST) -> list[str]:
                 call_name = func.id
             if call_name and call_name in _DANGEROUS_CALLS:
                 findings.append(
-                    f"line {node.lineno}: {_DANGEROUS_CALLS[call_name]} "
-                    f"(call: {call_name})"
+                    f"line {node.lineno}: {_DANGEROUS_CALLS[call_name]} (call: {call_name})"
                 )
         # 检查危险属性访问
         elif isinstance(node, ast.Attribute):
             if node.attr in _DANGEROUS_ATTRS:
                 findings.append(
-                    f"line {node.lineno}: {_DANGEROUS_ATTRS[node.attr]} "
-                    f"(attr: {node.attr})"
+                    f"line {node.lineno}: {_DANGEROUS_ATTRS[node.attr]} (attr: {node.attr})"
                 )
 
     return findings
@@ -293,9 +291,7 @@ def _validate_tool_py(content: str) -> None:
                     has_tool_class = True
                     break
     if not has_tool_class:
-        raise WebUIToolsError(
-            "Tool file must define at least one class inheriting from Tool"
-        )
+        raise WebUIToolsError("Tool file must define at least one class inheriting from Tool")
 
     # AST 静态扫描:禁止危险调用
     findings = _scan_dangerous_calls(tree)
@@ -303,9 +299,7 @@ def _validate_tool_py(content: str) -> None:
         # 限制错误消息长度,避免海量 findings 刷屏
         preview = "; ".join(findings[:5])
         suffix = f" (and {len(findings) - 5} more)" if len(findings) > 5 else ""
-        raise WebUIToolsError(
-            f"Tool file contains dangerous calls: {preview}{suffix}"
-        )
+        raise WebUIToolsError(f"Tool file contains dangerous calls: {preview}{suffix}")
 
 
 def import_tool(

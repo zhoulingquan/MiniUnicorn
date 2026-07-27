@@ -10,8 +10,6 @@
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from miniunicorn.agent.subagent import SubagentManager
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.config.schema import AgentDefaults
@@ -44,7 +42,9 @@ class _FakeLocalProvider(LLMProvider):
         return "local-test-model"
 
 
-def _make_manager(provider: LLMProvider, *, max_concurrent: int | None = None, tmp_path) -> SubagentManager:
+def _make_manager(
+    provider: LLMProvider, *, max_concurrent: int | None = None, tmp_path
+) -> SubagentManager:
     return SubagentManager(
         provider=provider,
         workspace=tmp_path,

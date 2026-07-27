@@ -62,7 +62,7 @@ def _make_fake_compact(
         state["count"] += 1
         session = loop.sessions.get_or_create(key)
 
-        tail = list(session.messages[session.last_consolidated:])
+        tail = list(session.messages[session.last_consolidated :])
         if not tail:
             session.updated_at = datetime.now()
             loop.sessions.save(session)
@@ -145,6 +145,7 @@ class TestSessionTTLConfig:
     def test_session_file_cap_is_internal_constant(self):
         """Session file cap should remain an internal constant, not a config field."""
         from miniunicorn.session.manager import FILE_MAX_MESSAGES
+
         assert FILE_MAX_MESSAGES == 2000
 
 
@@ -200,10 +201,14 @@ class TestAgentLoopTTLParam:
 
         session = loop.sessions.get_or_create("cli:direct")
         from miniunicorn.session.manager import FILE_MAX_MESSAGES
+
         assert len(session.messages) <= FILE_MAX_MESSAGES
 
-    def test_session_enforce_file_cap_skips_archive_when_dropped_prefix_already_consolidated(self, tmp_path):
+    def test_session_enforce_file_cap_skips_archive_when_dropped_prefix_already_consolidated(
+        self, tmp_path
+    ):
         from miniunicorn.session.manager import Session
+
         archive_fn = MagicMock()
         session = Session(key="cli:direct")
         for i in range(8):
@@ -217,6 +222,7 @@ class TestAgentLoopTTLParam:
 
     def test_session_enforce_file_cap_archives_only_unconsolidated_dropped_prefix(self, tmp_path):
         from miniunicorn.session.manager import Session
+
         archive_fn = MagicMock()
         session = Session(key="cli:direct")
         for i in range(8):
@@ -287,7 +293,8 @@ class TestAutoCompact:
 
         archived_messages = []
         loop.consolidator.compact_idle_session = _make_fake_compact(
-            loop, track_archived=archived_messages,
+            loop,
+            track_archived=archived_messages,
         )
 
         await loop.auto_compact._archive("cli:test")
@@ -308,7 +315,8 @@ class TestAutoCompact:
         loop.sessions.save(session)
 
         loop.consolidator.compact_idle_session = _make_fake_compact(
-            loop, summary="User said hello.",
+            loop,
+            summary="User said hello.",
         )
 
         await loop.auto_compact._archive("cli:test")
@@ -345,7 +353,8 @@ class TestAutoCompact:
 
         archived_messages = []
         loop.consolidator.compact_idle_session = _make_fake_compact(
-            loop, track_archived=archived_messages,
+            loop,
+            track_archived=archived_messages,
         )
 
         await loop.auto_compact._archive("cli:test")
@@ -384,7 +393,8 @@ class TestAutoCompactIdleDetection:
 
         archived_messages = []
         loop.consolidator.compact_idle_session = _make_fake_compact(
-            loop, track_archived=archived_messages,
+            loop,
+            track_archived=archived_messages,
         )
 
         # Simulate proactive archive completing before message arrives
@@ -515,16 +525,15 @@ class TestAutoCompactSystemMessages:
         await loop.auto_compact._archive("cli:test")
 
         msg = InboundMessage(
-            channel="system", sender_id="subagent", chat_id="cli:test",
+            channel="system",
+            sender_id="subagent",
+            chat_id="cli:test",
             content="subagent result",
         )
         await loop._process_message(msg)
 
         session_after = loop.sessions.get_or_create("cli:test")
-        assert not any(
-            m["content"] == "old user 0"
-            for m in session_after.messages
-        )
+        assert not any(m["content"] == "old user 0" for m in session_after.messages)
         await loop.close_mcp()
 
 
@@ -588,7 +597,8 @@ class TestAutoCompactEdgeCases:
 
         archived_messages = []
         loop.consolidator.compact_idle_session = _make_fake_compact(
-            loop, track_archived=archived_messages,
+            loop,
+            track_archived=archived_messages,
         )
 
         # Simulate proactive archive completing before message arrives
@@ -642,7 +652,9 @@ class TestAutoCompactIntegration:
         )
 
         msg = InboundMessage(
-            channel="cli", sender_id="user", chat_id="test",
+            channel="cli",
+            sender_id="user",
+            chat_id="test",
             content="Let's continue, teach me present perfect",
         )
         response = await loop._process_message(msg)
@@ -687,7 +699,9 @@ class TestAutoCompactIntegration:
         await loop.auto_compact._archive("cli:test")
 
         msg = InboundMessage(
-            channel="cli", sender_id="user", chat_id="test",
+            channel="cli",
+            sender_id="user",
+            chat_id="test",
             content="Paragraph one\n\nParagraph two\n\nParagraph three",
         )
         await loop._process_message(msg)
@@ -739,7 +753,9 @@ class TestProactiveAutoCompact:
 
         archived_messages = []
         loop.consolidator.compact_idle_session = _make_fake_compact(
-            loop, summary="User chatted about old things.", track_archived=archived_messages,
+            loop,
+            summary="User chatted about old things.",
+            track_archived=archived_messages,
         )
 
         await self._run_check_expired(loop)
@@ -972,7 +988,9 @@ class TestProactiveAutoCompact:
         assert _fake_compact.state["count"] == 1
 
         # User returns, sends new messages
-        msg = InboundMessage(channel="cli", sender_id="user", chat_id="test", content="second topic")
+        msg = InboundMessage(
+            channel="cli", sender_id="user", chat_id="test", content="second topic"
+        )
         await loop._process_message(msg)
 
         # Simulate idle again
@@ -1000,7 +1018,8 @@ class TestSummaryPersistence:
         loop.sessions.save(session)
 
         loop.consolidator.compact_idle_session = _make_fake_compact(
-            loop, summary="User said hello.",
+            loop,
+            summary="User said hello.",
         )
 
         await loop.auto_compact._archive("cli:test")
@@ -1024,7 +1043,8 @@ class TestSummaryPersistence:
         loop.sessions.save(session)
 
         loop.consolidator.compact_idle_session = _make_fake_compact(
-            loop, summary="User said hello.",
+            loop,
+            summary="User said hello.",
         )
 
         # Archive
@@ -1110,7 +1130,8 @@ class TestSummaryPersistence:
         loop.sessions.save(session)
 
         loop.consolidator.compact_idle_session = _make_fake_compact(
-            loop, summary="First summary.",
+            loop,
+            summary="First summary.",
         )
         await loop.auto_compact._archive("cli:test")
 
@@ -1128,7 +1149,8 @@ class TestSummaryPersistence:
         loop.sessions.save(session)
 
         loop.consolidator.compact_idle_session = _make_fake_compact(
-            loop, summary="Second summary.",
+            loop,
+            summary="Second summary.",
         )
         await loop.auto_compact._archive("cli:test")
 
@@ -1152,7 +1174,8 @@ class TestSummaryPersistence:
         loop.sessions.save(session)
 
         loop.consolidator.compact_idle_session = _make_fake_compact(
-            loop, summary="Old summary.",
+            loop,
+            summary="Old summary.",
         )
         await loop.auto_compact._archive("cli:test")
 

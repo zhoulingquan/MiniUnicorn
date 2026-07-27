@@ -16,12 +16,12 @@ from miniunicorn.webui.sidebar_state import (
     write_webui_sidebar_state,
 )
 
-from .._http_routes import _http_error, _http_json_response, _query_first
 from .._http_router import RouteContext, router
+from .._http_routes import _http_error, _http_json_response, _query_first
 from ._common import require_auth, service_unavailable
 
 
-@router.route("/api/sessions")
+@router.route("/api/sessions", methods={"GET"})
 @require_auth
 def list_sessions(ctx: RouteContext) -> Response:
     """列出 websocket 频道的会话(供侧边栏渲染)。"""
@@ -46,14 +46,14 @@ def list_sessions(ctx: RouteContext) -> Response:
     return _http_json_response({"sessions": cleaned})
 
 
-@router.route("/api/commands")
+@router.route("/api/commands", methods={"GET"})
 @require_auth
 def list_commands(ctx: RouteContext) -> Response:
     """返回内置斜杠命令面板。"""
     return _http_json_response({"commands": builtin_command_palette()})
 
 
-@router.route("/api/workspaces")
+@router.route("/api/workspaces", methods={"GET"})
 @require_auth
 def list_workspaces(ctx: RouteContext) -> Response:
     """返回工作区列表,本地连接可获取控制能力标记。"""
@@ -64,14 +64,14 @@ def list_workspaces(ctx: RouteContext) -> Response:
     )
 
 
-@router.route("/api/webui/sidebar-state")
+@router.route("/api/webui/sidebar-state", methods={"GET"})
 @require_auth
 def read_sidebar_state(ctx: RouteContext) -> Response:
     """读取 WebUI 侧边栏持久化状态。"""
     return _http_json_response(read_webui_sidebar_state())
 
 
-@router.route("/api/webui/sidebar-state/update")
+@router.route("/api/webui/sidebar-state/update", methods={"GET", "POST"})
 @require_auth
 def update_sidebar_state(ctx: RouteContext) -> Response:
     """更新 WebUI 侧边栏持久化状态(JSON via ``state`` query 参数)。"""

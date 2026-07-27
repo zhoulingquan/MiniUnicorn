@@ -25,7 +25,7 @@ from . import (  # noqa: F401
     media,
     misc,
     sessions,
-    skills,
     settings,
+    skills,
     tools,
 )

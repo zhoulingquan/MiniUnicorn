@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 # MemoryStore — pure file I/O layer
 # ---------------------------------------------------------------------------
 
+
 class MemoryStore:
     """Pure file I/O for memory files: MEMORY.md, history.jsonl, SOUL.md, USER.md."""
 
@@ -117,11 +118,20 @@ class MemoryStore:
         # 这些文件在单次 turn 内不会变化（只有 Dream 会改写，且 Dream 独占运行）。
         # 通过 mtime+size 校验避免重复磁盘 IO。写入时调用 _invalidate_cache。
         self._file_cache: dict[Path, tuple[int, int, str]] = {}
-        self._git = GitStore(workspace, tracked_files=[
-            "SOUL.md", "USER.md", "notes.md", "memory/MEMORY.md", "memory/.dream_cursor",
-            "memory/episodic.jsonl", "memory/procedural.jsonl",
-            "memory/shared/MEMORY_SHARED.md", "memory/shared/procedural_shared.jsonl",
-        ])
+        self._git = GitStore(
+            workspace,
+            tracked_files=[
+                "SOUL.md",
+                "USER.md",
+                "notes.md",
+                "memory/MEMORY.md",
+                "memory/.dream_cursor",
+                "memory/episodic.jsonl",
+                "memory/procedural.jsonl",
+                "memory/shared/MEMORY_SHARED.md",
+                "memory/shared/procedural_shared.jsonl",
+            ],
+        )
         # Vector store for embedding-based retrieval. Lazy-initialized via
         # attach_vector_store(); None means no vector retrieval (legacy mode).
         self._vector_store: Any = None
@@ -156,9 +166,7 @@ class MemoryStore:
                 )
         except (OSError, RuntimeError) as e:
             # resolve 失败（broken symlink 等）也拒绝写入
-            raise PermissionError(
-                f"MemoryStore write blocked: cannot resolve {path}: {e}"
-            ) from e
+            raise PermissionError(f"MemoryStore write blocked: cannot resolve {path}: {e}") from e
 
     @classmethod
     def _assert_writer_allowed(cls, role: str, relative_path: str) -> None:
@@ -177,7 +185,10 @@ class MemoryStore:
             logger.warning(
                 "Single-Writer invariant violation: role '{}' is not in allowed writers {} "
                 "for path '{}' (allowed: {})",
-                role, allowed_roles, relative_path, allowed_roles,
+                role,
+                allowed_roles,
+                relative_path,
+                allowed_roles,
             )
 
     def attach_vector_store(self, vector_store: Any) -> None:
@@ -369,7 +380,9 @@ class MemoryStore:
         pruned = len(lines) - len(kept)
         logger.info(
             "Pruned {} old entries from {}, {} remaining",
-            pruned, path.name, len(kept),
+            pruned,
+            path.name,
+            len(kept),
         )
         return pruned
 
@@ -383,7 +396,9 @@ class MemoryStore:
 
     def prune_shared_procedural_if_needed(self) -> int:
         """截断 shared/procedural_shared.jsonl 到 _MAX_SHARED_PROCEDURAL_ENTRIES 条。"""
-        return self._truncate_jsonl_tail(self.shared_procedural_file, self._MAX_SHARED_PROCEDURAL_ENTRIES)
+        return self._truncate_jsonl_tail(
+            self.shared_procedural_file, self._MAX_SHARED_PROCEDURAL_ENTRIES
+        )
 
     def run_memory_hygiene(self) -> dict[str, int]:
         """执行全部文件层 + 向量库清理，返回各部分清理统计。
@@ -497,7 +512,8 @@ class MemoryStore:
         pruned = len(lines) - len(kept)
         logger.info(
             "Pruned {} processed reflection(s), {} remaining",
-            pruned, len(kept),
+            pruned,
+            len(kept),
         )
         return pruned
 
@@ -628,15 +644,17 @@ class MemoryStore:
             match = self._LEGACY_TIMESTAMP_RE.match(chunk)
             if match:
                 timestamp = match.group(1)
-                remainder = chunk[match.end():].lstrip()
+                remainder = chunk[match.end() :].lstrip()
                 if remainder:
                     content = remainder
 
-            entries.append({
-                "cursor": cursor,
-                "timestamp": timestamp,
-                "content": content,
-            })
+            entries.append(
+                {
+                    "cursor": cursor,
+                    "timestamp": timestamp,
+                    "content": content,
+                }
+            )
         return entries
 
     def _split_legacy_history_chunks(self, text: str) -> list[str]:
@@ -677,7 +695,7 @@ class MemoryStore:
         match = self._LEGACY_TIMESTAMP_RE.match(first_nonempty)
         if not match:
             return False
-        return first_nonempty[match.end():].lstrip().startswith("[RAW]")
+        return first_nonempty[match.end() :].lstrip().startswith("[RAW]")
 
     def _legacy_fallback_timestamp(self) -> str:
         try:
@@ -811,7 +829,8 @@ class MemoryStore:
                     "history entry exceeds {} chars ({}); truncating. "
                     "Usually means a caller forgot its own cap; "
                     "further occurrences suppressed.",
-                    limit, len(raw),
+                    limit,
+                    len(raw),
                 )
             raw = truncate_text(raw, limit)
         content = strip_think(raw)
@@ -884,7 +903,7 @@ class MemoryStore:
         entries = self._read_entries()
         if len(entries) <= self.max_history_entries:
             return
-        kept = entries[-self.max_history_entries:]
+        kept = entries[-self.max_history_entries :]
         self._write_entries(kept)
 
     # -- JSONL helpers -------------------------------------------------------
@@ -970,7 +989,9 @@ class MemoryStore:
         for message in messages:
             if not message.get("content"):
                 continue
-            tools = f" [tools: {', '.join(message['tools_used'])}]" if message.get("tools_used") else ""
+            tools = (
+                f" [tools: {', '.join(message['tools_used'])}]" if message.get("tools_used") else ""
+            )
             lines.append(
                 f"[{message.get('timestamp', '?')[:16]}] {message['role'].upper()}{tools}: {message['content']}"
             )
@@ -980,14 +1001,8 @@ class MemoryStore:
         """Fallback: dump raw messages to history.jsonl without LLM summarization."""
         limit = max_chars if max_chars is not None else _RAW_ARCHIVE_MAX_CHARS
         formatted = truncate_text(self._format_messages(messages), limit)
-        self.append_history(
-            f"[RAW] {len(messages)} messages\n"
-            f"{formatted}"
-        )
-        logger.warning(
-            "Memory consolidation degraded: raw-archived {} messages", len(messages)
-        )
-
+        self.append_history(f"[RAW] {len(messages)} messages\n{formatted}")
+        logger.warning("Memory consolidation degraded: raw-archived {} messages", len(messages))
 
 
 # ---------------------------------------------------------------------------
@@ -998,9 +1013,9 @@ class MemoryStore:
 # Individual history.jsonl writers cap their own payloads tightly; the
 # _HISTORY_ENTRY_HARD_CAP at append_history() is a belt-and-suspenders default
 # that catches any new caller that forgot to set its own cap.
-_RAW_ARCHIVE_MAX_CHARS = 16_000       # fallback dump (LLM failed)
-_ARCHIVE_SUMMARY_MAX_CHARS = 8_000    # LLM-produced consolidation summary
-_HISTORY_ENTRY_HARD_CAP = 64_000      # emergency cap in append_history
+_RAW_ARCHIVE_MAX_CHARS = 16_000  # fallback dump (LLM failed)
+_ARCHIVE_SUMMARY_MAX_CHARS = 8_000  # LLM-produced consolidation summary
+_HISTORY_ENTRY_HARD_CAP = 64_000  # emergency cap in append_history
 
 
 class Consolidator:
@@ -1053,9 +1068,7 @@ class Consolidator:
         assert 0 < self.checkpoint_ratio <= 1.0, "checkpoint_ratio 必须在 (0, 1.0]"
         self._build_messages = build_messages
         self._get_tool_definitions = get_tool_definitions
-        self._locks: weakref.WeakValueDictionary[str, asyncio.Lock] = (
-            weakref.WeakValueDictionary()
-        )
+        self._locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
         # 归档计数器：每 _HYGIENE_THROTTLE 次归档触发一次 memory hygiene。
         self._archive_count_since_hygiene = 0
 
@@ -1118,7 +1131,9 @@ class Consolidator:
     ) -> int | None:
         if not replay_max_messages or replay_max_messages <= 0:
             return None
-        tail = list(enumerate(session.messages[session.last_consolidated:], session.last_consolidated))
+        tail = list(
+            enumerate(session.messages[session.last_consolidated :], session.last_consolidated)
+        )
         if len(tail) <= replay_max_messages:
             return None
 
@@ -1151,7 +1166,7 @@ class Consolidator:
         end_idx = self._replay_overflow_boundary(session, replay_max_messages)
         if end_idx is None:
             return None
-        chunk = session.messages[session.last_consolidated:end_idx]
+        chunk = session.messages[session.last_consolidated : end_idx]
         if not chunk:
             return None
         logger.info(
@@ -1187,7 +1202,9 @@ class Consolidator:
             # content 可能是 str 或 list[block]；统一取文本
             if isinstance(content, list):
                 text = " ".join(
-                    b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"
+                    b.get("text", "")
+                    for b in content
+                    if isinstance(b, dict) and b.get("type") == "text"
                 )
             else:
                 text = str(content)
@@ -1221,10 +1238,14 @@ class Consolidator:
     ) -> tuple[int, str]:
         """Estimate prompt size from the full unconsolidated session tail."""
         history = self._full_unconsolidated_history(session, include_timestamps=True)
-        channel, chat_id = (session.key.split(":", 1) if ":" in session.key else (None, None))
+        channel, chat_id = session.key.split(":", 1) if ":" in session.key else (None, None)
         # Include archived summary in estimation so the budget accounts for it.
         meta = session.metadata.get("_last_summary")
-        summary = meta.get("text") if isinstance(meta, dict) else (meta if isinstance(meta, str) else None)
+        summary = (
+            meta.get("text")
+            if isinstance(meta, dict)
+            else (meta if isinstance(meta, str) else None)
+        )
         probe_messages = self._build_messages(
             history=history,
             current_message="[token-probe]",
@@ -1280,8 +1301,7 @@ class Consolidator:
             notes_content = self.store.read_notes()
             if notes_content:
                 formatted = (
-                    f"{formatted}\n\n"
-                    f"## Agent Scratchpad Notes (from notes.md)\n{notes_content}"
+                    f"{formatted}\n\n## Agent Scratchpad Notes (from notes.md)\n{notes_content}"
                 )
             formatted = self._truncate_to_token_budget(formatted)
             response = await self.provider.chat_with_retry(
@@ -1310,7 +1330,8 @@ class Consolidator:
             # Vector index the summary for future retrieval (no-op if vector store not attached)
             try:
                 await self.store.index_text(
-                    summary, kind="history",
+                    summary,
+                    kind="history",
                     metadata={"cursor": cursor},
                     importance=0.5,  # ordinary conversation summary
                 )
@@ -1419,7 +1440,7 @@ class Consolidator:
 
                 end_idx = boundary[0]
 
-                chunk = session.messages[session.last_consolidated:end_idx]
+                chunk = session.messages[session.last_consolidated : end_idx]
                 if not chunk:
                     break
 
@@ -1478,7 +1499,7 @@ class Consolidator:
             self.sessions.invalidate(session_key)
             session = self.sessions.get_or_create(session_key)
 
-            tail = list(session.messages[session.last_consolidated:])
+            tail = list(session.messages[session.last_consolidated :])
             if not tail:
                 session.updated_at = datetime.now()
                 self.sessions.save(session)
@@ -1605,18 +1626,24 @@ class Dream:
         # Dream gets its own FileStates so its caches stay isolated from the
         # main loop's sessions (issue #3571).
         file_states = FileStates()
-        tools.register(ReadFileTool(
-            workspace=workspace,
-            allowed_dir=workspace,
-            extra_allowed_dirs=extra_read,
-            file_states=file_states,
-        ))
-        tools.register(EditFileTool(workspace=workspace, allowed_dir=workspace, file_states=file_states))
+        tools.register(
+            ReadFileTool(
+                workspace=workspace,
+                allowed_dir=workspace,
+                extra_allowed_dirs=extra_read,
+                file_states=file_states,
+            )
+        )
+        tools.register(
+            EditFileTool(workspace=workspace, allowed_dir=workspace, file_states=file_states)
+        )
         # write_file resolves relative paths from workspace root, but can only
         # write under skills/ so the prompt can safely use skills/<name>/SKILL.md.
         skills_dir = workspace / "skills"
         skills_dir.mkdir(parents=True, exist_ok=True)
-        tools.register(WriteFileTool(workspace=workspace, allowed_dir=skills_dir, file_states=file_states))
+        tools.register(
+            WriteFileTool(workspace=workspace, allowed_dir=skills_dir, file_states=file_states)
+        )
         return tools
 
     # -- skill listing --------------------------------------------------------
@@ -1677,7 +1704,9 @@ class Dream:
         if len(lines) != len(ages):
             logger.debug(
                 "line_ages length mismatch for {} (lines={}, ages={}); skipping annotation",
-                file_path, len(lines), len(ages),
+                file_path,
+                len(lines),
+                len(ages),
             )
             return content
 
@@ -1720,16 +1749,23 @@ class Dream:
         if batch:
             logger.info(
                 "Dream: processing {} entries (cursor {}→{}), batch={}",
-                len(entries), last_cursor, batch[-1]["cursor"], len(batch),
+                len(entries),
+                last_cursor,
+                batch[-1]["cursor"],
+                len(batch),
             )
 
         # Build history text for LLM — cap each entry so a legacy oversized
         # record (e.g. pre-#3412 raw_archive dump) can't blow up the prompt.
-        history_text = "\n".join(
-            f"[{e['timestamp']}] "
-            f"{truncate_text(e['content'], self._HISTORY_ENTRY_PREVIEW_MAX_CHARS)}"
-            for e in batch
-        ) if batch else "(no new history)"
+        history_text = (
+            "\n".join(
+                f"[{e['timestamp']}] "
+                f"{truncate_text(e['content'], self._HISTORY_ENTRY_PREVIEW_MAX_CHARS)}"
+                for e in batch
+            )
+            if batch
+            else "(no new history)"
+        )
 
         # Current file contents + per-line age annotations (MEMORY.md only).
         # Each file is capped in the *prompt preview* only; Phase 2 still sees
@@ -1737,16 +1773,16 @@ class Dream:
         current_date = datetime.now().strftime("%Y-%m-%d")
         raw_memory = self.store.read_memory() or "(empty)"
         annotated_memory = (
-            self._annotate_with_ages(raw_memory)
-            if self.annotate_line_ages
-            else raw_memory
+            self._annotate_with_ages(raw_memory) if self.annotate_line_ages else raw_memory
         )
         current_memory = truncate_text(annotated_memory, self._MEMORY_FILE_MAX_CHARS)
         current_soul = truncate_text(
-            self.store.read_soul() or "(empty)", self._SOUL_FILE_MAX_CHARS,
+            self.store.read_soul() or "(empty)",
+            self._SOUL_FILE_MAX_CHARS,
         )
         current_user = truncate_text(
-            self.store.read_user() or "(empty)", self._USER_FILE_MAX_CHARS,
+            self.store.read_user() or "(empty)",
+            self._USER_FILE_MAX_CHARS,
         )
 
         file_context = (
@@ -1776,8 +1812,7 @@ class Dream:
 
         # Phase 1: Analyze (no skills list — dedup is Phase 2's job)
         phase1_prompt = (
-            f"## Conversation History\n{history_text}\n\n{file_context}"
-            f"{reflections_text}"
+            f"## Conversation History\n{history_text}\n\n{file_context}{reflections_text}"
         )
 
         try:
@@ -1807,9 +1842,8 @@ class Dream:
         existing_skills = self._list_existing_skills()
         skills_section = ""
         if existing_skills:
-            skills_section = (
-                "\n\n## Existing Skills\n"
-                + "\n".join(f"- {s}" for s in existing_skills)
+            skills_section = "\n\n## Existing Skills\n" + "\n".join(
+                f"- {s}" for s in existing_skills
             )
         phase2_prompt = f"## Analysis Result\n{analysis}\n\n{file_context}{skills_section}"
 
@@ -1828,20 +1862,28 @@ class Dream:
         ]
 
         try:
-            result = await self._runner.run(AgentRunSpec(
-                initial_messages=messages,
-                tools=tools,
-                model=self.model,
-                max_iterations=self.max_iterations,
-                max_tool_result_chars=self.max_tool_result_chars,
-                fail_on_tool_error=False,
-            ))
+            result = await self._runner.run(
+                AgentRunSpec(
+                    initial_messages=messages,
+                    tools=tools,
+                    model=self.model,
+                    max_iterations=self.max_iterations,
+                    max_tool_result_chars=self.max_tool_result_chars,
+                    fail_on_tool_error=False,
+                )
+            )
             logger.debug(
                 "Dream Phase 2 complete: stop_reason={}, tool_events={}",
-                result.stop_reason, len(result.tool_events),
+                result.stop_reason,
+                len(result.tool_events),
             )
-            for ev in (result.tool_events or []):
-                logger.info("Dream tool_event: name={}, status={}, detail={}", ev.get("name"), ev.get("status"), ev.get("detail", "")[:200])
+            for ev in result.tool_events or []:
+                logger.info(
+                    "Dream tool_event: name={}, status={}, detail={}",
+                    ev.get("name"),
+                    ev.get("status"),
+                    ev.get("detail", "")[:200],
+                )
         except Exception:
             logger.exception("Dream Phase 2 failed")
             result = None
@@ -1860,7 +1902,8 @@ class Dream:
                 self.store.set_last_dream_cursor(new_cursor)
                 logger.info(
                     "Dream done: {} change(s), cursor advanced to {}",
-                    len(changelog), new_cursor,
+                    len(changelog),
+                    new_cursor,
                 )
             else:
                 logger.info(
@@ -1881,7 +1924,8 @@ class Dream:
                     content = p.get("content", "")
                     if content:
                         await self.store.index_text(
-                            content, kind="procedural",
+                            content,
+                            kind="procedural",
                             metadata={"cursor": p.get("cursor"), "timestamp": p.get("timestamp")},
                             importance=0.8,
                         )

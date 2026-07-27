@@ -19,6 +19,7 @@ from miniunicorn.utils.helpers import image_placeholder_text
 @dataclass
 class ToolCallRequest:
     """A tool call request from the LLM."""
+
     id: str
     name: str
     arguments: dict[str, Any]
@@ -41,13 +42,16 @@ class ToolCallRequest:
         if self.provider_specific_fields:
             tool_call["provider_specific_fields"] = self.provider_specific_fields
         if self.function_provider_specific_fields:
-            tool_call["function"]["provider_specific_fields"] = self.function_provider_specific_fields
+            tool_call["function"]["provider_specific_fields"] = (
+                self.function_provider_specific_fields
+            )
         return tool_call
 
 
 @dataclass
 class LLMResponse:
     """Response from an LLM provider."""
+
     content: str | None
     tool_calls: list[ToolCallRequest] = field(default_factory=list)
     finish_reason: str = "stop"
@@ -116,24 +120,28 @@ class LLMProvider(ABC):
     )
     _RETRYABLE_STATUS_CODES = frozenset({408, 409, 429})
     _TRANSIENT_ERROR_KINDS = frozenset({"timeout", "connection"})
-    _NON_RETRYABLE_429_ERROR_TOKENS = frozenset({
-        "insufficient_quota",
-        "quota_exceeded",
-        "quota_exhausted",
-        "billing_hard_limit_reached",
-        "insufficient_balance",
-        "credit_balance_too_low",
-        "billing_not_active",
-        "payment_required",
-    })
-    _RETRYABLE_429_ERROR_TOKENS = frozenset({
-        "rate_limit_exceeded",
-        "rate_limit_error",
-        "too_many_requests",
-        "request_limit_exceeded",
-        "requests_limit_exceeded",
-        "overloaded_error",
-    })
+    _NON_RETRYABLE_429_ERROR_TOKENS = frozenset(
+        {
+            "insufficient_quota",
+            "quota_exceeded",
+            "quota_exhausted",
+            "billing_hard_limit_reached",
+            "insufficient_balance",
+            "credit_balance_too_low",
+            "billing_not_active",
+            "payment_required",
+        }
+    )
+    _RETRYABLE_429_ERROR_TOKENS = frozenset(
+        {
+            "rate_limit_exceeded",
+            "rate_limit_error",
+            "too_many_requests",
+            "request_limit_exceeded",
+            "requests_limit_exceeded",
+            "overloaded_error",
+        }
+    )
     _NON_RETRYABLE_429_TEXT_MARKERS = (
         "insufficient_quota",
         "insufficient quota",
@@ -183,7 +191,11 @@ class LLMProvider(ABC):
 
             if isinstance(content, str) and not content:
                 clean = dict(msg)
-                clean["content"] = None if (msg.get("role") == "assistant" and msg.get("tool_calls")) else "(empty)"
+                clean["content"] = (
+                    None
+                    if (msg.get("role") == "assistant" and msg.get("tool_calls"))
+                    else "(empty)"
+                )
                 result.append(clean)
                 continue
 
@@ -380,10 +392,7 @@ class LLMProvider(ABC):
     def _is_retryable_429_response(cls, response: LLMResponse) -> bool:
         type_token = cls._normalize_error_token(response.error_type)
         code_token = cls._normalize_error_token(response.error_code)
-        semantic_tokens = {
-            token for token in (type_token, code_token)
-            if token is not None
-        }
+        semantic_tokens = {token for token in (type_token, code_token) if token is not None}
         if any(token in cls._NON_RETRYABLE_429_ERROR_TOKENS for token in semantic_tokens):
             return False
 
@@ -545,9 +554,13 @@ class LLMProvider(ABC):
         """
         _ = on_thinking_delta, on_tool_call_delta
         response = await self.chat(
-            messages=messages, tools=tools, model=model,
-            max_tokens=max_tokens, temperature=temperature,
-            reasoning_effort=reasoning_effort, tool_choice=tool_choice,
+            messages=messages,
+            tools=tools,
+            model=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            reasoning_effort=reasoning_effort,
+            tool_choice=tool_choice,
         )
         if on_content_delta and response.content:
             await on_content_delta(response.content)
@@ -595,9 +608,13 @@ class LLMProvider(ABC):
                 await on_content_delta(text)
 
         kw: dict[str, Any] = dict(
-            messages=messages, tools=tools, model=model,
-            max_tokens=max_tokens, temperature=temperature,
-            reasoning_effort=reasoning_effort, tool_choice=tool_choice,
+            messages=messages,
+            tools=tools,
+            model=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            reasoning_effort=reasoning_effort,
+            tool_choice=tool_choice,
             on_content_delta=_tracking_delta if on_content_delta is not None else None,
             on_thinking_delta=on_thinking_delta,
             on_tool_call_delta=on_tool_call_delta,
@@ -640,9 +657,13 @@ class LLMProvider(ABC):
             reasoning_effort = self.generation.reasoning_effort
 
         kw: dict[str, Any] = dict(
-            messages=messages, tools=tools, model=model,
-            max_tokens=max_tokens, temperature=temperature,
-            reasoning_effort=reasoning_effort, tool_choice=tool_choice,
+            messages=messages,
+            tools=tools,
+            model=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            reasoning_effort=reasoning_effort,
+            tool_choice=tool_choice,
         )
         return await self._run_with_retry(
             self._safe_chat,
@@ -770,11 +791,9 @@ class LLMProvider(ABC):
                 return response
             last_response = response
             if should_retry_guard is not None and not should_retry_guard():
-                logger.warning(
-                    "LLM stream failed after content was emitted; skipping retry"
-                )
+                logger.warning("LLM stream failed after content was emitted; skipping retry")
                 return response
-            error_key = ((response.content or "").strip().lower() or None)
+            error_key = (response.content or "").strip().lower() or None
             if error_key and error_key == last_error_key:
                 identical_error_count += 1
             else:
@@ -816,9 +835,7 @@ class LLMProvider(ABC):
                     (response.content or "")[:120].lower(),
                 )
                 if on_retry_wait:
-                    await on_retry_wait(
-                        f"Model request failed after {attempt} retries, giving up."
-                    )
+                    await on_retry_wait(f"Model request failed after {attempt} retries, giving up.")
                 break
 
             base_delay = delays[min(attempt - 1, len(delays) - 1)]

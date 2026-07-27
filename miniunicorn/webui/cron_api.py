@@ -12,7 +12,7 @@ from typing import Any
 from miniunicorn.cron.service import CronService
 from miniunicorn.cron.types import CronJob, CronSchedule
 
-from ._query import _query_first, _query_first_alias
+from ._query import _query_first_alias
 from ._runtime import QueryParams
 
 
@@ -93,8 +93,8 @@ def create_cron_job(service: CronService, query: QueryParams) -> dict[str, Any]:
     deliver_raw = (_query_first_alias(query, "deliver", "deliver") or "false").strip().lower()
     deliver = deliver_raw in {"1", "true", "yes"}
     delete_after_raw = (
-        _query_first_alias(query, "delete_after_run", "deleteAfterRun") or "false"
-    ).strip().lower()
+        (_query_first_alias(query, "delete_after_run", "deleteAfterRun") or "false").strip().lower()
+    )
     delete_after_run = delete_after_raw in {"1", "true", "yes"}
 
     schedule = _parse_schedule(query)

@@ -1,4 +1,5 @@
 """Runtime context for tool construction."""
+
 from __future__ import annotations
 
 from contextvars import ContextVar, Token
@@ -14,6 +15,7 @@ _CURRENT_REQUEST_CONTEXT: ContextVar["RequestContext | None"] = ContextVar(
 @dataclass(frozen=True)
 class RequestContext:
     """Per-request context injected into tools at message-processing time."""
+
     channel: str
     chat_id: str
     message_id: str | None = None
@@ -23,8 +25,7 @@ class RequestContext:
 
 @runtime_checkable
 class ContextAware(Protocol):
-    def set_context(self, ctx: RequestContext) -> None:
-        ...
+    def set_context(self, ctx: RequestContext) -> None: ...
 
 
 def bind_request_context(ctx: RequestContext) -> Token[RequestContext | None]:

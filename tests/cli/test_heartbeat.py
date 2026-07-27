@@ -1,8 +1,9 @@
 """Heartbeat 辅函数单元测试:active_hours 时段判断。"""
+
 from datetime import time as dt_time
+from zoneinfo import ZoneInfo
 
 from miniunicorn.cli._heartbeat import _is_within_active_hours, _parse_hhmm
-from zoneinfo import ZoneInfo
 
 
 class TestParseHhmm:
@@ -17,6 +18,7 @@ class TestParseHhmm:
 
     def test_invalid_format(self):
         import pytest
+
         with pytest.raises(ValueError):
             _parse_hhmm("25:00")  # 超范围
         with pytest.raises(ValueError):
@@ -41,6 +43,7 @@ class TestIsWithinActiveHours:
         # 实际时间不固定,所以只测边界逻辑
         import unittest.mock as mock
         from datetime import datetime
+
         # 模拟中午 12:00
         fake_now = datetime(2026, 1, 1, 12, 0, tzinfo=self.tz)
         with mock.patch("miniunicorn.cli._heartbeat.datetime") as m:
@@ -52,6 +55,7 @@ class TestIsWithinActiveHours:
         """08:00-24:00 窗口,凌晨 03:00 应在窗口外。"""
         import unittest.mock as mock
         from datetime import datetime
+
         fake_now = datetime(2026, 1, 1, 3, 0, tzinfo=self.tz)
         with mock.patch("miniunicorn.cli._heartbeat.datetime") as m:
             m.now.return_value = fake_now
@@ -62,6 +66,7 @@ class TestIsWithinActiveHours:
         """22:00-06:00 跨夜窗口,23:00 应在窗口内。"""
         import unittest.mock as mock
         from datetime import datetime
+
         fake_now = datetime(2026, 1, 1, 23, 0, tzinfo=self.tz)
         with mock.patch("miniunicorn.cli._heartbeat.datetime") as m:
             m.now.return_value = fake_now
@@ -72,6 +77,7 @@ class TestIsWithinActiveHours:
         """22:00-06:00 跨夜窗口,02:00 应在窗口内。"""
         import unittest.mock as mock
         from datetime import datetime
+
         fake_now = datetime(2026, 1, 1, 2, 0, tzinfo=self.tz)
         with mock.patch("miniunicorn.cli._heartbeat.datetime") as m:
             m.now.return_value = fake_now
@@ -82,6 +88,7 @@ class TestIsWithinActiveHours:
         """22:00-06:00 跨夜窗口,12:00 应在窗口外。"""
         import unittest.mock as mock
         from datetime import datetime
+
         fake_now = datetime(2026, 1, 1, 12, 0, tzinfo=self.tz)
         with mock.patch("miniunicorn.cli._heartbeat.datetime") as m:
             m.now.return_value = fake_now

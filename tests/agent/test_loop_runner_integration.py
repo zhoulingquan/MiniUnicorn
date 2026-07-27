@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -22,20 +21,25 @@ def _make_loop(tmp_path):
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
 
-    with patch("miniunicorn.agent.loop.ContextBuilder"), \
-         patch("miniunicorn.agent.loop.SessionManager"), \
-         patch("miniunicorn.agent.loop.SubagentManager") as MockSubMgr:
+    with (
+        patch("miniunicorn.agent.loop.ContextBuilder"),
+        patch("miniunicorn.agent.loop.SessionManager"),
+        patch("miniunicorn.agent.loop.SubagentManager") as MockSubMgr,
+    ):
         MockSubMgr.return_value.cancel_by_session = AsyncMock(return_value=0)
         loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path)
     return loop
 
+
 @pytest.mark.asyncio
 async def test_loop_max_iterations_message_stays_stable(tmp_path):
     loop = _make_loop(tmp_path)
-    loop.provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content="working",
-        tool_calls=[ToolCallRequest(id="call_1", name="list_dir", arguments={})],
-    ))
+    loop.provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(
+            content="working",
+            tool_calls=[ToolCallRequest(id="call_1", name="list_dir", arguments={})],
+        )
+    )
     loop.tools.get_definitions = MagicMock(return_value=[])
     loop.tools.execute = AsyncMock(return_value="ok")
     loop.max_iterations = 2
@@ -152,14 +156,20 @@ async def test_streamed_flag_not_set_on_llm_error(tmp_path):
     provider.get_default_model.return_value = "test-model"
     loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path, model="test-model")
     error_resp = LLMResponse(
-        content="503 service unavailable", finish_reason="error", tool_calls=[], usage={},
+        content="503 service unavailable",
+        finish_reason="error",
+        tool_calls=[],
+        usage={},
     )
     loop.provider.chat_with_retry = AsyncMock(return_value=error_resp)
     loop.provider.chat_stream_with_retry = AsyncMock(return_value=error_resp)
     loop.tools.get_definitions = MagicMock(return_value=[])
 
     msg = InboundMessage(
-        channel="feishu", sender_id="u1", chat_id="c1", content="hi",
+        channel="feishu",
+        sender_id="u1",
+        chat_id="c1",
+        content="hi",
     )
     result = await loop._process_message(
         msg,
@@ -169,8 +179,9 @@ async def test_streamed_flag_not_set_on_llm_error(tmp_path):
 
     assert result is not None
     assert "503" in result.content
-    assert not result.metadata.get("_streamed"), \
+    assert not result.metadata.get("_streamed"), (
         "_streamed must not be set when stop_reason is error"
+    )
 
 
 @pytest.mark.asyncio
@@ -184,28 +195,32 @@ async def test_ssrf_soft_block_can_finalize_after_streamed_tool_call(tmp_path):
     provider.get_default_model.return_value = "test-model"
     tool_call_resp = LLMResponse(
         content="checking metadata",
-        tool_calls=[ToolCallRequest(
-            id="call_ssrf",
-            name="exec",
-            arguments={"command": "curl http://169.254.169.254/latest/meta-data/"},
-        )],
+        tool_calls=[
+            ToolCallRequest(
+                id="call_ssrf",
+                name="exec",
+                arguments={"command": "curl http://169.254.169.254/latest/meta-data/"},
+            )
+        ],
         usage={},
     )
-    provider.chat_stream_with_retry = AsyncMock(side_effect=[
-        tool_call_resp,
-        LLMResponse(
-            content="I cannot access private URLs. Please share the local file.",
-            tool_calls=[],
-            usage={},
-        ),
-    ])
+    provider.chat_stream_with_retry = AsyncMock(
+        side_effect=[
+            tool_call_resp,
+            LLMResponse(
+                content="I cannot access private URLs. Please share the local file.",
+                tool_calls=[],
+                usage={},
+            ),
+        ]
+    )
 
     loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path, model="test-model")
     loop.tools.get_definitions = MagicMock(return_value=[])
     loop.tools.prepare_call = MagicMock(return_value=(None, {}, None))
-    loop.tools.execute = AsyncMock(return_value=(
-        "Error: Command blocked by safety guard (internal/private URL detected)"
-    ))
+    loop.tools.execute = AsyncMock(
+        return_value=("Error: Command blocked by safety guard (internal/private URL detected)")
+    )
 
     result = await loop._process_message(
         InboundMessage(channel="telegram", sender_id="u1", chat_id="c1", content="hi"),
@@ -227,10 +242,14 @@ async def test_next_turn_after_llm_error_keeps_turn_boundary(tmp_path):
 
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
-    provider.chat_with_retry = AsyncMock(side_effect=[
-        LLMResponse(content="429 rate limit exceeded", finish_reason="error", tool_calls=[], usage={}),
-        LLMResponse(content="Recovered answer", tool_calls=[], usage={}),
-    ])
+    provider.chat_with_retry = AsyncMock(
+        side_effect=[
+            LLMResponse(
+                content="429 rate limit exceeded", finish_reason="error", tool_calls=[], usage={}
+            ),
+            LLMResponse(content="Recovered answer", tool_calls=[], usage={}),
+        ]
+    )
 
     loop = AgentLoop(bus=MessageBus(), provider=provider, workspace=tmp_path, model="test-model")
     loop.tools.get_definitions = MagicMock(return_value=[])
@@ -275,10 +294,12 @@ async def test_subagent_max_iterations_announces_existing_fallback(tmp_path, mon
     bus = MessageBus()
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
-    provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content="working",
-        tool_calls=[ToolCallRequest(id="call_1", name="list_dir", arguments={"path": "."})],
-    ))
+    provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(
+            content="working",
+            tool_calls=[ToolCallRequest(id="call_1", name="list_dir", arguments={"path": "."})],
+        )
+    )
     mgr = SubagentManager(
         provider=provider,
         workspace=tmp_path,
@@ -292,8 +313,12 @@ async def test_subagent_max_iterations_announces_existing_fallback(tmp_path, mon
 
     monkeypatch.setattr("miniunicorn.agent.tools.filesystem.ListDirTool.execute", fake_execute)
 
-    status = SubagentStatus(task_id="sub-1", label="label", task_description="do task", started_at=time.monotonic())
-    await mgr._run_subagent("sub-1", "do task", "label", {"channel": "test", "chat_id": "c1"}, status)
+    status = SubagentStatus(
+        task_id="sub-1", label="label", task_description="do task", started_at=time.monotonic()
+    )
+    await mgr._run_subagent(
+        "sub-1", "do task", "label", {"channel": "test", "chat_id": "c1"}, status
+    )
 
     mgr._announce_result.assert_awaited_once()
     args = mgr._announce_result.await_args.args

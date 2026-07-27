@@ -79,20 +79,22 @@ def _init_registration(domain: str = "feishu") -> None:
     methods = res.get("supported_auth_methods") or []
     if "client_secret" not in methods:
         raise RuntimeError(
-            f"Feishu / Lark registration does not support client_secret auth. "
-            f"Supported: {methods}"
+            f"Feishu / Lark registration does not support client_secret auth. Supported: {methods}"
         )
 
 
 def _begin_registration(domain: str = "feishu") -> dict:
     """Start the device-code flow. Returns device_code, qr_url, interval, expire_in."""
     base_url = _accounts_base_url(domain)
-    res = _post_registration(base_url, {
-        "action": "begin",
-        "archetype": "PersonalAgent",
-        "auth_method": "client_secret",
-        "request_user_info": "open_id",
-    })
+    res = _post_registration(
+        base_url,
+        {
+            "action": "begin",
+            "archetype": "PersonalAgent",
+            "auth_method": "client_secret",
+            "request_user_info": "open_id",
+        },
+    )
     device_code = res.get("device_code")
     if not device_code:
         raise RuntimeError("Feishu / Lark registration did not return a device_code")
@@ -160,11 +162,14 @@ def poll_registration_once(
     """
     current_domain = domain
     base_url = _accounts_base_url(current_domain)
-    res = _post_registration(base_url, {
-        "action": "poll",
-        "device_code": device_code,
-        "tp": "ob_app",
-    })
+    res = _post_registration(
+        base_url,
+        {
+            "action": "poll",
+            "device_code": device_code,
+            "tp": "ob_app",
+        },
+    )
 
     user_info = res.get("user_info") or {}
     tenant_brand = user_info.get("tenant_brand")
@@ -300,7 +305,8 @@ def save_registration_result(
             domain,
         )
     values = {
-        "name": name or ("miniunicorn" if instance_id == DEFAULT_INSTANCE_ID else f"miniunicorn {instance_id}"),
+        "name": name
+        or ("miniunicorn" if instance_id == DEFAULT_INSTANCE_ID else f"miniunicorn {instance_id}"),
         "appId": app_id,
         "appSecret": result["app_secret"],
         "domain": domain,
@@ -427,7 +433,9 @@ def _print_qr_code(url: str) -> None:
         _LOGIN_CONSOLE.print()
     except ImportError:
         _LOGIN_CONSOLE.print()
-        _LOGIN_CONSOLE.print(Panel.fit(Text(url), title="Open with Feishu or Lark", border_style="cyan"))
+        _LOGIN_CONSOLE.print(
+            Panel.fit(Text(url), title="Open with Feishu or Lark", border_style="cyan")
+        )
         _LOGIN_CONSOLE.print()
 
 

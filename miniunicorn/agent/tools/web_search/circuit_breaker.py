@@ -33,7 +33,7 @@ class CircuitBreakerConfig:
     """熔断器参数。"""
 
     failure_threshold: int = 3  # 连续失败多少次后打开
-    cooldown_s: float = 300.0   # 打开后冷却多少秒才允许 half_open 试探
+    cooldown_s: float = 300.0  # 打开后冷却多少秒才允许 half_open 试探
 
 
 class BackendCircuitBreaker:

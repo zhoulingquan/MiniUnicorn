@@ -16,7 +16,7 @@ _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 @pytest.mark.asyncio
 async def test_runner_calls_hooks_in_order():
     from miniunicorn.agent.hook import AgentHook, AgentHookContext
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
     call_count = {"n": 0}
@@ -41,35 +41,41 @@ async def test_runner_calls_hooks_in_order():
             events.append(("before_iteration", context.iteration))
 
         async def before_execute_tools(self, context: AgentHookContext) -> None:
-            events.append((
-                "before_execute_tools",
-                context.iteration,
-                [tc.name for tc in context.tool_calls],
-            ))
+            events.append(
+                (
+                    "before_execute_tools",
+                    context.iteration,
+                    [tc.name for tc in context.tool_calls],
+                )
+            )
 
         async def after_iteration(self, context: AgentHookContext) -> None:
-            events.append((
-                "after_iteration",
-                context.iteration,
-                context.final_content,
-                list(context.tool_results),
-                list(context.tool_events),
-                context.stop_reason,
-            ))
+            events.append(
+                (
+                    "after_iteration",
+                    context.iteration,
+                    context.final_content,
+                    list(context.tool_results),
+                    list(context.tool_events),
+                    context.stop_reason,
+                )
+            )
 
         def finalize_content(self, context: AgentHookContext, content: str | None) -> str | None:
             events.append(("finalize_content", context.iteration, content))
             return content.upper() if content else content
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[],
-        tools=tools,
-        model="test-model",
-        max_iterations=3,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        hook=RecordingHook(),
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[],
+            tools=tools,
+            model="test-model",
+            max_iterations=3,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            hook=RecordingHook(),
+        )
+    )
 
     assert result.final_content == "DONE"
     assert events == [
@@ -92,7 +98,7 @@ async def test_runner_calls_hooks_in_order():
 @pytest.mark.asyncio
 async def test_runner_streaming_hook_receives_deltas_and_end_signal():
     from miniunicorn.agent.hook import AgentHook, AgentHookContext
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
     streamed: list[str] = []
@@ -119,14 +125,16 @@ async def test_runner_streaming_hook_receives_deltas_and_end_signal():
             endings.append(resuming)
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        hook=StreamingHook(),
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            hook=StreamingHook(),
+        )
+    )
 
     assert result.final_content == "hello"
     assert streamed == ["he", "llo"]
@@ -138,7 +146,7 @@ async def test_runner_streaming_hook_receives_deltas_and_end_signal():
 async def test_runner_passes_cached_tokens_to_hook_context():
     """Hook context.usage should contain cached_tokens."""
     from miniunicorn.agent.hook import AgentHook, AgentHookContext
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
     captured_usage: list[dict] = []
@@ -159,14 +167,16 @@ async def test_runner_passes_cached_tokens_to_hook_context():
     tools.get_definitions.return_value = []
 
     runner = AgentRunner(provider)
-    await runner.run(AgentRunSpec(
-        initial_messages=[],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        hook=UsageHook(),
-    ))
+    await runner.run(
+        AgentRunSpec(
+            initial_messages=[],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            hook=UsageHook(),
+        )
+    )
 
     assert len(captured_usage) == 1
     assert captured_usage[0]["cached_tokens"] == 150

@@ -152,12 +152,29 @@ describe("webui API helpers", () => {
       apiBase: "https://api.deepseek.com",
     });
 
+    // Secrets must NOT appear in the URL query string — only the non-sensitive
+    // `provider` field stays in the URL. The api_key/api_base move into the
+    // x-miniunicorn-Values header, and the request uses POST per the design at
+    // docs/superpowers/specs/2026-07-27-fix-all-review-findings-design.md §4.1.
     expect(fetch).toHaveBeenCalledWith(
-      "/api/settings/provider/update?provider=deepseek&api_key=sk-deep-test&api_base=https%3A%2F%2Fapi.deepseek.com",
+      "/api/settings/provider/update?provider=deepseek",
       expect.objectContaining({
-        headers: { Authorization: "Bearer tok" },
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer tok",
+          "x-miniunicorn-Values": JSON.stringify({
+            api_key: "sk-deep-test",
+            api_base: "https://api.deepseek.com",
+          }),
+        }),
       }),
     );
+
+    // Sanity check: ensure the secret never leaks into the URL.
+    const [url] = vi.mocked(fetch).mock.calls.at(-1)!;
+    expect(String(url)).not.toContain("sk-deep-test");
+    expect(String(url)).not.toContain("api_key");
+    expect(String(url)).not.toContain("api_base");
   });
 
   it("serializes provider OAuth login and logout actions", async () => {

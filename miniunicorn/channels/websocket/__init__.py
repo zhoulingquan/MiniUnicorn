@@ -3,6 +3,7 @@
 Backward-compat: re-exports everything from ``.channel`` so legacy
 ``from miniunicorn.channels.websocket import WebSocketChannel`` keeps working.
 """
+
 from .channel import *  # noqa: F401,F403  — public symbols
 from .channel import (  # noqa: F401  — private names used by tests/monkeypatch
     _default_model_name_from_config,

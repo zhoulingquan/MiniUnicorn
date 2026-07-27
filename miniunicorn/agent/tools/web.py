@@ -117,7 +117,8 @@ class _JinaCircuitBreaker:
             self._opened_at = time.time()
             logger.info(
                 "Jina Reader circuit breaker opened after {} consecutive failures; cooldown {}s",
-                self._failures, _JINA_COOLDOWN_S,
+                self._failures,
+                _JINA_COOLDOWN_S,
             )
 
     def status(self) -> str:
@@ -141,6 +142,7 @@ class WebFetchConfig(Base):
 
 class WebToolsConfig(Base):
     """Web tools configuration."""
+
     enable: bool = True
     proxy: str | None = None
     user_agent: str | None = None
@@ -151,7 +153,7 @@ def _validate_url(url: str) -> tuple[bool, str]:
     """Validate URL scheme/domain. Does NOT check resolved IPs (use _validate_url_safe for that)."""
     try:
         p = urlparse(url)
-        if p.scheme not in ('http', 'https'):
+        if p.scheme not in ("http", "https"):
             return False, f"Only http/https allowed, got '{p.scheme or 'none'}'"
         if not p.netloc:
             return False, "Missing domain"
@@ -253,6 +255,7 @@ async def _stream_with_safe_redirects(
 )
 class WebFetchTool(Tool):
     """Fetch and extract content from a URL."""
+
     _scopes = {"core", "subagent"}
 
     name = "web_fetch"
@@ -280,7 +283,13 @@ class WebFetchTool(Tool):
             user_agent=ctx.config.web.user_agent,
         )
 
-    def __init__(self, config: WebFetchConfig | None = None, proxy: str | None = None, user_agent: str | None = None, max_chars: int = 50000):
+    def __init__(
+        self,
+        config: WebFetchConfig | None = None,
+        proxy: str | None = None,
+        user_agent: str | None = None,
+        max_chars: int = 50000,
+    ):
         self.config = config if config is not None else WebFetchConfig()
         self.proxy = proxy
         self.user_agent = user_agent or _DEFAULT_USER_AGENT
@@ -306,7 +315,9 @@ class WebFetchTool(Tool):
         max_chars = kwargs.pop("maxChars", max_chars) or self.max_chars
         is_valid, error_msg = _validate_url_safe(url)
         if not is_valid:
-            return json.dumps({"error": f"URL validation failed: {error_msg}", "url": url}, ensure_ascii=False)
+            return json.dumps(
+                {"error": f"URL validation failed: {error_msg}", "url": url}, ensure_ascii=False
+            )
 
         # Detect and fetch images directly to avoid Jina's textual image captioning
         try:
@@ -326,7 +337,9 @@ class WebFetchTool(Tool):
                     if ctype.startswith("image/"):
                         r.raise_for_status()
                         raw = await r.aread()
-                        return build_image_content_blocks(raw, ctype, url, f"(Image fetched from: {url})")
+                        return build_image_content_blocks(
+                            raw, ctype, url, f"(Image fetched from: {url})"
+                        )
                 finally:
                     if stream is not None:
                         await stream.__aexit__(None, None, None)
@@ -450,11 +463,19 @@ class WebFetchTool(Tool):
                 text = text[:max_chars]
             text = f"{_UNTRUSTED_BANNER}\n\n{text}"
 
-            return json.dumps({
-                "url": url, "finalUrl": data.get("url", url), "status": r.status_code,
-                "extractor": "jina", "truncated": truncated, "length": len(text),
-                "untrusted": True, "text": text,
-            }, ensure_ascii=False)
+            return json.dumps(
+                {
+                    "url": url,
+                    "finalUrl": data.get("url", url),
+                    "status": r.status_code,
+                    "extractor": "jina",
+                    "truncated": truncated,
+                    "length": len(text),
+                    "untrusted": True,
+                    "text": text,
+                },
+                ensure_ascii=False,
+            )
         except Exception as e:
             logger.debug("Jina Reader failed for {}, falling back to readability: {}", url, e)
             return None
@@ -479,7 +500,9 @@ class WebFetchTool(Tool):
 
             ctype = r.headers.get("content-type", "")
             if ctype.startswith("image/"):
-                return build_image_content_blocks(r.content, ctype, url, f"(Image fetched from: {url})")
+                return build_image_content_blocks(
+                    r.content, ctype, url, f"(Image fetched from: {url})"
+                )
 
             if "application/json" in ctype:
                 text, extractor = json.dumps(r.json(), indent=2, ensure_ascii=False), "json"
@@ -487,7 +510,11 @@ class WebFetchTool(Tool):
                 from readability import Document
 
                 doc = Document(r.text)
-                content = self._to_markdown(doc.summary()) if extract_mode == "markdown" else _strip_tags(doc.summary())
+                content = (
+                    self._to_markdown(doc.summary())
+                    if extract_mode == "markdown"
+                    else _strip_tags(doc.summary())
+                )
                 text = f"# {doc.title()}\n\n{content}" if doc.title() else content
                 extractor = "readability"
             else:
@@ -498,11 +525,19 @@ class WebFetchTool(Tool):
                 text = text[:max_chars]
             text = f"{_UNTRUSTED_BANNER}\n\n{text}"
 
-            return json.dumps({
-                "url": url, "finalUrl": str(r.url), "status": r.status_code,
-                "extractor": extractor, "truncated": truncated, "length": len(text),
-                "untrusted": True, "text": text,
-            }, ensure_ascii=False)
+            return json.dumps(
+                {
+                    "url": url,
+                    "finalUrl": str(r.url),
+                    "status": r.status_code,
+                    "extractor": extractor,
+                    "truncated": truncated,
+                    "length": len(text),
+                    "untrusted": True,
+                    "text": text,
+                },
+                ensure_ascii=False,
+            )
         except httpx.ProxyError as e:
             logger.exception("WebFetch proxy error for {}", url)
             return json.dumps({"error": f"Proxy error: {e}", "url": url}, ensure_ascii=False)
@@ -512,11 +547,21 @@ class WebFetchTool(Tool):
 
     def _to_markdown(self, html_content: str) -> str:
         """Convert HTML to markdown."""
-        text = re.sub(r'<a\s+[^>]*href=["\']([^"\']+)["\'][^>]*>([\s\S]*?)</a>',
-                      lambda m: f'[{_strip_tags(m[2])}]({m[1]})', html_content, flags=re.I)
-        text = re.sub(r'<h([1-6])[^>]*>([\s\S]*?)</h\1>',
-                      lambda m: f'\n{"#" * int(m[1])} {_strip_tags(m[2])}\n', text, flags=re.I)
-        text = re.sub(r'<li[^>]*>([\s\S]*?)</li>', lambda m: f'\n- {_strip_tags(m[1])}', text, flags=re.I)
-        text = re.sub(r'</(p|div|section|article)>', '\n\n', text, flags=re.I)
-        text = re.sub(r'<(br|hr)\s*/?>', '\n', text, flags=re.I)
+        text = re.sub(
+            r'<a\s+[^>]*href=["\']([^"\']+)["\'][^>]*>([\s\S]*?)</a>',
+            lambda m: f"[{_strip_tags(m[2])}]({m[1]})",
+            html_content,
+            flags=re.I,
+        )
+        text = re.sub(
+            r"<h([1-6])[^>]*>([\s\S]*?)</h\1>",
+            lambda m: f"\n{'#' * int(m[1])} {_strip_tags(m[2])}\n",
+            text,
+            flags=re.I,
+        )
+        text = re.sub(
+            r"<li[^>]*>([\s\S]*?)</li>", lambda m: f"\n- {_strip_tags(m[1])}", text, flags=re.I
+        )
+        text = re.sub(r"</(p|div|section|article)>", "\n\n", text, flags=re.I)
+        text = re.sub(r"<(br|hr)\s*/?>", "\n", text, flags=re.I)
         return _normalize(_strip_tags(text))

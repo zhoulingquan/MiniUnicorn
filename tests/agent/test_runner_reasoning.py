@@ -63,20 +63,23 @@ async def test_runner_preserves_reasoning_fields_in_assistant_history():
     tools.execute = AsyncMock(return_value="tool result")
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[
-            {"role": "system", "content": "system"},
-            {"role": "user", "content": "do task"},
-        ],
-        tools=tools,
-        model="test-model",
-        max_iterations=3,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[
+                {"role": "system", "content": "system"},
+                {"role": "user", "content": "do task"},
+            ],
+            tools=tools,
+            model="test-model",
+            max_iterations=3,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     assert result.final_content == "done"
     assistant_messages = [
-        msg for msg in captured_second_call
+        msg
+        for msg in captured_second_call
         if msg.get("role") == "assistant" and msg.get("tool_calls")
     ]
     assert len(assistant_messages) == 1
@@ -94,8 +97,16 @@ async def test_runner_emits_anthropic_thinking_blocks():
         return LLMResponse(
             content="The answer is 42.",
             thinking_blocks=[
-                {"type": "thinking", "thinking": "Let me analyze this step by step.", "signature": "sig1"},
-                {"type": "thinking", "thinking": "After careful consideration.", "signature": "sig2"},
+                {
+                    "type": "thinking",
+                    "thinking": "Let me analyze this step by step.",
+                    "signature": "sig1",
+                },
+                {
+                    "type": "thinking",
+                    "thinking": "After careful consideration.",
+                    "signature": "sig2",
+                },
             ],
             tool_calls=[],
             usage={"prompt_tokens": 5, "completion_tokens": 3},
@@ -107,14 +118,16 @@ async def test_runner_emits_anthropic_thinking_blocks():
 
     hook = _RecordingHook()
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "question"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=3,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        hook=hook,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "question"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=3,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            hook=hook,
+        )
+    )
 
     assert result.final_content == "The answer is 42."
     assert len(hook.emitted) == 1
@@ -143,14 +156,16 @@ async def test_runner_emits_inline_think_content_as_reasoning():
 
     hook = _RecordingHook()
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "what is the answer?"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=3,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        hook=hook,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "what is the answer?"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=3,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            hook=hook,
+        )
+    )
 
     assert result.final_content == "The answer is 42."
     assert len(hook.emitted) == 1
@@ -179,14 +194,16 @@ async def test_runner_prefers_reasoning_content_over_inline_think():
 
     hook = _RecordingHook()
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "question"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=3,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        hook=hook,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "question"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=3,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            hook=hook,
+        )
+    )
 
     assert result.final_content == "The answer."
     assert hook.emitted == ["dedicated reasoning field"]
@@ -224,16 +241,18 @@ async def test_runner_emits_reasoning_content_even_when_answer_was_streamed():
 
     hook = _RecordingHook()
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "question"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=3,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        hook=hook,
-        stream_progress_deltas=True,
-        progress_callback=_progress,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "question"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=3,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            hook=hook,
+            stream_progress_deltas=True,
+            progress_callback=_progress,
+        )
+    )
 
     assert result.final_content == "The answer."
     assert progress_calls, "answer should have streamed via progress callback"
@@ -268,16 +287,18 @@ async def test_runner_does_not_double_emit_when_inline_think_already_streamed():
 
     hook = _RecordingHook()
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "question"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=3,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        hook=hook,
-        stream_progress_deltas=True,
-        progress_callback=_progress,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "question"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=3,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            hook=hook,
+            stream_progress_deltas=True,
+            progress_callback=_progress,
+        )
+    )
 
     assert result.final_content == "The answer."
     assert hook.emitted == ["working..."]
@@ -307,14 +328,16 @@ async def test_runner_closes_reasoning_stream_after_one_shot_response():
 
     hook = _RecordingHook()
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "q"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=3,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        hook=hook,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "q"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=3,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            hook=hook,
+        )
+    )
 
     assert result.final_content == "answer"
     assert hook.emitted == ["hidden thought"]
@@ -337,9 +360,7 @@ async def test_runner_streams_native_thinking_deltas_without_post_hoc_dup():
 
     provider = MagicMock()
 
-    async def chat_stream_with_retry(
-        *, on_content_delta=None, on_thinking_delta=None, **kwargs
-    ):
+    async def chat_stream_with_retry(*, on_content_delta=None, on_thinking_delta=None, **kwargs):
         if on_thinking_delta:
             await on_thinking_delta("part1")
             await on_thinking_delta("part2")
@@ -358,14 +379,16 @@ async def test_runner_streams_native_thinking_deltas_without_post_hoc_dup():
 
     hook = _StreamRecordingHook()
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "q"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=3,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        hook=hook,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "q"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=3,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            hook=hook,
+        )
+    )
 
     assert result.final_content == "done"
     assert hook.emitted == ["part1", "part2"]

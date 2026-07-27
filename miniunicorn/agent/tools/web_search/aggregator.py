@@ -34,7 +34,7 @@ from miniunicorn.security.workspace_access import current_workspace_scope
 # 3. bing_cn: Bing RSS,国内免 Key 兜底,SearXNG 不可用时降级
 BACKEND_PRIORITY: tuple[str, ...] = (
     "searxng",  # 主力:自托管元搜索,聚合 100+ 引擎(需配置 base_url)
-    "tavily",   # AI 摘要增强:含 LLM summary,snippet 质量最高(需 Key)
+    "tavily",  # AI 摘要增强:含 LLM summary,snippet 质量最高(需 Key)
     "bing_cn",  # 国内免 Key 兜底:Bing RSS,SearXNG 不可用时降级
 )
 
@@ -178,9 +178,7 @@ class SearchAggregator:
 
         try:
             while pending:
-                done, pending = await asyncio.wait(
-                    pending, return_when=asyncio.FIRST_COMPLETED
-                )
+                done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
                 for task in done:
                     name = next(n for n, t in tasks.items() if t is task)
                     try:
@@ -201,9 +199,7 @@ class SearchAggregator:
 
             # 剩余后端后台跑完写入缓存(不阻塞当前请求)
             if ok_responses and pending:
-                asyncio.ensure_future(
-                    self._drain_pending(tasks, pending, query, count)
-                )
+                asyncio.ensure_future(self._drain_pending(tasks, pending, query, count))
 
             if not ok_responses:
                 return BackendResponse(

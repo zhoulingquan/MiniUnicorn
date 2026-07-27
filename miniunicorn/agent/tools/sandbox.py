@@ -36,8 +36,15 @@ def _bwrap(
         sandbox_cwd = str(ws)
 
     required = ["/usr"]
-    optional = ["/bin", "/lib", "/lib64", "/etc/alternatives",
-                "/etc/ssl/certs", "/etc/resolv.conf", "/etc/ld.so.cache"]
+    optional = [
+        "/bin",
+        "/lib",
+        "/lib64",
+        "/etc/alternatives",
+        "/etc/ssl/certs",
+        "/etc/resolv.conf",
+        "/etc/ld.so.cache",
+    ]
 
     args = ["bwrap", "--new-session", "--die-with-parent"]
     # 可选网络隔离:仅在显式启用时切断沙箱网络,避免影响默认联网命令
@@ -48,13 +55,28 @@ def _bwrap(
     for p in optional:
         args += ["--ro-bind-try", p, p]
     args += [
-        "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp",
-        "--tmpfs", str(ws.parent),        # mask config dir
-        "--dir", str(ws),                 # recreate workspace mount point
-        "--bind", str(ws), str(ws),
-        "--ro-bind-try", str(media), str(media),  # read-only access to media
-        "--chdir", sandbox_cwd,
-        "--", "sh", "-c", command,
+        "--proc",
+        "/proc",
+        "--dev",
+        "/dev",
+        "--tmpfs",
+        "/tmp",
+        "--tmpfs",
+        str(ws.parent),  # mask config dir
+        "--dir",
+        str(ws),  # recreate workspace mount point
+        "--bind",
+        str(ws),
+        str(ws),
+        "--ro-bind-try",
+        str(media),
+        str(media),  # read-only access to media
+        "--chdir",
+        sandbox_cwd,
+        "--",
+        "sh",
+        "-c",
+        command,
     ]
     return shlex.join(args)
 

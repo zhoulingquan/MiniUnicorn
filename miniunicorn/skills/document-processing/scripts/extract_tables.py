@@ -29,6 +29,7 @@ from pathlib import Path
 def extract_docx_tables(path: Path) -> list[dict]:
     """从 .docx 提取所有表格。"""
     from docx import Document
+
     doc = Document(path)
     tables: list[dict] = []
     for i, table in enumerate(doc.tables, 1):
@@ -38,18 +39,21 @@ def extract_docx_tables(path: Path) -> list[dict]:
         if not rows:
             continue
         headers = rows[0] if rows else []
-        tables.append({
-            "table_index": i,
-            "headers": headers,
-            "rows": rows[1:] if len(rows) > 1 else [],
-            "all_rows": rows,
-        })
+        tables.append(
+            {
+                "table_index": i,
+                "headers": headers,
+                "rows": rows[1:] if len(rows) > 1 else [],
+                "all_rows": rows,
+            }
+        )
     return tables
 
 
 def extract_xlsx_tables(path: Path) -> list[dict]:
     """从 .xlsx 提取所有 sheet 的表格数据。"""
     from openpyxl import load_workbook
+
     wb = load_workbook(path, read_only=True, data_only=True)
     tables: list[dict] = []
     try:
@@ -65,12 +69,14 @@ def extract_xlsx_tables(path: Path) -> list[dict]:
             if not rows:
                 continue
             headers = rows[0]
-            tables.append({
-                "sheet": sheet_name,
-                "headers": headers,
-                "rows": rows[1:] if len(rows) > 1 else [],
-                "all_rows": rows,
-            })
+            tables.append(
+                {
+                    "sheet": sheet_name,
+                    "headers": headers,
+                    "rows": rows[1:] if len(rows) > 1 else [],
+                    "all_rows": rows,
+                }
+            )
     finally:
         wb.close()
     return tables
@@ -93,19 +99,22 @@ def extract_pdf_tables(path: Path) -> list[dict]:
                     continue
                 rows = [[cell.strip() if cell else "" for cell in row] for row in table]
                 headers = rows[0] if rows else []
-                tables.append({
-                    "page": i,
-                    "table_index": j,
-                    "headers": headers,
-                    "rows": rows[1:] if len(rows) > 1 else [],
-                    "all_rows": rows,
-                })
+                tables.append(
+                    {
+                        "page": i,
+                        "table_index": j,
+                        "headers": headers,
+                        "rows": rows[1:] if len(rows) > 1 else [],
+                        "all_rows": rows,
+                    }
+                )
     return tables
 
 
 def extract_pptx_tables(path: Path) -> list[dict]:
     """从 .pptx 提取所有表格。"""
     from pptx import Presentation
+
     prs = Presentation(path)
     tables: list[dict] = []
     for i, slide in enumerate(prs.slides, 1):
@@ -119,12 +128,14 @@ def extract_pptx_tables(path: Path) -> list[dict]:
             if not rows:
                 continue
             headers = rows[0]
-            tables.append({
-                "slide": i,
-                "headers": headers,
-                "rows": rows[1:] if len(rows) > 1 else [],
-                "all_rows": rows,
-            })
+            tables.append(
+                {
+                    "slide": i,
+                    "headers": headers,
+                    "rows": rows[1:] if len(rows) > 1 else [],
+                    "all_rows": rows,
+                }
+            )
     return tables
 
 

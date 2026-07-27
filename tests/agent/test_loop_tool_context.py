@@ -4,9 +4,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from miniunicorn.agent.loop import AgentLoop
+from miniunicorn.agent.tools.context import RequestContext
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.providers.base import LLMResponse, ToolCallRequest
-from miniunicorn.agent.tools.context import RequestContext
 
 
 class _ContextRecordingTool:
@@ -17,12 +17,14 @@ class _ContextRecordingTool:
         self.contexts: list[dict] = []
 
     def set_context(self, ctx: RequestContext) -> None:
-        self.contexts.append({
-            "channel": ctx.channel,
-            "chat_id": ctx.chat_id,
-            "metadata": ctx.metadata,
-            "session_key": ctx.session_key,
-        })
+        self.contexts.append(
+            {
+                "channel": ctx.channel,
+                "chat_id": ctx.chat_id,
+                "metadata": ctx.metadata,
+                "session_key": ctx.session_key,
+            }
+        )
 
     async def execute(self, **_kwargs) -> str:
         return "created"

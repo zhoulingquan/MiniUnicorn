@@ -31,7 +31,7 @@ def collect_chunked_header(headers: Any, base_name: str) -> str:
         lower = key.lower()
         prefix = f"{base_name.lower()}-"
         if lower.startswith(prefix):
-            suffix = key[len(base_name) + 1:]
+            suffix = key[len(base_name) + 1 :]
             try:
                 idx = int(suffix)
             except ValueError:

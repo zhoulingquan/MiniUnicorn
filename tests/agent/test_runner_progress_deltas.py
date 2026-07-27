@@ -25,18 +25,20 @@ async def test_runner_can_disable_provider_progress_delta_streaming():
     progress_cb = AsyncMock()
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[
-            {"role": "system", "content": "system"},
-            {"role": "user", "content": "hi"},
-        ],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        progress_callback=progress_cb,
-        stream_progress_deltas=False,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[
+                {"role": "system", "content": "system"},
+                {"role": "user", "content": "hi"},
+            ],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            progress_callback=progress_cb,
+            stream_progress_deltas=False,
+        )
+    )
 
     assert result.final_content == "done"
     provider.chat_with_retry.assert_awaited_once()
@@ -62,17 +64,19 @@ async def test_runner_streams_provider_progress_deltas_by_default():
     progress_cb = AsyncMock()
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[
-            {"role": "system", "content": "system"},
-            {"role": "user", "content": "hi"},
-        ],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        progress_callback=progress_cb,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[
+                {"role": "system", "content": "system"},
+                {"role": "user", "content": "hi"},
+            ],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            progress_callback=progress_cb,
+        )
+    )
 
     assert result.final_content == "hello"
     assert [call.args[0] for call in progress_cb.await_args_list] == ["he", "llo"]
@@ -109,12 +113,14 @@ async def test_runner_streams_live_write_file_activity_from_tool_argument_deltas
         call_count += 1
         if call_count == 1:
             assert on_tool_call_delta is not None
-            await on_tool_call_delta({
-                "index": 0,
-                "call_id": "call-write",
-                "name": "write_file",
-                "arguments_delta": '{"path":"big.txt","content":"',
-            })
+            await on_tool_call_delta(
+                {
+                    "index": 0,
+                    "call_id": "call-write",
+                    "name": "write_file",
+                    "arguments_delta": '{"path":"big.txt","content":"',
+                }
+            )
             await on_tool_call_delta({"index": 0, "arguments_delta": "line\\n" * 24})
             return LLMResponse(
                 content=None,
@@ -133,15 +139,17 @@ async def test_runner_streams_live_write_file_activity_from_tool_argument_deltas
     provider.chat_with_retry = AsyncMock()
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "write a large file"}],
-        tools=Tools(),
-        model="test-model",
-        max_iterations=2,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        progress_callback=progress_cb,
-        workspace=tmp_path,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "write a large file"}],
+            tools=Tools(),
+            model="test-model",
+            max_iterations=2,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            progress_callback=progress_cb,
+            workspace=tmp_path,
+        )
+    )
 
     assert result.final_content == "done"
     assert any(event["approximate"] and event["added"] == 24 for event in progress_events)
@@ -189,18 +197,22 @@ async def test_runner_streams_live_edit_file_activity_from_tool_argument_deltas(
         call_count += 1
         if call_count == 1:
             assert on_tool_call_delta is not None
-            await on_tool_call_delta({
-                "index": 0,
-                "call_id": "call-edit",
-                "name": "edit_file",
-                "arguments_delta": (
-                    '{"path":"notes.txt","old_text":"old\\nkeep\\n","new_text":"'
-                ),
-            })
-            await on_tool_call_delta({
-                "index": 0,
-                "arguments_delta": "new\\nkeep\\nextra\\n",
-            })
+            await on_tool_call_delta(
+                {
+                    "index": 0,
+                    "call_id": "call-edit",
+                    "name": "edit_file",
+                    "arguments_delta": (
+                        '{"path":"notes.txt","old_text":"old\\nkeep\\n","new_text":"'
+                    ),
+                }
+            )
+            await on_tool_call_delta(
+                {
+                    "index": 0,
+                    "arguments_delta": "new\\nkeep\\nextra\\n",
+                }
+            )
             await on_tool_call_delta({"index": 0, "arguments_delta": '"}'})
             return LLMResponse(
                 content=None,
@@ -223,15 +235,17 @@ async def test_runner_streams_live_edit_file_activity_from_tool_argument_deltas(
     provider.chat_with_retry = AsyncMock()
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "edit a file"}],
-        tools=Tools(),
-        model="test-model",
-        max_iterations=2,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        progress_callback=progress_cb,
-        workspace=tmp_path,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "edit a file"}],
+            tools=Tools(),
+            model="test-model",
+            max_iterations=2,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            progress_callback=progress_cb,
+            workspace=tmp_path,
+        )
+    )
 
     assert result.final_content == "done"
     assert any(
@@ -264,12 +278,14 @@ async def test_runner_marks_unfinished_live_write_file_activity_failed(tmp_path)
 
     async def chat_stream_with_retry(*, on_tool_call_delta=None, **kwargs):
         assert on_tool_call_delta is not None
-        await on_tool_call_delta({
-            "index": 0,
-            "call_id": "call-write",
-            "name": "write_file",
-            "arguments_delta": '{"path":"aborted.txt","content":"partial\\n',
-        })
+        await on_tool_call_delta(
+            {
+                "index": 0,
+                "call_id": "call-write",
+                "name": "write_file",
+                "arguments_delta": '{"path":"aborted.txt","content":"partial\\n',
+            }
+        )
         return LLMResponse(content="stopped", tool_calls=[], finish_reason="stop", usage={})
 
     provider.chat_stream_with_retry = chat_stream_with_retry
@@ -279,15 +295,17 @@ async def test_runner_marks_unfinished_live_write_file_activity_failed(tmp_path)
     tools.get.return_value = None
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "write a large file"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        progress_callback=progress_cb,
-        workspace=tmp_path,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "write a large file"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            progress_callback=progress_cb,
+            workspace=tmp_path,
+        )
+    )
 
     assert result.final_content == "stopped"
     assert progress_events[-1]["path"] == "aborted.txt"

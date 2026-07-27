@@ -244,12 +244,14 @@ async def test_running_service_honors_external_disable(tmp_path) -> None:
 
 def test_remove_job_refuses_system_jobs(tmp_path) -> None:
     service = CronService(tmp_path / "cron" / "jobs.json")
-    service.register_system_job(CronJob(
-        id="dream",
-        name="dream",
-        schedule=CronSchedule(kind="cron", expr="0 */2 * * *", tz="UTC"),
-        payload=CronPayload(kind="system_event"),
-    ))
+    service.register_system_job(
+        CronJob(
+            id="dream",
+            name="dream",
+            schedule=CronSchedule(kind="cron", expr="0 */2 * * *", tz="UTC"),
+            payload=CronPayload(kind="system_event"),
+        )
+    )
 
     result = service.remove_job("dream")
 
@@ -261,6 +263,7 @@ def test_remove_job_refuses_system_jobs(tmp_path) -> None:
 async def test_start_server_not_jobs(tmp_path):
     store_path = tmp_path / "cron" / "jobs.json"
     called = []
+
     async def on_job(job):
         called.append(job.name)
 
@@ -499,12 +502,14 @@ def test_update_job_not_found(tmp_path) -> None:
 
 def test_update_job_rejects_system_job(tmp_path) -> None:
     service = CronService(tmp_path / "cron" / "jobs.json")
-    service.register_system_job(CronJob(
-        id="dream",
-        name="dream",
-        schedule=CronSchedule(kind="cron", expr="0 */2 * * *", tz="UTC"),
-        payload=CronPayload(kind="system_event"),
-    ))
+    service.register_system_job(
+        CronJob(
+            id="dream",
+            name="dream",
+            schedule=CronSchedule(kind="cron", expr="0 */2 * * *", tz="UTC"),
+            payload=CronPayload(kind="system_event"),
+        )
+    )
     result = service.update_job("dream", name="hacked")
     assert result == "protected"
     assert service.get_job("dream").name == "dream"
@@ -527,6 +532,7 @@ def test_update_job_validates_schedule(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_update_job_preserves_run_history(tmp_path) -> None:
     import asyncio
+
     store_path = tmp_path / "cron" / "jobs.json"
     service = CronService(store_path, on_job=lambda _: asyncio.sleep(0))
     job = service.add_job(
@@ -643,13 +649,15 @@ async def test_catch_up_on_start_schedules_immediate_run_when_missed(tmp_path) -
     service = CronService(store_path, on_job=on_job, max_sleep_ms=200)
     await service.start()
     # 用一个未来一定会触发的 cron(每分钟)以便观察 next_run_at_ms 排在未来
-    service.register_system_job(CronJob(
-        id="dream",
-        name="dream",
-        schedule=CronSchedule(kind="cron", expr="0 3 * * *", tz="UTC"),
-        payload=CronPayload(kind="system_event"),
-        catch_up_on_start=True,
-    ))
+    service.register_system_job(
+        CronJob(
+            id="dream",
+            name="dream",
+            schedule=CronSchedule(kind="cron", expr="0 3 * * *", tz="UTC"),
+            payload=CronPayload(kind="system_event"),
+            catch_up_on_start=True,
+        )
+    )
     job = service.get_job("dream")
     assert job is not None
     assert job.state.next_run_at_ms is not None
@@ -689,13 +697,15 @@ async def test_catch_up_on_start_skipped_when_recently_ran(tmp_path) -> None:
 
     service = CronService(store_path, on_job=on_job, max_sleep_ms=200)
     await service.start()
-    service.register_system_job(CronJob(
-        id="dream",
-        name="dream",
-        schedule=CronSchedule(kind="cron", expr="0 3 * * *", tz="UTC"),
-        payload=CronPayload(kind="system_event"),
-        catch_up_on_start=True,
-    ))
+    service.register_system_job(
+        CronJob(
+            id="dream",
+            name="dream",
+            schedule=CronSchedule(kind="cron", expr="0 3 * * *", tz="UTC"),
+            payload=CronPayload(kind="system_event"),
+            catch_up_on_start=True,
+        )
+    )
     service.stop()
 
     # 模拟 last_run_at_ms 就在今天 3 点(刚刚跑过)
@@ -704,11 +714,14 @@ async def test_catch_up_on_start_skipped_when_recently_ran(tmp_path) -> None:
     for j in raw["jobs"]:
         if j["id"] == "dream":
             # 假设今天 3 点已经跑过(若当前时间晚于 3 点)
-            from datetime import datetime, timezone as dt_tz
+            from datetime import datetime
+            from datetime import timezone as dt_tz
+
             today_3am = datetime.now(dt_tz.utc).replace(hour=3, minute=0, second=0, microsecond=0)
             if today_3am.timestamp() * 1000 > now_ms:
                 # 当前时间还没到 3 点,用昨天的 3 点
                 from datetime import timedelta
+
                 today_3am = today_3am - timedelta(days=1)
             j["state"]["lastRunAtMs"] = int(today_3am.timestamp() * 1000)
     store_path.write_text(json.dumps(raw))
@@ -730,32 +743,183 @@ def test_register_system_job_preserves_last_run_at_ms(tmp_path) -> None:
     """register_system_job 不应清掉磁盘上已存在同 id job 的 last_run_at_ms。"""
     store_path = tmp_path / "cron" / "jobs.json"
     service = CronService(store_path)
-    service.register_system_job(CronJob(
-        id="dream",
-        name="dream",
-        schedule=CronSchedule(kind="cron", expr="0 3 * * *", tz="UTC"),
-        payload=CronPayload(kind="system_event"),
-        catch_up_on_start=True,
-    ))
+    service.register_system_job(
+        CronJob(
+            id="dream",
+            name="dream",
+            schedule=CronSchedule(kind="cron", expr="0 3 * * *", tz="UTC"),
+            payload=CronPayload(kind="system_event"),
+            catch_up_on_start=True,
+        )
+    )
     # 模拟一次执行,写入 last_run_at_ms
     last_ms = int(time.time() * 1000) - 3_600_000  # 1 小时前
     job = service.get_job("dream")
     assert job is not None
     job.state.last_run_at_ms = last_ms
-    job.state.run_history.append(__import__("miniunicorn.cron.types", fromlist=["CronRunRecord"]).CronRunRecord(
-        run_at_ms=last_ms, status="ok", duration_ms=100,
-    ))
+    job.state.run_history.append(
+        __import__("miniunicorn.cron.types", fromlist=["CronRunRecord"]).CronRunRecord(
+            run_at_ms=last_ms,
+            status="ok",
+            duration_ms=100,
+        )
+    )
     service._save_store()
 
     # 再次注册(模拟 gateway 重启)
-    service.register_system_job(CronJob(
-        id="dream",
-        name="dream",
-        schedule=CronSchedule(kind="cron", expr="0 3 * * *", tz="UTC"),
-        payload=CronPayload(kind="system_event"),
-        catch_up_on_start=True,
-    ))
+    service.register_system_job(
+        CronJob(
+            id="dream",
+            name="dream",
+            schedule=CronSchedule(kind="cron", expr="0 3 * * *", tz="UTC"),
+            payload=CronPayload(kind="system_event"),
+            catch_up_on_start=True,
+        )
+    )
     job2 = service.get_job("dream")
     assert job2 is not None
     assert job2.state.last_run_at_ms == last_ms
     assert len(job2.state.run_history) == 1
+
+
+@pytest.mark.asyncio
+async def test_config_change_does_not_cancel_running_job(tmp_path):
+    """Regression: add_job/update_job during job execution must NOT cancel the
+    running job. Previously _arm_timer cancelled self._timer_task which was
+    the same task running _on_timer -> _execute_job, so any config change
+    aborted the in-flight agent turn."""
+    store_path = tmp_path / "cron" / "jobs.json"
+    job_started = asyncio.Event()
+    job_can_finish = asyncio.Event()
+    job_completed = False
+
+    async def on_job(job):
+        nonlocal job_completed
+        job_started.set()
+        # Wait until released by the test — simulates a long agent turn.
+        try:
+            await asyncio.wait_for(job_can_finish.wait(), timeout=2.0)
+        except asyncio.TimeoutError:
+            pass
+        job_completed = True
+
+    service = CronService(store_path, on_job=on_job, max_sleep_ms=100)
+    service.add_job(
+        name="longjob",
+        schedule=CronSchedule(kind="every", every_ms=60_000),
+        message="tick",
+    )
+
+    await service.start()
+    # Force the job to be immediately due — must happen AFTER start() because
+    # start() calls _recompute_next_runs() which overwrites next_run_at_ms.
+    job = service.list_jobs(include_disabled=True)[0]
+    job.state.next_run_at_ms = max(1, int(time.time() * 1000) - 1_000)
+    service._save_store()
+    service._arm_timer()  # Re-arm with the new (immediate) due time.
+
+    try:
+        # Wait for the job to start running.
+        await asyncio.wait_for(job_started.wait(), timeout=1.0)
+        assert not job_completed, "job should still be running"
+
+        # Config change: add another job. This must NOT cancel the running job.
+        service.add_job(
+            name="other",
+            schedule=CronSchedule(kind="every", every_ms=60_000),
+            message="other",
+        )
+
+        # Give the timer a moment to process the re-arm. The running job
+        # should still be alive.
+        await asyncio.sleep(0.05)
+        assert not job_completed, "job was cancelled by config change (add_job)"
+
+        # Another config change: update_job.
+        service.update_job("other", name="other-renamed")
+        await asyncio.sleep(0.05)
+        assert not job_completed, "job was cancelled by config change (update_job)"
+
+        # Release the job and confirm it completes.
+        job_can_finish.set()
+        await _wait_until(lambda: job_completed, timeout=1.0)
+        assert job_completed, "job did not complete after release"
+    finally:
+        service.stop()
+        await service.await_stop()
+
+
+@pytest.mark.asyncio
+async def test_stop_awaits_running_job_and_suppresses_cancelled(tmp_path):
+    """stop() cancels in-flight jobs; await_stop() retrieves the
+    CancelledError so it does not surface as 'Task exception was never
+    retrieved'."""
+    store_path = tmp_path / "cron" / "jobs.json"
+    job_started = asyncio.Event()
+
+    async def on_job(job):
+        job_started.set()
+        await asyncio.sleep(5.0)  # Long sleep; will be cancelled by stop().
+
+    service = CronService(store_path, on_job=on_job, max_sleep_ms=100)
+    service.add_job(
+        name="longjob",
+        schedule=CronSchedule(kind="every", every_ms=60_000),
+        message="tick",
+    )
+
+    await service.start()
+    job = service.list_jobs(include_disabled=True)[0]
+    job.state.next_run_at_ms = max(1, int(time.time() * 1000) - 1_000)
+    service._save_store()
+    service._arm_timer()
+
+    await asyncio.wait_for(job_started.wait(), timeout=1.0)
+
+    service.stop()
+    # await_stop must not raise CancelledError out of gather.
+    await service.await_stop()
+    # Job state should reflect cancellation.
+    job_after = service.get_job(job.id)
+    assert job_after is not None
+    assert job_after.state.last_status == "cancelled"
+    # next_run_at_ms must be recomputed (not stale) so the job fires again
+    # after a restart.
+    assert job_after.state.next_run_at_ms is not None
+
+
+@pytest.mark.asyncio
+async def test_cancelled_job_recomputes_next_run(tmp_path):
+    """A cancelled job must still have next_run_at_ms recomputed in the
+    finally block of _execute_job, so the schedule does not go stale."""
+    store_path = tmp_path / "cron" / "jobs.json"
+
+    async def on_job(job):
+        await asyncio.sleep(5.0)  # Will be cancelled.
+
+    service = CronService(store_path, on_job=on_job, max_sleep_ms=100)
+    service.add_job(
+        name="every30s",
+        schedule=CronSchedule(kind="every", every_ms=30_000),
+        message="tick",
+    )
+
+    await service.start()
+    job = service.list_jobs(include_disabled=True)[0]
+    original_next = job.state.next_run_at_ms
+    assert original_next is not None
+    job.state.next_run_at_ms = max(1, int(time.time() * 1000) - 1_000)
+    service._save_store()
+    service._arm_timer()
+
+    await asyncio.sleep(0.15)  # Let the job start.
+    service.stop()
+    await service.await_stop()
+
+    job_after = service.get_job(job.id)
+    assert job_after is not None
+    assert job_after.state.last_status == "cancelled"
+    # next_run_at_ms must be in the future (recomputed), not stale.
+    now_ms = int(time.time() * 1000)
+    assert job_after.state.next_run_at_ms is not None
+    assert job_after.state.next_run_at_ms > now_ms

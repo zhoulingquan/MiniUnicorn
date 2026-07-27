@@ -112,7 +112,9 @@ def test_run_cli_app_rejects_uninstalled_app(tmp_path: Path, monkeypatch) -> Non
     assert "not installed" in result
 
 
-def test_run_cli_app_description_names_only_settings_installed_apps(tmp_path: Path, monkeypatch) -> None:
+def test_run_cli_app_description_names_only_settings_installed_apps(
+    tmp_path: Path, monkeypatch
+) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     data_dir = tmp_path / "data"

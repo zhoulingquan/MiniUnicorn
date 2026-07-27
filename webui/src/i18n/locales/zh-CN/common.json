@@ -693,7 +693,8 @@
         "magic_mismatch": "文件看起来不像真实的图片",
         "decode_failed": "无法解码这张图片",
         "too_large": "图片太大，请换一张小一点的",
-        "io": "无法读取该文件"
+        "io": "无法读取该文件",
+        "frameTooLarge": "消息体积 {{overMb}} MB,超过 {{limitMb}} MB 发送上限。请减少附件或精简文字后再发送。"
       },
       "goalStateCloseAria": "关闭目标",
       "workspace": {

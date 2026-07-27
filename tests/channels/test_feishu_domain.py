@@ -1,7 +1,6 @@
 """Tests for Feishu/Lark domain configuration."""
-from unittest.mock import MagicMock
 
-import pytest
+from unittest.mock import MagicMock
 
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.channels.feishu import FeishuChannel, FeishuConfig

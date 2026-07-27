@@ -22,37 +22,37 @@ def test_create_model_configuration_writes_label_and_selects(
 ) -> None:
     config_path = tmp_path / "config.json"
     config = Config()
-    config.agents.defaults.model = "openai/gpt-4o"
-    config.agents.defaults.provider = "openai"
-    config.providers.openai.api_key = "sk-test"
+    config.agents.defaults.model = "deepseek/deepseek-chat"
+    config.agents.defaults.provider = "deepseek"
+    config.providers.deepseek.api_key = "sk-test"
     save_config(config, config_path)
     monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
 
     payload = create_model_configuration(
         {
             "label": ["Fast writing"],
-            "provider": ["openai"],
-            "model": ["openai/gpt-4.1-mini"],
+            "provider": ["deepseek"],
+            "model": ["deepseek/deepseek-chat"],
         }
     )
 
     assert payload["agent"]["model_preset"] == "fast-writing"
-    assert payload["agent"]["model"] == "openai/gpt-4.1-mini"
+    assert payload["agent"]["model"] == "deepseek/deepseek-chat"
     rows = {row["name"]: row for row in payload["model_presets"]}
     assert rows["fast-writing"]["label"] == "Fast writing"
 
     saved = load_config(config_path)
     assert saved.agents.defaults.model_preset == "fast-writing"
     assert saved.model_presets["fast-writing"].label == "Fast writing"
-    assert saved.model_presets["fast-writing"].model == "openai/gpt-4.1-mini"
-    assert saved.model_presets["fast-writing"].provider == "openai"
+    assert saved.model_presets["fast-writing"].model == "deepseek/deepseek-chat"
+    assert saved.model_presets["fast-writing"].provider == "deepseek"
 
     with pytest.raises(WebUISettingsError) as duplicate:
         create_model_configuration(
             {
                 "label": ["Fast writing"],
-                "provider": ["openai"],
-                "model": ["openai/gpt-4.1-mini"],
+                "provider": ["deepseek"],
+                "model": ["deepseek/deepseek-chat"],
             }
         )
     assert duplicate.value.status == 409
@@ -70,11 +70,10 @@ def test_create_model_configuration_rejects_unconfigured_provider(
         create_model_configuration(
             {
                 "label": ["Deep"],
-                "provider": ["openai"],
-                "model": ["openai/gpt-4.1"],
+                "provider": ["deepseek"],
+                "model": ["deepseek/deepseek-chat"],
             }
         )
-
 
 
 def test_update_agent_settings_accepts_context_window_options(
@@ -101,8 +100,8 @@ def test_update_model_configuration_accepts_context_window_options(
     config = Config()
     config.model_presets["codex"] = ModelPresetConfig(
         label="Codex",
-        provider="openai",
-        model="openai/gpt-4.1",
+        provider="deepseek",
+        model="deepseek/deepseek-chat",
     )
     save_config(config, config_path)
     monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
@@ -140,10 +139,7 @@ def test_update_model_configuration_rejects_default_preset(
     monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
 
     with pytest.raises(WebUISettingsError, match="model configuration is required"):
-        update_model_configuration({"name": ["default"], "model": ["openai/gpt-4.1"]})
-
-
-
+        update_model_configuration({"name": ["default"], "model": ["deepseek/deepseek-chat"]})
 
 
 def test_settings_payload_includes_network_safety_fields(
@@ -224,6 +220,3 @@ def test_update_network_safety_settings_default_access_is_webui_only(
     assert saved.tools.restrict_to_workspace is True
     assert payload["advanced"]["webui_default_access_mode"] == "full"
     assert payload["requires_restart"] is False
-
-
-

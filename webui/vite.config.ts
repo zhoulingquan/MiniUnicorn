@@ -57,7 +57,11 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      host: true,
+      // Bind to loopback only by default so the dev server is not exposed
+      // on other interfaces. The design spec (§4.1) requires Vite to
+      // default to 127.0.0.1; users who need remote access can override
+      // via the VITE_HOST env var.
+      host: env.VITE_HOST ?? "127.0.0.1",
       port: 5173,
       strictPort: true,
       // Keep Vite's HMR socket on a dedicated path. MiniUnicorn's app WebSocket is

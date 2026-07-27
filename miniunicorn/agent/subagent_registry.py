@@ -5,6 +5,7 @@ workspace's `agents/` directory. The main agent's system prompt lists
 their `description` so the LLM can autonomously delegate via the
 `delegate` tool (mirrors TRAE's built-in Agent → Subagent dispatch).
 """
+
 from __future__ import annotations
 
 import re
@@ -18,6 +19,7 @@ from loguru import logger
 @dataclass(slots=True)
 class SubagentDefinition:
     """A declarative subagent definition parsed from a .md file."""
+
     name: str
     description: str
     system_prompt: str
@@ -62,7 +64,9 @@ class SubagentRegistry:
                         self._definitions[defn.name] = defn
                         count += 1
                     else:
-                        logger.debug("Subagent '{}' already defined, skipping {}", defn.name, md_file)
+                        logger.debug(
+                            "Subagent '{}' already defined, skipping {}", defn.name, md_file
+                        )
             except Exception:
                 logger.exception("Failed to parse subagent file: {}", md_file)
         if count:
@@ -146,5 +150,5 @@ class SubagentRegistry:
         for defn in self._definitions.values():
             lines.append(defn.to_summary())
         lines.append("")
-        lines.append("Usage: delegate(subagent=\"<name>\", task=\"<task description>\")")
+        lines.append('Usage: delegate(subagent="<name>", task="<task description>")')
         return "\n".join(lines)

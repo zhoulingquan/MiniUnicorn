@@ -118,8 +118,7 @@ async def maybe_generate_webui_title(
                 {
                     "role": "system",
                     "content": (
-                        "You write short, neutral chat titles. "
-                        "Return only the title text."
+                        "You write short, neutral chat titles. Return only the title text."
                     ),
                 },
                 {"role": "user", "content": prompt},
@@ -234,6 +233,7 @@ def build_bus_progress_callback(
         )
 
     if msg.channel == "websocket":
+
         async def _websocket_progress(
             content: str,
             *,
@@ -320,12 +320,14 @@ class WebuiTurnCoordinator:
             }
         session = self.sessions.get_or_create(session_key)
         turn_metadata["goal_state"] = goal_state_ws_blob(session.metadata)
-        await self.bus.publish_outbound(OutboundMessage(
-            channel=msg.channel,
-            chat_id=msg.chat_id,
-            content="",
-            metadata=turn_metadata,
-        ))
+        await self.bus.publish_outbound(
+            OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content="",
+                metadata=turn_metadata,
+            )
+        )
         self._schedule_title_update(msg, session_key=session_key)
 
     def _schedule_title_update(self, msg: InboundMessage, *, session_key: str) -> None:
@@ -345,15 +347,17 @@ class WebuiTurnCoordinator:
                 model=title_llm.model,
             )
             if generated:
-                await self.bus.publish_outbound(OutboundMessage(
-                    channel=msg.channel,
-                    chat_id=msg.chat_id,
-                    content="",
-                    metadata={
-                        **msg.metadata,
-                        "_session_updated": True,
-                        "_session_update_scope": "metadata",
-                    },
-                ))
+                await self.bus.publish_outbound(
+                    OutboundMessage(
+                        channel=msg.channel,
+                        chat_id=msg.chat_id,
+                        content="",
+                        metadata={
+                            **msg.metadata,
+                            "_session_updated": True,
+                            "_session_update_scope": "metadata",
+                        },
+                    )
+                )
 
         self.schedule_background(_generate_title_and_notify())

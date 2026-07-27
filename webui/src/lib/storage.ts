@@ -14,7 +14,10 @@ export const STORAGE_KEYS = {
   sidebar: "miniunicorn-webui.sidebar",
   /** Sidebar "completed runs" badge tracking (versioned). */
   sidebarCompletedRuns: "miniunicorn-webui.sidebar.completed-runs.v1",
-  /** Timestamp marking when a host restart was initiated. */
+  /** Timestamp marking when a host restart was initiated.
+   * 设计 §4.5: 使用 sessionStorage(单标签页),不允许其他标签页清除发起页
+   * 的进行中状态。键名保留兼容,但读取/写入入口在 ``useRestartFlow`` 中
+   * 统一切换到了 ``window.sessionStorage``。 */
   restartStartedAt: "miniunicorn-webui.restartStartedAt",
   /** Per-user UI density / activity / brand preferences. */
   settingsPreferences: "miniunicorn-webui.settings-preferences",

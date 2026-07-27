@@ -163,6 +163,7 @@ class AgentRunner:
             return governor
         if self._default_governor is None:
             from miniunicorn.agent.context_governor import ContextGovernor
+
             self._default_governor = ContextGovernor()
         return self._default_governor
 
@@ -246,11 +247,7 @@ class AgentRunner:
     ) -> None:
         """Append injected user messages while preserving role alternation."""
         for injection in injections:
-            if (
-                messages
-                and injection.get("role") == "user"
-                and messages[-1].get("role") == "user"
-            ):
+            if messages and injection.get("role") == "user" and messages[-1].get("role") == "user":
                 merged = dict(messages[-1])
                 merged["content"] = cls._merge_message_content(
                     merged.get("content"),
@@ -309,7 +306,10 @@ class AgentRunner:
         if real_injection:
             logger.info(
                 "Injected {} follow-up message(s) {} ({}/{})",
-                len(injections), phase, injection_cycles, _MAX_INJECTION_CYCLES,
+                len(injections),
+                phase,
+                injection_cycles,
+                _MAX_INJECTION_CYCLES,
             )
         else:
             logger.info("Injected sustained-goal continuation {}", phase)
@@ -327,12 +327,9 @@ class AgentRunner:
             return []
         try:
             signature = inspect.signature(spec.injection_callback)
-            accepts_limit = (
-                "limit" in signature.parameters
-                or any(
-                    parameter.kind is inspect.Parameter.VAR_KEYWORD
-                    for parameter in signature.parameters.values()
-                )
+            accepts_limit = "limit" in signature.parameters or any(
+                parameter.kind is inspect.Parameter.VAR_KEYWORD
+                for parameter in signature.parameters.values()
             )
             if accepts_limit:
                 items = await spec.injection_callback(limit=_MAX_INJECTIONS_PER_TURN)
@@ -355,7 +352,9 @@ class AgentRunner:
             dropped = len(injected_messages) - _MAX_INJECTIONS_PER_TURN
             logger.warning(
                 "Injection callback returned {} messages, capping to {} ({} dropped)",
-                len(injected_messages), _MAX_INJECTIONS_PER_TURN, dropped,
+                len(injected_messages),
+                _MAX_INJECTIONS_PER_TURN,
+                dropped,
             )
             injected_messages = injected_messages[:_MAX_INJECTIONS_PER_TURN]
         return injected_messages
@@ -395,6 +394,7 @@ class AgentRunner:
 
         if use_planner:
             from miniunicorn.agent.planner import Planner as _Planner
+
             planner_model = getattr(spec, "planner_model", None) or spec.model
             planner = _Planner(self.provider, planner_model)
             planner_task_text = self._extract_task_from_messages(spec.initial_messages)
@@ -407,7 +407,8 @@ class AgentRunner:
                 plan.max_replans = getattr(spec, "planner_max_replans", 3)
                 logger.info(
                     "Planner produced {} steps for: {}",
-                    len(plan.steps), plan.goal,
+                    len(plan.steps),
+                    plan.goal,
                 )
             except Exception:
                 logger.exception("Planner.create_plan failed; falling back to ReAct-only")
@@ -421,6 +422,7 @@ class AgentRunner:
         reflection: Any | None = None
         if enable_reflection:
             from miniunicorn.agent.reflection import Reflection
+
             reflection = Reflection(self.provider, spec.model, spec.workspace)
 
         for iteration in range(spec.max_iterations):
@@ -435,6 +437,7 @@ class AgentRunner:
                 # -> drop_orphan -> backfill) and falls back to minimal repair
                 # on failure. Spec-provided governors override the default.
                 from miniunicorn.agent.context_governor import GovernanceContext
+
                 governor = self._get_governor(spec)
                 ctx_gov = GovernanceContext(
                     spec=spec,
@@ -460,6 +463,7 @@ class AgentRunner:
             # turn budget remain in effect per step.
             if plan is not None and plan.current_step is not None:
                 from miniunicorn.agent.planner import StepStatus as _StepStatus
+
                 step = plan.current_step
                 step.status = _StepStatus.IN_PROGRESS
                 step.iterations_used += 1
@@ -481,8 +485,14 @@ class AgentRunner:
                 last_call_usage = dict(raw_usage)
             # Budget check: stop early if cumulative usage exceeds limits.
             _fc, _sr, _err = self._handle_budget_exceeded(
-                budget, raw_usage, spec.model, spec, messages,
-                iteration, context, hook,
+                budget,
+                raw_usage,
+                spec.model,
+                spec,
+                messages,
+                iteration,
+                context,
+                hook,
             )
             if _fc is not None:
                 final_content, stop_reason, error = _fc, _sr, _err
@@ -521,7 +531,9 @@ class AgentRunner:
                         "model": spec.model,
                         "assistant_message": assistant_message,
                         "completed_tool_results": [],
-                        "pending_tool_calls": [tc.to_openai_tool_call() for tc in response.tool_calls],
+                        "pending_tool_calls": [
+                            tc.to_openai_tool_call() for tc in response.tool_calls
+                        ],
                     },
                 )
 
@@ -559,6 +571,7 @@ class AgentRunner:
                     # we fall through to the normal break below.
                     if plan is not None and planner is not None and plan.current_step is not None:
                         from miniunicorn.agent.planner import StepStatus as _StepStatus
+
                         failed_step = plan.current_step
                         failed_step.status = _StepStatus.FAILED
                         failed_step.failure_reason = str(fatal_error)
@@ -571,7 +584,9 @@ class AgentRunner:
                                 plan.max_replans,
                             )
                             plan = await planner.replan(
-                                plan, failed_step, str(fatal_error),
+                                plan,
+                                failed_step,
+                                str(fatal_error),
                                 planner_task_text or "",
                                 planner_tools_summary or "",
                             )
@@ -597,9 +612,7 @@ class AgentRunner:
                     if reflection is not None:
                         await reflection.reflect(
                             trigger=(
-                                "plan_failed"
-                                if stop_reason == "plan_failed"
-                                else "tool_error"
+                                "plan_failed" if stop_reason == "plan_failed" else "tool_error"
                             ),
                             iteration=iteration,
                             context_summary=error,
@@ -608,7 +621,10 @@ class AgentRunner:
                         )
                     await hook.after_iteration(context)
                     should_continue, injection_cycles = await self._try_drain_injections(
-                        spec, messages, None, injection_cycles,
+                        spec,
+                        messages,
+                        None,
+                        injection_cycles,
                         phase="after tool error",
                     )
                     if should_continue:
@@ -630,7 +646,10 @@ class AgentRunner:
                 length_recovery_count = 0
                 # Checkpoint 1: drain injections after tools, before next LLM call
                 _drained, injection_cycles = await self._try_drain_injections(
-                    spec, messages, None, injection_cycles,
+                    spec,
+                    messages,
+                    None,
+                    injection_cycles,
                     phase="after tool execution",
                 )
                 if _drained:
@@ -643,13 +662,15 @@ class AgentRunner:
                     and (iteration + 1) % getattr(spec, "reflection_interval", 5) == 0
                 ):
                     # 跟踪 reflection 任务避免被 GC 回收，完成后从集合移除
-                    task = asyncio.create_task(reflection.reflect(
-                        trigger="periodic",
-                        iteration=iteration,
-                        context_summary=f"Periodic reflection at iteration {iteration}",
-                        messages=messages,
-                        session_key=spec.session_key,
-                    ))
+                    task = asyncio.create_task(
+                        reflection.reflect(
+                            trigger="periodic",
+                            iteration=iteration,
+                            context_summary=f"Periodic reflection at iteration {iteration}",
+                            messages=messages,
+                            session_key=spec.session_key,
+                        )
+                    )
                     self._reflection_tasks.add(task)
                     task.add_done_callback(self._reflection_tasks.discard)
                 continue
@@ -689,8 +710,14 @@ class AgentRunner:
                 self._accumulate_usage(usage, retry_usage)
                 # Budget check: stop early if cumulative usage exceeds limits.
                 _fc, _sr, _err = self._handle_budget_exceeded(
-                    budget, retry_usage, spec.model, spec, messages,
-                    iteration, context, hook,
+                    budget,
+                    retry_usage,
+                    spec.model,
+                    spec,
+                    messages,
+                    iteration,
+                    context,
+                    hook,
                 )
                 if _fc is not None:
                     final_content, stop_reason, error = _fc, _sr, _err
@@ -717,11 +744,13 @@ class AgentRunner:
                     )
                     if hook.wants_streaming():
                         await hook.on_stream_end(context, resuming=True)
-                    messages.append(build_assistant_message(
-                        clean,
-                        reasoning_content=response.reasoning_content,
-                        thinking_blocks=response.thinking_blocks,
-                    ))
+                    messages.append(
+                        build_assistant_message(
+                            clean,
+                            reasoning_content=response.reasoning_content,
+                            thinking_blocks=response.thinking_blocks,
+                        )
+                    )
                     messages.append(build_length_recovery_message())
                     await hook.after_iteration(context)
                     continue
@@ -738,7 +767,10 @@ class AgentRunner:
             # If injections are found we keep the stream alive (resuming=True)
             # so streaming channels don't prematurely finalize the card.
             should_continue, injection_cycles = await self._try_drain_injections(
-                spec, messages, assistant_message, injection_cycles,
+                spec,
+                messages,
+                assistant_message,
+                injection_cycles,
                 phase="after final response",
                 iteration=iteration,
                 allow_goal_continue=True,
@@ -775,7 +807,10 @@ class AgentRunner:
                     )
                 await hook.after_iteration(context)
                 should_continue, injection_cycles = await self._try_drain_injections(
-                    spec, messages, None, injection_cycles,
+                    spec,
+                    messages,
+                    None,
+                    injection_cycles,
                     phase="after LLM error",
                 )
                 if should_continue:
@@ -792,7 +827,10 @@ class AgentRunner:
                 context.stop_reason = stop_reason
                 await hook.after_iteration(context)
                 should_continue, injection_cycles = await self._try_drain_injections(
-                    spec, messages, None, injection_cycles,
+                    spec,
+                    messages,
+                    None,
+                    injection_cycles,
                     phase="after empty response",
                 )
                 if should_continue:
@@ -800,11 +838,14 @@ class AgentRunner:
                     continue
                 break
 
-            messages.append(assistant_message or build_assistant_message(
-                clean,
-                reasoning_content=response.reasoning_content,
-                thinking_blocks=response.thinking_blocks,
-            ))
+            messages.append(
+                assistant_message
+                or build_assistant_message(
+                    clean,
+                    reasoning_content=response.reasoning_content,
+                    thinking_blocks=response.thinking_blocks,
+                )
+            )
             await self._emit_checkpoint(
                 spec,
                 {
@@ -824,12 +865,14 @@ class AgentRunner:
             # step's response becomes the turn's final_content.
             if plan is not None and plan.current_step is not None:
                 from miniunicorn.agent.planner import StepStatus as _StepStatus
+
                 completed_step = plan.current_step
                 completed_step.status = _StepStatus.COMPLETED
                 if plan.current_step is not None:
                     logger.info(
                         "Step {} completed ({}); {} steps remaining",
-                        completed_step.id, completed_step.action,
+                        completed_step.id,
+                        completed_step.action,
                         len(plan.pending_steps),
                     )
                     context.final_content = clean
@@ -873,7 +916,10 @@ class AgentRunner:
             # We ignore should_continue here because the for-loop has already
             # exhausted all iterations.
             drained_after_max_iterations, injection_cycles = await self._try_drain_injections(
-                spec, messages, None, injection_cycles,
+                spec,
+                messages,
+                None,
+                injection_cycles,
                 phase="after max_iterations",
             )
             if drained_after_max_iterations:
@@ -951,10 +997,10 @@ class AgentRunner:
         progress_state: dict[str, bool] | None = None
         live_file_edits: StreamingFileEditTracker | None = None
 
-        if (
-            spec.progress_callback is not None
-            and on_progress_accepts_file_edit_events(spec.progress_callback)
+        if spec.progress_callback is not None and on_progress_accepts_file_edit_events(
+            spec.progress_callback
         ):
+
             async def _emit_live_file_edits(events: list[dict[str, Any]]) -> None:
                 await invoke_file_edit_progress(spec.progress_callback, events)
 
@@ -969,6 +1015,7 @@ class AgentRunner:
                 await live_file_edits.update(delta)
 
         if wants_streaming:
+
             async def _stream(delta: str) -> None:
                 if delta:
                     context.streamed_content = True
@@ -998,7 +1045,7 @@ class AgentRunner:
                 prev_clean = strip_think(stream_buf)
                 stream_buf += delta
                 new_clean = strip_think(stream_buf)
-                incremental = new_clean[len(prev_clean):]
+                incremental = new_clean[len(prev_clean) :]
 
                 if await think_extractor.feed(stream_buf, hook.emit_reasoning):
                     context.streamed_reasoning = True
@@ -1026,7 +1073,8 @@ class AgentRunner:
         outer_timeout_s = None if (wants_streaming or wants_progress_streaming) else timeout_s
         try:
             response = (
-                await coro if outer_timeout_s is None
+                await coro
+                if outer_timeout_s is None
                 else await asyncio.wait_for(coro, timeout=outer_timeout_s)
             )
             if live_file_edits is not None:
@@ -1117,7 +1165,9 @@ class AgentRunner:
             return None, None, None
         logger.warning(
             "Turn budget exceeded on iter {} for {}: {}",
-            iteration, spec.session_key or "default", budget.summary(),
+            iteration,
+            spec.session_key or "default",
+            budget.summary(),
         )
         fc = (
             f"I've reached the turn's token budget ({exceeded}). "
@@ -1140,18 +1190,26 @@ class AgentRunner:
         tool_results: list[tuple[Any, dict[str, str], BaseException | None]] = []
         for batch in batches:
             if spec.concurrent_tools and len(batch) > 1:
-                batch_results = await asyncio.gather(*(
-                    self._run_tool(
-                        spec, tool_call, external_lookup_counts, workspace_violation_counts,
+                batch_results = await asyncio.gather(
+                    *(
+                        self._run_tool(
+                            spec,
+                            tool_call,
+                            external_lookup_counts,
+                            workspace_violation_counts,
+                        )
+                        for tool_call in batch
                     )
-                    for tool_call in batch
-                ))
+                )
                 tool_results.extend(batch_results)
             else:
                 batch_results = []
                 for tool_call in batch:
                     result = await self._run_tool(
-                        spec, tool_call, external_lookup_counts, workspace_violation_counts,
+                        spec,
+                        tool_call,
+                        external_lookup_counts,
+                        workspace_violation_counts,
                     )
                     tool_results.append(result)
                     batch_results.append(result)
@@ -1210,8 +1268,10 @@ class AgentRunner:
             )
             if handled is not None:
                 return handled
-            return prep_error + hint, event, (
-                RuntimeError(prep_error) if spec.fail_on_tool_error else None
+            return (
+                prep_error + hint,
+                event,
+                (RuntimeError(prep_error) if spec.fail_on_tool_error else None),
             )
         emit_file_edit_events = (
             spec.progress_callback is not None
@@ -1232,10 +1292,13 @@ class AgentRunner:
         if file_edit_trackers and progress_callback is not None:
             await invoke_file_edit_progress(
                 progress_callback,
-                [build_file_edit_start_event(
-                    file_edit_tracker,
-                    params if isinstance(params, dict) else None,
-                ) for file_edit_tracker in file_edit_trackers],
+                [
+                    build_file_edit_start_event(
+                        file_edit_tracker,
+                        params if isinstance(params, dict) else None,
+                    )
+                    for file_edit_tracker in file_edit_trackers
+                ],
             )
         try:
             if tool is not None:
@@ -1304,10 +1367,13 @@ class AgentRunner:
         if file_edit_trackers and progress_callback is not None:
             await invoke_file_edit_progress(
                 progress_callback,
-                [build_file_edit_end_event(
-                    file_edit_tracker,
-                    params if isinstance(params, dict) else None,
-                ) for file_edit_tracker in file_edit_trackers],
+                [
+                    build_file_edit_end_event(
+                        file_edit_tracker,
+                        params if isinstance(params, dict) else None,
+                    )
+                    for file_edit_tracker in file_edit_trackers
+                ],
             )
 
         detail = "" if result is None else str(result)
@@ -1436,7 +1502,11 @@ class AgentRunner:
 
     @staticmethod
     def _append_model_error_placeholder(messages: list[dict[str, Any]]) -> None:
-        if messages and messages[-1].get("role") == "assistant" and not messages[-1].get("tool_calls"):
+        if (
+            messages
+            and messages[-1].get("role") == "assistant"
+            and not messages[-1].get("tool_calls")
+        ):
             return
         messages.append(build_assistant_message(_PERSISTED_MODEL_ERROR_PLACEHOLDER))
 
@@ -1496,9 +1566,13 @@ class AgentRunner:
         if not messages or not spec.context_window_tokens:
             return messages
 
-        provider_max_tokens = getattr(getattr(self.provider, "generation", None), "max_tokens", 4096)
-        max_output = spec.max_tokens if isinstance(spec.max_tokens, int) else (
-            provider_max_tokens if isinstance(provider_max_tokens, int) else 4096
+        provider_max_tokens = getattr(
+            getattr(self.provider, "generation", None), "max_tokens", 4096
+        )
+        max_output = (
+            spec.max_tokens
+            if isinstance(spec.max_tokens, int)
+            else (provider_max_tokens if isinstance(provider_max_tokens, int) else 4096)
         )
         budget = spec.context_block_limit or (
             spec.context_window_tokens - max_output - _SNIP_SAFETY_BUFFER

@@ -6,7 +6,8 @@ heartbeat job based on ``HeartbeatConfig.model_preset``.
 """
 
 import functools
-from datetime import datetime, time as dt_time
+from datetime import datetime
+from datetime import time as dt_time
 
 from loguru import logger
 
@@ -35,6 +36,7 @@ _HEARTBEAT_LIGHT_PREAMBLE = (
 @functools.lru_cache(maxsize=None)
 def _heartbeat_template() -> str | None:
     from miniunicorn.utils.helpers import load_bundled_template
+
     return load_bundled_template("HEARTBEAT.md")
 
 
@@ -49,7 +51,9 @@ def _build_heartbeat_provider(hb_cfg, config):
         return None
     preset = config.model_presets.get(preset_name)
     if preset is None:
-        logger.warning("Heartbeat: model_preset '{}' not found, fallback to main provider", preset_name)
+        logger.warning(
+            "Heartbeat: model_preset '{}' not found, fallback to main provider", preset_name
+        )
         return None
     from miniunicorn.providers.factory import make_provider
 

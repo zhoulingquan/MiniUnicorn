@@ -295,7 +295,11 @@ class ExecSessionManager:
         from miniunicorn.agent.tools.shell import ExecTool
 
         return await ExecTool._spawn(
-            command, cwd, env, shell_program, login,
+            command,
+            cwd,
+            env,
+            shell_program,
+            login,
             stdin=asyncio.subprocess.PIPE,
         )
 
@@ -315,9 +319,7 @@ def _truncate_output(output: str, max_output_chars: int) -> tuple[str, int]:
     half = max_output_chars // 2
     omitted = len(output) - max_output_chars
     return (
-        output[:half]
-        + f"\n\n... ({omitted:,} chars truncated) ...\n\n"
-        + output[-half:],
+        output[:half] + f"\n\n... ({omitted:,} chars truncated) ...\n\n" + output[-half:],
         omitted,
     )
 

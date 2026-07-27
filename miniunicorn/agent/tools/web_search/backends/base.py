@@ -97,7 +97,9 @@ class SearchBackend(ABC):
         """获取该后端的 API Key。"""
         return self.config.get_api_key(self.name, self.env_var)
 
-    def make_client(self, *, timeout: float | None = None, follow_redirects: bool = True) -> httpx.AsyncClient:
+    def make_client(
+        self, *, timeout: float | None = None, follow_redirects: bool = True
+    ) -> httpx.AsyncClient:
         """创建带 SSRF 防护的 httpx 客户端。
 
         SSRF 钩子会在每次请求(含重定向)时触发,因此 follow_redirects 安全。

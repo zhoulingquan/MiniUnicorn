@@ -6,17 +6,17 @@ from urllib.parse import unquote
 
 from websockets.http11 import Response
 
+from .._http_router import RouteContext, router
 from .._http_routes import (
     _collect_chunked_header,
     _http_error,
     _http_json_response,
     _query_first,
 )
-from .._http_router import RouteContext, router
 from ._common import require_auth
 
 
-@router.route("/api/agents")
+@router.route("/api/agents", methods={"GET"})
 def list(ctx: RouteContext) -> Response:
     """Return all registered subagent definitions as JSON."""
     from miniunicorn.api.routes_agents import router
@@ -27,7 +27,7 @@ def list(ctx: RouteContext) -> Response:
         return _http_error(500, str(exc))
 
 
-@router.route("/api/agents/read")
+@router.route("/api/agents/read", methods={"GET"})
 def read(ctx: RouteContext) -> Response:
     """Return a single subagent definition (parsed fields + raw .md)."""
     from miniunicorn.api.routes_agents import router
@@ -44,7 +44,7 @@ def read(ctx: RouteContext) -> Response:
         return _http_error(500, str(exc))
 
 
-@router.route("/api/agents/save")
+@router.route("/api/agents/save", methods={"GET", "POST"})
 @require_auth
 def save(ctx: RouteContext) -> Response:
     """Create or update an agent's ``.md`` file.
@@ -59,9 +59,7 @@ def save(ctx: RouteContext) -> Response:
     if not name:
         return _http_error(400, "missing 'name' parameter")
 
-    header_data = _collect_chunked_header(
-        ctx.request.headers, "x-miniunicorn-Agent-Content"
-    )
+    header_data = _collect_chunked_header(ctx.request.headers, "x-miniunicorn-Agent-Content")
     if header_data:
         content = unquote(header_data)
     else:
@@ -77,7 +75,7 @@ def save(ctx: RouteContext) -> Response:
         return _http_error(500, str(exc))
 
 
-@router.route("/api/agents/delete")
+@router.route("/api/agents/delete", methods={"GET", "POST"})
 @require_auth
 def delete(ctx: RouteContext) -> Response:
     """Delete an agent's ``.md`` file by name."""
@@ -95,7 +93,7 @@ def delete(ctx: RouteContext) -> Response:
         return _http_error(500, str(exc))
 
 
-@router.route("/api/agents/generate")
+@router.route("/api/agents/generate", methods={"GET", "POST"})
 @require_auth
 async def generate_agent(ctx: RouteContext) -> Response:
     """Generate a subagent ``.md`` definition via the LLM.
@@ -131,9 +129,7 @@ async def generate_agent(ctx: RouteContext) -> Response:
         if isinstance(raw_model, str) and raw_model.strip():
             model_name = raw_model.strip()
 
-    header_data = _collect_chunked_header(
-        ctx.request.headers, "x-miniunicorn-Agent-Description"
-    )
+    header_data = _collect_chunked_header(ctx.request.headers, "x-miniunicorn-Agent-Description")
     if header_data:
         description = unquote(header_data)
     else:

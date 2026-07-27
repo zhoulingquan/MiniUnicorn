@@ -45,9 +45,14 @@ def _compute_next_run(schedule: CronSchedule, now_ms: int) -> int | None:
             from zoneinfo import ZoneInfo
 
             from croniter import croniter
+
             # Use caller-provided reference time for deterministic scheduling
             base_time = now_ms / 1000
-            tz = ZoneInfo(schedule.tz) if schedule.tz and schedule.tz != "system" else datetime.now().astimezone().tzinfo
+            tz = (
+                ZoneInfo(schedule.tz)
+                if schedule.tz and schedule.tz != "system"
+                else datetime.now().astimezone().tzinfo
+            )
             base_dt = datetime.fromtimestamp(base_time, tz=tz)
             cron = croniter(schedule.expr, base_dt)
             next_dt = cron.get_next(datetime)
@@ -95,7 +100,13 @@ class CronService:
         self._store_lock = threading.Lock()
         self.on_job = on_job
         self._store: CronStore | None = None
+        # _timer_task 只负责 sleep + 调度 _on_timer;不直接执行 job。
+        # 配置变化(add/remove/update job)只取消此 sleep task,不影响正在
+        # 执行的 job(见 _exec_tasks)。
         self._timer_task: asyncio.Task | None = None
+        # 正在执行的 job task 集合。_arm_timer 不取消这些 task,避免
+        # 重排时打断已开始的 agent turn。task 完成后通过 done_callback 移除。
+        self._exec_tasks: set[asyncio.Task] = set()
         self._running = False
         self._timer_active = False
         self.max_sleep_ms = max_sleep_ms
@@ -121,50 +132,53 @@ class CronService:
                 jobs = []
                 version = data.get("version", 1)
                 for j in data.get("jobs", []):
-                    jobs.append(CronJob(
-                        id=j["id"],
-                        name=j["name"],
-                        enabled=j.get("enabled", True),
-                        schedule=CronSchedule(
-                            kind=j["schedule"]["kind"],
-                            at_ms=j["schedule"].get("atMs"),
-                            every_ms=j["schedule"].get("everyMs"),
-                            expr=j["schedule"].get("expr"),
-                            tz=j["schedule"].get("tz"),
-                        ),
-                        payload=CronPayload(
-                            kind=j["payload"].get("kind", "agent_turn"),
-                            message=j["payload"].get("message", ""),
-                            deliver=j["payload"].get("deliver", False),
-                            channel=j["payload"].get("channel"),
-                            to=j["payload"].get("to"),
-                            channel_meta=(
-                                j["payload"].get("channelMeta")
-                                or j["payload"].get("channel_meta")
-                                or {}
+                    jobs.append(
+                        CronJob(
+                            id=j["id"],
+                            name=j["name"],
+                            enabled=j.get("enabled", True),
+                            schedule=CronSchedule(
+                                kind=j["schedule"]["kind"],
+                                at_ms=j["schedule"].get("atMs"),
+                                every_ms=j["schedule"].get("everyMs"),
+                                expr=j["schedule"].get("expr"),
+                                tz=j["schedule"].get("tz"),
                             ),
-                            session_key=j["payload"].get("sessionKey") or j["payload"].get("session_key"),
-                        ),
-                        state=CronJobState(
-                            next_run_at_ms=j.get("state", {}).get("nextRunAtMs"),
-                            last_run_at_ms=j.get("state", {}).get("lastRunAtMs"),
-                            last_status=j.get("state", {}).get("lastStatus"),
-                            last_error=j.get("state", {}).get("lastError"),
-                            run_history=[
-                                CronRunRecord(
-                                    run_at_ms=r["runAtMs"],
-                                    status=r["status"],
-                                    duration_ms=r.get("durationMs", 0),
-                                    error=r.get("error"),
-                                )
-                                for r in j.get("state", {}).get("runHistory", [])
-                            ],
-                        ),
-                        created_at_ms=j.get("createdAtMs", 0),
-                        updated_at_ms=j.get("updatedAtMs", 0),
-                        delete_after_run=j.get("deleteAfterRun", False),
-                        catch_up_on_start=j.get("catchUpOnStart", False),
-                    ))
+                            payload=CronPayload(
+                                kind=j["payload"].get("kind", "agent_turn"),
+                                message=j["payload"].get("message", ""),
+                                deliver=j["payload"].get("deliver", False),
+                                channel=j["payload"].get("channel"),
+                                to=j["payload"].get("to"),
+                                channel_meta=(
+                                    j["payload"].get("channelMeta")
+                                    or j["payload"].get("channel_meta")
+                                    or {}
+                                ),
+                                session_key=j["payload"].get("sessionKey")
+                                or j["payload"].get("session_key"),
+                            ),
+                            state=CronJobState(
+                                next_run_at_ms=j.get("state", {}).get("nextRunAtMs"),
+                                last_run_at_ms=j.get("state", {}).get("lastRunAtMs"),
+                                last_status=j.get("state", {}).get("lastStatus"),
+                                last_error=j.get("state", {}).get("lastError"),
+                                run_history=[
+                                    CronRunRecord(
+                                        run_at_ms=r["runAtMs"],
+                                        status=r["status"],
+                                        duration_ms=r.get("durationMs", 0),
+                                        error=r.get("error"),
+                                    )
+                                    for r in j.get("state", {}).get("runHistory", [])
+                                ],
+                            ),
+                            created_at_ms=j.get("createdAtMs", 0),
+                            updated_at_ms=j.get("updatedAtMs", 0),
+                            delete_after_run=j.get("deleteAfterRun", False),
+                            catch_up_on_start=j.get("catchUpOnStart", False),
+                        )
+                    )
             except Exception:
                 # Preserve the corrupt file for forensic recovery instead of
                 # letting the next save overwrite it with an empty job list.
@@ -188,6 +202,7 @@ class CronService:
             return
 
         jobs_map = {j.id: j for j in self._store.jobs}
+
         def _update(params: dict):
             j = CronJob.from_dict(params)
             jobs_map[j.id] = j
@@ -297,7 +312,7 @@ class CronService:
                     "catchUpOnStart": j.catch_up_on_start,
                 }
                 for j in self._store.jobs
-            ]
+            ],
         }
 
         self._atomic_write(self.store_path, json.dumps(data, indent=2, ensure_ascii=False))
@@ -354,7 +369,9 @@ class CronService:
         self._apply_catch_up()
         self._save_store()
         self._arm_timer()
-        logger.info("Cron service started with {} jobs", len(self._store.jobs if self._store else []))
+        logger.info(
+            "Cron service started with {} jobs", len(self._store.jobs if self._store else [])
+        )
 
     def _apply_catch_up(self) -> None:
         """对标记了 ``catch_up_on_start`` 的 system job 做补跑检测。
@@ -383,7 +400,12 @@ class CronService:
                     from zoneinfo import ZoneInfo
 
                     from croniter import croniter
-                    tz = ZoneInfo(sched.tz) if sched.tz and sched.tz != "system" else datetime.now().astimezone().tzinfo
+
+                    tz = (
+                        ZoneInfo(sched.tz)
+                        if sched.tz and sched.tz != "system"
+                        else datetime.now().astimezone().tzinfo
+                    )
                     base_dt = datetime.fromtimestamp(now / 1000, tz=tz)
                     prev_dt = croniter(sched.expr, base_dt).get_prev(datetime)
                     prev_due_ms = int(prev_dt.timestamp() * 1000)
@@ -424,11 +446,35 @@ class CronService:
             job.state.next_run_at_ms = now  # _arm_timer 会立刻触发
 
     def stop(self) -> None:
-        """Stop the cron service."""
+        """Synchronously request the cron service to stop.
+
+        Cancels the timer (sleep) task and any in-flight job execution tasks.
+        Cancellation is fire-and-forget here; callers that want to ensure all
+        in-flight tasks have actually finished should also ``await
+        await_stop()``.
+        """
         self._running = False
         if self._timer_task:
             self._timer_task.cancel()
             self._timer_task = None
+        for task in list(self._exec_tasks):
+            task.cancel()
+
+    async def await_stop(self) -> None:
+        """Await cancellation of timer and execution tasks.
+
+        Suppresses ``CancelledError`` from cancelled tasks so gateway
+        shutdown does not propagate cancellation past cron cleanup.
+        """
+        tasks: list[asyncio.Task] = []
+        if self._timer_task is not None:
+            tasks.append(self._timer_task)
+        tasks.extend(self._exec_tasks)
+        if not tasks:
+            return
+        await asyncio.gather(*tasks, return_exceptions=True)
+        self._timer_task = None
+        self._exec_tasks.clear()
 
     def _recompute_next_runs(self) -> None:
         """Recompute next run times for all enabled jobs."""
@@ -443,12 +489,21 @@ class CronService:
         """Get the earliest next run time across all jobs."""
         if not self._store:
             return None
-        times = [j.state.next_run_at_ms for j in self._store.jobs
-                 if j.enabled and j.state.next_run_at_ms]
+        times = [
+            j.state.next_run_at_ms for j in self._store.jobs if j.enabled and j.state.next_run_at_ms
+        ]
         return min(times) if times else None
 
     def _arm_timer(self) -> None:
-        """Schedule the next timer tick."""
+        """Schedule the next timer tick.
+
+        Only cancels and rebuilds the **sleep task** (``self._timer_task``).
+        In-flight job execution (``self._exec_tasks`` / ``_on_timer``) is
+        NOT cancelled — a config change (add/remove/update job) must not
+        interrupt a running agent turn. The sleep task, on wake, spawns
+        ``_on_timer`` as a separate exec task so that re-arming the timer
+        only ever cancels the sleep phase.
+        """
         if self._timer_task:
             self._timer_task.cancel()
 
@@ -463,14 +518,29 @@ class CronService:
         delay_s = delay_ms / 1000
 
         async def tick():
-            await asyncio.sleep(delay_s)
+            try:
+                await asyncio.sleep(delay_s)
+            except asyncio.CancelledError:
+                # Sleep task cancelled by re-arm or stop — clean exit.
+                return
             if self._running:
-                await self._on_timer()
+                # Spawn _on_timer as a separate task so a subsequent
+                # _arm_timer (which cancels self._timer_task) does not
+                # cancel a running _on_timer / _execute_job.
+                task = asyncio.create_task(self._on_timer())
+                self._exec_tasks.add(task)
+                task.add_done_callback(self._exec_task_done)
 
         self._timer_task = asyncio.create_task(tick())
 
     async def _on_timer(self) -> None:
-        """Handle timer tick - run due jobs."""
+        """Handle timer tick — run due jobs serially.
+
+        Runs jobs inline (serially) preserving the original execution
+        semantics. This method is spawned as a separate task by ``tick()``
+        so that ``_arm_timer`` (which cancels ``self._timer_task``) does
+        not cancel a running job.
+        """
         self._load_store()
         # If a hot reload found a corrupt store on disk, ``self._store`` may
         # still hold the previous, known-good in-memory snapshot.  Keep using
@@ -483,7 +553,8 @@ class CronService:
         try:
             now = _now_ms()
             due_jobs = [
-                j for j in self._store.jobs
+                j
+                for j in self._store.jobs
                 if j.enabled and j.state.next_run_at_ms and now >= j.state.next_run_at_ms
             ]
 
@@ -493,10 +564,43 @@ class CronService:
             self._save_store()
         finally:
             self._timer_active = False
+        # Re-arm the sleep timer for the next tick. This only cancels the
+        # sleep task (self._timer_task), not this _on_timer task.
         self._arm_timer()
 
+    def _exec_task_done(self, task: asyncio.Task) -> None:
+        """Remove a finished exec task from _exec_tasks.
+
+        Exceptions (including CancelledError) are retrieved here so asyncio
+        does not log "Task exception was never retrieved". Job-level error
+        handling already happens inside _execute_job. The store is persisted
+        here so that cancelled/errored jobs have their updated state
+        (last_status, next_run_at_ms, run_history) saved even when the
+        _on_timer loop was interrupted by an exception.
+        """
+        self._exec_tasks.discard(task)
+        # Retrieve any exception so asyncio doesn't warn about unretrieved
+        # exceptions. _execute_job already records status/errors on the job.
+        with suppress(asyncio.CancelledError, Exception):
+            task.exception()
+        # Persist updated job state. _on_timer's own _save_store() is skipped
+        # when _execute_job raises (e.g. CancelledError), so we must save
+        # here to avoid losing the cancelled/errored state.
+        try:
+            self._save_store()
+        except Exception:
+            logger.exception("Cron: failed to persist store after exec task done")
+
     async def _execute_job(self, job: CronJob) -> None:
-        """Execute a single job."""
+        """Execute a single job.
+
+        Catches ``Exception`` for normal job errors and records ``cancelled``
+        status on ``CancelledError`` (from stop()/shutdown). The post-try
+        block (run_history, next_run_at_ms, one-shot handling) runs in a
+        ``finally`` so a cancelled job still gets its schedule recomputed —
+        otherwise the schedule would go stale and the job would never fire
+        again after a shutdown.
+        """
         start_ms = _now_ms()
         logger.info("Cron: executing job '{}' ({})", job.name, job.id)
 
@@ -508,40 +612,57 @@ class CronService:
             job.state.last_error = None
             logger.info("Cron: job '{}' completed", job.name)
 
+        except asyncio.CancelledError:
+            # Cancellation typically comes from stop() or a hard shutdown.
+            # Record the cancellation but still recompute next_run_at_ms in
+            # the finally block so the schedule does not go stale.
+            job.state.last_status = "cancelled"
+            job.state.last_error = "cancelled"
+            logger.warning("Cron: job '{}' cancelled mid-flight", job.name)
+            raise
+
         except Exception as e:
             job.state.last_status = "error"
             job.state.last_error = str(e)
             logger.exception("Cron: job '{}' failed", job.name)
 
-        end_ms = _now_ms()
-        job.state.last_run_at_ms = start_ms
-        job.updated_at_ms = end_ms
+        finally:
+            # Always update run metadata and recompute next_run_at_ms, even
+            # when the job was cancelled. For a cancelled one-shot "at" job
+            # we keep it scheduled (do not delete/disable) so it can fire
+            # again after restart.
+            end_ms = _now_ms()
+            job.state.last_run_at_ms = start_ms
+            job.updated_at_ms = end_ms
 
-        job.state.run_history.append(CronRunRecord(
-            run_at_ms=start_ms,
-            status=job.state.last_status,
-            duration_ms=end_ms - start_ms,
-            error=job.state.last_error,
-        ))
-        job.state.run_history = job.state.run_history[-self._MAX_RUN_HISTORY:]
+            job.state.run_history.append(
+                CronRunRecord(
+                    run_at_ms=start_ms,
+                    status=job.state.last_status,
+                    duration_ms=end_ms - start_ms,
+                    error=job.state.last_error,
+                )
+            )
+            job.state.run_history = job.state.run_history[-self._MAX_RUN_HISTORY :]
 
-        # Handle one-shot jobs
-        if job.schedule.kind == "at":
-            if job.delete_after_run:
-                self._store.jobs = [j for j in self._store.jobs if j.id != job.id]
+            # Handle one-shot jobs — only finalize if the job actually
+            # completed (ok/error). A cancelled one-shot stays scheduled.
+            if job.schedule.kind == "at" and job.state.last_status != "cancelled":
+                if job.delete_after_run:
+                    self._store.jobs = [j for j in self._store.jobs if j.id != job.id]
+                else:
+                    job.enabled = False
+                    job.state.next_run_at_ms = None
             else:
-                job.enabled = False
-                job.state.next_run_at_ms = None
-        else:
-            # Compute next run
-            job.state.next_run_at_ms = _compute_next_run(job.schedule, _now_ms())
+                # Compute next run for recurring jobs, or re-arm a cancelled
+                # one-shot so it can fire again after restart.
+                job.state.next_run_at_ms = _compute_next_run(job.schedule, _now_ms())
 
     def _append_action(self, action: Literal["add", "del", "update"], params: dict):
         self.store_path.parent.mkdir(parents=True, exist_ok=True)
         with self._lock:
             with open(self._action_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps({"action": action, "params": params}, ensure_ascii=False) + "\n")
-
 
     # ========== Public API ==========
 
@@ -550,7 +671,7 @@ class CronService:
         with self._store_lock:
             store = self._load_store()
             jobs = store.jobs if include_disabled else [j for j in store.jobs if j.enabled]
-            return sorted(jobs, key=lambda j: j.state.next_run_at_ms or float('inf'))
+            return sorted(jobs, key=lambda j: j.state.next_run_at_ms or float("inf"))
 
     def add_job(
         self,

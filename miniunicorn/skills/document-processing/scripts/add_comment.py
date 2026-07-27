@@ -76,6 +76,7 @@ def add_comment(
             try:
                 existing = comments_xml.read_text(encoding="utf-8")
                 import re
+
                 ids = [int(m) for m in re.findall(r'w:id="(\d+)"', existing)]
                 if ids:
                     comment_id = max(ids) + 1

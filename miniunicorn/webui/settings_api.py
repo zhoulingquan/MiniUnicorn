@@ -27,6 +27,10 @@ from ._runtime import (
     restart_behavior_by_section,
     runtime_capabilities,
 )
+from .image_generation_api import (
+    image_generation_payload,
+    update_image_generation_settings,
+)
 from .model_settings_api import (
     create_model_configuration,
     delete_all_providers,
@@ -46,10 +50,6 @@ from .web_search_api import (
     update_web_fetch_settings,
     update_web_search_settings,
     web_search_payload,
-)
-from .image_generation_api import (
-    image_generation_payload,
-    update_image_generation_settings,
 )
 
 

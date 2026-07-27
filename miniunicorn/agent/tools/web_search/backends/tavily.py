@@ -133,7 +133,9 @@ class TavilyBackend(SearchBackend):
                 continue
             # 首条结果前置 answer 摘要(若有)
             if idx == 0 and answer:
-                snippet = f"[AI Summary] {answer}\n\n{snippet}" if snippet else f"[AI Summary] {answer}"
+                snippet = (
+                    f"[AI Summary] {answer}\n\n{snippet}" if snippet else f"[AI Summary] {answer}"
+                )
             results.append(
                 SearchResult(
                     title=title,

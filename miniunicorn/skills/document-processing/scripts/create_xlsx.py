@@ -36,7 +36,9 @@ def create_xlsx(
         sys.exit(1)
 
     if len(sheets) != len(data_blocks):
-        print(f"错误:sheet 数量({len(sheets)})与 data 数量({len(data_blocks)})不匹配", file=sys.stderr)
+        print(
+            f"错误:sheet 数量({len(sheets)})与 data 数量({len(data_blocks)})不匹配", file=sys.stderr
+        )
         sys.exit(1)
 
     wb = Workbook()
@@ -62,7 +64,9 @@ def create_xlsx(
                 if bold_header and i == 1:
                     cell.font = Font(bold=True)
                     cell.alignment = Alignment(horizontal="center")
-                    cell.fill = PatternFill(start_color="D5E8F0", end_color="D5E8F0", fill_type="solid")
+                    cell.fill = PatternFill(
+                        start_color="D5E8F0", end_color="D5E8F0", fill_type="solid"
+                    )
 
         # 自动列宽(简单估算)
         for col in ws.columns:

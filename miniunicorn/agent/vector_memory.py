@@ -8,6 +8,7 @@ sqlite-vec is an optional dependency. If unavailable, VectorMemoryStore
 degrades to a NoOpStore that returns empty results — the rest of the
 system continues to work with the legacy full-injection memory strategy.
 """
+
 from __future__ import annotations
 
 import json
@@ -25,14 +26,14 @@ def _try_load_sqlite_vec(conn: sqlite3.Connection) -> bool:
     """Attempt to load the sqlite-vec extension. Returns True on success."""
     try:
         import sqlite_vec  # type: ignore
+
         conn.enable_load_extension(True)
         sqlite_vec.load(conn)
         conn.enable_load_extension(False)
         return True
     except ImportError:
         logger.info(
-            "sqlite-vec not installed; vector memory disabled. "
-            "Install with: pip install sqlite-vec"
+            "sqlite-vec not installed; vector memory disabled. Install with: pip install sqlite-vec"
         )
         return False
     except Exception:
@@ -90,9 +91,7 @@ class VectorMemoryStore:
             # when the table exists, so we ALTER separately and swallow the
             # OperationalError that fires when the column is already there.
             try:
-                self._conn.execute(
-                    "ALTER TABLE vec_entries ADD COLUMN importance REAL DEFAULT 0.5"
-                )
+                self._conn.execute("ALTER TABLE vec_entries ADD COLUMN importance REAL DEFAULT 0.5")
             except sqlite3.OperationalError:
                 pass  # column already exists
             # sqlite-vec virtual table (cosine distance)
@@ -100,7 +99,9 @@ class VectorMemoryStore:
                 f"CREATE VIRTUAL TABLE IF NOT EXISTS vec USING vec0(embedding float[{self.embedding_dim}] distance=cosine)"
             )
             self._conn.commit()
-            logger.debug("VectorMemoryStore initialized at {} (dim={})", self.db_path, self.embedding_dim)
+            logger.debug(
+                "VectorMemoryStore initialized at {} (dim={})", self.db_path, self.embedding_dim
+            )
         except Exception:
             logger.exception("VectorMemoryStore init failed; disabling")
             self._enabled = False
@@ -123,7 +124,8 @@ class VectorMemoryStore:
         if len(embedding) != self.embedding_dim:
             logger.warning(
                 "Embedding dim mismatch: got {}, expected {}",
-                len(embedding), self.embedding_dim,
+                len(embedding),
+                self.embedding_dim,
             )
             return None
         try:
@@ -189,16 +191,18 @@ class VectorMemoryStore:
                     # so importance=0.5 leaves similarity unchanged, importance=1.0
                     # boosts it by up to 1.5x, and importance=0.0 halves it.
                     score = similarity * (0.5 + 0.5 * importance)
-                    results.append({
-                        "id": entry["id"],
-                        "kind": entry["kind"],
-                        "text": entry["text"],
-                        "metadata": meta,
-                        "importance": importance,
-                        "created_at": entry["created_at"],
-                        "similarity": similarity,
-                        "score": score,
-                    })
+                    results.append(
+                        {
+                            "id": entry["id"],
+                            "kind": entry["kind"],
+                            "text": entry["text"],
+                            "metadata": meta,
+                            "importance": importance,
+                            "created_at": entry["created_at"],
+                            "similarity": similarity,
+                            "score": score,
+                        }
+                    )
                     if len(results) >= k:
                         break
                 # Sort by weighted score descending so the highest-scoring
@@ -217,7 +221,9 @@ class VectorMemoryStore:
         try:
             with self._lock:
                 if kind:
-                    cur = self._conn.execute("SELECT COUNT(*) FROM vec_entries WHERE kind = ?", (kind,))
+                    cur = self._conn.execute(
+                        "SELECT COUNT(*) FROM vec_entries WHERE kind = ?", (kind,)
+                    )
                 else:
                     cur = self._conn.execute("SELECT COUNT(*) FROM vec_entries")
                 return cur.fetchone()[0]

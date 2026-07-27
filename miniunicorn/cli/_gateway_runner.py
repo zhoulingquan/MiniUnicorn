@@ -164,6 +164,7 @@ async def _handle_heartbeat_job(
     orig_light_context = getattr(agent, "_light_context", False)
     agent._light_context = hb_cfg.light_context
     try:
+
         async def _silent(*_args, **_kwargs):
             pass
 
@@ -199,7 +200,10 @@ async def _handle_heartbeat_job(
         eval_provider = agent.provider
         eval_model = agent.model
     should_notify = await commands.evaluate_response(
-        response, prompt, eval_provider, eval_model,
+        response,
+        prompt,
+        eval_provider,
+        eval_model,
     )
     if should_notify:
         logger.info("Heartbeat: completed, delivering response")
@@ -271,7 +275,10 @@ async def _handle_reminder_job(
 
     if job.payload.deliver and job.payload.to and response:
         should_notify = await commands.evaluate_response(
-            response, reminder_note, agent.provider, agent.model,
+            response,
+            reminder_note,
+            agent.provider,
+            agent.model,
         )
         if should_notify:
             await deliver_to_channel(
@@ -367,14 +374,18 @@ def _run_gateway(
     else:
         ws_port = 8765
 
-    console.print(f"{__logo__} Starting MiniUnicorn gateway version {__version__} on port {ws_port}...")
+    console.print(
+        f"{__logo__} Starting MiniUnicorn gateway version {__version__} on port {ws_port}..."
+    )
     commands.sync_workspace_templates(config.workspace_path)
     bus = MessageBus()
     try:
         provider_snapshot = build_provider_snapshot(config)
     except ValueError as exc:
         console.print(f"[yellow]Warning: {exc}[/yellow]")
-        console.print("[dim]Chat will not work until an API key is configured in Settings → BYOK.[/dim]")
+        console.print(
+            "[dim]Chat will not work until an API key is configured in Settings → BYOK.[/dim]"
+        )
         provider_snapshot = None
     session_manager = SessionManager(config.workspace_path)
 
@@ -388,10 +399,13 @@ def _run_gateway(
 
     # Create agent with cron service
     agent = commands.AgentLoop.from_config(
-        config, bus,
+        config,
+        bus,
         provider=provider_snapshot.provider if provider_snapshot else None,
         model=provider_snapshot.model if provider_snapshot else None,
-        context_window_tokens=provider_snapshot.context_window_tokens if provider_snapshot else None,
+        context_window_tokens=provider_snapshot.context_window_tokens
+        if provider_snapshot
+        else None,
         cron_service=cron,
         session_manager=session_manager,
         provider_snapshot_loader=load_provider_snapshot,
@@ -414,7 +428,10 @@ def _run_gateway(
         )
 
     async def _deliver_to_channel(
-        msg: OutboundMessage, *, record: bool = False, session_key: str | None = None,
+        msg: OutboundMessage,
+        *,
+        record: bool = False,
+        session_key: str | None = None,
     ) -> None:
         """Publish a user-visible message and mirror it into that channel's session."""
         metadata = dict(msg.metadata or {})
@@ -497,29 +514,34 @@ def _run_gateway(
         from the WebUI, so the new interval takes effect without a gateway restart.
         """
         from miniunicorn.config.loader import load_config as _reload_config
+
         fresh = _reload_config()
         fresh_hb = fresh.gateway.heartbeat
         fresh_dream = fresh.agents.defaults.dream
         tz = fresh.agents.defaults.timezone
         if fresh_hb.enabled:
-            cron.register_system_job(CronJob(
-                id="heartbeat",
-                name="heartbeat",
-                schedule=CronSchedule(
-                    kind="every",
-                    every_ms=fresh_hb.interval_s * 1000,
-                    tz=tz,
-                ),
-                payload=CronPayload(kind="system_event"),
-            ))
+            cron.register_system_job(
+                CronJob(
+                    id="heartbeat",
+                    name="heartbeat",
+                    schedule=CronSchedule(
+                        kind="every",
+                        every_ms=fresh_hb.interval_s * 1000,
+                        tz=tz,
+                    ),
+                    payload=CronPayload(kind="system_event"),
+                )
+            )
         if fresh_dream.enabled:
-            cron.register_system_job(CronJob(
-                id="dream",
-                name="dream",
-                schedule=fresh_dream.build_schedule(tz),
-                payload=CronPayload(kind="system_event"),
-                catch_up_on_start=True,
-            ))
+            cron.register_system_job(
+                CronJob(
+                    id="dream",
+                    name="dream",
+                    schedule=fresh_dream.build_schedule(tz),
+                    payload=CronPayload(kind="system_event"),
+                    catch_up_on_start=True,
+                )
+            )
 
     def _refresh_agent_runtime_model() -> None:
         """Refresh the running AgentLoop's model/provider from the latest config.
@@ -582,13 +604,15 @@ def _run_gateway(
     # 这里不能直接 asyncio.create_task，因为此时还没有 running loop（asyncio.run 尚未执行）。
     need_dream_catchup = False
     if dream_cfg.enabled:
-        cron.register_system_job(CronJob(
-            id="dream",
-            name="dream",
-            schedule=dream_cfg.build_schedule(config.agents.defaults.timezone),
-            payload=CronPayload(kind="system_event"),
-            catch_up_on_start=True,
-        ))
+        cron.register_system_job(
+            CronJob(
+                id="dream",
+                name="dream",
+                schedule=dream_cfg.build_schedule(config.agents.defaults.timezone),
+                payload=CronPayload(kind="system_event"),
+                catch_up_on_start=True,
+            )
+        )
         # 方案C：启动时积压检查——若未处理历史超过阈值，立即后台触发一次 dream。
         # 解决"连续多天不开，catch_up 只补 1 次"的漏洞。
         if dream_cfg.startup_backlog_threshold > 0:
@@ -609,22 +633,25 @@ def _run_gateway(
 
     # Register Heartbeat system job (idempotent on restart)
     if hb_cfg.enabled:
-        cron.register_system_job(CronJob(
-            id="heartbeat",
-            name="heartbeat",
-            schedule=CronSchedule(
-                kind="every",
-                every_ms=hb_cfg.interval_s * 1000,
-                tz=config.agents.defaults.timezone,
-            ),
-            payload=CronPayload(kind="system_event"),
-        ))
+        cron.register_system_job(
+            CronJob(
+                id="heartbeat",
+                name="heartbeat",
+                schedule=CronSchedule(
+                    kind="every",
+                    every_ms=hb_cfg.interval_s * 1000,
+                    tz=config.agents.defaults.timezone,
+                ),
+                payload=CronPayload(kind="system_event"),
+            )
+        )
 
     async def _open_browser_when_ready() -> None:
         """Wait for the gateway to bind, then point the user's browser at the webui."""
         if not open_browser_url:
             return
         import webbrowser
+
         # Channels start asynchronously; a short poll lets us avoid racing the bind.
         for _ in range(40):  # ~4s max
             try:
@@ -641,7 +668,9 @@ def _run_gateway(
             webbrowser.open(open_browser_url)
             console.print(f"[green]✓[/green] Opened browser at {open_browser_url}")
         except Exception as e:
-            console.print(f"[yellow]Could not open browser ({e}); visit {open_browser_url}[/yellow]")
+            console.print(
+                f"[yellow]Could not open browser ({e}); visit {open_browser_url}[/yellow]"
+            )
 
     async def run():
         try:
@@ -664,15 +693,59 @@ def _run_gateway(
             console.print("\n[red]Error: Gateway crashed unexpectedly[/red]")
             console.print(traceback.format_exc())
         finally:
-            await agent.close_mcp()
-            cron.stop()
-            agent.stop()
-            await channels.stop_all()
+            # Layered try/finally: each cleanup step is wrapped so a failure
+            # in one step does NOT skip subsequent steps. Critically,
+            # ``flush_all()`` must run even if ``channels.stop_all()`` or
+            # ``agent.close_mcp()`` raised (including CancelledError during
+            # shutdown). The first captured exception is re-raised at the
+            # end so cancellation semantics are preserved.
+            pending_exc: BaseException | None = None
+            try:
+                await agent.close_mcp()
+            except BaseException as exc:  # noqa: BLE001 — re-raised later
+                pending_exc = exc
+                logger.warning("Error during agent.close_mcp() shutdown: {}", exc)
+            try:
+                cron.stop()
+                # Await cancellation of in-flight cron jobs so their state
+                # (cancelled status, recomputed next_run_at_ms) is persisted
+                # before we flush sessions.
+                try:
+                    await cron.await_stop()
+                except Exception as exc:
+                    logger.warning("Error during cron.await_stop(): {}", exc)
+            except BaseException as exc:  # noqa: BLE001 — re-raised later
+                if pending_exc is None:
+                    pending_exc = exc
+                logger.warning("Error during cron.stop(): {}", exc)
+            try:
+                agent.stop()
+            except BaseException as exc:  # noqa: BLE001 — re-raised later
+                if pending_exc is None:
+                    pending_exc = exc
+                logger.warning("Error during agent.stop(): {}", exc)
+            try:
+                await channels.stop_all()
+            except BaseException as exc:  # noqa: BLE001 — re-raised later
+                if pending_exc is None:
+                    pending_exc = exc
+                logger.warning("Error during channels.stop_all(): {}", exc)
             # Flush all cached sessions to durable storage before exit.
             # This prevents data loss on filesystems with write-back
             # caching (rclone VFS, NFS, FUSE mounts, etc.).
-            flushed = agent.sessions.flush_all()
-            if flushed:
-                logger.info("Shutdown: flushed {} session(s) to disk", flushed)
+            try:
+                flushed = agent.sessions.flush_all()
+                if flushed:
+                    logger.info("Shutdown: flushed {} session(s) to disk", flushed)
+            except BaseException as exc:  # noqa: BLE001 — re-raised later
+                if pending_exc is None:
+                    pending_exc = exc
+                logger.warning("Error during sessions.flush_all(): {}", exc)
+            # Re-raise the first captured exception (typically CancelledError
+            # during shutdown) so the caller's asyncio.run sees the
+            # cancellation. This preserves cancellation semantics without
+            # losing any of the cleanup steps above.
+            if pending_exc is not None:
+                raise pending_exc
 
     asyncio.run(run())

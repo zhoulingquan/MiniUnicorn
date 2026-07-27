@@ -1,12 +1,14 @@
 """handler 共享的小工具。
 
 鉴权失败响应、服务不可用响应等高频样板,集中在此避免各 handler 重复。
+
+注意:token 与 Origin 校验现在由 :meth:`HttpRouter.dispatch` 统一执行(基于
+``RouteMeta``)。``require_auth`` / ``require_auth_with_origin`` 保留为向后兼容
+的 pass-through 装饰器,不再重复校验——路由必须通过 ``@router.route(...)``
+的 ``methods`` / ``public`` / ``origin_check`` 参数声明安全边界。
 """
 
 from __future__ import annotations
-
-import asyncio
-import functools
 
 from websockets.http11 import Response
 
@@ -29,61 +31,20 @@ def service_unavailable(message: str = "service unavailable") -> Response:
 
 
 def require_auth(fn):
-    """装饰器:在 handler 执行前校验 API token,失败则返回 401。
+    """向后兼容的 pass-through 装饰器。
 
-    兼容 sync 和 async handler。用法::
-
-        @router.route("/api/foo")
-        @require_auth
-        def foo(ctx: RouteContext) -> Response: ...
+    token 校验已由 ``HttpRouter.dispatch`` 基于 ``RouteMeta.public`` 统一执行,
+    此装饰器不再重复校验,仅保留以兼容现有 handler 的 ``@require_auth`` 写法。
+    新代码应直接在 ``@router.route(...)`` 上声明 ``public=False``(默认值)。
     """
-    if asyncio.iscoroutinefunction(fn):
-        @functools.wraps(fn)
-        async def async_wrapper(ctx, *args, **kwargs):
-            if not ctx.deps.check_api_token(ctx.request):
-                return unauthorized()
-            return await fn(ctx, *args, **kwargs)
-        return async_wrapper
-
-    @functools.wraps(fn)
-    def sync_wrapper(ctx, *args, **kwargs):
-        if not ctx.deps.check_api_token(ctx.request):
-            return unauthorized()
-        return fn(ctx, *args, **kwargs)
-    return sync_wrapper
+    return fn
 
 
 def require_auth_with_origin(fn):
-    """装饰器:在 handler 执行前校验 API token + Origin,失败则返回 401/403。
+    """向后兼容的 pass-through 装饰器。
 
-    比 ``require_auth`` 多一层 Origin 校验,用于 POST/PUT/DELETE 等状态变更路由,
-    防御 CSWSH(Cross-Site WebSocket/HTTP)攻击:恶意网页通过表单/fetch 发起
-    跨域请求时,浏览器会携带 Origin 头,此处拦截非白名单来源。
-
-    - 空 Origin(非浏览器客户端,如 curl/httpx)→ 放行,保持向后兼容。
-    - 非空 Origin → 必须在白名单内,否则返回 403。
-
-    兼容 sync 和 async handler。用法::
-
-        @router.route("/api/foo", method="POST")
-        @require_auth_with_origin
-        def foo(ctx: RouteContext) -> Response: ...
+    token + Origin 校验已由 ``HttpRouter.dispatch`` 基于 ``RouteMeta`` 统一执行,
+    此装饰器不再重复校验。新代码应在 ``@router.route(...)`` 上声明
+    ``origin_check=True``(默认值)并使用状态变更 method(POST/PUT/PATCH/DELETE)。
     """
-    if asyncio.iscoroutinefunction(fn):
-        @functools.wraps(fn)
-        async def async_wrapper(ctx, *args, **kwargs):
-            if not ctx.deps.check_api_token(ctx.request):
-                return unauthorized()
-            if not ctx.deps.is_origin_allowed(ctx.request):
-                return forbidden("Origin not allowed")
-            return await fn(ctx, *args, **kwargs)
-        return async_wrapper
-
-    @functools.wraps(fn)
-    def sync_wrapper(ctx, *args, **kwargs):
-        if not ctx.deps.check_api_token(ctx.request):
-            return unauthorized()
-        if not ctx.deps.is_origin_allowed(ctx.request):
-            return forbidden("Origin not allowed")
-        return fn(ctx, *args, **kwargs)
-    return sync_wrapper
+    return fn

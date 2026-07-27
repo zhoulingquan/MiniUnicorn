@@ -78,11 +78,19 @@ class ContextBuilder:
     _PRIORITY_SUBAGENT = 5
     _PRIORITY_NOTES = 6
 
-    def __init__(self, workspace: Path, timezone: str | None = None, disabled_skills: list[str] | None = None, subagent_registry: Any = None):
+    def __init__(
+        self,
+        workspace: Path,
+        timezone: str | None = None,
+        disabled_skills: list[str] | None = None,
+        subagent_registry: Any = None,
+    ):
         self.workspace = workspace
         self.timezone = None
         self.memory = MemoryStore(workspace)
-        self.skills = SkillsLoader(workspace, disabled_skills=set(disabled_skills) if disabled_skills else None)
+        self.skills = SkillsLoader(
+            workspace, disabled_skills=set(disabled_skills) if disabled_skills else None
+        )
         self.subagent_registry = subagent_registry
         # bootstrap 文件（AGENTS.md/SOUL.md/USER.md）的 mtime+size 缓存。
         # build_system_prompt 每次 turn 都会读取，turn 内不变；外部修改（Dream
@@ -123,7 +131,9 @@ class ContextBuilder:
             parts.append((self._PRIORITY_CRITICAL, header))
             parts.append((self._PRIORITY_CRITICAL, agent_override.system_prompt))
         else:
-            parts.append((self._PRIORITY_CRITICAL, self._get_identity(channel=channel, workspace=root)))
+            parts.append(
+                (self._PRIORITY_CRITICAL, self._get_identity(channel=channel, workspace=root))
+            )
 
         # light_context 模式跳过 bootstrap 文件(AGENTS.md/SOUL.md/USER.md),
         # 仅保留身份+工具契约+记忆,显著降低 token 消耗。用于心跳等轻量巡检场景。
@@ -136,23 +146,21 @@ class ContextBuilder:
 
         # Memory injection: full MEMORY.md by default; top-k vector recall when enabled.
         vs = self.memory.vector_store
-        if (
-            vector_recall
-            and query_embedding is not None
-            and vs is not None
-            and vs.enabled
-        ):
+        if vector_recall and query_embedding is not None and vs is not None and vs.enabled:
             recalled = vs.search(query_embedding, k=5)
             if recalled:
                 recall_text = "\n".join(
-                    f"- [{r['kind']}] ({r['similarity']:.2f}) {r['text']}"
-                    for r in recalled
+                    f"- [{r['kind']}] ({r['similarity']:.2f}) {r['text']}" for r in recalled
                 )
-                parts.append((self._PRIORITY_MEMORY, "# Memory (Relevant Recall)\n\n" + recall_text))
+                parts.append(
+                    (self._PRIORITY_MEMORY, "# Memory (Relevant Recall)\n\n" + recall_text)
+                )
             # No results: fall back to nothing (don't inject full memory in recall mode)
         else:
             memory = self.memory.get_memory_context()
-            if memory and not self._is_template_content(self.memory.read_memory(), "memory/MEMORY.md"):
+            if memory and not self._is_template_content(
+                self.memory.read_memory(), "memory/MEMORY.md"
+            ):
                 parts.append((self._PRIORITY_MEMORY, f"# Memory\n\n{memory}"))
 
         # Inject cross-session shared memory (global facts that apply to every
@@ -162,7 +170,9 @@ class ContextBuilder:
         # per-session memory is fetched.
         shared = self.memory.read_shared_memory()
         if shared and shared.strip():
-            parts.append((self._PRIORITY_SHARED_MEMORY, f"# Shared Memory (Cross-Session)\n\n{shared}"))
+            parts.append(
+                (self._PRIORITY_SHARED_MEMORY, f"# Shared Memory (Cross-Session)\n\n{shared}")
+            )
 
         # 注入 notes.md（主 Agent 的 scratchpad，借鉴 MiMo Code）。
         # 主 Agent 用 write_file/edit_file 往 notes.md append 零散发现，
@@ -180,15 +190,15 @@ class ContextBuilder:
 
         skills_summary = self.skills.build_skills_summary(exclude=set(always_skills))
         if skills_summary:
-            parts.append((self._PRIORITY_SKILLS_LIST, render_template("agent/skills_section.md", skills_summary=skills_summary)))
+            parts.append(
+                (
+                    self._PRIORITY_SKILLS_LIST,
+                    render_template("agent/skills_section.md", skills_summary=skills_summary),
+                )
+            )
 
         # History injection: full recent history by default; vector recall when enabled.
-        if (
-            vector_recall
-            and query_embedding is not None
-            and vs is not None
-            and vs.enabled
-        ):
+        if vector_recall and query_embedding is not None and vs is not None and vs.enabled:
             recalled_hist = vs.search(query_embedding, k=10, kind="history")
             if recalled_hist:
                 history_text = "\n".join(
@@ -196,19 +206,26 @@ class ContextBuilder:
                     for r in recalled_hist
                 )
                 history_text = truncate_text(history_text, self._MAX_HISTORY_CHARS)
-                parts.append((self._PRIORITY_HISTORY, "# Recent History (Relevant Recall)\n\n" + history_text))
-        else:
-            entries = self.memory.read_unprocessed_history(since_cursor=self.memory.get_last_dream_cursor())
-            if entries:
-                capped = entries[-self._MAX_RECENT_HISTORY:]
-                history_text = "\n".join(
-                    f"- [{e['timestamp']}] {e['content']}" for e in capped
+                parts.append(
+                    (
+                        self._PRIORITY_HISTORY,
+                        "# Recent History (Relevant Recall)\n\n" + history_text,
+                    )
                 )
+        else:
+            entries = self.memory.read_unprocessed_history(
+                since_cursor=self.memory.get_last_dream_cursor()
+            )
+            if entries:
+                capped = entries[-self._MAX_RECENT_HISTORY :]
+                history_text = "\n".join(f"- [{e['timestamp']}] {e['content']}" for e in capped)
                 history_text = truncate_text(history_text, self._MAX_HISTORY_CHARS)
                 parts.append((self._PRIORITY_HISTORY, "# Recent History\n\n" + history_text))
 
         if session_summary:
-            parts.append((self._PRIORITY_SUMMARY, f"[Archived Context Summary]\n\n{session_summary}"))
+            parts.append(
+                (self._PRIORITY_SUMMARY, f"[Archived Context Summary]\n\n{session_summary}")
+            )
 
         # Inject available declarative subagents (TRAE-style auto-delegation).
         # Skip in takeover mode — a subagent running as the primary identity
@@ -268,12 +285,16 @@ class ContextBuilder:
             return parts
 
         # 第 2 步：丢弃所有 SKILLS_LIST 和 SUBAGENT（列表性质，可重建）
-        parts = [p for p in parts if p[0] not in (cls._PRIORITY_SKILLS_LIST, cls._PRIORITY_SUBAGENT)]
+        parts = [
+            p for p in parts if p[0] not in (cls._PRIORITY_SKILLS_LIST, cls._PRIORITY_SUBAGENT)
+        ]
         if total_tokens() <= budget:
             return parts
 
         # 第 3 步：截断 HISTORY 到剩余预算的 50%
-        remaining = budget - sum(cls._estimate_tokens(p[1]) for p in parts if p[0] != cls._PRIORITY_HISTORY)
+        remaining = budget - sum(
+            cls._estimate_tokens(p[1]) for p in parts if p[0] != cls._PRIORITY_HISTORY
+        )
         history_quota = max(2000, remaining // 2)
         new_parts: list[tuple[int, str]] = []
         for p in parts:
@@ -288,7 +309,8 @@ class ContextBuilder:
 
         # 第 4 步：截断 MEMORY/SHARED_MEMORY 到剩余预算的 30%
         remaining = budget - sum(
-            cls._estimate_tokens(p[1]) for p in parts
+            cls._estimate_tokens(p[1])
+            for p in parts
             if p[0] not in (cls._PRIORITY_MEMORY, cls._PRIORITY_SHARED_MEMORY)
         )
         memory_quota = max(1500, (remaining * 3) // 10)
@@ -304,7 +326,9 @@ class ContextBuilder:
             return parts
 
         # 第 5 步：截断 SKILLS_ACTIVE 到剩余预算的 30%
-        remaining = budget - sum(cls._estimate_tokens(p[1]) for p in parts if p[0] != cls._PRIORITY_SKILLS_ACTIVE)
+        remaining = budget - sum(
+            cls._estimate_tokens(p[1]) for p in parts if p[0] != cls._PRIORITY_SKILLS_ACTIVE
+        )
         skills_quota = max(1000, (remaining * 3) // 10)
         new_parts = []
         for p in parts:
@@ -318,7 +342,9 @@ class ContextBuilder:
             return parts
 
         # 第 6 步：截断 SUMMARY 到剩余预算的 80%（summary 是上下文连续性关键）
-        remaining = budget - sum(cls._estimate_tokens(p[1]) for p in parts if p[0] != cls._PRIORITY_SUMMARY)
+        remaining = budget - sum(
+            cls._estimate_tokens(p[1]) for p in parts if p[0] != cls._PRIORITY_SUMMARY
+        )
         summary_quota = max(1000, (remaining * 4) // 5)
         new_parts = []
         for p in parts:
@@ -363,7 +389,13 @@ class ContextBuilder:
             lines += [f"Sender ID: {sender_id}"]
         if supplemental_lines:
             lines.extend(supplemental_lines)
-        return ContextBuilder._RUNTIME_CONTEXT_TAG + "\n" + "\n".join(lines) + "\n" + ContextBuilder._RUNTIME_CONTEXT_END
+        return (
+            ContextBuilder._RUNTIME_CONTEXT_TAG
+            + "\n"
+            + "\n".join(lines)
+            + "\n"
+            + ContextBuilder._RUNTIME_CONTEXT_END
+        )
 
     @staticmethod
     def _merge_message_content(left: Any, right: Any) -> str | list[dict[str, Any]]:
@@ -372,7 +404,10 @@ class ContextBuilder:
 
         def _to_blocks(value: Any) -> list[dict[str, Any]]:
             if isinstance(value, list):
-                return [item if isinstance(item, dict) else {"type": "text", "text": str(item)} for item in value]
+                return [
+                    item if isinstance(item, dict) else {"type": "text", "text": str(item)}
+                    for item in value
+                ]
             if value is None:
                 return []
             return [{"type": "text", "text": str(value)}]
@@ -449,7 +484,9 @@ class ContextBuilder:
             *goal_state_runtime_lines(session_metadata),
         ]
         if runtime_state is not None and inbound_message is not None:
-            extra.extend(runtime_lines(runtime_state, inbound_message, root, skip=skip_runtime_lines))
+            extra.extend(
+                runtime_lines(runtime_state, inbound_message, root, skip=skip_runtime_lines)
+            )
         if current_runtime_lines:
             extra.extend(line for line in current_runtime_lines if line)
         runtime_ctx = self._build_runtime_context(
@@ -470,7 +507,9 @@ class ContextBuilder:
         else:
             merged = user_content + [{"type": "text", "text": runtime_ctx}]
         # light_context 从 runtime_state 读取(由 AgentLoop 设置,用于心跳等轻量场景)
-        light_context = bool(getattr(runtime_state, "_light_context", False)) if runtime_state else False
+        light_context = (
+            bool(getattr(runtime_state, "_light_context", False)) if runtime_state else False
+        )
         messages = [
             {
                 "role": "system",
@@ -510,11 +549,13 @@ class ContextBuilder:
             if not mime or not mime.startswith("image/"):
                 continue
             b64 = base64.b64encode(raw).decode()
-            images.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:{mime};base64,{b64}"},
-                "_meta": {"path": str(p)},
-            })
+            images.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{b64}"},
+                    "_meta": {"path": str(p)},
+                }
+            )
 
         if not images:
             return text

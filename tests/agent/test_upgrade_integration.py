@@ -25,13 +25,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.planner import Planner, Plan, PlanStep, StepStatus
+from miniunicorn.agent.context_governor import ContextGovernor
+from miniunicorn.agent.planner import Plan, Planner, PlanStep, StepStatus
+from miniunicorn.agent.reflection import Reflection
 from miniunicorn.agent.subagent_registry import SubagentRegistry
 from miniunicorn.agent.tools.context import RequestContext
 from miniunicorn.agent.tools.delegate import DelegateTool
 from miniunicorn.agent.tools.execute_plan import ExecutePlanTool
-from miniunicorn.agent.context_governor import ContextGovernor
-from miniunicorn.agent.reflection import Reflection
 from miniunicorn.agent.turn_budget import TurnBudget
 from miniunicorn.agent.vector_memory import NoOpVectorStore, VectorMemoryStore
 from miniunicorn.bus.queue import MessageBus
@@ -45,7 +45,8 @@ _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 # Helpers / factory
 # ---------------------------------------------------------------------------
 
-def _make_subagent_manager(tmp_path: Path) -> "SubagentManager":  # type: ignore[name-defined]
+
+def _make_subagent_manager(tmp_path: Path):  # type: ignore[no-untyped-def]
     """Build a real SubagentManager with a mock provider (no real LLM)."""
     from miniunicorn.agent.subagent import SubagentManager
 
@@ -79,24 +80,33 @@ def _make_mock_manager() -> MagicMock:
 # 1. Planner -> execute_plan chain
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_planner_to_execute_plan_chain(tmp_path):
     """Planner produces a Plan; execute_plan consumes it and spawns per step."""
     # --- Planner side: mock provider returns a plan JSON ---
-    plan_json = json.dumps({
-        "goal": "refactor module X",
-        "steps": [
-            {"id": 1, "action": "read main.py", "tool_hint": "read_file"},
-            {"id": 2, "action": "write tests", "tool_hint": "write_file"},
-        ],
-    })
+    plan_json = json.dumps(
+        {
+            "goal": "refactor module X",
+            "steps": [
+                {"id": 1, "action": "read main.py", "tool_hint": "read_file"},
+                {"id": 2, "action": "write tests", "tool_hint": "write_file"},
+            ],
+        }
+    )
     provider = MagicMock(spec=LLMProvider)
-    provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content=plan_json, tool_calls=[], usage={},
-    ))
+    provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(
+            content=plan_json,
+            tool_calls=[],
+            usage={},
+        )
+    )
 
     planner = Planner(provider=provider, model="test-model")
-    plan = await planner.create_plan(task="refactor module X", tools_summary="read_file, write_file")
+    plan = await planner.create_plan(
+        task="refactor module X", tools_summary="read_file, write_file"
+    )
 
     assert plan.goal == "refactor module X"
     assert len(plan.steps) == 2
@@ -134,6 +144,7 @@ async def test_planner_to_execute_plan_chain(tmp_path):
 # ---------------------------------------------------------------------------
 # 2. delegate tool + SubagentRegistry
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_delegate_with_registry(tmp_path):
@@ -184,6 +195,7 @@ async def test_delegate_with_registry(tmp_path):
 # 3. spawn_and_wait override passthrough
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_subagent_spawn_and_wait_overrides(tmp_path):
     """spawn_and_wait forwards overrides to _run_subagent_direct / AgentRunSpec."""
@@ -230,8 +242,11 @@ async def test_subagent_spawn_and_wait_overrides(tmp_path):
     assert spec.initial_messages[0]["role"] == "system"
     assert spec.initial_messages[0]["content"] == "OVERRIDE PROMPT"
     # tools_whitelist restricts the registry
-    tool_names = list(spec.tools._tools.keys()) if hasattr(spec.tools, "_tools") else \
-        [t.name for t in spec.tools.list_all()]
+    tool_names = (
+        list(spec.tools._tools.keys())
+        if hasattr(spec.tools, "_tools")
+        else [t.name for t in spec.tools.list_all()]
+    )
     assert "read_file" in tool_names
     assert "write_file" not in tool_names
 
@@ -250,6 +265,7 @@ def test_spawn_and_wait_signature_has_overrides():
 # ---------------------------------------------------------------------------
 # 4. VectorMemoryStore roundtrip (NoOp fallback)
 # ---------------------------------------------------------------------------
+
 
 def test_vector_memory_noop_store_contract():
     """NoOpVectorStore reports disabled and returns empty results."""
@@ -292,6 +308,7 @@ def test_create_vector_store_falls_back_to_noop(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # 5. TurnBudget tracking
 # ---------------------------------------------------------------------------
+
 
 def test_turn_budget_accumulate_and_check_under_limit():
     budget = TurnBudget(max_input_tokens=1000, max_output_tokens=500, max_cost_usd=None)
@@ -349,6 +366,7 @@ def test_turn_budget_summary_includes_exceeded_reason():
 # 6. Reflection persistence
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_reflection_persistence(tmp_path, monkeypatch):
     """Reflection writes JSONL entries and reads them back."""
@@ -372,21 +390,29 @@ async def test_reflection_persistence(tmp_path, monkeypatch):
     monkeypatch.setattr(reflection_mod, "datetime", _FakeDateTime)
 
     provider = MagicMock(spec=LLMProvider)
-    provider.chat_with_retry = AsyncMock(side_effect=[
-        LLMResponse(content="Lesson A: always validate inputs.", tool_calls=[], usage={}),
-        LLMResponse(content="Lesson B: cache misses cost tokens.", tool_calls=[], usage={}),
-    ])
+    provider.chat_with_retry = AsyncMock(
+        side_effect=[
+            LLMResponse(content="Lesson A: always validate inputs.", tool_calls=[], usage={}),
+            LLMResponse(content="Lesson B: cache misses cost tokens.", tool_calls=[], usage={}),
+        ]
+    )
 
     reflection = Reflection(provider=provider, model="m", workspace=tmp_path)
 
     msg = [{"role": "user", "content": "do something"}]
     r1 = await reflection.reflect(
-        trigger="tool_error", iteration=1,
-        context_summary="tool failed", messages=msg, session_key="s1",
+        trigger="tool_error",
+        iteration=1,
+        context_summary="tool failed",
+        messages=msg,
+        session_key="s1",
     )
     r2 = await reflection.reflect(
-        trigger="periodic", iteration=5,
-        context_summary="periodic check", messages=msg, session_key="s1",
+        trigger="periodic",
+        iteration=5,
+        context_summary="periodic check",
+        messages=msg,
+        session_key="s1",
     )
 
     assert r1 is not None and "validate inputs" in r1
@@ -419,8 +445,11 @@ async def test_reflection_no_workspace_skips(tmp_path):
     provider = MagicMock(spec=LLMProvider)
     reflection = Reflection(provider=provider, model="m", workspace=None)
     result = await reflection.reflect(
-        trigger="tool_error", iteration=1,
-        context_summary="x", messages=[], session_key=None,
+        trigger="tool_error",
+        iteration=1,
+        context_summary="x",
+        messages=[],
+        session_key=None,
     )
     assert result is None
     provider.chat_with_retry.assert_not_awaited()
@@ -429,6 +458,7 @@ async def test_reflection_no_workspace_skips(tmp_path):
 # ---------------------------------------------------------------------------
 # 7. ContextGovernor default strategies
 # ---------------------------------------------------------------------------
+
 
 def test_context_governor_default_strategies():
     """ContextGovernor loads the 5 built-in strategies by default."""
@@ -463,6 +493,7 @@ def test_context_governor_builtin_pipeline_order():
 # 8. SubagentRegistry empty when no agents/ dir
 # ---------------------------------------------------------------------------
 
+
 def test_registry_empty_when_no_agents_dir(tmp_path):
     """No agents/ directory => registry empty, prompt section empty string."""
     registry = SubagentRegistry(workspace=tmp_path)
@@ -478,10 +509,12 @@ def test_registry_loads_multiple_agents(tmp_path):
     agents_dir = tmp_path / "agents"
     agents_dir.mkdir()
     (agents_dir / "a.md").write_text(
-        "---\nname: a\ndescription: agent a\n---\nbody a\n", encoding="utf-8",
+        "---\nname: a\ndescription: agent a\n---\nbody a\n",
+        encoding="utf-8",
     )
     (agents_dir / "b.md").write_text(
-        "---\nname: b\ndescription: agent b\nmodel: gpt-4o\n---\nbody b\n", encoding="utf-8",
+        "---\nname: b\ndescription: agent b\nmodel: gpt-4o\n---\nbody b\n",
+        encoding="utf-8",
     )
 
     registry = SubagentRegistry(workspace=tmp_path)
@@ -499,6 +532,7 @@ def test_registry_loads_multiple_agents(tmp_path):
 # ---------------------------------------------------------------------------
 # 9. execute_plan serial mode chains results
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_execute_plan_serial_chains_results(tmp_path):
@@ -518,13 +552,15 @@ async def test_execute_plan_serial_chains_results(tmp_path):
     tool = ExecutePlanTool(manager=mock_manager)
     tool.set_context(RequestContext(channel="cli", chat_id="c1", session_key="cli:c1"))
 
-    plan_str = json.dumps({
-        "goal": "chain test",
-        "steps": [
-            {"id": 1, "action": "produce A"},
-            {"id": 2, "action": "consume A"},
-        ],
-    })
+    plan_str = json.dumps(
+        {
+            "goal": "chain test",
+            "steps": [
+                {"id": 1, "action": "produce A"},
+                {"id": 2, "action": "consume A"},
+            ],
+        }
+    )
     result = await tool.execute(plan=plan_str, execution="serial")
 
     assert len(spawn_calls) == 2
@@ -542,6 +578,7 @@ async def test_execute_plan_serial_chains_results(tmp_path):
 # 10. Full chain mock (lightweight end-to-end)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_full_chain_mock(tmp_path):
     """Lightweight end-to-end: Planner -> execute_plan -> spawn_and_wait -> summary.
@@ -549,18 +586,24 @@ async def test_full_chain_mock(tmp_path):
     Everything mocked: no real LLM, no real subagent execution.
     """
     # --- Stage 1: Planner produces a plan from a mocked LLM response ---
-    plan_json = json.dumps({
-        "goal": "ship feature",
-        "steps": [
-            {"id": 1, "action": "design API"},
-            {"id": 2, "action": "implement endpoint"},
-            {"id": 3, "action": "write tests"},
-        ],
-    })
+    plan_json = json.dumps(
+        {
+            "goal": "ship feature",
+            "steps": [
+                {"id": 1, "action": "design API"},
+                {"id": 2, "action": "implement endpoint"},
+                {"id": 3, "action": "write tests"},
+            ],
+        }
+    )
     planner_provider = MagicMock(spec=LLMProvider)
-    planner_provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content=plan_json, tool_calls=[], usage={},
-    ))
+    planner_provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(
+            content=plan_json,
+            tool_calls=[],
+            usage={},
+        )
+    )
     planner = Planner(provider=planner_provider, model="test-model")
     plan = await planner.create_plan(task="ship feature", tools_summary="read_file, write_file")
     assert plan.all_done is False

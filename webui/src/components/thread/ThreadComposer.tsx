@@ -65,6 +65,21 @@ const ACCEPT_ATTR =
   "application/octet-stream," +
   DOCUMENT_EXTENSIONS;
 
+/** 服务端 WebSocket 帧大小上限回退值。与后端 ``WebSocketConfig`` 默认一致,
+ * 仅在 bootstrap 响应未携带 ``max_message_bytes`` 时使用。 */
+const DEFAULT_MAX_MESSAGE_BYTES = 37_748_736;
+/** 发送前校验时为 envelope framing(JSON 包裹 + chat_id + 字段名等)预留的
+ * 安全余量。设计 §4.5 要求"保留安全余量",这里取 64 KiB,足以覆盖
+ * metadata/workspace_scope/cli_apps/mcp_presets 等小字段。 */
+const FRAME_FRAMING_MARGIN_BYTES = 64 * 1024;
+
+/** UTF-8 字节长度,浏览器原生 ``TextEncoder`` 输出 ``Uint8Array``,其
+ * ``byteLength`` 即 UTF-8 字节数。仅在计算 JSON frame 大小时按需创建。 */
+function utf8ByteLength(text: string): number {
+  if (text.length === 0) return 0;
+  return new TextEncoder().encode(text).byteLength;
+}
+
 export function ThreadComposer({
   onSend,
   disabled,
@@ -98,6 +113,7 @@ export function ThreadComposer({
   conversationKey = null,
   prefillText = null,
   onPrefillConsumed,
+  maxMessageBytes,
 }: ThreadComposerProps) {
   const { t } = useTranslation();
   const [value, setValue] = useState("");
@@ -327,6 +343,43 @@ export function ThreadComposer({
     const options: SendOptions | undefined = selectedAgentId
       ? { agentId: selectedAgentId }
       : undefined;
+
+    // 发送前对最终 JSON frame 的 UTF-8 字节数进行校验(设计 §4.5)。
+    // 复刻 ``MiniunicornClient.sendMessage`` 的 wire 帧结构,计算精确字节数,
+    // 再为 envelope 外层字段(chat_id/webui=true/metadata 等)预留安全余量。
+    // 超限直接拦截、保留文本和附件草稿,避免服务端 1009 关闭连接后丢失输入。
+    const limit =
+      typeof maxMessageBytes === "number" && maxMessageBytes > 0
+        ? maxMessageBytes
+        : DEFAULT_MAX_MESSAGE_BYTES;
+    const wireFrame: Record<string, unknown> = {
+      type: "message",
+      chat_id: conversationKey ?? "",
+      content: trimmed,
+      webui: true,
+    };
+    if (payload && payload.length > 0) {
+      wireFrame.media = payload.map((p) => p.media);
+    }
+    if (options?.agentId) {
+      wireFrame.metadata = { agent_id: options.agentId };
+    }
+    const frameBytes = utf8ByteLength(JSON.stringify(wireFrame));
+    const budget = Math.max(0, limit - FRAME_FRAMING_MARGIN_BYTES);
+    if (frameBytes > budget) {
+      // 超限:不调用 onSend、不清空文本/附件。给出可操作的本地化提示,
+      // 让用户知道是附件过大,而非网络/认证故障。
+      const overMb = (frameBytes / (1024 * 1024)).toFixed(1);
+      const limitMb = (limit / (1024 * 1024)).toFixed(0);
+      setInlineError(
+        t("thread.composer.imageRejected.frameTooLarge", {
+          overMb,
+          limitMb,
+        }),
+      );
+      return;
+    }
+
     onSend(trimmed, payload, options);
     setValue("");
     setInlineError(null);
@@ -336,11 +389,14 @@ export function ThreadComposer({
   }, [
     canSend,
     clear,
+    conversationKey,
+    maxMessageBytes,
     onSend,
     readyImages,
     resetSlashMenu,
     resizeTextarea,
     selectedAgentId,
+    t,
     value,
   ]);
 

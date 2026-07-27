@@ -50,9 +50,7 @@ def web_search_payload(config: Any) -> dict[str, Any]:
     search_config = config.tools.web_search
     # 空字符串或未配置时回退到 "auto"(并发聚合所有后端)。
     search_provider = (
-        search_config.provider
-        if search_config.provider in _WEB_SEARCH_PROVIDER_BY_NAME
-        else "auto"
+        search_config.provider if search_config.provider in _WEB_SEARCH_PROVIDER_BY_NAME else "auto"
     )
     # 当前选中 provider 的凭证:从 backends[name] 读取(bocha 用 api_key,
     # 其余国内后端不需要凭证)。auto 模式下不展示凭证。
@@ -72,10 +70,7 @@ def web_search_payload(config: Any) -> dict[str, Any]:
             "max_results": search_config.max_results,
             "timeout": search_config.timeout,
             "proxy": search_config.proxy,
-            "backends": {
-                name: cfg.model_dump()
-                for name, cfg in search_config.backends.items()
-            },
+            "backends": {name: cfg.model_dump() for name, cfg in search_config.backends.items()},
             "providers": list(_WEB_SEARCH_PROVIDER_OPTIONS),
         },
         "web": {
@@ -136,7 +131,12 @@ def update_web_search_settings(query: QueryParams) -> dict[str, Any]:
         base_url = _query_first_alias(query, "base_url", "baseUrl")
         base_url = base_url.strip() if base_url is not None else None
         existing_cfg = search_config.backends.get(provider_name)
-        if not base_url and previous_provider == provider_name and existing_cfg and existing_cfg.base_url:
+        if (
+            not base_url
+            and previous_provider == provider_name
+            and existing_cfg
+            and existing_cfg.base_url
+        ):
             base_url = existing_cfg.base_url
         if not base_url:
             raise WebUISettingsError("base_url is required")
@@ -150,7 +150,12 @@ def update_web_search_settings(query: QueryParams) -> dict[str, Any]:
         api_key = _query_first_alias(query, "api_key", "apiKey")
         api_key = api_key.strip() if api_key is not None else None
         existing_cfg = search_config.backends.get(provider_name)
-        if not api_key and previous_provider == provider_name and existing_cfg and existing_cfg.api_key:
+        if (
+            not api_key
+            and previous_provider == provider_name
+            and existing_cfg
+            and existing_cfg.api_key
+        ):
             api_key = existing_cfg.api_key
         if not api_key:
             raise WebUISettingsError("api_key is required")
@@ -179,6 +184,7 @@ def update_web_search_settings(query: QueryParams) -> dict[str, Any]:
     if changed:
         save_config(config)
     from .settings_api import settings_payload
+
     return settings_payload(requires_restart=restart_required)
 
 
@@ -204,4 +210,5 @@ def update_web_fetch_settings(query: QueryParams) -> dict[str, Any]:
         restart_required = True
 
     from .settings_api import settings_payload
+
     return settings_payload(requires_restart=restart_required)

@@ -32,8 +32,9 @@ import {
   type SupportedLocale,
 } from "@/i18n/config";
 import {
+  BootstrapError,
   deriveWsUrl,
-  fetchBootstrap,
+  fetchBootstrapWithRetry,
   loadSavedSecret,
   saveSecret,
 } from "@/lib/bootstrap";
@@ -68,6 +69,9 @@ type BootState =
       modelName: string | null;
       runtimeSurface: RuntimeSurface;
       version: string | null;
+      /** 服务端 WebSocket 帧大小上限(字节),由 bootstrap 响应回传。
+       * 用于在 Composer 发送前校验附件总字节数(见设计 §4.5)。 */
+      maxMessageBytes: number;
     };
 
 const SIDEBAR_STORAGE_KEY = STORAGE_KEYS.sidebar;
@@ -75,6 +79,10 @@ const SIDEBAR_WIDTH = 272;
 const SIDEBAR_RAIL_WIDTH = 56;
 const TOKEN_REFRESH_MARGIN_MS = 30_000;
 const TOKEN_REFRESH_MIN_DELAY_MS = 5_000;
+/** 当 bootstrap 响应缺失或未携带 ``max_message_bytes`` 时的回退值。
+ * 与后端 ``WebSocketConfig.max_message_bytes`` 默认值保持一致(36 MiB),
+ * 保证 Composer 在拿到 bootstrap 响应前/后行为一致。 */
+const DEFAULT_MAX_MESSAGE_BYTES = 37_748_736;
 // ShellView 包含 "chat" + VIEW_REGISTRY 中所有已注册视图的 key
 // 新增视图时只需在 registry 加一项，此类型自动同步
 type ShellView = "chat" | (typeof VIEW_REGISTRY)[number]["key"];
@@ -242,10 +250,17 @@ export default function App() {
   const bootstrapWithSecret = useCallback(
     (secret: string) => {
       let cancelled = false;
+      // AbortController lets us cancel in-flight retry loops when the
+      // component unmounts or a new bootstrap is initiated.
+      const abortController = new AbortController();
       (async () => {
         setState({ status: "loading" });
         try {
-          const boot = await fetchBootstrap("", secret);
+          // Initial bootstrap uses capped exponential backoff for transient
+          // errors (network/5xx). 401/403 immediately transitions to auth.
+          const boot = await fetchBootstrapWithRetry("", secret, {
+            signal: abortController.signal,
+          });
           if (cancelled) return;
           if (secret) saveSecret(secret);
           const url = deriveWsUrl(boot.ws_path, boot.token, boot.ws_url);
@@ -256,7 +271,13 @@ export default function App() {
             socketFactory: runtimeHost.socketFactory,
             onReauth: async () => {
               try {
-                const refreshed = await fetchBootstrap("", bootstrapSecretRef.current);
+                // Reauth retries transient errors too. A 401/403 here
+                // means the saved secret is no longer valid — we close
+                // the old client and transition to auth.
+                const refreshed = await fetchBootstrapWithRetry(
+                  "",
+                  bootstrapSecretRef.current,
+                );
                 const refreshedUrl = deriveWsUrl(
                   refreshed.ws_path,
                   refreshed.token,
@@ -275,11 +296,26 @@ export default function App() {
                             ? toRuntimeSurface(refreshed.runtime_surface)
                             : current.runtimeSurface,
                         version: refreshed.version ?? current.version,
+                        maxMessageBytes:
+                          typeof refreshed.max_message_bytes === "number" &&
+                          refreshed.max_message_bytes > 0
+                            ? refreshed.max_message_bytes
+                            : current.maxMessageBytes,
                       }
                     : current,
                 );
                 return refreshedUrl;
-              } catch {
+              } catch (e) {
+                if (e instanceof BootstrapError && e.isAuth) {
+                  // Saved secret no longer valid: close the old client
+                  // (cancels reconnection and pending reconnect timers)
+                  // and transition to auth so the user can re-enter it.
+                  client.close();
+                  setState({ status: "auth", failed: true });
+                }
+                // Transient errors that exhausted retries: return null so
+                // the WS client stays disconnected; the proactive refresh
+                // timer will keep trying in the background.
                 return null;
               }
             },
@@ -294,19 +330,24 @@ export default function App() {
             modelName: boot.model_name ?? null,
             runtimeSurface,
             version: boot.version ?? null,
+            maxMessageBytes:
+              typeof boot.max_message_bytes === "number" &&
+              boot.max_message_bytes > 0
+                ? boot.max_message_bytes
+                : DEFAULT_MAX_MESSAGE_BYTES,
           });
         } catch (e) {
           if (cancelled) return;
-          const msg = (e as Error).message;
-          if (msg.includes("HTTP 401") || msg.includes("HTTP 403")) {
+          if (e instanceof BootstrapError && e.isAuth) {
             setState({ status: "auth", failed: true });
           } else {
-            setState({ status: "error", message: msg });
+            setState({ status: "error", message: (e as Error).message });
           }
         }
       })();
       return () => {
         cancelled = true;
+        abortController.abort();
       };
     },
     [],
@@ -324,9 +365,19 @@ export default function App() {
   useEffect(() => {
     if (state.status !== "ready") return;
     const client = state.client;
+    // AbortController cancels the in-flight retry loop if the component
+    // unmounts or the token expiry changes (re-scheduling this effect).
+    const abortController = new AbortController();
     const timer = window.setTimeout(async () => {
       try {
-        const boot = await fetchBootstrap("", bootstrapSecretRef.current);
+        // Proactive refresh retries transient errors. 401/403 closes the
+        // old client and transitions to auth.
+        const boot = await fetchBootstrapWithRetry(
+          "",
+          bootstrapSecretRef.current,
+          { signal: abortController.signal },
+        );
+        if (abortController.signal.aborted) return;
         const url = deriveWsUrl(boot.ws_path, boot.token, boot.ws_url);
         const tokenExpiresAt = bootstrapTokenExpiresAt(boot.expires_in);
         client.updateUrl(url);
@@ -341,17 +392,32 @@ export default function App() {
                   ? toRuntimeSurface(boot.runtime_surface)
                   : current.runtimeSurface,
                 version: boot.version ?? current.version,
+                maxMessageBytes:
+                  typeof boot.max_message_bytes === "number" &&
+                  boot.max_message_bytes > 0
+                    ? boot.max_message_bytes
+                    : current.maxMessageBytes,
               }
             : current,
         );
       } catch (e) {
-        const msg = (e as Error).message;
-        if (msg.includes("HTTP 401") || msg.includes("HTTP 403")) {
+        if (abortController.signal.aborted) return;
+        if (e instanceof BootstrapError && e.isAuth) {
+          // Saved secret no longer valid: close the old client (cancels
+          // reconnection and pending reconnect timers) and the old refresh
+          // timer (this effect's cleanup), then transition to auth.
+          client.close();
           setState({ status: "auth", failed: true });
         }
+        // Transient errors that exhausted retries: leave the current state
+        // alone. The effect will re-run on the next state change and
+        // schedule another refresh attempt.
       }
     }, tokenRefreshDelayMs(state.tokenExpiresAt));
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      abortController.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- readyClient/readyTokenExpiresAt are extracted from state union to avoid TS narrowing errors
   }, [state.status, readyClient, readyTokenExpiresAt]);
 
@@ -407,6 +473,7 @@ export default function App() {
         <Shell
           runtimeSurface={state.runtimeSurface}
           version={state.version}
+          maxMessageBytes={state.maxMessageBytes}
           onModelNameChange={handleModelNameChange}
         />
       </ClientProvider>
@@ -417,10 +484,12 @@ export default function App() {
 function Shell({
   runtimeSurface,
   version,
+  maxMessageBytes,
   onModelNameChange,
 }: {
   runtimeSurface: RuntimeSurface;
   version: string | null;
+  maxMessageBytes: number;
   onModelNameChange: (modelName: string | null) => void;
 }) {
   const { t, i18n } = useTranslation();
@@ -983,6 +1052,7 @@ function Shell({
                 selectedAgentId={selectedAgentId}
                 onSelectAgent={onSelectAgent}
                 onClearAgent={onClearAgent}
+                maxMessageBytes={maxMessageBytes}
               />
             </div>
             {view !== "chat" && (() => {

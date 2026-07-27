@@ -10,10 +10,9 @@ from typer.testing import CliRunner
 
 from miniunicorn.bus.events import OutboundMessage
 from miniunicorn.cli.commands import app
-from miniunicorn.providers.factory import make_provider
 from miniunicorn.config.schema import Config
 from miniunicorn.cron.types import CronJob, CronPayload
-from miniunicorn.providers.factory import ProviderSnapshot
+from miniunicorn.providers.factory import ProviderSnapshot, make_provider
 
 runner = CliRunner()
 
@@ -32,10 +31,12 @@ class _StopGatewayError(RuntimeError):
 @pytest.fixture
 def mock_paths():
     """Mock config/workspace paths for test isolation."""
-    with patch("miniunicorn.config.loader.get_config_path") as mock_cp, \
-         patch("miniunicorn.config.loader.save_config") as mock_sc, \
-         patch("miniunicorn.config.loader.load_config") as mock_lc, \
-         patch("miniunicorn.cli.commands.get_workspace_path") as mock_ws:
+    with (
+        patch("miniunicorn.config.loader.get_config_path") as mock_cp,
+        patch("miniunicorn.config.loader.save_config") as mock_sc,
+        patch("miniunicorn.config.loader.load_config") as mock_lc,
+        patch("miniunicorn.cli.commands.get_workspace_path") as mock_ws,
+    ):
         base_dir = Path("./test_onboard_data")
         if base_dir.exists():
             shutil.rmtree(base_dir)
@@ -121,8 +122,8 @@ def test_onboard_existing_workspace_safe_create(mock_paths):
 
 def _strip_ansi(text):
     """Remove ANSI escape codes from text."""
-    ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
-    return ansi_escape.sub('', text)
+    ansi_escape = re.compile(r"\x1b\[[0-9;]*m")
+    return ansi_escape.sub("", text)
 
 
 def test_onboard_help_shows_workspace_and_config_options():
@@ -260,14 +261,16 @@ def mock_agent_runtime(tmp_path):
     config = Config()
     config.agents.defaults.workspace = str(tmp_path / "default-workspace")
 
-    with patch("miniunicorn.config.loader.load_config", return_value=config) as mock_load_config, \
-         patch("miniunicorn.config.loader.resolve_config_env_vars", side_effect=lambda c: c), \
-         patch("miniunicorn.cli.commands.sync_workspace_templates") as mock_sync_templates, \
-         patch("miniunicorn.providers.factory.make_provider", return_value=_fake_provider()), \
-         patch("miniunicorn.cli.commands._print_agent_response") as mock_print_response, \
-         patch("miniunicorn.bus.queue.MessageBus"), \
-         patch("miniunicorn.cron.service.CronService"), \
-         patch("miniunicorn.cli.commands.AgentLoop.from_config") as mock_from_config:
+    with (
+        patch("miniunicorn.config.loader.load_config", return_value=config) as mock_load_config,
+        patch("miniunicorn.config.loader.resolve_config_env_vars", side_effect=lambda c: c),
+        patch("miniunicorn.cli.commands.sync_workspace_templates") as mock_sync_templates,
+        patch("miniunicorn.providers.factory.make_provider", return_value=_fake_provider()),
+        patch("miniunicorn.cli.commands._print_agent_response") as mock_print_response,
+        patch("miniunicorn.bus.queue.MessageBus"),
+        patch("miniunicorn.cron.service.CronService"),
+        patch("miniunicorn.cli.commands.AgentLoop.from_config") as mock_from_config,
+    ):
         agent_loop = MagicMock()
         agent_loop.channels_config = None
         agent_loop.process_direct = AsyncMock(
@@ -309,7 +312,9 @@ def test_agent_uses_default_config_when_no_workspace_or_config_flags(mock_agent_
     assert passed_config.workspace_path == mock_agent_runtime["config"].workspace_path
     mock_agent_runtime["agent_loop"].process_direct.assert_awaited_once()
     mock_agent_runtime["print_response"].assert_called_once_with(
-        "mock-response", render_markdown=True, metadata={},
+        "mock-response",
+        render_markdown=True,
+        metadata={},
     )
 
 
@@ -337,7 +342,9 @@ def test_agent_config_sets_active_path(monkeypatch, tmp_path: Path) -> None:
     )
     monkeypatch.setattr("miniunicorn.config.loader.load_config", lambda _path=None: config)
     monkeypatch.setattr("miniunicorn.cli.commands.sync_workspace_templates", lambda _path: None)
-    monkeypatch.setattr("miniunicorn.providers.factory.make_provider", lambda _config: _fake_provider())
+    monkeypatch.setattr(
+        "miniunicorn.providers.factory.make_provider", lambda _config: _fake_provider()
+    )
     monkeypatch.setattr("miniunicorn.bus.queue.MessageBus", lambda: object())
     monkeypatch.setattr("miniunicorn.cron.service.CronService", lambda _store: object())
 
@@ -345,6 +352,7 @@ def test_agent_config_sets_active_path(monkeypatch, tmp_path: Path) -> None:
         @classmethod
         def from_config(cls, config, bus=None, **extra):
             return cls(**extra)
+
         def __init__(self, *args, **kwargs) -> None:
             pass
 
@@ -355,7 +363,9 @@ def test_agent_config_sets_active_path(monkeypatch, tmp_path: Path) -> None:
             return None
 
     monkeypatch.setattr("miniunicorn.cli.commands.AgentLoop", _FakeAgentLoop)
-    monkeypatch.setattr("miniunicorn.cli.commands._print_agent_response", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "miniunicorn.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
+    )
 
     result = runner.invoke(app, ["agent", "-m", "hello", "-c", str(config_file)])
 
@@ -375,7 +385,9 @@ def test_agent_uses_workspace_directory_for_cron_store(monkeypatch, tmp_path: Pa
     monkeypatch.setattr("miniunicorn.config.loader.set_config_path", lambda _path: None)
     monkeypatch.setattr("miniunicorn.config.loader.load_config", lambda _path=None: config)
     monkeypatch.setattr("miniunicorn.cli.commands.sync_workspace_templates", lambda _path: None)
-    monkeypatch.setattr("miniunicorn.providers.factory.make_provider", lambda _config: _fake_provider())
+    monkeypatch.setattr(
+        "miniunicorn.providers.factory.make_provider", lambda _config: _fake_provider()
+    )
     monkeypatch.setattr("miniunicorn.bus.queue.MessageBus", lambda: object())
 
     class _FakeCron:
@@ -386,6 +398,7 @@ def test_agent_uses_workspace_directory_for_cron_store(monkeypatch, tmp_path: Pa
         @classmethod
         def from_config(cls, config, bus=None, **extra):
             return cls(**extra)
+
         def __init__(self, *args, **kwargs) -> None:
             pass
 
@@ -397,7 +410,9 @@ def test_agent_uses_workspace_directory_for_cron_store(monkeypatch, tmp_path: Pa
 
     monkeypatch.setattr("miniunicorn.cron.service.CronService", _FakeCron)
     monkeypatch.setattr("miniunicorn.cli.commands.AgentLoop", _FakeAgentLoop)
-    monkeypatch.setattr("miniunicorn.cli.commands._print_agent_response", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "miniunicorn.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
+    )
 
     result = runner.invoke(app, ["agent", "-m", "hello", "-c", str(config_file)])
 
@@ -405,9 +420,7 @@ def test_agent_uses_workspace_directory_for_cron_store(monkeypatch, tmp_path: Pa
     assert seen["cron_store"] == config.workspace_path / "cron" / "jobs.json"
 
 
-def test_agent_workspace_override_does_not_migrate_legacy_cron(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_agent_workspace_override_does_not_migrate_legacy_cron(monkeypatch, tmp_path: Path) -> None:
     config_file = tmp_path / "instance" / "config.json"
     config_file.parent.mkdir(parents=True)
     config_file.write_text("{}")
@@ -424,7 +437,9 @@ def test_agent_workspace_override_does_not_migrate_legacy_cron(
     monkeypatch.setattr("miniunicorn.config.loader.set_config_path", lambda _path: None)
     monkeypatch.setattr("miniunicorn.config.loader.load_config", lambda _path=None: config)
     monkeypatch.setattr("miniunicorn.cli.commands.sync_workspace_templates", lambda _path: None)
-    monkeypatch.setattr("miniunicorn.providers.factory.make_provider", lambda _config: _fake_provider())
+    monkeypatch.setattr(
+        "miniunicorn.providers.factory.make_provider", lambda _config: _fake_provider()
+    )
     monkeypatch.setattr("miniunicorn.bus.queue.MessageBus", lambda: object())
     monkeypatch.setattr("miniunicorn.config.paths.get_cron_dir", lambda: legacy_dir)
 
@@ -436,6 +451,7 @@ def test_agent_workspace_override_does_not_migrate_legacy_cron(
         @classmethod
         def from_config(cls, config, bus=None, **extra):
             return cls(**extra)
+
         def __init__(self, *args, **kwargs) -> None:
             pass
 
@@ -447,7 +463,9 @@ def test_agent_workspace_override_does_not_migrate_legacy_cron(
 
     monkeypatch.setattr("miniunicorn.cron.service.CronService", _FakeCron)
     monkeypatch.setattr("miniunicorn.cli.commands.AgentLoop", _FakeAgentLoop)
-    monkeypatch.setattr("miniunicorn.cli.commands._print_agent_response", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "miniunicorn.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
+    )
 
     result = runner.invoke(
         app,
@@ -480,7 +498,9 @@ def test_agent_custom_config_workspace_does_not_migrate_legacy_cron(
     monkeypatch.setattr("miniunicorn.config.loader.set_config_path", lambda _path: None)
     monkeypatch.setattr("miniunicorn.config.loader.load_config", lambda _path=None: config)
     monkeypatch.setattr("miniunicorn.cli.commands.sync_workspace_templates", lambda _path: None)
-    monkeypatch.setattr("miniunicorn.providers.factory.make_provider", lambda _config: _fake_provider())
+    monkeypatch.setattr(
+        "miniunicorn.providers.factory.make_provider", lambda _config: _fake_provider()
+    )
     monkeypatch.setattr("miniunicorn.bus.queue.MessageBus", lambda: object())
     monkeypatch.setattr("miniunicorn.config.paths.get_cron_dir", lambda: legacy_dir)
 
@@ -492,6 +512,7 @@ def test_agent_custom_config_workspace_does_not_migrate_legacy_cron(
         @classmethod
         def from_config(cls, config, bus=None, **extra):
             return cls(**extra)
+
         def __init__(self, *args, **kwargs) -> None:
             pass
 
@@ -641,6 +662,7 @@ def _patch_serve_runtime(monkeypatch, config: Config, seen: dict[str, object]) -
         @classmethod
         def from_config(cls, config, bus=None, **extra):
             return cls(workspace=config.workspace_path, **extra)
+
         def __init__(self, **kwargs) -> None:
             seen["workspace"] = kwargs["workspace"]
 
@@ -650,7 +672,9 @@ def _patch_serve_runtime(monkeypatch, config: Config, seen: dict[str, object]) -
         async def close_mcp(self) -> None:
             return None
 
-    def _fake_create_app(agent_loop, model_name: str, request_timeout: float, api_key: str = "", **kwargs):
+    def _fake_create_app(
+        agent_loop, model_name: str, request_timeout: float, api_key: str = "", **kwargs
+    ):
         seen["agent_loop"] = agent_loop
         seen["model_name"] = model_name
         seen["request_timeout"] = request_timeout
@@ -801,6 +825,7 @@ def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
         @classmethod
         def from_config(cls, config, bus=None, **extra):
             return cls(**extra)
+
         def __init__(self, *args, **kwargs) -> None:
             self.model = "test-model"
             self.provider = kwargs.get("provider", object())
@@ -902,9 +927,7 @@ def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
     ]
 
 
-def test_gateway_cron_job_suppresses_intermediate_progress(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_gateway_cron_job_suppresses_intermediate_progress(monkeypatch, tmp_path: Path) -> None:
     """Cron jobs must pass on_progress=_silent to process_direct so that
     tool hints and streaming deltas are never leaked to the user channel
     before evaluate_response decides whether to deliver."""
@@ -921,7 +944,9 @@ def test_gateway_cron_job_suppresses_intermediate_progress(
     monkeypatch.setattr("miniunicorn.config.loader.set_config_path", lambda _path: None)
     monkeypatch.setattr("miniunicorn.config.loader.load_config", lambda _path=None: config)
     monkeypatch.setattr("miniunicorn.cli.commands.sync_workspace_templates", lambda _path: None)
-    monkeypatch.setattr("miniunicorn.providers.factory.make_provider", lambda _config: _fake_provider())
+    monkeypatch.setattr(
+        "miniunicorn.providers.factory.make_provider", lambda _config: _fake_provider()
+    )
     monkeypatch.setattr(
         "miniunicorn.providers.factory.build_provider_snapshot",
         lambda _config: _test_provider_snapshot(object(), _config),
@@ -942,6 +967,7 @@ def test_gateway_cron_job_suppresses_intermediate_progress(
         @classmethod
         def from_config(cls, config, bus=None, **extra):
             return cls(**extra)
+
         def __init__(self, *args, **kwargs) -> None:
             self.model = "test-model"
             self.provider = object()
@@ -1178,9 +1204,7 @@ def test_configure_desktop_gateway_forces_local_websocket_only() -> None:
     assert extras["websocket"]["websocket_requires_token"] is True
 
 
-def test_serve_uses_api_config_defaults_and_workspace_override(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_serve_uses_api_config_defaults_and_workspace_override(monkeypatch, tmp_path: Path) -> None:
     config_file = _write_instance_config(tmp_path)
     config = Config()
     config.agents.defaults.workspace = str(tmp_path / "config-workspace")

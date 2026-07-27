@@ -9,6 +9,7 @@ The generator only produces the file content; persistence is left to the
 caller (the AgentsView HTTP route returns a preview, the ``create_agent``
 tool saves to disk).
 """
+
 from __future__ import annotations
 
 import re
@@ -210,9 +211,7 @@ class AgentGenerator:
 
         content = _extract_markdown_content(raw)
         if not content:
-            raise ValueError(
-                "LLM output did not contain a valid frontmatter block (---...---)"
-            )
+            raise ValueError("LLM output did not contain a valid frontmatter block (---...---)")
 
         # Validate that the parsed frontmatter carries a non-empty name and
         # description; SubagentRegistry._parse_file would otherwise skip it.

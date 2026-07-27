@@ -5,6 +5,7 @@ Supports using a different provider for embeddings than for chat
 Falls back to the main LLM provider's embed() if no separate
 embedding config is provided.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -56,7 +57,9 @@ class EmbeddingProvider:
             logger.warning("Main provider does not support embeddings; returning empty")
             return []
 
-    async def _embed_via_separate(self, texts: list[str], model: str | None = None) -> list[list[float]]:
+    async def _embed_via_separate(
+        self, texts: list[str], model: str | None = None
+    ) -> list[list[float]]:
         """Use a separate OpenAI-compatible endpoint for embeddings."""
         from openai import AsyncOpenAI
 

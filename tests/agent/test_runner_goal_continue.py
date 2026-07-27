@@ -23,20 +23,26 @@ async def test_runner_exits_normally_without_predicate():
     from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
-    provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content="all done", tool_calls=[], usage={},
-    ))
+    provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(
+            content="all done",
+            tool_calls=[],
+            usage={},
+        )
+    )
     tools = MagicMock()
     tools.get_definitions.return_value = []
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "do task"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=2,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "do task"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=2,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     assert result.stop_reason == "completed"
     assert result.final_content == "all done"
@@ -48,21 +54,27 @@ async def test_runner_exits_normally_with_inactive_goal():
     from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
-    provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content="all done", tool_calls=[], usage={},
-    ))
+    provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(
+            content="all done",
+            tool_calls=[],
+            usage={},
+        )
+    )
     tools = MagicMock()
     tools.get_definitions.return_value = []
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "do task"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=2,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        goal_active_predicate=lambda: False,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "do task"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=2,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            goal_active_predicate=lambda: False,
+        )
+    )
 
     assert result.stop_reason == "completed"
     assert result.final_content == "all done"
@@ -80,21 +92,27 @@ async def test_runner_forces_continue_when_goal_active():
     from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
-    provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content="still working", tool_calls=[], usage={},
-    ))
+    provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(
+            content="still working",
+            tool_calls=[],
+            usage={},
+        )
+    )
     tools = MagicMock()
     tools.get_definitions.return_value = []
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "do task"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=3,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        goal_active_predicate=lambda: True,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "do task"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=3,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            goal_active_predicate=lambda: True,
+        )
+    )
 
     # Because the predicate keeps returning True, the runner should never
     # naturally complete. It loops until max_iterations is exhausted.
@@ -110,21 +128,27 @@ async def test_runner_respects_max_iterations_even_with_active_goal():
     from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
-    provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content="still working", tool_calls=[], usage={},
-    ))
+    provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(
+            content="still working",
+            tool_calls=[],
+            usage={},
+        )
+    )
     tools = MagicMock()
     tools.get_definitions.return_value = []
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "do task"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        goal_active_predicate=lambda: True,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "do task"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            goal_active_predicate=lambda: True,
+        )
+    )
 
     assert result.stop_reason == "max_iterations"
 
@@ -135,22 +159,28 @@ async def test_runner_goal_continue_not_limited_by_injection_cycle_cap():
     from miniunicorn.agent.runner import _MAX_INJECTION_CYCLES, AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
-    provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content="still working", tool_calls=[], usage={},
-    ))
+    provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(
+            content="still working",
+            tool_calls=[],
+            usage={},
+        )
+    )
     tools = MagicMock()
     tools.get_definitions.return_value = []
     max_iterations = _MAX_INJECTION_CYCLES + 3
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "do task"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=max_iterations,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        goal_active_predicate=lambda: True,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "do task"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=max_iterations,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            goal_active_predicate=lambda: True,
+        )
+    )
 
     assert result.stop_reason == "max_iterations"
     assert provider.chat_with_retry.await_count == max_iterations
@@ -162,22 +192,28 @@ async def test_runner_does_not_force_continue_on_error():
     from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
-    provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content=None, tool_calls=[], usage={},
-        finish_reason="error",
-    ))
+    provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(
+            content=None,
+            tool_calls=[],
+            usage={},
+            finish_reason="error",
+        )
+    )
     tools = MagicMock()
     tools.get_definitions.return_value = []
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "do task"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=2,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        goal_active_predicate=lambda: True,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "do task"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=2,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            goal_active_predicate=lambda: True,
+        )
+    )
 
     assert result.stop_reason == "error"
 
@@ -188,24 +224,30 @@ async def test_runner_uses_custom_goal_continue_message():
     from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
-    provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content="still working", tool_calls=[], usage={},
-    ))
+    provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(
+            content="still working",
+            tool_calls=[],
+            usage={},
+        )
+    )
     tools = MagicMock()
     tools.get_definitions.return_value = []
 
     custom_msg = "CUSTOM_CONTINUE_PLEASE"
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "do task"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=2,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        goal_active_predicate=lambda: True,
-        goal_continue_message=custom_msg,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "do task"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=2,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            goal_active_predicate=lambda: True,
+            goal_continue_message=custom_msg,
+        )
+    )
 
     user_msgs = [m for m in result.messages if m.get("role") == "user"]
     assert any(custom_msg in str(m.get("content", "")) for m in user_msgs)

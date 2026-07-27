@@ -59,7 +59,11 @@ def test_replay_uses_stream_end_final_text() -> None:
     msgs = replay_transcript_to_ui_messages(
         [
             {"event": "user", "chat_id": "t-img", "text": "draw"},
-            {"event": "stream_end", "chat_id": "t-img", "text": "![Diagram](/api/media/sig/payload)"},
+            {
+                "event": "stream_end",
+                "chat_id": "t-img",
+                "text": "![Diagram](/api/media/sig/payload)",
+            },
         ],
     )
 
@@ -141,54 +145,56 @@ def test_replay_file_edit_event_creates_file_activity(tmp_path, monkeypatch) -> 
 
 
 def test_replay_file_edit_absorbs_matching_write_tool_event() -> None:
-    msgs = replay_transcript_to_ui_messages([
-        {
-            "event": "message",
-            "chat_id": "t-file",
-            "text": 'write_file({"path":"foo.txt"})',
-            "kind": "tool_hint",
-            "tool_events": [
-                {
-                    "phase": "start",
-                    "call_id": "call-write",
-                    "name": "write_file",
-                    "arguments": {"path": "foo.txt", "content": "hello\n"},
-                },
-            ],
-        },
-        {
-            "event": "file_edit",
-            "chat_id": "t-file",
-            "edits": [
-                {
-                    "version": 1,
-                    "call_id": "call-write",
-                    "tool": "write_file",
-                    "path": "foo.txt",
-                    "phase": "start",
-                    "added": 1,
-                    "deleted": 0,
-                    "approximate": True,
-                    "status": "editing",
-                },
-            ],
-        },
-        {
-            "event": "message",
-            "chat_id": "t-file",
-            "text": "",
-            "kind": "progress",
-            "tool_events": [
-                {
-                    "phase": "end",
-                    "call_id": "call-write",
-                    "name": "write_file",
-                    "arguments": {"path": "foo.txt", "content": "hello\n"},
-                    "result": "ok",
-                },
-            ],
-        },
-    ])
+    msgs = replay_transcript_to_ui_messages(
+        [
+            {
+                "event": "message",
+                "chat_id": "t-file",
+                "text": 'write_file({"path":"foo.txt"})',
+                "kind": "tool_hint",
+                "tool_events": [
+                    {
+                        "phase": "start",
+                        "call_id": "call-write",
+                        "name": "write_file",
+                        "arguments": {"path": "foo.txt", "content": "hello\n"},
+                    },
+                ],
+            },
+            {
+                "event": "file_edit",
+                "chat_id": "t-file",
+                "edits": [
+                    {
+                        "version": 1,
+                        "call_id": "call-write",
+                        "tool": "write_file",
+                        "path": "foo.txt",
+                        "phase": "start",
+                        "added": 1,
+                        "deleted": 0,
+                        "approximate": True,
+                        "status": "editing",
+                    },
+                ],
+            },
+            {
+                "event": "message",
+                "chat_id": "t-file",
+                "text": "",
+                "kind": "progress",
+                "tool_events": [
+                    {
+                        "phase": "end",
+                        "call_id": "call-write",
+                        "name": "write_file",
+                        "arguments": {"path": "foo.txt", "content": "hello\n"},
+                        "result": "ok",
+                    },
+                ],
+            },
+        ]
+    )
 
     assert len(msgs) == 1
     assert msgs[0]["kind"] == "trace"
@@ -210,21 +216,23 @@ def test_replay_file_edit_absorbs_matching_write_tool_event() -> None:
 
 
 def test_replay_keeps_interrupted_pre_tool_text_in_activity() -> None:
-    msgs = replay_transcript_to_ui_messages([
-        {"event": "delta", "chat_id": "t-stream", "text": "I will inspect first."},
-        {"event": "stream_end", "chat_id": "t-stream"},
-        {
-            "event": "message",
-            "chat_id": "t-stream",
-            "text": 'exec({"cmd":"ls"})',
-            "kind": "tool_hint",
-        },
-        {
-            "event": "stream_end",
-            "chat_id": "t-stream",
-            "text": "Done. Open index.html to play.",
-        },
-    ])
+    msgs = replay_transcript_to_ui_messages(
+        [
+            {"event": "delta", "chat_id": "t-stream", "text": "I will inspect first."},
+            {"event": "stream_end", "chat_id": "t-stream"},
+            {
+                "event": "message",
+                "chat_id": "t-stream",
+                "text": 'exec({"cmd":"ls"})',
+                "kind": "tool_hint",
+            },
+            {
+                "event": "stream_end",
+                "chat_id": "t-stream",
+                "text": "Done. Open index.html to play.",
+            },
+        ]
+    )
 
     assert len(msgs) == 3
     assert msgs[0]["role"] == "assistant"
@@ -238,44 +246,46 @@ def test_replay_keeps_interrupted_pre_tool_text_in_activity() -> None:
 
 
 def test_replay_tool_events_dedupes_finish_after_start() -> None:
-    msgs = replay_transcript_to_ui_messages([
-        {
-            "event": "message",
-            "chat_id": "t-tool",
-            "text": 'exec({"cmd":"ls"})',
-            "kind": "tool_hint",
-            "tool_events": [
-                {
-                    "phase": "start",
-                    "call_id": "call-exec",
-                    "name": "exec",
-                    "arguments": {"cmd": "ls"},
-                },
-            ],
-        },
-        {
-            "event": "message",
-            "chat_id": "t-tool",
-            "text": "",
-            "kind": "progress",
-            "tool_events": [
-                {
-                    "phase": "end",
-                    "call_id": "call-exec",
-                    "name": "exec",
-                    "arguments": {"cmd": "ls"},
-                    "result": "ok",
-                },
-                {
-                    "phase": "end",
-                    "call_id": "call-read",
-                    "name": "read_file",
-                    "arguments": {"path": "notes.md"},
-                    "result": "done",
-                },
-            ],
-        },
-    ])
+    msgs = replay_transcript_to_ui_messages(
+        [
+            {
+                "event": "message",
+                "chat_id": "t-tool",
+                "text": 'exec({"cmd":"ls"})',
+                "kind": "tool_hint",
+                "tool_events": [
+                    {
+                        "phase": "start",
+                        "call_id": "call-exec",
+                        "name": "exec",
+                        "arguments": {"cmd": "ls"},
+                    },
+                ],
+            },
+            {
+                "event": "message",
+                "chat_id": "t-tool",
+                "text": "",
+                "kind": "progress",
+                "tool_events": [
+                    {
+                        "phase": "end",
+                        "call_id": "call-exec",
+                        "name": "exec",
+                        "arguments": {"cmd": "ls"},
+                        "result": "ok",
+                    },
+                    {
+                        "phase": "end",
+                        "call_id": "call-read",
+                        "name": "read_file",
+                        "arguments": {"path": "notes.md"},
+                        "result": "done",
+                    },
+                ],
+            },
+        ]
+    )
 
     assert len(msgs) == 1
     assert msgs[0]["traces"] == [
@@ -288,37 +298,39 @@ def test_replay_tool_events_dedupes_finish_after_start() -> None:
 
 def test_replay_tool_events_keeps_phase_update_when_trace_is_deduped() -> None:
     args = {"name": "github", "args": ["repo", "view"], "json": "true"}
-    msgs = replay_transcript_to_ui_messages([
-        {
-            "event": "message",
-            "chat_id": "t-tool",
-            "text": "",
-            "kind": "tool_hint",
-            "tool_events": [
-                {
-                    "phase": "start",
-                    "call_id": "call-cli",
-                    "name": "run_cli_app",
-                    "arguments": args,
-                },
-            ],
-        },
-        {
-            "event": "message",
-            "chat_id": "t-tool",
-            "text": "",
-            "kind": "progress",
-            "tool_events": [
-                {
-                    "phase": "error",
-                    "call_id": "call-cli",
-                    "name": "run_cli_app",
-                    "arguments": args,
-                    "error": "Error: CLI app 'github' not found",
-                },
-            ],
-        },
-    ])
+    msgs = replay_transcript_to_ui_messages(
+        [
+            {
+                "event": "message",
+                "chat_id": "t-tool",
+                "text": "",
+                "kind": "tool_hint",
+                "tool_events": [
+                    {
+                        "phase": "start",
+                        "call_id": "call-cli",
+                        "name": "run_cli_app",
+                        "arguments": args,
+                    },
+                ],
+            },
+            {
+                "event": "message",
+                "chat_id": "t-tool",
+                "text": "",
+                "kind": "progress",
+                "tool_events": [
+                    {
+                        "phase": "error",
+                        "call_id": "call-cli",
+                        "name": "run_cli_app",
+                        "arguments": args,
+                        "error": "Error: CLI app 'github' not found",
+                    },
+                ],
+            },
+        ]
+    )
 
     assert len(msgs) == 1
     assert msgs[0]["traces"] == [
@@ -509,16 +521,15 @@ def test_replay_keeps_new_file_edit_after_reasoning_in_order(tmp_path, monkeypat
 
     msgs = replay_transcript_to_ui_messages(read_transcript_lines(key))
 
-    assert [msg.get("fileEdits", [{}])[0].get("path") if msg.get("fileEdits") else msg.get("reasoning") for msg in msgs[1:]] == [
+    assert [
+        msg.get("fileEdits", [{}])[0].get("path") if msg.get("fileEdits") else msg.get("reasoning")
+        for msg in msgs[1:]
+    ] == [
         "one.txt",
         "Check next.",
         "two.txt",
     ]
-    file_edit_segments = [
-        msg.get("activitySegmentId")
-        for msg in msgs
-        if msg.get("fileEdits")
-    ]
+    file_edit_segments = [msg.get("activitySegmentId") for msg in msgs if msg.get("fileEdits")]
     assert len(file_edit_segments) == 2
     assert file_edit_segments[0] != file_edit_segments[1]
 

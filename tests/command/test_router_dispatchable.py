@@ -76,9 +76,13 @@ class TestMidTurnCommandDispatchedDirectly:
     def fake_loop(self) -> MagicMock:
         loop = MagicMock()
         loop.sessions = MagicMock()
-        loop.sessions.get_or_create = MagicMock(return_value=MagicMock(
-            messages=[], last_consolidated=0, clear=MagicMock(),
-        ))
+        loop.sessions.get_or_create = MagicMock(
+            return_value=MagicMock(
+                messages=[],
+                last_consolidated=0,
+                clear=MagicMock(),
+            )
+        )
         loop.sessions.save = MagicMock()
         loop.sessions.invalidate = MagicMock()
         loop._schedule_background = MagicMock()
@@ -96,12 +100,18 @@ class TestMidTurnCommandDispatchedDirectly:
 
     @pytest.mark.asyncio
     async def test_new_dispatched_with_session_none(
-        self, router: CommandRouter, fake_loop: MagicMock, fake_msg: MagicMock,
+        self,
+        router: CommandRouter,
+        fake_loop: MagicMock,
+        fake_msg: MagicMock,
     ) -> None:
         """cmd_new works when session=None (mid-turn dispatch path)."""
         ctx = CommandContext(
-            msg=fake_msg, session=None,
-            key="test:chat1", raw="/new", loop=fake_loop,
+            msg=fake_msg,
+            session=None,
+            key="test:chat1",
+            raw="/new",
+            loop=fake_loop,
         )
         result = await router.dispatch(ctx)
         assert result is not None
@@ -110,11 +120,17 @@ class TestMidTurnCommandDispatchedDirectly:
 
     @pytest.mark.asyncio
     async def test_help_dispatched_with_session_none(
-        self, router: CommandRouter, fake_loop: MagicMock, fake_msg: MagicMock,
+        self,
+        router: CommandRouter,
+        fake_loop: MagicMock,
+        fake_msg: MagicMock,
     ) -> None:
         ctx = CommandContext(
-            msg=fake_msg, session=None,
-            key="test:chat1", raw="/help", loop=fake_loop,
+            msg=fake_msg,
+            session=None,
+            key="test:chat1",
+            raw="/help",
+            loop=fake_loop,
         )
         result = await router.dispatch(ctx)
         assert result is not None
@@ -134,19 +150,28 @@ class TestMidTurnCommandDispatchedDirectly:
 
         ctx = CommandContext(
             msg=MagicMock(channel="test", chat_id="c1", metadata={}),
-            session=None, key="test:c1", raw="/test hello world", loop=MagicMock(),
+            session=None,
+            key="test:c1",
+            raw="/test hello world",
+            loop=MagicMock(),
         )
         await custom.dispatch(ctx)
         assert captured_args == ["hello world"]
 
     @pytest.mark.asyncio
     async def test_non_command_returns_none(
-        self, router: CommandRouter, fake_loop: MagicMock, fake_msg: MagicMock,
+        self,
+        router: CommandRouter,
+        fake_loop: MagicMock,
+        fake_msg: MagicMock,
     ) -> None:
         """Regular text returns None from dispatch (not a command)."""
         ctx = CommandContext(
-            msg=fake_msg, session=None,
-            key="test:chat1", raw="hello world", loop=fake_loop,
+            msg=fake_msg,
+            session=None,
+            key="test:chat1",
+            raw="hello world",
+            loop=fake_loop,
         )
         result = await router.dispatch(ctx)
         assert result is None
@@ -172,7 +197,10 @@ class TestPairingCommandDispatch:
 
     @pytest.mark.asyncio
     async def test_pairing_list_dispatched(
-        self, router: CommandRouter, fake_msg: MagicMock, monkeypatch,
+        self,
+        router: CommandRouter,
+        fake_msg: MagicMock,
+        monkeypatch,
     ) -> None:
         monkeypatch.setattr(
             "miniunicorn.pairing.store.list_pending",
@@ -186,8 +214,12 @@ class TestPairingCommandDispatch:
             ],
         )
         ctx = CommandContext(
-            msg=fake_msg, session=None,
-            key="telegram:chat1", raw="/pairing list", args="list", loop=MagicMock(),
+            msg=fake_msg,
+            session=None,
+            key="telegram:chat1",
+            raw="/pairing list",
+            args="list",
+            loop=MagicMock(),
         )
         result = await router.dispatch(ctx)
         assert result is not None
@@ -196,7 +228,10 @@ class TestPairingCommandDispatch:
 
     @pytest.mark.asyncio
     async def test_pairing_approve_dispatched(
-        self, router: CommandRouter, fake_msg: MagicMock, monkeypatch,
+        self,
+        router: CommandRouter,
+        fake_msg: MagicMock,
+        monkeypatch,
     ) -> None:
         monkeypatch.setattr(
             "miniunicorn.pairing.store.approve_code",
@@ -204,9 +239,12 @@ class TestPairingCommandDispatch:
         )
         fake_msg.content = "/pairing approve ABCD-EFGH"
         ctx = CommandContext(
-            msg=fake_msg, session=None,
-            key="telegram:chat1", raw="/pairing approve ABCD-EFGH",
-            args="approve ABCD-EFGH", loop=MagicMock(),
+            msg=fake_msg,
+            session=None,
+            key="telegram:chat1",
+            raw="/pairing approve ABCD-EFGH",
+            args="approve ABCD-EFGH",
+            loop=MagicMock(),
         )
         result = await router.dispatch(ctx)
         assert result is not None
@@ -214,7 +252,10 @@ class TestPairingCommandDispatch:
 
     @pytest.mark.asyncio
     async def test_pairing_revoke_dispatched(
-        self, router: CommandRouter, fake_msg: MagicMock, monkeypatch,
+        self,
+        router: CommandRouter,
+        fake_msg: MagicMock,
+        monkeypatch,
     ) -> None:
         monkeypatch.setattr(
             "miniunicorn.pairing.store.revoke",
@@ -222,9 +263,12 @@ class TestPairingCommandDispatch:
         )
         fake_msg.content = "/pairing revoke 123"
         ctx = CommandContext(
-            msg=fake_msg, session=None,
-            key="telegram:chat1", raw="/pairing revoke 123",
-            args="revoke 123", loop=MagicMock(),
+            msg=fake_msg,
+            session=None,
+            key="telegram:chat1",
+            raw="/pairing revoke 123",
+            args="revoke 123",
+            loop=MagicMock(),
         )
         result = await router.dispatch(ctx)
         assert result is not None

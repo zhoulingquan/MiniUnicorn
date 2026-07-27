@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from pathlib import Path
 from urllib.parse import unquote
 
 from websockets.http11 import Response
 
+from .._http_router import RouteContext, router
 from .._http_routes import (
     _collect_chunked_header,
     _http_error,
@@ -15,7 +15,6 @@ from .._http_routes import (
     _human_readable_size,
     _query_first,
 )
-from .._http_router import RouteContext, router
 from ._common import require_auth
 
 # Allowed bootstrap files (workspace-root markdown loaded into the system
@@ -41,7 +40,7 @@ DREAM_FILE_ALLOWLIST: tuple[str, ...] = (
 )
 
 
-@router.route("/api/bootstrap-file")
+@router.route("/api/bootstrap-file", methods={"GET"})
 @require_auth
 def read_bootstrap_file(ctx: RouteContext) -> Response:
     """Read a workspace bootstrap markdown file (AGENTS.md / SOUL.md)."""
@@ -62,7 +61,7 @@ def read_bootstrap_file(ctx: RouteContext) -> Response:
         return _http_error(500, str(exc))
 
 
-@router.route("/api/bootstrap-file/save")
+@router.route("/api/bootstrap-file/save", methods={"GET", "POST"})
 @require_auth
 def save_bootstrap_file(ctx: RouteContext) -> Response:
     """Create or update a workspace bootstrap markdown file.
@@ -100,7 +99,7 @@ def save_bootstrap_file(ctx: RouteContext) -> Response:
         return _http_error(500, str(exc))
 
 
-@router.route("/api/dream/files")
+@router.route("/api/dream/files", methods={"GET"})
 @require_auth
 def list_dream_files(ctx: RouteContext) -> Response:
     """列出 Dream 生成的记忆文件及其元信息(大小、修改时间、是否存在)。"""
@@ -128,16 +127,18 @@ def list_dream_files(ctx: RouteContext) -> Response:
                 entry["size_human"] = _human_readable_size(stat.st_size)
                 mtime = stat.st_mtime
                 entry["modified_at"] = mtime
-                entry["modified_at_human"] = datetime.fromtimestamp(
-                    mtime, tz=timezone.utc
-                ).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+                entry["modified_at_human"] = (
+                    datetime.fromtimestamp(mtime, tz=timezone.utc)
+                    .astimezone()
+                    .strftime("%Y-%m-%d %H:%M:%S")
+                )
             files.append(entry)
         return _http_json_response({"files": files})
     except Exception as exc:
         return _http_error(500, str(exc))
 
 
-@router.route("/api/dream/file")
+@router.route("/api/dream/file", methods={"GET"})
 @require_auth
 def read_dream_file(ctx: RouteContext) -> Response:
     """读取 Dream 生成的记忆文件内容(只读)。"""

@@ -63,6 +63,10 @@ export function QrcodeAuthBlock({
   const pollTimerRef = useRef<number | null>(null);
   const expireTimerRef = useRef<number | null>(null);
   const cancelledRef = useRef(false);
+  // 设计 §4.5: 每次 begin/refresh 递增 generation,poll 响应只有在 generation
+  // 仍匹配时才允许更新状态。防止"用户连点刷新"或"过期自动 refresh 时旧 poll
+  // 网络回包晚到"导致旧二维码状态覆盖新二维码。
+  const generationRef = useRef(0);
 
   const clearTimers = useCallback(() => {
     if (pollTimerRef.current !== null) {
@@ -76,7 +80,7 @@ export function QrcodeAuthBlock({
   }, []);
 
   const startPolling = useCallback(
-    (begin: ChannelQrBeginPayload) => {
+    (begin: ChannelQrBeginPayload, generation: number) => {
       clearTimers();
       setPhase({ kind: "polling", begin });
 
@@ -84,6 +88,9 @@ export function QrcodeAuthBlock({
 
       const pollOnce = async () => {
         if (cancelledRef.current) return;
+        // Capture generation at call time; if a newer begin has started,
+        // silently drop this poll's result without touching phase.
+        if (generationRef.current !== generation) return;
         try {
           const res: ChannelQrStatusPayload = await pollChannelQrStatus(
             token,
@@ -92,6 +99,7 @@ export function QrcodeAuthBlock({
             domain,
           );
           if (cancelledRef.current) return;
+          if (generationRef.current !== generation) return;
 
           if (res.status === "succeeded") {
             clearTimers();
@@ -111,6 +119,7 @@ export function QrcodeAuthBlock({
           // pending → 继续轮询
         } catch (e) {
           if (cancelledRef.current) return;
+          if (generationRef.current !== generation) return;
           // 网络错误不立即失败，继续重试（轮询间隔后会再次尝试）
           console.warn("[QrcodeAuthBlock] poll error:", e);
         }
@@ -124,6 +133,7 @@ export function QrcodeAuthBlock({
       const expiresMs = Math.max(30, begin.expires_in) * 1000;
       expireTimerRef.current = window.setTimeout(() => {
         if (cancelledRef.current) return;
+        if (generationRef.current !== generation) return;
         // 二维码过期，自动刷新
         void handleBegin();
       }, expiresMs);
@@ -134,20 +144,28 @@ export function QrcodeAuthBlock({
 
   const handleBegin = useCallback(async () => {
     clearTimers();
+    // 递增 generation:之前 in-flight 的 begin/poll/expire 回调在写状态前
+    // 都会检查 generation,generation 不匹配则丢弃,从而避免旧二维码的
+    // 迟到响应覆盖新二维码状态(设计 §4.5)。
+    const generation = ++generationRef.current;
     setPhase({ kind: "loading" });
     cancelledRef.current = false;
     try {
       const begin = await beginChannelQrLogin(token, channelName, domain);
       if (cancelledRef.current) return;
+      if (generationRef.current !== generation) return;
       setPhase({ kind: "awaiting-scan", begin });
       // 短暂展示"等待扫码"状态后开始轮询
       window.setTimeout(() => {
-        if (!cancelledRef.current && begin) {
-          startPolling(begin);
+        if (cancelledRef.current) return;
+        if (generationRef.current !== generation) return;
+        if (begin) {
+          startPolling(begin, generation);
         }
       }, 500);
     } catch (e) {
       if (cancelledRef.current) return;
+      if (generationRef.current !== generation) return;
       setPhase({
         kind: "failed",
         error: (e as Error).message || t("channels.qr.errors.beginFailed"),
@@ -155,10 +173,12 @@ export function QrcodeAuthBlock({
     }
   }, [token, channelName, domain, clearTimers, startPolling, t]);
 
-  // 卸载时清理定时器
+  // 卸载时清理定时器并标记取消,防止 in-flight 回调写已卸载组件状态
   useEffect(() => {
     return () => {
       cancelledRef.current = true;
+      // 递增 generation 使任何 in-flight 回调在写状态前被丢弃
+      generationRef.current += 1;
       clearTimers();
     };
   }, [clearTimers]);

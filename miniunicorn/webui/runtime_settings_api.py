@@ -17,7 +17,6 @@ from miniunicorn.config.loader import get_config_path, load_config, save_config
 from ._query import QueryParams, _query_first, _query_first_alias
 from ._runtime import WebUISettingsError
 
-
 # === Payload builder ===
 
 
@@ -66,14 +65,20 @@ def runtime_payload(config: Any) -> dict[str, Any]:
 
 def update_runtime_settings(query: QueryParams) -> dict[str, Any]:
     """Update heartbeat interval and/or dream cron from WebUI query params."""
-    raw_heartbeat_interval = _query_first_alias(
-        query, "heartbeat_interval_s", "heartbeatIntervalS"
-    )
+    raw_heartbeat_interval = _query_first_alias(query, "heartbeat_interval_s", "heartbeatIntervalS")
     raw_dream_cron = _query_first(query, "dream_cron")
-    raw_light_context = _query_first_alias(query, "heartbeat_light_context", "heartbeatLightContext")
-    raw_isolated_session = _query_first_alias(query, "heartbeat_isolated_session", "heartbeatIsolatedSession")
-    raw_active_hours_start = _query_first_alias(query, "heartbeat_active_hours_start", "heartbeatActiveHoursStart")
-    raw_active_hours_end = _query_first_alias(query, "heartbeat_active_hours_end", "heartbeatActiveHoursEnd")
+    raw_light_context = _query_first_alias(
+        query, "heartbeat_light_context", "heartbeatLightContext"
+    )
+    raw_isolated_session = _query_first_alias(
+        query, "heartbeat_isolated_session", "heartbeatIsolatedSession"
+    )
+    raw_active_hours_start = _query_first_alias(
+        query, "heartbeat_active_hours_start", "heartbeatActiveHoursStart"
+    )
+    raw_active_hours_end = _query_first_alias(
+        query, "heartbeat_active_hours_end", "heartbeatActiveHoursEnd"
+    )
     if (
         raw_heartbeat_interval is None
         and raw_dream_cron is None
@@ -124,7 +129,9 @@ def update_runtime_settings(query: QueryParams) -> dict[str, Any]:
             for label, val in [("start", start), ("end", end)]:
                 if val:
                     parts = val.split(":")
-                    if len(parts) != 2 or not (0 <= int(parts[0]) <= 24 and 0 <= int(parts[1]) <= 59):
+                    if len(parts) != 2 or not (
+                        0 <= int(parts[0]) <= 24 and 0 <= int(parts[1]) <= 59
+                    ):
                         raise WebUISettingsError(f"Invalid active_hours {label}: {val}")
             new_active_hours = {"start": start or "00:00", "end": end or "24:00"}
             if config.gateway.heartbeat.active_hours != new_active_hours:
@@ -153,4 +160,5 @@ def update_runtime_settings(query: QueryParams) -> dict[str, Any]:
     # Heartbeat/dream intervals are re-registered on the running cron service
     # by the WebSocket channel handler, so no gateway restart is required.
     from .settings_api import settings_payload
+
     return settings_payload(requires_restart=False)

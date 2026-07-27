@@ -30,6 +30,7 @@ from miniunicorn.utils.document import extract_documents, reference_non_image_at
 from miniunicorn.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
 
 if TYPE_CHECKING:
+    from miniunicorn.agent.hook import AgentHook
     from miniunicorn.agent.loop import AgentLoop
     from miniunicorn.session.manager import Session
 
@@ -90,6 +91,10 @@ class TurnContext:
     # Subagent takeover: when set, the turn runs as this subagent's identity
     # (system prompt, tools whitelist, model) instead of the default agent.
     agent_override: SubagentDefinition | None = None
+    # Per-turn hooks bound to this single dispatch (e.g. SDK capture hook).
+    # ``_run_agent_loop`` combines these with the loop-level ``_extra_hooks``
+    # so the SDK no longer needs to mutate shared state for concurrent runs.
+    turn_hooks: list["AgentHook"] = field(default_factory=list)
 
 
 class StateMixin:
@@ -161,9 +166,7 @@ class StateMixin:
                 ctx.user_persisted_early = self._persist_user_message_early(
                     ctx.msg, ctx.session, _command=True
                 )
-                ctx.session.add_message(
-                    "assistant", result.content, _command=True
-                )
+                ctx.session.add_message("assistant", result.content, _command=True)
                 self.sessions.save(ctx.session)
                 self._clear_pending_user_turn(ctx.session)
             return "shortcut"
@@ -204,9 +207,7 @@ class StateMixin:
             ctx.pending_summary,
             agent_override=ctx.agent_override,
         )
-        ctx.user_persisted_early = self._persist_user_message_early(
-            ctx.msg, ctx.session
-        )
+        ctx.user_persisted_early = self._persist_user_message_early(ctx.msg, ctx.session)
 
         if ctx.on_progress is None:
             ctx.on_progress = await self._build_bus_progress_callback(ctx.msg)
@@ -231,6 +232,7 @@ class StateMixin:
             session_key=ctx.session_key,
             pending_queue=ctx.pending_queue,
             agent_override=ctx.agent_override,
+            turn_hooks=ctx.turn_hooks,
         )
         final_content, tools_used, all_msgs, stop_reason, had_injections = result
         ctx.final_content = final_content
@@ -248,7 +250,9 @@ class StateMixin:
 
         ctx.turn_latency_ms = max(0, int((time.time() - ctx.turn_wall_started_at) * 1000))
         self._save_turn(
-            ctx.session, ctx.all_messages, ctx.save_skip,
+            ctx.session,
+            ctx.all_messages,
+            ctx.save_skip,
             turn_latency_ms=ctx.turn_latency_ms,
         )
         if ctx.msg.channel == "websocket":

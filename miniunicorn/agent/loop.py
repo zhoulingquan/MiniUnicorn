@@ -115,6 +115,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         if self._max_input_tokens_per_turn is None and self._max_cost_per_turn_usd is None:
             return None
         from miniunicorn.agent.turn_budget import TurnBudget
+
         return TurnBudget(
             max_input_tokens=self._max_input_tokens_per_turn,
             max_output_tokens=None,
@@ -184,7 +185,9 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         self._preset_snapshot_loader = preset_snapshot_loader
         self._runtime_model_publisher = runtime_model_publisher
         self._provider_signature = provider_signature
-        self._default_selection_signature = preset_helpers.default_selection_signature(provider_signature)
+        self._default_selection_signature = preset_helpers.default_selection_signature(
+            provider_signature
+        )
         self.workspace = workspace
         self.model = model or provider.get_default_model()
         self.max_iterations = (
@@ -204,9 +207,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         if self.context_window_tokens is None:
             from miniunicorn.cli.models import get_model_context_limit
 
-            self.context_window_tokens = get_model_context_limit(
-                self.model, raise_on_unknown=True
-            )
+            self.context_window_tokens = get_model_context_limit(self.model, raise_on_unknown=True)
         # resolved_context_window_tokens: 后端解析值,用于 /status 等显示场景
         # 优先使用用户显式配置,否则回退到默认值(DEFAULT_CONTEXT_LIMIT)
         # 不依赖学习表缓存,因为学习表可能包含过时或误匹配的值(如 test-model → 512)
@@ -225,7 +226,8 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         )
         self.provider_retry_mode = provider_retry_mode
         self.tool_hint_max_length = (
-            tool_hint_max_length if tool_hint_max_length is not None
+            tool_hint_max_length
+            if tool_hint_max_length is not None
             else defaults.tool_hint_max_length
         )
         # Plan-and-Execute / Reflection / TurnBudget defaults (all opt-in).
@@ -344,6 +346,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         self._embedding_model = embedding_model
         if vector_recall:
             from miniunicorn.agent.vector_memory import create_vector_store
+
             vector_store = create_vector_store(self.workspace / "memory" / "vectors.db")
             self.context.memory.attach_vector_store(vector_store)
             # TODO(embedding): wrap `provider` with EmbeddingProvider when
@@ -384,8 +387,11 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         return AgentLoopBuilder.from_config(config, bus=bus, **extra).build()
 
     def _set_tool_context(
-        self, channel: str, chat_id: str,
-        message_id: str | None = None, metadata: dict | None = None,
+        self,
+        channel: str,
+        chat_id: str,
+        message_id: str | None = None,
+        metadata: dict | None = None,
         session_key: str | None = None,
     ) -> None:
         """Update context for all tools that need routing info."""
@@ -454,7 +460,9 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         media_paths = [p for p in (msg.media or []) if isinstance(p, str) and p]
         has_text = isinstance(msg.content, str) and msg.content.strip()
         if has_text or media_paths:
-            extra: dict[str, Any] = ({"media": list(media_paths)} if media_paths else {}) | agent_context.session_extra(msg.metadata)
+            extra: dict[str, Any] = (
+                {"media": list(media_paths)} if media_paths else {}
+            ) | agent_context.session_extra(msg.metadata)
             extra.update(kwargs)
             text = msg.content if isinstance(msg.content, str) else ""
             session.add_message("user", text, **extra)
@@ -469,7 +477,8 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             return None
         try:
             embeddings = await self.provider.embed(
-                [text[:500]], model=self._embedding_model,
+                [text[:500]],
+                model=self._embedding_model,
             )
             if embeddings:
                 return embeddings[0]
@@ -612,6 +621,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         session_key: str | None = None,
         pending_queue: asyncio.Queue | None = None,
         agent_override: SubagentDefinition | None = None,
+        turn_hooks: list[AgentHook] | None = None,
     ) -> tuple[str | None, list[str], list[dict], str, bool]:
         """Run the agent iteration loop.
 
@@ -619,6 +629,10 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         *on_stream_end(resuming)*: called when a streaming session finishes.
         ``resuming=True`` means tool calls follow (spinner should restart);
         ``resuming=False`` means this is the final response.
+
+        *turn_hooks*: per-dispatch hooks bound to this single turn (e.g. SDK
+        capture hook). Combined with the loop-level ``_extra_hooks`` so the
+        SDK no longer mutates shared state for concurrent runs.
 
         Returns (final_content, tools_used, messages, stop_reason, had_injections).
         """
@@ -637,9 +651,11 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             set_tool_context=self._set_tool_context,
             on_iteration=lambda iteration: setattr(self, "_current_iteration", iteration),
         )
-        hook: AgentHook = (
-            CompositeHook([loop_hook] + self._extra_hooks) if self._extra_hooks else loop_hook
-        )
+        # Per-turn hooks take precedence over loop-level _extra_hooks so the
+        # SDK can pass distinct hooks for concurrent runs without serializing
+        # through shared mutable state.
+        extra = list(self._extra_hooks) + list(turn_hooks or [])
+        hook: AgentHook = CompositeHook([loop_hook] + extra) if extra else loop_hook
 
         async def _checkpoint(payload: dict[str, Any]) -> None:
             if session is None:
@@ -677,9 +693,11 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             # Block if nothing drained but sub-agents spawned in this dispatch
             # are still running.  Keeps the runner loop alive so subsequent
             # completions are injected in-order rather than dispatched separately.
-            if (not items
-                    and session is not None
-                    and self.subagents.get_running_count_by_session(session.key) > 0):
+            if (
+                not items
+                and session is not None
+                and self.subagents.get_running_count_by_session(session.key) > 0
+            ):
                 try:
                     msg = await asyncio.wait_for(pending_queue.get(), timeout=300)
                 except asyncio.TimeoutError:
@@ -728,48 +746,56 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         # the LLM can see it even if earlier Runtime Context was truncated.
         _goal_lines = goal_state_runtime_lines(session.metadata if session is not None else None)
         _goal_continue = (
-            "You have an active sustained goal:\n\n"
-            + "\n".join(_goal_lines)
-            + "\n\nPlease continue working toward the objective using your tools, "
-            "or call complete_goal if the work is truly finished."
-        ) if _goal_lines else SUSTAINED_GOAL_CONTINUE_PROMPT
+            (
+                "You have an active sustained goal:\n\n"
+                + "\n".join(_goal_lines)
+                + "\n\nPlease continue working toward the objective using your tools, "
+                "or call complete_goal if the work is truly finished."
+            )
+            if _goal_lines
+            else SUSTAINED_GOAL_CONTINUE_PROMPT
+        )
         try:
-            result = await self.runner.run(AgentRunSpec(
-                initial_messages=initial_messages,
-                tools=tools,
-                model=run_model,
-                max_iterations=self.max_iterations,
-                max_tool_result_chars=self.max_tool_result_chars,
-                hook=hook,
-                error_message="Sorry, I encountered an error calling the AI model.",
-                concurrent_tools=True,
-                workspace=effective_scope.project_path,
-                session_key=session.key if session else None,
-                context_window_tokens=self.context_window_tokens,
-                context_block_limit=self.context_block_limit,
-                provider_retry_mode=self.provider_retry_mode,
-                progress_callback=on_progress,
-                stream_progress_deltas=on_stream is not None,
-                retry_wait_callback=on_retry_wait,
-                checkpoint_callback=_checkpoint,
-                injection_callback=_drain_pending,
-                # Sustained goals may legitimately exceed MINIUNICORN_LLM_TIMEOUT_S; idle stall
-                # is still capped by MINIUNICORN_STREAM_IDLE_TIMEOUT_S in streaming providers.
-                llm_timeout_s=runner_wall_llm_timeout_s(
-                    self.sessions,
-                    session.key if session is not None else session_key,
-                    metadata=(session.metadata if session is not None else None),
-                ),
-                goal_active_predicate=lambda: sustained_goal_active(session.metadata) if session is not None else False,
-                goal_continue_message=_goal_continue,
-                # Plan-and-Execute / Reflection / TurnBudget (opt-in via config).
-                use_planner=self.use_planner,
-                planner_model=self.planner_model,
-                planner_max_replans=self.planner_max_replans,
-                enable_reflection=self.enable_reflection,
-                reflection_interval=self.reflection_interval,
-                turn_budget=self._build_turn_budget(),
-            ))
+            result = await self.runner.run(
+                AgentRunSpec(
+                    initial_messages=initial_messages,
+                    tools=tools,
+                    model=run_model,
+                    max_iterations=self.max_iterations,
+                    max_tool_result_chars=self.max_tool_result_chars,
+                    hook=hook,
+                    error_message="Sorry, I encountered an error calling the AI model.",
+                    concurrent_tools=True,
+                    workspace=effective_scope.project_path,
+                    session_key=session.key if session else None,
+                    context_window_tokens=self.context_window_tokens,
+                    context_block_limit=self.context_block_limit,
+                    provider_retry_mode=self.provider_retry_mode,
+                    progress_callback=on_progress,
+                    stream_progress_deltas=on_stream is not None,
+                    retry_wait_callback=on_retry_wait,
+                    checkpoint_callback=_checkpoint,
+                    injection_callback=_drain_pending,
+                    # Sustained goals may legitimately exceed MINIUNICORN_LLM_TIMEOUT_S; idle stall
+                    # is still capped by MINIUNICORN_STREAM_IDLE_TIMEOUT_S in streaming providers.
+                    llm_timeout_s=runner_wall_llm_timeout_s(
+                        self.sessions,
+                        session.key if session is not None else session_key,
+                        metadata=(session.metadata if session is not None else None),
+                    ),
+                    goal_active_predicate=lambda: (
+                        sustained_goal_active(session.metadata) if session is not None else False
+                    ),
+                    goal_continue_message=_goal_continue,
+                    # Plan-and-Execute / Reflection / TurnBudget (opt-in via config).
+                    use_planner=self.use_planner,
+                    planner_model=self.planner_model,
+                    planner_max_replans=self.planner_max_replans,
+                    enable_reflection=self.enable_reflection,
+                    reflection_interval=self.reflection_interval,
+                    turn_budget=self._build_turn_budget(),
+                )
+            )
         finally:
             reset_workspace_scope(workspace_token)
             reset_request_context(request_token)
@@ -785,7 +811,13 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                 await on_stream_end(resuming=False)
         elif result.stop_reason == "error":
             logger.error("LLM returned error: {}", (result.final_content or "")[:200])
-        return result.final_content, result.tools_used, result.messages, result.stop_reason, result.had_injections
+        return (
+            result.final_content,
+            result.tools_used,
+            result.messages,
+            result.stop_reason,
+            result.had_injections,
+        )
 
     async def run(self) -> None:
         """Run the agent loop, dispatching messages as tasks to stay responsive to /stop."""
@@ -827,7 +859,9 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                 continue
             if self.commands.is_priority(raw):
                 await self._dispatch_command_inline(
-                    msg, effective_key, raw,
+                    msg,
+                    effective_key,
+                    raw,
                     self.commands.dispatch_priority,
                 )
                 continue
@@ -839,7 +873,9 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                 # dispatch them directly (same pattern as priority commands).
                 if self.commands.is_dispatchable_command(raw):
                     await self._dispatch_command_inline(
-                        msg, effective_key, raw,
+                        msg,
+                        effective_key,
+                        raw,
                         self.commands.dispatch,
                     )
                     continue
@@ -867,10 +903,11 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             task = asyncio.create_task(self._dispatch(msg))
             self._active_tasks.setdefault(effective_key, []).append(task)
             task.add_done_callback(
-                lambda t, k=effective_key: self._active_tasks.get(k, [])
-                and self._active_tasks[k].remove(t)
-                if t in self._active_tasks.get(k, [])
-                else None
+                lambda t, k=effective_key: (
+                    self._active_tasks.get(k, []) and self._active_tasks[k].remove(t)
+                    if t in self._active_tasks.get(k, [])
+                    else None
+                )
             )
 
     async def _dispatch(self, msg: InboundMessage) -> None:
@@ -909,11 +946,14 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                             meta = dict(msg.metadata or {})
                             meta["_stream_delta"] = True
                             meta["_stream_id"] = _current_stream_id()
-                            await self.bus.publish_outbound(OutboundMessage(
-                                channel=msg.channel, chat_id=msg.chat_id,
-                                content=delta,
-                                metadata=meta,
-                            ))
+                            await self.bus.publish_outbound(
+                                OutboundMessage(
+                                    channel=msg.channel,
+                                    chat_id=msg.chat_id,
+                                    content=delta,
+                                    metadata=meta,
+                                )
+                            )
 
                         async def on_stream_end(*, resuming: bool = False) -> None:
                             nonlocal stream_segment
@@ -921,24 +961,33 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                             meta["_stream_end"] = True
                             meta["_resuming"] = resuming
                             meta["_stream_id"] = _current_stream_id()
-                            await self.bus.publish_outbound(OutboundMessage(
-                                channel=msg.channel, chat_id=msg.chat_id,
-                                content="",
-                                metadata=meta,
-                            ))
+                            await self.bus.publish_outbound(
+                                OutboundMessage(
+                                    channel=msg.channel,
+                                    chat_id=msg.chat_id,
+                                    content="",
+                                    metadata=meta,
+                                )
+                            )
                             stream_segment += 1
 
                     response = await self._process_message(
-                        msg, on_stream=on_stream, on_stream_end=on_stream_end,
+                        msg,
+                        on_stream=on_stream,
+                        on_stream_end=on_stream_end,
                         pending_queue=pending,
                     )
                     if response is not None:
                         await self.bus.publish_outbound(response)
                     elif msg.channel == "cli":
-                        await self.bus.publish_outbound(OutboundMessage(
-                            channel=msg.channel, chat_id=msg.chat_id,
-                            content="", metadata=msg.metadata or {},
-                        ))
+                        await self.bus.publish_outbound(
+                            OutboundMessage(
+                                channel=msg.channel,
+                                chat_id=msg.chat_id,
+                                content="",
+                                metadata=msg.metadata or {},
+                            )
+                        )
                     if msg.channel == "websocket":
                         turn_lat = self._pending_turn_latency_ms.pop(session_key, None)
                         await self._webui_turns.handle_turn_end(
@@ -975,10 +1024,13 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                     raise
                 except Exception:
                     logger.exception("Error processing message for session {}", session_key)
-                    await self.bus.publish_outbound(OutboundMessage(
-                        channel=msg.channel, chat_id=msg.chat_id,
-                        content="Sorry, I encountered an error.",
-                    ))
+                    await self.bus.publish_outbound(
+                        OutboundMessage(
+                            channel=msg.channel,
+                            chat_id=msg.chat_id,
+                            content="Sorry, I encountered an error.",
+                        )
+                    )
                 finally:
                     # Drain any messages still in the pending queue and re-publish
                     # them to the bus so they are processed as fresh inbound messages
@@ -1002,7 +1054,8 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                         if leftover:
                             logger.info(
                                 "Re-published {} leftover message(s) to bus for session {}",
-                                leftover, session_key,
+                                leftover,
+                                session_key,
                             )
                     await self._webui_turns.publish_run_status(msg, "idle")
                     self._pending_turn_latency_ms.pop(session_key, None)
@@ -1035,9 +1088,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         pending_queue: asyncio.Queue | None = None,
     ) -> OutboundMessage | None:
         """Process a system inbound message (e.g. subagent announce)."""
-        channel, chat_id = (
-            msg.chat_id.split(":", 1) if ":" in msg.chat_id else ("cli", msg.chat_id)
-        )
+        channel, chat_id = msg.chat_id.split(":", 1) if ":" in msg.chat_id else ("cli", msg.chat_id)
         logger.info("Processing system message from {}", msg.sender_id)
         key = msg.session_key_override or f"{channel}:{chat_id}"
         session = self.sessions.get_or_create(key)
@@ -1059,8 +1110,11 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             logger.debug("Subagent result persisted for session {}", key)
             self.sessions.save(session)
         self._set_tool_context(
-            channel, chat_id, msg.metadata.get("message_id"),
-            msg.metadata, session_key=key,
+            channel,
+            chat_id,
+            msg.metadata.get("message_id"),
+            msg.metadata,
+            session_key=key,
         )
         _hist_kwargs: dict[str, Any] = {
             "max_messages": self._max_messages,
@@ -1092,7 +1146,10 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         )
         t_wall = time.time()
         final_content, _, all_msgs, stop_reason, _ = await self._run_agent_loop(
-            messages, session=session, channel=channel, chat_id=chat_id,
+            messages,
+            session=session,
+            channel=channel,
+            chat_id=chat_id,
             message_id=msg.metadata.get("message_id"),
             metadata=msg.metadata,
             session_key=key,
@@ -1137,6 +1194,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         on_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
         pending_queue: asyncio.Queue | None = None,
+        turn_hooks: list[AgentHook] | None = None,
     ) -> OutboundMessage | None:
         """Process a single inbound message and return the response."""
         self._refresh_provider_snapshot()
@@ -1163,6 +1221,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             on_stream_end=on_stream_end,
             pending_queue=pending_queue,
             agent_override=self._resolve_agent_override(msg),
+            turn_hooks=list(turn_hooks or []),
         )
 
         while ctx.state is not TurnState.DONE:
@@ -1207,8 +1266,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             next_state = self._TRANSITIONS.get((ctx.state, event))
             if next_state is None:
                 raise RuntimeError(
-                    f"[turn {ctx.turn_id}] No transition from {ctx.state} "
-                    f"on event {event!r}"
+                    f"[turn {ctx.turn_id}] No transition from {ctx.state} on event {event!r}"
                 )
             ctx.state = next_state
 
@@ -1474,12 +1532,22 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         on_progress: Callable[..., Awaitable[None]] | None = None,
         on_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
+        hooks: list[AgentHook] | None = None,
     ) -> OutboundMessage | None:
-        """Process a message directly and return the outbound payload."""
+        """Process a message directly and return the outbound payload.
+
+        *hooks*: per-call lifecycle hooks bound to this single turn only.
+        The SDK uses this instead of mutating the loop's shared
+        ``_extra_hooks`` list, so concurrent ``process_direct`` calls with
+        different hooks no longer cross-contaminate each other's results.
+        """
         await self._connect_mcp()
         msg = InboundMessage(
-            channel=channel, sender_id="user", chat_id=chat_id,
-            content=content, media=media or [],
+            channel=channel,
+            sender_id="user",
+            chat_id=chat_id,
+            content=content,
+            media=media or [],
         )
         try:
             return await self._process_message(
@@ -1488,6 +1556,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                 on_progress=on_progress,
                 on_stream=on_stream,
                 on_stream_end=on_stream_end,
+                turn_hooks=hooks,
             )
         finally:
             if channel == "websocket":

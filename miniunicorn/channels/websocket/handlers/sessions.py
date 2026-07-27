@@ -11,8 +11,8 @@ from miniunicorn.utils.subagent_channel_display import scrub_subagent_messages_f
 from miniunicorn.webui.thread_disk import delete_webui_thread
 from miniunicorn.webui.transcript import (
     build_webui_thread_response,
-    rewrite_local_markdown_images,
     rewind_webui_transcript_to_user,
+    rewrite_local_markdown_images,
 )
 
 from .._http_router import RouteContext, RouteDeps, router
@@ -62,9 +62,7 @@ def _augment_media_urls(payload: dict, deps: RouteDeps) -> None:
         msg.pop("media", None)
 
 
-def _augment_transcript_user_media(
-    paths: list[str], deps: RouteDeps
-) -> list[dict]:
+def _augment_transcript_user_media(paths: list[str], deps: RouteDeps) -> list[dict]:
     import mimetypes
 
     out: list[dict] = []
@@ -81,7 +79,7 @@ def _augment_transcript_user_media(
     return out
 
 
-@router.route(r"^/api/sessions/(?P<key>[^/]+)/messages$", regex=True)
+@router.route(r"^/api/sessions/(?P<key>[^/]+)/messages$", regex=True, methods={"GET"})
 @require_auth
 def session_messages(ctx: RouteContext) -> Response:
     if ctx.deps.session_manager is None:
@@ -107,7 +105,7 @@ def session_messages(ctx: RouteContext) -> Response:
     return _http_json_response(data)
 
 
-@router.route(r"^/api/sessions/(?P<key>[^/]+)/webui-thread$", regex=True)
+@router.route(r"^/api/sessions/(?P<key>[^/]+)/webui-thread$", regex=True, methods={"GET"})
 @require_auth
 def webui_thread_get(ctx: RouteContext) -> Response:
     decoded_key = _decode_api_key(ctx.path_vars["key"])
@@ -131,7 +129,7 @@ def webui_thread_get(ctx: RouteContext) -> Response:
     return _http_json_response(data)
 
 
-@router.route(r"^/api/sessions/(?P<key>[^/]+)/delete$", regex=True)
+@router.route(r"^/api/sessions/(?P<key>[^/]+)/delete$", regex=True, methods={"GET", "POST"})
 @require_auth
 def session_delete(ctx: RouteContext) -> Response:
     if ctx.deps.session_manager is None:
@@ -148,7 +146,7 @@ def session_delete(ctx: RouteContext) -> Response:
     return _http_json_response({"deleted": bool(deleted)})
 
 
-@router.route(r"^/api/sessions/(?P<key>[^/]+)/rewind$", regex=True)
+@router.route(r"^/api/sessions/(?P<key>[^/]+)/rewind$", regex=True, methods={"GET", "POST"})
 @require_auth
 def session_rewind(ctx: RouteContext) -> Response:
     """Truncate a websocket session to before the N-th user message.
@@ -187,8 +185,10 @@ def session_rewind(ctx: RouteContext) -> Response:
     )
     # Notify connected clients to refresh their thread view.
     ctx.deps.notify_session_updated(chat_id)
-    return _http_json_response({
-        "rewound": transcript_removed > 0 or session_removed > 0,
-        "transcript_lines_removed": transcript_removed,
-        "session_messages_removed": session_removed,
-    })
+    return _http_json_response(
+        {
+            "rewound": transcript_removed > 0 or session_removed > 0,
+            "transcript_lines_removed": transcript_removed,
+            "session_messages_removed": session_removed,
+        }
+    )

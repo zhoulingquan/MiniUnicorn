@@ -32,28 +32,38 @@ def convert_messages(messages: list[dict[str, Any]]) -> tuple[str, list[dict[str
         if role == "assistant":
             if isinstance(content, str) and content:
                 message_id = _unique_item_id(f"msg_{idx}", used_item_ids)
-                input_items.append({
-                    "type": "message", "role": "assistant",
-                    "content": [{"type": "output_text", "text": content}],
-                    "status": "completed", "id": message_id,
-                })
+                input_items.append(
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": content}],
+                        "status": "completed",
+                        "id": message_id,
+                    }
+                )
             for tool_call in msg.get("tool_calls", []) or []:
                 fn = tool_call.get("function") or {}
                 call_id, item_id = split_tool_call_id(tool_call.get("id"))
                 response_item_id = _unique_item_id(item_id or f"fc_{idx}", used_item_ids)
-                input_items.append({
-                    "type": "function_call",
-                    "id": response_item_id,
-                    "call_id": call_id or f"call_{idx}",
-                    "name": fn.get("name"),
-                    "arguments": fn.get("arguments") or "{}",
-                })
+                input_items.append(
+                    {
+                        "type": "function_call",
+                        "id": response_item_id,
+                        "call_id": call_id or f"call_{idx}",
+                        "name": fn.get("name"),
+                        "arguments": fn.get("arguments") or "{}",
+                    }
+                )
             continue
 
         if role == "tool":
             call_id, _ = split_tool_call_id(msg.get("tool_call_id"))
-            output_text = content if isinstance(content, str) else json.dumps(content, ensure_ascii=False)
-            input_items.append({"type": "function_call_output", "call_id": call_id, "output": output_text})
+            output_text = (
+                content if isinstance(content, str) else json.dumps(content, ensure_ascii=False)
+            )
+            input_items.append(
+                {"type": "function_call_output", "call_id": call_id, "output": output_text}
+            )
 
     return system_prompt, input_items
 
@@ -91,12 +101,14 @@ def convert_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not name:
             continue
         params = fn.get("parameters") or {}
-        converted.append({
-            "type": "function",
-            "name": name,
-            "description": fn.get("description") or "",
-            "parameters": params if isinstance(params, dict) else {},
-        })
+        converted.append(
+            {
+                "type": "function",
+                "name": name,
+                "description": fn.get("description") or "",
+                "parameters": params if isinstance(params, dict) else {},
+            }
+        )
     return converted
 
 

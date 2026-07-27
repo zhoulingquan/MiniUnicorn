@@ -147,7 +147,6 @@ class TestStripThinkConservativePreserve:
 
 
 class TestExtractThink:
-
     def test_no_think_tags(self):
         thinking, clean = extract_think("Hello World")
         assert thinking is None
@@ -254,9 +253,7 @@ class TestExtractReasoning:
         assert content == "hello"
 
     def test_falls_back_to_inline_think_tags(self):
-        reasoning, content = extract_reasoning(
-            None, None, "<think>plan</think>answer"
-        )
+        reasoning, content = extract_reasoning(None, None, "<think>plan</think>answer")
         assert reasoning == "plan"
         assert content == "answer"
 
@@ -266,8 +263,6 @@ class TestExtractReasoning:
         assert content == "plain answer"
 
     def test_empty_thinking_blocks_falls_through_to_inline(self):
-        reasoning, content = extract_reasoning(
-            None, [], "<think>plan</think>answer"
-        )
+        reasoning, content = extract_reasoning(None, [], "<think>plan</think>answer")
         assert reasoning == "plan"
         assert content == "answer"

@@ -14,11 +14,13 @@ from typing import Any
 
 from miniunicorn.config.loader import load_config, save_config
 from miniunicorn.security.workspace_access import workspace_sandbox_status
-from miniunicorn.webui.workspaces import read_webui_default_access_mode, write_webui_default_access_mode
+from miniunicorn.webui.workspaces import (
+    read_webui_default_access_mode,
+    write_webui_default_access_mode,
+)
 
-from ._query import QueryParams, _query_first, _query_first_alias, _parse_bool
+from ._query import QueryParams, _parse_bool, _query_first_alias
 from ._runtime import WebUISettingsError
-
 
 # === Payload builder ===
 
@@ -56,18 +58,23 @@ def advanced_payload(config: Any) -> dict[str, Any]:
 
 
 def update_network_safety_settings(query: QueryParams) -> dict[str, Any]:
-    raw_allow = (
-        _query_first_alias(query, "webui_allow_local_service_access", "webuiAllowLocalServiceAccess")
-        or _query_first_alias(query, "allow_local_preview_access", "allowLocalPreviewAccess")
+    raw_allow = _query_first_alias(
+        query, "webui_allow_local_service_access", "webuiAllowLocalServiceAccess"
+    ) or _query_first_alias(query, "allow_local_preview_access", "allowLocalPreviewAccess")
+    raw_default_access_mode = _query_first_alias(
+        query, "webui_default_access_mode", "webuiDefaultAccessMode"
     )
-    raw_default_access_mode = _query_first_alias(query, "webui_default_access_mode", "webuiDefaultAccessMode")
     if raw_allow is None and raw_default_access_mode is None:
-        raise WebUISettingsError("webui_allow_local_service_access or webui_default_access_mode is required")
+        raise WebUISettingsError(
+            "webui_allow_local_service_access or webui_default_access_mode is required"
+        )
 
     config = load_config()
     changed = False
     if raw_allow is not None:
-        webui_allow_local_service_access = _parse_bool(raw_allow, "webui_allow_local_service_access")
+        webui_allow_local_service_access = _parse_bool(
+            raw_allow, "webui_allow_local_service_access"
+        )
         if config.tools.webui_allow_local_service_access != webui_allow_local_service_access:
             config.tools.webui_allow_local_service_access = webui_allow_local_service_access
             changed = True
@@ -85,4 +92,5 @@ def update_network_safety_settings(query: QueryParams) -> dict[str, Any]:
         except ValueError as exc:
             raise WebUISettingsError(str(exc)) from exc
     from .settings_api import settings_payload
+
     return settings_payload(requires_restart=changed)

@@ -132,14 +132,16 @@ async def test_message_forwards_normalized_cli_app_attachments() -> None:
     channel._handle_message.assert_awaited_once()
     metadata = channel._handle_message.call_args.kwargs["metadata"]
     assert metadata["webui"] is True
-    assert metadata["cli_apps"] == [{
-        "name": "drawio",
-        "display_name": "Draw.io",
-        "category": "diagram",
-        "entry_point": "cli-anything-drawio",
-        "logo_url": "https://example.invalid/drawio.svg",
-        "brand_color": "#F08705",
-    }]
+    assert metadata["cli_apps"] == [
+        {
+            "name": "drawio",
+            "display_name": "Draw.io",
+            "category": "diagram",
+            "entry_point": "cli-anything-drawio",
+            "logo_url": "https://example.invalid/drawio.svg",
+            "brand_color": "#F08705",
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -153,9 +155,7 @@ async def test_message_with_single_image_forwards_saved_path(tmp_path) -> None:
         "media": [{"data_url": _tiny_png_data_url(), "name": "shot.png"}],
     }
 
-    with patch(
-        "miniunicorn.channels.websocket.channel.get_media_dir", return_value=tmp_path
-    ):
+    with patch("miniunicorn.channels.websocket.channel.get_media_dir", return_value=tmp_path):
         await channel._dispatch_envelope(mock_conn, "client-1", envelope)
 
     channel._handle_message.assert_awaited_once()
@@ -182,9 +182,7 @@ async def test_message_with_multiple_images(tmp_path) -> None:
         ],
     }
 
-    with patch(
-        "miniunicorn.channels.websocket.channel.get_media_dir", return_value=tmp_path
-    ):
+    with patch("miniunicorn.channels.websocket.channel.get_media_dir", return_value=tmp_path):
         await channel._dispatch_envelope(mock_conn, "client-1", envelope)
 
     paths = channel._handle_message.call_args.kwargs["media"]
@@ -205,9 +203,7 @@ async def test_image_only_message_allows_empty_text(tmp_path) -> None:
         "media": [{"data_url": _tiny_png_data_url()}],
     }
 
-    with patch(
-        "miniunicorn.channels.websocket.channel.get_media_dir", return_value=tmp_path
-    ):
+    with patch("miniunicorn.channels.websocket.channel.get_media_dir", return_value=tmp_path):
         await channel._dispatch_envelope(mock_conn, "client-1", envelope)
 
     channel._handle_message.assert_awaited_once()
@@ -226,9 +222,7 @@ async def test_message_rejected_when_more_than_four_images(tmp_path) -> None:
         "media": [{"data_url": _tiny_png_data_url()}] * 5,
     }
 
-    with patch(
-        "miniunicorn.channels.websocket.channel.get_media_dir", return_value=tmp_path
-    ):
+    with patch("miniunicorn.channels.websocket.channel.get_media_dir", return_value=tmp_path):
         await channel._dispatch_envelope(mock_conn, "client-1", envelope)
 
     channel._handle_message.assert_not_awaited()
@@ -251,9 +245,7 @@ async def test_message_rejected_on_oversize_payload(tmp_path) -> None:
         "media": [{"data_url": _data_url("image/png", oversized)}],
     }
 
-    with patch(
-        "miniunicorn.channels.websocket.channel.get_media_dir", return_value=tmp_path
-    ):
+    with patch("miniunicorn.channels.websocket.channel.get_media_dir", return_value=tmp_path):
         await channel._dispatch_envelope(mock_conn, "client-1", envelope)
 
     channel._handle_message.assert_not_awaited()
@@ -274,9 +266,7 @@ async def test_message_accepts_pdf_document(tmp_path) -> None:
         "media": [{"data_url": _data_url("application/pdf", b"%PDF-1.4"), "name": "doc.pdf"}],
     }
 
-    with patch(
-        "miniunicorn.channels.websocket.channel.get_media_dir", return_value=tmp_path
-    ):
+    with patch("miniunicorn.channels.websocket.channel.get_media_dir", return_value=tmp_path):
         await channel._dispatch_envelope(mock_conn, "client-1", envelope)
 
     channel._handle_message.assert_awaited_once()
@@ -307,9 +297,7 @@ async def test_octet_stream_preserves_filename_extension(tmp_path) -> None:
         ],
     }
 
-    with patch(
-        "miniunicorn.channels.websocket.channel.get_media_dir", return_value=tmp_path
-    ):
+    with patch("miniunicorn.channels.websocket.channel.get_media_dir", return_value=tmp_path):
         await channel._dispatch_envelope(mock_conn, "client-1", envelope)
 
     channel._handle_message.assert_awaited_once()
@@ -331,9 +319,7 @@ async def test_message_rejected_on_svg_mime(tmp_path) -> None:
         "media": [{"data_url": _data_url("image/svg+xml", b"<svg/>")}],
     }
 
-    with patch(
-        "miniunicorn.channels.websocket.channel.get_media_dir", return_value=tmp_path
-    ):
+    with patch("miniunicorn.channels.websocket.channel.get_media_dir", return_value=tmp_path):
         await channel._dispatch_envelope(mock_conn, "client-1", envelope)
 
     channel._handle_message.assert_not_awaited()
@@ -352,9 +338,7 @@ async def test_message_rejected_on_malformed_data_url(tmp_path) -> None:
         "media": [{"data_url": "http://evil.example/image.png"}],
     }
 
-    with patch(
-        "miniunicorn.channels.websocket.channel.get_media_dir", return_value=tmp_path
-    ):
+    with patch("miniunicorn.channels.websocket.channel.get_media_dir", return_value=tmp_path):
         await channel._dispatch_envelope(mock_conn, "client-1", envelope)
 
     channel._handle_message.assert_not_awaited()
@@ -373,9 +357,7 @@ async def test_message_rejected_on_broken_base64(tmp_path) -> None:
         "media": [{"data_url": "data:image/png;base64,not-valid-base64!!!"}],
     }
 
-    with patch(
-        "miniunicorn.channels.websocket.channel.get_media_dir", return_value=tmp_path
-    ):
+    with patch("miniunicorn.channels.websocket.channel.get_media_dir", return_value=tmp_path):
         await channel._dispatch_envelope(mock_conn, "client-1", envelope)
 
     channel._handle_message.assert_not_awaited()
@@ -395,9 +377,7 @@ async def test_message_rejected_when_media_item_shape_wrong(tmp_path) -> None:
         "media": ["data:image/png;base64,XXXX"],
     }
 
-    with patch(
-        "miniunicorn.channels.websocket.channel.get_media_dir", return_value=tmp_path
-    ):
+    with patch("miniunicorn.channels.websocket.channel.get_media_dir", return_value=tmp_path):
         await channel._dispatch_envelope(mock_conn, "client-1", envelope)
 
     channel._handle_message.assert_not_awaited()
@@ -445,9 +425,7 @@ async def test_failed_media_does_not_partially_persist(tmp_path) -> None:
         ],
     }
 
-    with patch(
-        "miniunicorn.channels.websocket.channel.get_media_dir", return_value=tmp_path
-    ):
+    with patch("miniunicorn.channels.websocket.channel.get_media_dir", return_value=tmp_path):
         await channel._dispatch_envelope(mock_conn, "client-1", envelope)
 
     channel._handle_message.assert_not_awaited()

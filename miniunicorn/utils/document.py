@@ -251,7 +251,8 @@ def is_image_file(path: str) -> bool:
 
 
 def reference_non_image_attachments(
-    content: str, media: list[str],
+    content: str,
+    media: list[str],
 ) -> tuple[str, list[str]]:
     """Separate images from non-image attachments without reading file content.
 
@@ -302,7 +303,9 @@ def extract_documents(
         if size > max_file_size:
             logger.warning(
                 "Skipping oversized file for extraction: {} ({:.1f} MB > {} MB limit)",
-                p.name, size / (1024 * 1024), max_file_size // (1024 * 1024),
+                p.name,
+                size / (1024 * 1024),
+                max_file_size // (1024 * 1024),
             )
             continue
 

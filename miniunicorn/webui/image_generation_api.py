@@ -27,11 +27,18 @@ _SUPPORTED_API_TYPES: tuple[str, ...] = (
 
 # 可选宽高比下拉项 (与 ImageGenerationConfig.default_aspect_ratio 对齐)
 _ASPECT_RATIO_OPTIONS: tuple[str, ...] = (
-    "1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3",
+    "1:1",
+    "16:9",
+    "9:16",
+    "4:3",
+    "3:4",
+    "3:2",
+    "2:3",
 )
 
 
 # === Payload builder ===
+
 
 def image_generation_payload(config: Any) -> dict[str, Any]:
     """构造 settings payload 中 image_generation 区域。
@@ -64,6 +71,7 @@ def image_generation_payload(config: Any) -> dict[str, Any]:
 
 
 # === Update handler ===
+
 
 def update_image_generation_settings(query: QueryParams) -> dict[str, Any]:
     """处理 image_generation 配置更新请求。
@@ -148,10 +156,12 @@ def update_image_generation_settings(query: QueryParams) -> dict[str, Any]:
         except Exception as exc:
             raise WebUISettingsError(f"config validation failed: {exc}") from exc
         from miniunicorn.config.loader import save_config
+
         save_config(config)
         restart_required = True  # image_generation 配置变更需要重启 gateway 加载
 
     from .settings_api import settings_payload
+
     return settings_payload(requires_restart=restart_required)
 
 
@@ -166,6 +176,5 @@ def _resolve_preset_or_raise(config: Any, preset_name: str) -> None:
     if preset_name not in config.model_presets:
         available = ["default", *sorted(config.model_presets.keys())]
         raise WebUISettingsError(
-            f"preset '{preset_name}' not found in model_presets; "
-            f"available: {available}"
+            f"preset '{preset_name}' not found in model_presets; available: {available}"
         )

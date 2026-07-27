@@ -14,10 +14,16 @@ export interface UseRestartFlowOptions {
 
 /**
  * 管理设置页"重启"按钮触发的重启流程:
- * - 用户点击重启 -> 发送 /restart -> 记录开始时间到 localStorage
+ * - 用户点击重启 -> 发送 /restart -> 记录开始时间到 sessionStorage
  * - 监听 client 连接状态:经历"断开 -> 重连"后弹出完成 toast
  *
- * localStorage 的目的是跨页面刷新保持重启时间戳(同一浏览器标签页内有效)。
+ * 设计 §4.5 要求"单标签页重启状态使用 sessionStorage;跨标签页通知只负责
+ * 提示,不允许其他标签页清除发起页的本地进行中状态"。因此 ``RESTART_STARTED_KEY``
+ * 使用 ``sessionStorage`` 而非 ``localStorage``:只有发起重启的标签页会写入
+ * 和清除自己的 timestamp,其他标签页的重连状态不会误清发起页的进度,也不会
+ * 错误地在非发起页弹出"重启完成" toast。sessionStorage 在标签页关闭后自动清空,
+ * 不会污染下一次会话。
+ *
  * 1500ms 的"短重启"过滤用于避免连接抖动误触发完成提示;只有真正经历断开
  * (restartSawDisconnectRef.current=true)或超过 1.5s 才认为重启完成。
  */
@@ -32,7 +38,7 @@ export function useRestartFlow({ client, activeChatId }: UseRestartFlowOptions) 
     restartSawDisconnectRef.current = false;
     setIsRestarting(true);
     try {
-      window.localStorage.setItem(RESTART_STARTED_KEY, String(Date.now()));
+      window.sessionStorage.setItem(RESTART_STARTED_KEY, String(Date.now()));
     } catch {
       // ignore storage errors
     }
@@ -43,7 +49,7 @@ export function useRestartFlow({ client, activeChatId }: UseRestartFlowOptions) 
     return client.onStatus((status) => {
       const startedAt = (() => {
         try {
-          return Number(window.localStorage.getItem(RESTART_STARTED_KEY) ?? "0");
+          return Number(window.sessionStorage.getItem(RESTART_STARTED_KEY) ?? "0");
         } catch {
           return 0;
         }
@@ -56,7 +62,7 @@ export function useRestartFlow({ client, activeChatId }: UseRestartFlowOptions) 
       const elapsedMs = Date.now() - startedAt;
       if (!restartSawDisconnectRef.current && elapsedMs < 1500) return;
       try {
-        window.localStorage.removeItem(RESTART_STARTED_KEY);
+        window.sessionStorage.removeItem(RESTART_STARTED_KEY);
       } catch {
         // ignore storage errors
       }

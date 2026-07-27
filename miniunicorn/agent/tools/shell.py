@@ -6,11 +6,13 @@ import asyncio
 import os
 import re
 import shutil
+import signal
+import subprocess
 import sys
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Mapping
 
 from loguru import logger
 from pydantic import Field
@@ -68,8 +70,11 @@ _WORKSPACE_BOUNDARY_NOTE = (
 
 class ExecToolConfig(Base):
     """Shell exec tool configuration."""
+
     enable: bool = True
-    timeout: int = Field(default=60, ge=0)  # Hard timeout (s); 0 = no limit. Not capped by the per-call max.
+    timeout: int = Field(
+        default=60, ge=0
+    )  # Hard timeout (s); 0 = no limit. Not capped by the per-call max.
     path_append: str = ""
     sandbox: str = ""
     # 沙箱是否启用网络隔离(--unshare-net)。默认 False,因为多数命令需要联网;
@@ -147,6 +152,7 @@ class _PreparedCommand:
 )
 class ExecTool(Tool):
     """Tool to execute shell commands."""
+
     _scopes = {"core", "subagent"}
 
     config_key = "exec"
@@ -194,33 +200,36 @@ class ExecTool(Tool):
         self.working_dir = working_dir
         self.sandbox = sandbox
         self.unshare_net = unshare_net
-        self.deny_patterns = (deny_patterns or []) + [
-            r"\brm\s+-[rf]{1,2}\b",          # rm -r, rm -rf, rm -fr
-            # 补充 rm 长格式与分离短标志(如 `rm --recursive --force`、
-            # `rm -r -f`),覆盖原有正则未命中的多空格/分离写法。
-            r"\brm\s+--(?:recursive|force)\b",        # rm --recursive / rm --force
-            r"\brm\s+-[rf]\s+-[rf]\b",                # rm -r -f / rm -f -r 等分离标志
-            # find 从根目录递归删除:极度危险,直接拦截
-            r"\bfind\s+/\s+[^|;&]*-delete\b",         # find / -delete
-            # dd 写入磁盘设备(原 `dd if=` 已覆盖,这里补 `of=/dev/` 写设备场景)
-            r"\bdd\b[^|;&]*\bof=/dev/(?:sd|nvme|hd|vd|disk)",  # dd of=/dev/sd...
-            r"\bdel\s+/[fq]\b",              # del /f, del /q
-            r"\brmdir\s+/s\b",               # rmdir /s
-            r"(?:^|[;&|]\s*)format(?!=)\b",   # format (as standalone command only)
-            r"\b(mkfs|diskpart)\b",          # disk operations
-            r"\bdd\s+if=",                   # dd
-            r">\s*/dev/sd",                  # write to disk
-            r"\b(shutdown|reboot|poweroff)\b",  # system power
-            r":\(\)\s*\{.*\};\s*:",          # fork bomb
-            # Block writes to MiniUnicorn internal state files (#2989).
-            # history.jsonl / .dream_cursor are managed by append_history();
-            # direct writes corrupt the cursor format and crash /dream.
-            r">>?\s*\S*(?:history\.jsonl|\.dream_cursor)",            # > / >> redirect
-            r"\btee\b[^|;&<>]*(?:history\.jsonl|\.dream_cursor)",     # tee / tee -a
-            r"\b(?:cp|mv)\b(?:\s+[^\s|;&<>]+)+\s+\S*(?:history\.jsonl|\.dream_cursor)",  # cp/mv target
-            r"\bdd\b[^|;&<>]*\bof=\S*(?:history\.jsonl|\.dream_cursor)",  # dd of=
-            r"\bsed\s+-i[^|;&<>]*(?:history\.jsonl|\.dream_cursor)",  # sed -i
-        ]
+        self.deny_patterns = (
+            (deny_patterns or [])
+            + [
+                r"\brm\s+-[rf]{1,2}\b",  # rm -r, rm -rf, rm -fr
+                # 补充 rm 长格式与分离短标志(如 `rm --recursive --force`、
+                # `rm -r -f`),覆盖原有正则未命中的多空格/分离写法。
+                r"\brm\s+--(?:recursive|force)\b",  # rm --recursive / rm --force
+                r"\brm\s+-[rf]\s+-[rf]\b",  # rm -r -f / rm -f -r 等分离标志
+                # find 从根目录递归删除:极度危险,直接拦截
+                r"\bfind\s+/\s+[^|;&]*-delete\b",  # find / -delete
+                # dd 写入磁盘设备(原 `dd if=` 已覆盖,这里补 `of=/dev/` 写设备场景)
+                r"\bdd\b[^|;&]*\bof=/dev/(?:sd|nvme|hd|vd|disk)",  # dd of=/dev/sd...
+                r"\bdel\s+/[fq]\b",  # del /f, del /q
+                r"\brmdir\s+/s\b",  # rmdir /s
+                r"(?:^|[;&|]\s*)format(?!=)\b",  # format (as standalone command only)
+                r"\b(mkfs|diskpart)\b",  # disk operations
+                r"\bdd\s+if=",  # dd
+                r">\s*/dev/sd",  # write to disk
+                r"\b(shutdown|reboot|poweroff)\b",  # system power
+                r":\(\)\s*\{.*\};\s*:",  # fork bomb
+                # Block writes to MiniUnicorn internal state files (#2989).
+                # history.jsonl / .dream_cursor are managed by append_history();
+                # direct writes corrupt the cursor format and crash /dream.
+                r">>?\s*\S*(?:history\.jsonl|\.dream_cursor)",  # > / >> redirect
+                r"\btee\b[^|;&<>]*(?:history\.jsonl|\.dream_cursor)",  # tee / tee -a
+                r"\b(?:cp|mv)\b(?:\s+[^\s|;&<>]+)+\s+\S*(?:history\.jsonl|\.dream_cursor)",  # cp/mv target
+                r"\bdd\b[^|;&<>]*\bof=\S*(?:history\.jsonl|\.dream_cursor)",  # dd of=
+                r"\bsed\s+-i[^|;&<>]*(?:history\.jsonl|\.dream_cursor)",  # sed -i
+            ]
+        )
         self.allow_patterns = allow_patterns or []
         self.restrict_to_workspace = restrict_to_workspace
         if allow_local_preview_access is not None:
@@ -242,17 +251,19 @@ class ExecTool(Tool):
     _MAX_OUTPUT = 10_000
 
     # Kernel device files safe as stdio redirect targets (#3599).
-    _BENIGN_DEVICE_PATHS: frozenset[str] = frozenset({
-        "/dev/null",
-        "/dev/zero",
-        "/dev/full",
-        "/dev/random",
-        "/dev/urandom",
-        "/dev/stdin",
-        "/dev/stdout",
-        "/dev/stderr",
-        "/dev/tty",
-    })
+    _BENIGN_DEVICE_PATHS: frozenset[str] = frozenset(
+        {
+            "/dev/null",
+            "/dev/zero",
+            "/dev/full",
+            "/dev/random",
+            "/dev/urandom",
+            "/dev/stdin",
+            "/dev/stdout",
+            "/dev/stderr",
+            "/dev/tty",
+        }
+    )
 
     @property
     def description(self) -> str:
@@ -274,10 +285,15 @@ class ExecTool(Tool):
         return True
 
     async def execute(
-        self, command: str | None = None, cmd: str | None = None,
-        working_dir: str | None = None, workdir: str | None = None,
-        timeout: int | None = None, shell: str | None = None,
-        login: bool | None = None, yield_time_ms: int | None = None,
+        self,
+        command: str | None = None,
+        cmd: str | None = None,
+        working_dir: str | None = None,
+        workdir: str | None = None,
+        timeout: int | None = None,
+        shell: str | None = None,
+        login: bool | None = None,
+        yield_time_ms: int | None = None,
         max_output_chars: int | None = None,
         max_output_tokens: int | None = None,
         **kwargs: Any,
@@ -399,8 +415,14 @@ class ExecTool(Tool):
             restrict_to_workspace=self.restrict_to_workspace,
             sandbox_restricts_workspace=bool(self.sandbox),
         )
-        workspace_root = str(access.project_path) if access.project_path is not None else self.working_dir
+        workspace_root = (
+            str(access.project_path) if access.project_path is not None else self.working_dir
+        )
         cwd = working_dir or workspace_root or os.getcwd()
+
+        # 先构建受控 env,供 _guard_command 用同一环境展开路径表达式,
+        # 检测 %USERPROFILE% / $HOME 等绕过工作区边界的尝试。
+        env = self._build_env()
 
         # Prevent an LLM-supplied working_dir from escaping the configured
         # workspace when restrict_to_workspace is enabled (#2826). Without
@@ -412,10 +434,7 @@ class ExecTool(Tool):
                 requested = Path(cwd).expanduser().resolve()
                 resolved_root = Path(workspace_root).expanduser().resolve()
             except Exception:
-                return (
-                    "Error: working_dir could not be resolved"
-                    + _WORKSPACE_BOUNDARY_NOTE
-                )
+                return "Error: working_dir could not be resolved" + _WORKSPACE_BOUNDARY_NOTE
             if not is_path_within(requested, resolved_root):
                 return (
                     "Error: working_dir is outside the configured workspace"
@@ -426,6 +445,7 @@ class ExecTool(Tool):
             command,
             cwd,
             restrict_to_workspace=access.restrict_to_workspace,
+            env=env,
         )
         if guard_error:
             return guard_error
@@ -448,7 +468,6 @@ class ExecTool(Tool):
                 cwd = str(Path(workspace).resolve())
 
         effective_timeout = self._resolve_timeout(timeout)
-        env = self._build_env()
 
         if self.path_append:
             if _IS_WINDOWS:
@@ -472,22 +491,37 @@ class ExecTool(Tool):
 
     @staticmethod
     async def _spawn(
-        command: str, cwd: str, env: dict[str, str],
+        command: str,
+        cwd: str,
+        env: dict[str, str],
         shell_program: str | None = None,
         login: bool = True,
         *,
         stdin: int = asyncio.subprocess.DEVNULL,
     ) -> asyncio.subprocess.Process:
-        """Launch *command* in a platform-appropriate shell."""
+        """Launch *command* in a platform-appropriate shell.
+
+        进程树隔离:
+        - POSIX: ``start_new_session=True`` 让子进程成为新 session/process group
+          leader,后续可向整个 process group 发送终止信号,确保 timeout/取消时
+          连带终止子 shell 启动的子孙进程。
+        - Windows: ``CREATE_NEW_PROCESS_GROUP`` 让子进程成为新进程组根,
+          终止时通过 ``taskkill /T`` 递归终止整棵树。
+        """
         if _IS_WINDOWS:
+            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
             if "\n" in command:
                 return await asyncio.create_subprocess_exec(
-                    _windows_powershell(), "-NoProfile", "-Command", command,
+                    _windows_powershell(),
+                    "-NoProfile",
+                    "-Command",
+                    command,
                     stdin=stdin,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     cwd=cwd,
                     env=env,
+                    creationflags=creationflags,
                 )
             return await asyncio.create_subprocess_shell(
                 command,
@@ -496,6 +530,7 @@ class ExecTool(Tool):
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
                 env=env,
+                creationflags=creationflags,
             )
         shell_program = shell_program or shutil.which("bash") or "/bin/bash"
         args = [shell_program]
@@ -510,6 +545,7 @@ class ExecTool(Tool):
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
             env=env,
+            start_new_session=True,
         )
 
     @staticmethod
@@ -539,15 +575,57 @@ class ExecTool(Tool):
 
     @staticmethod
     async def _kill_process(process: asyncio.subprocess.Process) -> None:
-        """Kill a subprocess and reap it to prevent zombies."""
-        process.kill()
+        """Kill a subprocess and its entire process tree, then reap it.
+
+        终止整个进程树,避免 timeout/取消时只结束包装 shell 而子孙进程继续运行:
+        - POSIX: 子进程以 ``start_new_session=True`` 启动,是自己的 process group
+          leader。先向 process group 发 ``SIGTERM``(给优雅退出机会),等待 2s,
+          再发 ``SIGKILL`` 强制终止。最后 ``waitpid`` 回收僵尸。
+        - Windows: 使用 ``taskkill /F /T /PID`` 递归强制终止整棵树。
+        """
+        pid = process.pid
+        if _IS_WINDOWS:
+            # /T = 递归终止子树; /F = 强制。taskkill 不存在时回退到 process.kill()。
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "taskkill",
+                    "/F",
+                    "/T",
+                    "/PID",
+                    str(pid),
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                await proc.wait()
+            except (FileNotFoundError, OSError) as e:
+                logger.debug("taskkill unavailable, falling back to kill(): {}", e)
+                with suppress(ProcessLookupError):
+                    process.kill()
+        else:
+            # POSIX: 向整个 process group 发信号。子进程以 start_new_session=True
+            # 启动,pgid == pid。失败时回退到只杀主进程。
+            try:
+                pgid = os.getpgid(pid)
+            except (ProcessLookupError, PermissionError) as e:
+                logger.debug("Cannot get pgid for pid={}: {}", pid, e)
+                pgid = pid
+            # 先 SIGTERM 给优雅退出机会
+            with suppress(ProcessLookupError, PermissionError):
+                os.killpg(pgid, signal.SIGTERM)
+            try:
+                with suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(process.wait(), timeout=2.0)
+            except Exception:
+                # 2s 内未退出,SIGKILL 强制终止整组
+                with suppress(ProcessLookupError, PermissionError):
+                    os.killpg(pgid, signal.SIGKILL)
         try:
             with suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(process.wait(), timeout=5.0)
         finally:
             if not _IS_WINDOWS:
                 try:
-                    os.waitpid(process.pid, os.WNOHANG)
+                    os.waitpid(pid, os.WNOHANG)
                 except (ProcessLookupError, ChildProcessError) as e:
                     logger.debug("Process already reaped or not found: {}", e)
 
@@ -607,16 +685,16 @@ class ExecTool(Tool):
         return env
 
     _BYPASS_PATTERNS: ClassVar[list[tuple[str, str]]] = [
-        (r'\$\(', "command substitution $(...)"),
-        (r'`[^`]+`', "backtick command substitution"),
-        (r'base64\s+--decode\b|\bbase64\s+-d\b|\bdbase64\s+-d\b', "base64 decode pipe"),
-        (r'xxd\s+-r\b', "hex decode pipe"),
-        (r'\\x[0-9a-fA-F]{2}', "hex escape sequence"),
-        (r'\\[0-7]{3}', "octal escape sequence"),
-        (r'\$\\x[0-9a-fA-F]{2}', "dollar-hex escape"),
-        (r'printf\s+.*\\x[0-9a-fA-F]', "printf hex escape"),
-        (r'eval\s+', "eval command"),
-        (r'exec\s+', "exec command"),
+        (r"\$\(", "command substitution $(...)"),
+        (r"`[^`]+`", "backtick command substitution"),
+        (r"base64\s+--decode\b|\bbase64\s+-d\b|\bdbase64\s+-d\b", "base64 decode pipe"),
+        (r"xxd\s+-r\b", "hex decode pipe"),
+        (r"\\x[0-9a-fA-F]{2}", "hex escape sequence"),
+        (r"\\[0-7]{3}", "octal escape sequence"),
+        (r"\$\\x[0-9a-fA-F]{2}", "dollar-hex escape"),
+        (r"printf\s+.*\\x[0-9a-fA-F]", "printf hex escape"),
+        (r"eval\s+", "eval command"),
+        (r"exec\s+", "exec command"),
     ]
 
     # 解释器内联执行入口(python -c / perl -e / node -e / ruby -e 等):
@@ -626,10 +704,10 @@ class ExecTool(Tool):
     # 不在拦截范围,以保持与现有测试/工作流向后兼容(test_exec_guard_allows_public_urls
     # 使用 python3 -c 拉取公开 URL,属合理用法)。
     _RESTRICTED_INTERPRETER_PATTERNS: ClassVar[list[tuple[str, str]]] = [
-        (r'\bpython\s+-c\b', "python -c inline execution"),
-        (r'\bperl\s+-e\b', "perl -e inline execution"),
-        (r'\bnode\s+-e\b', "node -e inline execution"),
-        (r'\bruby\s+-e\b', "ruby -e inline execution"),
+        (r"\bpython\s+-c\b", "python -c inline execution"),
+        (r"\bperl\s+-e\b", "perl -e inline execution"),
+        (r"\bnode\s+-e\b", "node -e inline execution"),
+        (r"\bruby\s+-e\b", "ruby -e inline execution"),
     ]
 
     def _guard_command(
@@ -638,8 +716,14 @@ class ExecTool(Tool):
         cwd: str,
         *,
         restrict_to_workspace: bool | None = None,
+        env: "Mapping[str, str] | None" = None,
     ) -> str | None:
-        """Best-effort safety guard for potentially destructive commands."""
+        """Best-effort safety guard for potentially destructive commands.
+
+        当 *env* 提供时,路径表达式使用与子进程一致的受控环境展开
+        (``%VAR%`` / ``$VAR`` / ``${VAR}``),以检测通过 ``%USERPROFILE%``
+        或 ``$HOME`` 等环境变量绕过工作区边界的尝试。
+        """
         cmd = command.strip()
         lower = cmd.lower()
 
@@ -666,6 +750,7 @@ class ExecTool(Tool):
                 return f"Error: Command blocked by safety guard (potential bypass via {desc})"
 
         from miniunicorn.security.network import contains_internal_url
+
         if contains_internal_url(
             cmd,
             allow_loopback=current_scope_allows_loopback(
@@ -675,7 +760,9 @@ class ExecTool(Tool):
             # The runner turns this marker into a non-retryable security hint.
             return "Error: Command blocked by safety guard (internal/private URL detected)"
 
-        should_restrict = self.restrict_to_workspace if restrict_to_workspace is None else restrict_to_workspace
+        should_restrict = (
+            self.restrict_to_workspace if restrict_to_workspace is None else restrict_to_workspace
+        )
         if should_restrict:
             # 工作区受限模式下,拒绝解释器内联执行入口(python -c / perl -e /
             # node -e / ruby -e 等),它们可绕过文件路径校验直接执行任意代码。
@@ -692,11 +779,15 @@ class ExecTool(Tool):
                     + _WORKSPACE_BOUNDARY_NOTE
                 )
 
+            from miniunicorn.security.workspace_policy import expand_env_vars
+
             cwd_path = Path(cwd).resolve()
 
             for raw in self._extract_absolute_paths(cmd):
                 try:
-                    expanded = os.path.expandvars(raw.strip())
+                    # 使用受控 env 展开路径表达式(与子进程一致),检测
+                    # %USERPROFILE% / $HOME 等绕过工作区边界的尝试。
+                    expanded = expand_env_vars(raw.strip(), env)
                     # Match against the un-resolved path first.  On Linux,
                     # /dev/stderr is a symlink to /proc/self/fd/2 and
                     # ``Path.resolve()`` would mask the device-file intent.
@@ -711,8 +802,7 @@ class ExecTool(Tool):
 
                 media_path = get_media_dir().resolve()
                 if p.is_absolute() and not (
-                    is_path_within(p, cwd_path)
-                    or is_path_within(p, media_path)
+                    is_path_within(p, cwd_path, env=env) or is_path_within(p, media_path, env=env)
                 ):
                     return (
                         "Error: Command blocked by safety guard (path outside working dir)"
@@ -734,8 +824,12 @@ class ExecTool(Tool):
         # NOTE: `*` is required so `C:\` (nothing after the slash) is still extracted.
         win_paths = re.findall(
             r"(?<![A-Za-z])(?:[A-Za-z]:[^\s\"'|><;]*|\\\\[^\s\"'|><;]+(?:\\[^\s\"'|><;]+)*)",
-            command
+            command,
         )
-        posix_paths = re.findall(r"(?:^|[\s|>'\"])(/[^\s\"'>;|<]+)", command) # POSIX: /absolute only
-        home_paths = re.findall(r"(?:^|[\s>'\"])(~[^\s\"'>;|<]*)", command) # POSIX/Windows home shortcut: ~
+        posix_paths = re.findall(
+            r"(?:^|[\s|>'\"])(/[^\s\"'>;|<]+)", command
+        )  # POSIX: /absolute only
+        home_paths = re.findall(
+            r"(?:^|[\s>'\"])(~[^\s\"'>;|<]*)", command
+        )  # POSIX/Windows home shortcut: ~
         return win_paths + posix_paths + home_paths

@@ -9,17 +9,21 @@ from websockets.http11 import Response
 
 from miniunicorn.security.workspace_policy import is_path_within
 
+from .._http_router import RouteContext, router
 from .._http_routes import (
+    SKILL_ZIP_MAX_HEADERS,
+    SKILL_ZIP_MAX_TOTAL_BYTES,
+    ChunkedHeaderLimitError,
     _collect_chunked_header,
     _http_error,
     _http_json_response,
     _query_first,
+    collect_chunked_header_limited,
 )
-from .._http_router import RouteContext, router
 from ._common import require_auth
 
 
-@router.route("/api/skills")
+@router.route("/api/skills", methods={"GET"})
 def list_skills(ctx: RouteContext) -> Response:
     """Return available skills (builtin + workspace) as JSON.
 
@@ -51,22 +55,24 @@ def list_skills(ctx: RouteContext) -> Response:
                 loader._parse_miniunicorn_metadata(meta.get("metadata")).get("always")
                 or meta.get("always")
             )
-            result.append({
-                "name": entry["name"],
-                "description": description,
-                "source": entry["source"],
-                "available": available,
-                "disabled": entry["name"] in disabled_set,
-                "always": always,
-                "builtin_only": loader.is_builtin_skill(entry["name"]),
-                "path": entry["path"],
-            })
+            result.append(
+                {
+                    "name": entry["name"],
+                    "description": description,
+                    "source": entry["source"],
+                    "available": available,
+                    "disabled": entry["name"] in disabled_set,
+                    "always": always,
+                    "builtin_only": loader.is_builtin_skill(entry["name"]),
+                    "path": entry["path"],
+                }
+            )
         return _http_json_response({"skills": result})
     except Exception as exc:
         return _http_error(500, str(exc))
 
 
-@router.route("/api/skills/delete")
+@router.route("/api/skills/delete", methods={"GET", "POST"})
 def delete_skill(ctx: RouteContext) -> Response:
     """Delete a workspace skill by name."""
     import shutil
@@ -99,7 +105,7 @@ def delete_skill(ctx: RouteContext) -> Response:
         return _http_error(500, str(exc))
 
 
-@router.route("/api/skills/toggle")
+@router.route("/api/skills/toggle", methods={"GET", "POST"})
 @require_auth
 def toggle_skill(ctx: RouteContext) -> Response:
     """Enable or disable a skill at runtime (hot reload, no restart).
@@ -129,14 +135,12 @@ def toggle_skill(ctx: RouteContext) -> Response:
             current = [n for n in current if n != name]
         config.agents.defaults.disabled_skills = current
         save_config(config)
-        return _http_json_response(
-            {"name": name, "disabled": disable, "disabled_skills": current}
-        )
+        return _http_json_response({"name": name, "disabled": disable, "disabled_skills": current})
     except Exception as exc:
         return _http_error(500, str(exc))
 
 
-@router.route("/api/skills/read")
+@router.route("/api/skills/read", methods={"GET"})
 def read_skill(ctx: RouteContext) -> Response:
     """Return a skill's SKILL.md content and bundled file list."""
     from miniunicorn.agent.skills import SkillsLoader
@@ -152,19 +156,21 @@ def read_skill(ctx: RouteContext) -> Response:
         files = loader.list_skill_files(name)
         meta = loader.get_skill_metadata(name) or {}
         ws_exists = (loader.workspace_skills / name / "SKILL.md").exists()
-        return _http_json_response({
-            "name": name,
-            "content": content,
-            "files": files,
-            "source": "workspace" if ws_exists else "builtin",
-            "metadata": meta,
-            "builtin_only": loader.is_builtin_skill(name),
-        })
+        return _http_json_response(
+            {
+                "name": name,
+                "content": content,
+                "files": files,
+                "source": "workspace" if ws_exists else "builtin",
+                "metadata": meta,
+                "builtin_only": loader.is_builtin_skill(name),
+            }
+        )
     except Exception as exc:
         return _http_error(500, str(exc))
 
 
-@router.route("/api/skills/file")
+@router.route("/api/skills/file", methods={"GET"})
 def read_skill_file(ctx: RouteContext) -> Response:
     """Read a single bundled file from a skill (traversal-safe)."""
     from miniunicorn.agent.skills import SkillsLoader
@@ -183,7 +189,7 @@ def read_skill_file(ctx: RouteContext) -> Response:
         return _http_error(500, str(exc))
 
 
-@router.route("/api/skills/save")
+@router.route("/api/skills/save", methods={"GET", "POST"})
 @require_auth
 def save_skill(ctx: RouteContext) -> Response:
     """Create or update a workspace skill's SKILL.md.
@@ -220,7 +226,7 @@ def save_skill(ctx: RouteContext) -> Response:
         return _http_error(500, str(exc))
 
 
-@router.route("/api/skills/upload")
+@router.route("/api/skills/upload", methods={"GET", "POST"})
 @require_auth
 def upload_skill(ctx: RouteContext) -> Response:
     """Upload and extract a ZIP skill package into the workspace.
@@ -229,6 +235,10 @@ def upload_skill(ctx: RouteContext) -> Response:
     transported as base64 chunks in repeated ``x-miniunicorn-Skill-Zip``
     headers (each header stays under the 8KB line limit). The chunks are
     concatenated in order before decoding.
+
+    大型 ZIP 会触发大量分块 header,可能超过协议 header 数量上限。前后端使用
+    同一最大 header 数(``SKILL_ZIP_MAX_HEADERS``)和总字节上限
+    (``SKILL_ZIP_MAX_TOTAL_BYTES``);超限返回 413,前端在发送前即报错。
     """
     import base64
 
@@ -237,8 +247,18 @@ def upload_skill(ctx: RouteContext) -> Response:
     preferred = _query_first(ctx.query, "name")
     preferred = unquote(preferred) if preferred else None
 
-    # Collect base64 chunks from repeated headers (order preserved).
-    b64_data = _collect_chunked_header(ctx.request.headers, "x-miniunicorn-Skill-Zip")
+    # Collect base64 chunks from repeated headers (order preserved), enforcing
+    # a shared header-count and total-byte limit so a huge ZIP cannot exhaust
+    # the HTTP header budget.
+    try:
+        b64_data = collect_chunked_header_limited(
+            ctx.request.headers,
+            "x-miniunicorn-Skill-Zip",
+            max_count=SKILL_ZIP_MAX_HEADERS,
+            max_total_bytes=SKILL_ZIP_MAX_TOTAL_BYTES,
+        )
+    except ChunkedHeaderLimitError as exc:
+        return _http_error(413, str(exc))
     if not b64_data:
         return _http_error(400, "missing ZIP data (send via x-miniunicorn-Skill-Zip headers)")
 

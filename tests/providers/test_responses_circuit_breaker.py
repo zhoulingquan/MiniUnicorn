@@ -5,9 +5,9 @@ import time
 import pytest
 
 from miniunicorn.providers.openai_compat_provider import (
-    OpenAICompatProvider,
     _RESPONSES_FAILURE_THRESHOLD,
     _RESPONSES_PROBE_INTERVAL_S,
+    OpenAICompatProvider,
 )
 
 
@@ -48,11 +48,22 @@ def test_api_type_responses_ignores_circuit_breaker(provider):
     assert provider._should_use_responses_api("gpt-4o", None) is True
 
 
-def test_api_type_responses_does_not_force_non_openai(provider):
-    provider._spec = type("Spec", (), {"name": "custom"})()
+def test_api_type_responses_does_not_force_non_openai_base(provider):
+    """custom provider 指向非 OpenAI 官方端点时，api_type=responses 不启用 Responses API。"""
+    provider._spec = type("Spec", (), {"name": "custom", "is_direct": True})()
     provider._api_type = "responses"
+    provider._effective_base = "https://api.deepseek.com"
 
     assert provider._should_use_responses_api("gpt-4o", None) is False
+
+
+def test_api_type_responses_forces_for_custom_pointing_at_openai(provider):
+    """custom provider 指向 OpenAI 官方端点时，api_type=responses 启用 Responses API。"""
+    provider._spec = type("Spec", (), {"name": "custom", "is_direct": True})()
+    provider._api_type = "responses"
+    provider._effective_base = "https://api.openai.com/v1"
+
+    assert provider._should_use_responses_api("gpt-4o", None) is True
 
 
 def test_circuit_opens_after_threshold(provider):

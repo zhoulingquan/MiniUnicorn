@@ -30,9 +30,16 @@ class WebUIChannelsError(ValueError):
 
 # ChannelsConfig 中显式声明的内置频道字段（QwenPaw-style）。
 # 其余频道（插件）通过 pydantic extra="allow" 存放。
-_BUILTIN_CHANNEL_FIELDS = frozenset({
-    "feishu", "dingtalk", "qq", "wecom", "weixin", "websocket",
-})
+_BUILTIN_CHANNEL_FIELDS = frozenset(
+    {
+        "feishu",
+        "dingtalk",
+        "qq",
+        "wecom",
+        "weixin",
+        "websocket",
+    }
+)
 
 
 def _get_channel_section(cfg: ChannelsConfig, name: str) -> dict[str, Any] | None:
@@ -187,17 +194,19 @@ def _extract_config_schema(cls: type) -> list[dict[str, Any]]:
         else:
             serializable_default = str(default)
 
-        schema.append({
-            "name": name,
-            "alias": field.alias or name,
-            "label": name.replace("_", " ").title(),
-            "ui_type": type_info["ui_type"],
-            "options": type_info.get("options"),
-            "required": field.is_required(),
-            "default": serializable_default,
-            "description": field.description or "",
-            "secret": type_info["ui_type"] == "password",
-        })
+        schema.append(
+            {
+                "name": name,
+                "alias": field.alias or name,
+                "label": name.replace("_", " ").title(),
+                "ui_type": type_info["ui_type"],
+                "options": type_info.get("options"),
+                "required": field.is_required(),
+                "default": serializable_default,
+                "description": field.description or "",
+                "secret": type_info["ui_type"] == "password",
+            }
+        )
 
     return schema
 
@@ -268,18 +277,20 @@ def list_channels() -> dict[str, Any]:
         # 内置频道 = ChannelsConfig 中显式声明的字段；其余为插件频道
         is_builtin = name in _BUILTIN_CHANNEL_FIELDS
 
-        items.append({
-            "name": name,
-            "display_name": meta["display_name"],
-            "description": meta["description"],
-            "default_config": meta["default_config"],
-            "config_schema": meta["config_schema"],
-            "configured": config_dict is not None,
-            "enabled": _channel_is_configured(channels_cfg, name),
-            "config": config_dict,
-            "is_builtin": is_builtin,
-            "qr_login_supported": name in _QR_LOGIN_SUPPORTED,
-        })
+        items.append(
+            {
+                "name": name,
+                "display_name": meta["display_name"],
+                "description": meta["description"],
+                "default_config": meta["default_config"],
+                "config_schema": meta["config_schema"],
+                "configured": config_dict is not None,
+                "enabled": _channel_is_configured(channels_cfg, name),
+                "config": config_dict,
+                "is_builtin": is_builtin,
+                "qr_login_supported": name in _QR_LOGIN_SUPPORTED,
+            }
+        )
 
     # 顶层 ChannelsConfig 公共字段
     top_level = {
@@ -310,9 +321,15 @@ def update_channel_config(query: QueryParams) -> dict[str, Any]:
     name = (_query_first(query, "name") or "").strip().lower()
     if not name:
         raise WebUIChannelsError("name is required")
-    if name in {"send_progress", "send_tool_hints", "show_reasoning",
-                "extract_document_text", "send_max_retries",
-                "transcription_provider", "transcription_language"}:
+    if name in {
+        "send_progress",
+        "send_tool_hints",
+        "show_reasoning",
+        "extract_document_text",
+        "send_max_retries",
+        "transcription_provider",
+        "transcription_language",
+    }:
         raise WebUIChannelsError(f"'{name}' is a reserved top-level field")
 
     config_json = _query_first_alias(query, "config", "channelConfig")
@@ -352,9 +369,7 @@ def update_channel_config(query: QueryParams) -> dict[str, Any]:
                 f"channel '{name}' has no existing config and default_config failed: {e}"
             ) from e
         if not isinstance(defaults, dict):
-            raise WebUIChannelsError(
-                f"channel '{name}' default_config returned non-dict value"
-            )
+            raise WebUIChannelsError(f"channel '{name}' default_config returned non-dict value")
         _set_channel_section(channels_cfg, name, defaults)
 
     enabled_raw = _query_first(query, "enabled")
@@ -476,9 +491,7 @@ class _AsyncWorker:
                 for task in pending:
                     task.cancel()
                 if pending:
-                    loop.run_until_complete(
-                        asyncio.gather(*pending, return_exceptions=True)
-                    )
+                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
             finally:
                 loop.close()
                 self._loop = None
@@ -641,9 +654,7 @@ def poll_channel_qr_status(query: QueryParams) -> dict[str, Any]:
         except WebUIChannelsError:
             raise
         except Exception as e:
-            raise WebUIChannelsError(
-                f"login succeeded but failed to save credentials: {e}"
-            ) from e
+            raise WebUIChannelsError(f"login succeeded but failed to save credentials: {e}") from e
         return {
             "status": "succeeded",
             "config": saved,

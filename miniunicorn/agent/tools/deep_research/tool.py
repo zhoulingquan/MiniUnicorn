@@ -540,10 +540,7 @@ class DeepResearchTool(Tool):
         if not queries:
             return []
         # 单条 query 长度截断,超出 _MAX_QUERY_LEN 的部分截掉
-        truncated = [
-            (q if len(q) <= _MAX_QUERY_LEN else q[:_MAX_QUERY_LEN])
-            for q in queries
-        ]
+        truncated = [(q if len(q) <= _MAX_QUERY_LEN else q[:_MAX_QUERY_LEN]) for q in queries]
         # 列表总数上限:只保留前 _MAX_QUERY_COUNT 条
         return truncated[:_MAX_QUERY_COUNT]
 
@@ -580,9 +577,7 @@ class DeepResearchTool(Tool):
             if content and snippet:
                 # 两者都有时,snippet 作为简短描述,content 作为正文
                 lines.append(
-                    f"[{idx}] {q} | {title} | {url}\n"
-                    f"  Summary: {snippet}\n"
-                    f"  Content: {body}"
+                    f"[{idx}] {q} | {title} | {url}\n  Summary: {snippet}\n  Content: {body}"
                 )
             else:
                 lines.append(f"[{idx}] {q} | {title} | {url} | {body}")

@@ -84,6 +84,9 @@ def _make_provider_core(
     # Only openai_compat backend (DeepSeek + custom)
     from miniunicorn.providers.openai_compat_provider import OpenAICompatProvider
 
+    # api_type 仅对直连 OpenAI 兼容端点（custom provider 或未注册 provider）生效；
+    # 内置 provider（deepseek/opencode/agnes）固定走 chat_completions，忽略用户配置。
+    _allow_api_type_override = (spec is None) or (spec.is_direct)
     provider = OpenAICompatProvider(
         api_key=p.api_key if p else None,
         api_base=config.get_api_base(model, preset=resolved),
@@ -91,7 +94,7 @@ def _make_provider_core(
         extra_headers=p.extra_headers if p else None,
         spec=spec,
         extra_body=p.extra_body if p else None,
-        api_type=p.api_type if p and provider_name == "openai" else "auto",
+        api_type=p.api_type if p and _allow_api_type_override else "auto",
     )
 
     provider.generation = resolved.to_generation_settings()
@@ -118,7 +121,9 @@ def _inline_fallback_preset(
     )
 
 
-def _resolve_fallback_presets(config: Config, primary: ModelPresetConfig) -> list[ModelPresetConfig]:
+def _resolve_fallback_presets(
+    config: Config, primary: ModelPresetConfig
+) -> list[ModelPresetConfig]:
     presets: list[ModelPresetConfig] = []
     for fallback in config.agents.defaults.fallback_models:
         if isinstance(fallback, str):

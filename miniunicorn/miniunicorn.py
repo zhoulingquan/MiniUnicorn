@@ -46,7 +46,11 @@ class Miniunicorn:
                 ``~/.miniunicorn/config.json``.
             workspace: Override the workspace directory from config.
         """
-        from miniunicorn.config.loader import load_config, resolve_config_env_vars
+        from miniunicorn.config.loader import (
+            load_config,
+            resolve_config_env_vars,
+            set_config_path,
+        )
         from miniunicorn.config.schema import Config
 
         resolved: Path | None = None
@@ -54,12 +58,17 @@ class Miniunicorn:
             resolved = Path(config_path).expanduser().resolve()
             if not resolved.exists():
                 raise FileNotFoundError(f"Config not found: {resolved}")
+            # Set the active config context BEFORE building the loop so that
+            # media, artifacts, cron, logs and other runtime data resolve
+            # under this instance directory rather than the default
+            # ``~/.miniunicorn``. Without this, SDK callers passing a custom
+            # config_path would still write runtime data to the default
+            # instance directory.
+            set_config_path(resolved)
 
         config: Config = resolve_config_env_vars(load_config(resolved))
         if workspace is not None:
-            config.agents.defaults.workspace = str(
-                Path(workspace).expanduser().resolve()
-            )
+            config.agents.defaults.workspace = str(Path(workspace).expanduser().resolve())
 
         loop = AgentLoop.from_config(config)
         return cls(loop)
@@ -80,15 +89,15 @@ class Miniunicorn:
             hooks: Optional lifecycle hooks for this run.
         """
         capture = SDKCaptureHook()
-        prev = self._loop._extra_hooks
-        base_hooks = list(hooks) if hooks is not None else list(prev or [])
-        self._loop._extra_hooks = [capture, *base_hooks]
-        try:
-            response = await self._loop.process_direct(
-                message, session_key=session_key,
-            )
-        finally:
-            self._loop._extra_hooks = prev
+        # Bind hooks to this single turn via process_direct's hooks parameter
+        # instead of mutating the loop's shared _extra_hooks. This makes
+        # concurrent run() calls with different hooks safe (no cross-talk).
+        base_hooks = list(hooks) if hooks is not None else list(self._loop._extra_hooks)
+        response = await self._loop.process_direct(
+            message,
+            session_key=session_key,
+            hooks=[capture, *base_hooks],
+        )
 
         content = (response.content if response else None) or ""
         return RunResult(
@@ -96,5 +105,3 @@ class Miniunicorn:
             tools_used=capture.tools_used,
             messages=capture.messages,
         )
-
-

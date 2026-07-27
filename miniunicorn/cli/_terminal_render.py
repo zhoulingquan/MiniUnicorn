@@ -28,9 +28,10 @@ from prompt_toolkit import print_formatted_text
 from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.formatted_text import ANSI, HTML
 from prompt_toolkit.history import FileHistory
+
 # 重新导出到 commands 模块,供 _read_interactive_input_async 通过
 # commands.patch_stdout() 走 late binding,使测试 monkeypatch 生效。
-from prompt_toolkit.patch_stdout import patch_stdout
+from prompt_toolkit.patch_stdout import patch_stdout  # noqa: F401 — re-exported for late binding
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.text import Text
@@ -177,10 +178,9 @@ def _response_renderable(content: str, render_markdown: bool, metadata: dict | N
 
 async def _print_interactive_line(text: str) -> None:
     """Print async interactive updates with prompt_toolkit-safe Rich styling."""
+
     def _write() -> None:
-        ansi = _render_interactive_ansi(
-            lambda c: c.print(f"  [dim]↳ {text}[/dim]")
-        )
+        ansi = _render_interactive_ansi(lambda c: c.print(f"  [dim]↳ {text}[/dim]"))
         print_formatted_text(ANSI(ansi), end="")
 
     await run_in_terminal(_write)
@@ -192,6 +192,7 @@ async def _print_interactive_response(
     metadata: dict | None = None,
 ) -> None:
     """Print async interactive replies with prompt_toolkit-safe Rich styling."""
+
     def _write() -> None:
         content = response or ""
         ansi = _render_interactive_ansi(
@@ -207,12 +208,16 @@ async def _print_interactive_response(
     await run_in_terminal(_write)
 
 
-def _print_cli_progress_line(text: str, thinking: ThinkingSpinner | None, renderer: StreamRenderer | None = None) -> None:
+def _print_cli_progress_line(
+    text: str, thinking: ThinkingSpinner | None, renderer: StreamRenderer | None = None
+) -> None:
     """Print a CLI progress line, pausing the spinner if needed."""
     if not text.strip():
         return
     target = renderer.console if renderer else console
-    pause = renderer.pause_spinner() if renderer else (thinking.pause() if thinking else nullcontext())
+    pause = (
+        renderer.pause_spinner() if renderer else (thinking.pause() if thinking else nullcontext())
+    )
     with pause:
         if renderer:
             renderer.ensure_header()
@@ -248,12 +253,16 @@ class _ReasoningBuffer:
         )
 
 
-def _print_cli_reasoning(text: str, thinking: ThinkingSpinner | None, renderer: StreamRenderer | None = None) -> None:
+def _print_cli_reasoning(
+    text: str, thinking: ThinkingSpinner | None, renderer: StreamRenderer | None = None
+) -> None:
     """Print reasoning/thinking content in a distinct style."""
     if not text.strip():
         return
     target = renderer.console if renderer else console
-    pause = renderer.pause_spinner() if renderer else (thinking.pause() if thinking else nullcontext())
+    pause = (
+        renderer.pause_spinner() if renderer else (thinking.pause() if thinking else nullcontext())
+    )
     with pause:
         if renderer:
             renderer.ensure_header()
@@ -278,7 +287,9 @@ def _flush_cli_reasoning(
         commands._print_cli_reasoning(text, thinking, renderer)
 
 
-async def _print_interactive_progress_line(text: str, thinking: ThinkingSpinner | None, renderer: StreamRenderer | None = None) -> None:
+async def _print_interactive_progress_line(
+    text: str, thinking: ThinkingSpinner | None, renderer: StreamRenderer | None = None
+) -> None:
     """Print an interactive progress line, pausing the spinner if needed.
 
     Resolves ``_print_interactive_line`` through the ``commands`` module so

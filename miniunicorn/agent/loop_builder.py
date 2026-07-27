@@ -78,33 +78,23 @@ class AgentLoopBuilder:
         self._kwargs["max_subagent_recursion_depth"] = max_subagent_recursion_depth
         return self
 
-    def with_context_window_tokens(
-        self, context_window_tokens: int | None
-    ) -> AgentLoopBuilder:
+    def with_context_window_tokens(self, context_window_tokens: int | None) -> AgentLoopBuilder:
         self._kwargs["context_window_tokens"] = context_window_tokens
         return self
 
-    def with_context_block_limit(
-        self, context_block_limit: int | None
-    ) -> AgentLoopBuilder:
+    def with_context_block_limit(self, context_block_limit: int | None) -> AgentLoopBuilder:
         self._kwargs["context_block_limit"] = context_block_limit
         return self
 
-    def with_max_tool_result_chars(
-        self, max_tool_result_chars: int | None
-    ) -> AgentLoopBuilder:
+    def with_max_tool_result_chars(self, max_tool_result_chars: int | None) -> AgentLoopBuilder:
         self._kwargs["max_tool_result_chars"] = max_tool_result_chars
         return self
 
-    def with_provider_retry_mode(
-        self, provider_retry_mode: str
-    ) -> AgentLoopBuilder:
+    def with_provider_retry_mode(self, provider_retry_mode: str) -> AgentLoopBuilder:
         self._kwargs["provider_retry_mode"] = provider_retry_mode
         return self
 
-    def with_tool_hint_max_length(
-        self, tool_hint_max_length: int | None
-    ) -> AgentLoopBuilder:
+    def with_tool_hint_max_length(self, tool_hint_max_length: int | None) -> AgentLoopBuilder:
         self._kwargs["tool_hint_max_length"] = tool_hint_max_length
         return self
 
@@ -114,15 +104,11 @@ class AgentLoopBuilder:
         self._kwargs["cron_service"] = cron_service
         return self
 
-    def with_restrict_to_workspace(
-        self, restrict_to_workspace: bool
-    ) -> AgentLoopBuilder:
+    def with_restrict_to_workspace(self, restrict_to_workspace: bool) -> AgentLoopBuilder:
         self._kwargs["restrict_to_workspace"] = restrict_to_workspace
         return self
 
-    def with_session_manager(
-        self, session_manager: SessionManager | None
-    ) -> AgentLoopBuilder:
+    def with_session_manager(self, session_manager: SessionManager | None) -> AgentLoopBuilder:
         self._kwargs["session_manager"] = session_manager
         return self
 
@@ -130,9 +116,7 @@ class AgentLoopBuilder:
         self._kwargs["mcp_servers"] = mcp_servers
         return self
 
-    def with_channels_config(
-        self, channels_config: Any | None
-    ) -> AgentLoopBuilder:
+    def with_channels_config(self, channels_config: Any | None) -> AgentLoopBuilder:
         self._kwargs["channels_config"] = channels_config
         return self
 
@@ -140,15 +124,11 @@ class AgentLoopBuilder:
         self._kwargs["timezone"] = timezone
         return self
 
-    def with_session_ttl_minutes(
-        self, session_ttl_minutes: int
-    ) -> AgentLoopBuilder:
+    def with_session_ttl_minutes(self, session_ttl_minutes: int) -> AgentLoopBuilder:
         self._kwargs["session_ttl_minutes"] = session_ttl_minutes
         return self
 
-    def with_consolidation_ratio(
-        self, consolidation_ratio: float
-    ) -> AgentLoopBuilder:
+    def with_consolidation_ratio(self, consolidation_ratio: float) -> AgentLoopBuilder:
         self._kwargs["consolidation_ratio"] = consolidation_ratio
         return self
 
@@ -160,9 +140,7 @@ class AgentLoopBuilder:
         self._kwargs["vector_recall"] = vector_recall
         return self
 
-    def with_embedding_model(
-        self, embedding_model: str
-    ) -> AgentLoopBuilder:
+    def with_embedding_model(self, embedding_model: str) -> AgentLoopBuilder:
         self._kwargs["embedding_model"] = embedding_model
         return self
 
@@ -174,15 +152,11 @@ class AgentLoopBuilder:
         self._kwargs["unified_session"] = unified_session
         return self
 
-    def with_disabled_skills(
-        self, disabled_skills: list[str] | None
-    ) -> AgentLoopBuilder:
+    def with_disabled_skills(self, disabled_skills: list[str] | None) -> AgentLoopBuilder:
         self._kwargs["disabled_skills"] = disabled_skills
         return self
 
-    def with_tools_config(
-        self, tools_config: ToolsConfig | None
-    ) -> AgentLoopBuilder:
+    def with_tools_config(self, tools_config: ToolsConfig | None) -> AgentLoopBuilder:
         self._kwargs["tools_config"] = tools_config
         return self
 
@@ -265,12 +239,11 @@ class AgentLoopBuilder:
             extra.pop("context_window_tokens", None) or resolved.context_window_tokens
         )
         provider_snapshot_loader = extra.pop("provider_snapshot_loader", None)
-        preset_snapshot_loader = (
-            extra.pop("preset_snapshot_loader", None)
-            or preset_helpers.make_preset_snapshot_loader(
-                config,
-                provider_snapshot_loader,
-            )
+        preset_snapshot_loader = extra.pop(
+            "preset_snapshot_loader", None
+        ) or preset_helpers.make_preset_snapshot_loader(
+            config,
+            provider_snapshot_loader,
         )
 
         builder = cls(bus, provider, config.workspace_path)

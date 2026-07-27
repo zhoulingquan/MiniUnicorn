@@ -49,7 +49,9 @@ services:
     ports:
       - "${WEBUI_PORT:-8765}:8765"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8765/"]
+      # 设计 §4.6: 改用公开的 /health,避免 token/secret 启用后旧 / 端点
+      # 行为变化或被鉴权拦截导致容器被误判 unhealthy。
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8765/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -64,7 +66,10 @@ services:
     ports:
       - "127.0.0.1:${API_PORT:-8900}:8900"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8900/v1/models"]
+      # 设计 §4.6: 改用公开的 /health。旧版用 /v1/models,API 启用 key 后
+      # 该端点返回 401,healthcheck 永远失败,容器被误判 unhealthy。
+      # /health 在 api/server.py 中显式标记为 public,任何鉴权状态下都返回 200。
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8900/health"]
       interval: 30s
       timeout: 5s
       retries: 3

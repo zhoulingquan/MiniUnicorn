@@ -4,7 +4,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import threading
 from collections import OrderedDict
 from contextlib import suppress
@@ -28,7 +27,7 @@ from miniunicorn.utils.subagent_channel_display import scrub_subagent_announce_b
 FILE_MAX_MESSAGES = 2000
 _MESSAGE_TIME_PREFIX_RE = re.compile(r"^\[Message Time: [^\]]+\]\n?")
 _LOCAL_IMAGE_BREADCRUMB_RE = re.compile(r"^\[image: (?:/|~)[^\]]+\]\s*$")
-_TOOL_CALL_ECHO_RE = re.compile(r'^\s*(?:generate_image|message)\([^)]*\)\s*$')
+_TOOL_CALL_ECHO_RE = re.compile(r"^\s*(?:generate_image|message)\([^)]*\)\s*$")
 _SESSION_PREVIEW_MAX_CHARS = 120
 _SESSION_LIST_PREVIEW_MAX_RECORDS = 200
 _SESSION_LIST_PREVIEW_MAX_CHARS = 1_000_000
@@ -44,8 +43,7 @@ def _sanitize_assistant_replay_text(content: str) -> str:
     lines = [
         line
         for line in content.splitlines()
-        if not _LOCAL_IMAGE_BREADCRUMB_RE.match(line)
-        and not _TOOL_CALL_ECHO_RE.match(line)
+        if not _LOCAL_IMAGE_BREADCRUMB_RE.match(line) and not _TOOL_CALL_ECHO_RE.match(line)
     ]
     return "\n".join(lines).strip()
 
@@ -89,6 +87,10 @@ class Session:
     updated_at: datetime = field(default_factory=datetime.now)
     metadata: dict[str, Any] = field(default_factory=dict)
     last_consolidated: int = 0  # Number of messages already consolidated to files
+    # generation 用于防止删除后 late save 复活已删除的 session 文件。
+    # SessionManager 维护每个 key 的当前 generation;delete_session 时递增,
+    # save 时校验 session.generation == manager 当前 generation,不匹配则跳过保存。
+    generation: int = 0
 
     @staticmethod
     def _annotate_message_time(message: dict[str, Any], content: Any) -> Any:
@@ -111,12 +113,7 @@ class Session:
 
     def add_message(self, role: str, content: str, **kwargs: Any) -> None:
         """Add a message to the session."""
-        msg = {
-            "role": role,
-            "content": content,
-            "timestamp": datetime.now().isoformat(),
-            **kwargs
-        }
+        msg = {"role": role, "content": content, "timestamp": datetime.now().isoformat(), **kwargs}
         self.messages.append(msg)
         self.updated_at = datetime.now()
 
@@ -132,7 +129,7 @@ class Session:
         History is sliced by message count first (``max_messages``), then by
         token budget from the tail (``max_tokens``) when provided.
         """
-        unconsolidated = self.messages[self.last_consolidated:]
+        unconsolidated = self.messages[self.last_consolidated :]
         max_messages = max_messages if max_messages > 0 else 120
         sliced = unconsolidated[-max_messages:]
 
@@ -171,7 +168,12 @@ class Session:
                 )
                 content = f"{content}\n{breadcrumbs}" if content else breadcrumbs
             cli_apps = message.get("cli_apps")
-            if role == "user" and isinstance(cli_apps, list) and cli_apps and isinstance(content, str):
+            if (
+                role == "user"
+                and isinstance(cli_apps, list)
+                and cli_apps
+                and isinstance(content, str)
+            ):
                 cli_lines: list[str] = []
                 for item in cli_apps[:8]:
                     if not isinstance(item, dict):
@@ -212,10 +214,18 @@ class Session:
             if include_timestamps:
                 content = self._annotate_message_time(message, content)
             if role == "assistant" and isinstance(content, str) and not content.strip():
-                if not any(key in message for key in ("tool_calls", "reasoning_content", "thinking_blocks")):
+                if not any(
+                    key in message for key in ("tool_calls", "reasoning_content", "thinking_blocks")
+                ):
                     continue
             entry: dict[str, Any] = {"role": message["role"], "content": content}
-            for key in ("tool_calls", "tool_call_id", "name", "reasoning_content", "thinking_blocks"):
+            for key in (
+                "tool_calls",
+                "tool_call_id",
+                "name",
+                "reasoning_content",
+                "thinking_blocks",
+            ):
                 if key in message:
                     entry[key] = message[key]
             out.append(entry)
@@ -278,12 +288,15 @@ class Session:
             # If the tail is assistant/tool-only, anchor to the latest user in
             # the full session and take a capped forward window from there.
             latest_user = next(
-                (i for i in range(len(self.messages) - 1, -1, -1)
-                 if self.messages[i].get("role") == "user"),
+                (
+                    i
+                    for i in range(len(self.messages) - 1, -1, -1)
+                    if self.messages[i].get("role") == "user"
+                ),
                 None,
             )
             if latest_user is not None:
-                retained = list(self.messages[latest_user: latest_user + max_messages])
+                retained = list(self.messages[latest_user : latest_user + max_messages])
 
         # Mirror get_history(): avoid persisting orphan tool results at the front.
         start = find_legal_message_start(retained)
@@ -356,7 +369,9 @@ class SessionManager:
         self._cache_lock = threading.Lock()
         if cache_max is None:
             try:
-                env_val = int(os.environ.get("MINIUNICORN_SESSION_CACHE_SIZE", str(self._DEFAULT_CACHE_MAX)))
+                env_val = int(
+                    os.environ.get("MINIUNICORN_SESSION_CACHE_SIZE", str(self._DEFAULT_CACHE_MAX))
+                )
             except ValueError:
                 env_val = self._DEFAULT_CACHE_MAX
             cache_max = env_val
@@ -370,6 +385,17 @@ class SessionManager:
         # 而会话数受磁盘文件数限制，规模可控。
         self._save_locks: dict[str, threading.Lock] = {}
         self._save_locks_guard = threading.Lock()
+        # session 删除 tombstone:key -> 删除时的 generation。
+        # save() 时校验 session.generation >= tombstone generation,
+        # 小于则说明该 Session 对象是删除前的旧引用,跳过保存以防止复活。
+        # get_or_create 创建新 Session 时使用 max(当前 generation, tombstone)。
+        self._tombstones: dict[str, int] = {}
+        # session generation 当前值:key -> generation。每次 delete_session 递增。
+        self._generations: dict[str, int] = {}
+        # legacy 迁移索引:legacy_stem -> 已认领该 stem 的 original key。
+        # 防止两个不同 key(在旧命名规则下碰撞到同一 stem)都认领同一 legacy 文件,
+        # 导致数据被错误复制到另一个会话。
+        self._legacy_claims: dict[str, str] = {}
 
     def set_on_evict(self, cb: Callable[[str], None]) -> None:
         """注册 evict 回调，AgentLoop 在此清理 _session_locks/_pending_queues 等。"""
@@ -399,16 +425,41 @@ class SessionManager:
 
     @staticmethod
     def safe_key(key: str) -> str:
-        """Public helper used by HTTP handlers to map an arbitrary key to a stable filename stem."""
+        """Public helper — returns the v2 filename stem for *key*.
+
+        v2 格式:``<sanitized-prefix>--<sha256(key) 前 16 位>``
+        - 前缀仅用于可读性(sanitized key,截断到 32 字符)。
+        - sha256 哈希负责唯一性:不同 key 即使 sanitized 后相同,哈希也不同,
+          彻底消除 ``websocket:a:b`` 与 ``websocket:a_b`` 碰撞到同一文件的问题。
+        """
+        return SessionManager.safe_key_v2(key)
+
+    @staticmethod
+    def safe_key_v2(key: str) -> str:
+        """v2 filename stem: ``<sanitized-prefix>--<sha256(key)[:16]>``."""
+        prefix = safe_filename(key.replace(":", "_"))
+        # 截断前缀到 32 字符,避免过长文件名(部分文件系统有 255 字节限制)。
+        if len(prefix) > 32:
+            prefix = prefix[:32]
+        digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+        return f"{prefix}--{digest}"
+
+    @staticmethod
+    def safe_key_legacy(key: str) -> str:
+        """旧命名规则(仅用于向后兼容查找/迁移)。"""
         return safe_filename(key.replace(":", "_"))
 
     def _get_session_path(self, key: str) -> Path:
-        """Get the file path for a session."""
-        return self.sessions_dir / f"{self.safe_key(key)}.jsonl"
+        """Get the v2 file path for a session."""
+        return self.sessions_dir / f"{self.safe_key_v2(key)}.jsonl"
 
     def _get_legacy_session_path(self, key: str) -> Path:
-        """Legacy global session path (~/.miniunicorn/sessions/)."""
-        return self.legacy_sessions_dir / f"{self.safe_key(key)}.jsonl"
+        """Legacy global session path (~/.miniunicorn/sessions/), 旧命名规则。"""
+        return self.legacy_sessions_dir / f"{self.safe_key_legacy(key)}.jsonl"
+
+    def _get_workspace_legacy_session_path(self, key: str) -> Path:
+        """workspace 内的旧命名规则路径(迁移用)。"""
+        return self.sessions_dir / f"{self.safe_key_legacy(key)}.jsonl"
 
     def get_or_create(self, key: str) -> Session:
         """
@@ -428,7 +479,13 @@ class SessionManager:
         # _load 涉及磁盘 IO,不持 _cache_lock 避免阻塞其他 cache 访问。
         session = self._load(key)
         if session is None:
-            session = Session(key=key)
+            # 新建 session 时使用当前 generation(若已被删除过,使用 tombstone+1)。
+            gen = self._generations.get(key, 0)
+            tombstone = self._tombstones.get(key)
+            if tombstone is not None and tombstone >= gen:
+                gen = tombstone + 1
+                self._generations[key] = gen
+            session = Session(key=key, generation=gen)
 
         with self._cache_lock:
             # 双重检查:_load 期间另一线程可能已写入同一 key。
@@ -440,16 +497,30 @@ class SessionManager:
         return session
 
     def _load(self, key: str) -> Session | None:
-        """Load a session from disk."""
+        """Load a session from disk.
+
+        查找顺序:
+        1. v2 文件(``<prefix>--<sha256>.jsonl``)。
+        2. workspace 内旧命名文件(``<safe_key_legacy>.jsonl``),原子 rename 迁移到 v2。
+        3. 全局 legacy 目录(``~/.miniunicorn/sessions/<safe_key_legacy>.jsonl``),
+           原子 rename 迁移到 v2。
+
+        迁移歧义处理:旧命名规则下 ``websocket:a:b`` 与 ``websocket:a_b`` 碰撞到同一
+        stem。使用 instance 级 ``_legacy_claims`` 索引记录 ``legacy_stem -> original key``。
+        若旧 stem 已被另一个 key 认领,保留旧文件,为当前 key 创建独立 v2 文件并记录警告,
+        绝不覆盖或复制可能属于其他会话的数据。
+        """
         path = self._get_session_path(key)
         if not path.exists():
-            legacy_path = self._get_legacy_session_path(key)
-            if legacy_path.exists():
-                try:
-                    shutil.move(str(legacy_path), str(path))
-                    logger.info("Migrated session {} from legacy path", key)
-                except Exception:
-                    logger.exception("Failed to migrate session {}", key)
+            # 尝试从 workspace 内旧命名迁移
+            ws_legacy = self._get_workspace_legacy_session_path(key)
+            if ws_legacy.exists():
+                self._migrate_legacy(key, ws_legacy, path)
+            else:
+                # 尝试从全局 legacy 目录迁移
+                legacy_path = self._get_legacy_session_path(key)
+                if legacy_path.exists():
+                    self._migrate_legacy(key, legacy_path, path)
 
         if not path.exists():
             return None
@@ -471,11 +542,26 @@ class SessionManager:
 
                     if data.get("_type") == "metadata":
                         metadata = data.get("metadata", {})
-                        created_at = datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None
-                        updated_at = datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else None
+                        created_at = (
+                            datetime.fromisoformat(data["created_at"])
+                            if data.get("created_at")
+                            else None
+                        )
+                        updated_at = (
+                            datetime.fromisoformat(data["updated_at"])
+                            if data.get("updated_at")
+                            else None
+                        )
                         last_consolidated = data.get("last_consolidated", 0)
                     else:
                         messages.append(data)
+
+            # 加载成功后,使用当前 generation(若已被删除过,使用 tombstone+1)。
+            gen = self._generations.get(key, 0)
+            tombstone = self._tombstones.get(key)
+            if tombstone is not None and tombstone >= gen:
+                gen = tombstone + 1
+                self._generations[key] = gen
 
             return Session(
                 key=key,
@@ -483,18 +569,58 @@ class SessionManager:
                 created_at=created_at or datetime.now(),
                 updated_at=updated_at or datetime.now(),
                 metadata=metadata,
-                last_consolidated=last_consolidated
+                last_consolidated=last_consolidated,
+                generation=gen,
             )
         except Exception as e:
             logger.warning("Failed to load session {}: {}", key, e)
             repaired = self._repair(key)
             if repaired is not None:
-                logger.info("Recovered session {} from corrupt file ({} messages)", key, len(repaired.messages))
+                logger.info(
+                    "Recovered session {} from corrupt file ({} messages)",
+                    key,
+                    len(repaired.messages),
+                )
             return repaired
+
+    def _migrate_legacy(self, key: str, legacy_path: Path, v2_path: Path) -> None:
+        """原子迁移旧命名文件到 v2 路径,处理碰撞歧义。
+
+        - 若旧 stem 未被其他 key 认领:记录 claim,``os.replace`` 原子迁移。
+        - 若旧 stem 已被另一个 key 认领:保留旧文件,不迁移,记录警告。
+          当前 key 将在 ``_load`` 返回 None 后由 ``get_or_create`` 创建独立 v2 文件。
+        """
+        legacy_stem = legacy_path.stem
+        claimed_by = self._legacy_claims.get(legacy_stem)
+        if claimed_by is not None and claimed_by != key:
+            logger.warning(
+                "Legacy session stem '{}' collision: claimed by '{}', "
+                "cannot migrate for '{}'; creating independent v2 file",
+                legacy_stem,
+                claimed_by,
+                key,
+            )
+            return
+        try:
+            self._legacy_claims[legacy_stem] = key
+            # os.replace 是原子的:目标存在时覆盖,不存在时移动。
+            # 但 v2_path 在 _load 调用时已确认不存在,所以这里等价于原子 rename。
+            os.replace(str(legacy_path), str(v2_path))
+            logger.info("Migrated session {} from legacy path to v2", key)
+        except OSError as exc:
+            logger.warning("Failed to migrate session {} from legacy to v2: {}", key, exc)
 
     def _repair(self, key: str) -> Session | None:
         """Attempt to recover a session from a corrupt JSONL file."""
         path = self._get_session_path(key)
+        return self._repair_path(path, key)
+
+    def _repair_path(self, path: Path, key: str | None = None) -> Session | None:
+        """Attempt to recover a session from a corrupt JSONL file at *path*.
+
+        *key* 用于 Session.key 字段;若为 None,尝试从 metadata 行读取,
+        都不可用时用 path.stem 作为最后兜底。
+        """
         if not path.exists():
             return None
 
@@ -505,6 +631,7 @@ class SessionManager:
             updated_at: datetime | None = None
             last_consolidated = 0
             skipped = 0
+            stored_key: str | None = None
 
             with open(path, encoding="utf-8") as f:
                 for line in f:
@@ -526,25 +653,27 @@ class SessionManager:
                             with suppress(ValueError, TypeError):
                                 updated_at = datetime.fromisoformat(data["updated_at"])
                         last_consolidated = data.get("last_consolidated", 0)
+                        stored_key = data.get("key")
                     else:
                         messages.append(data)
 
+            resolved_key = key or stored_key or path.stem
             if skipped:
-                logger.warning("Skipped {} corrupt lines in session {}", skipped, key)
+                logger.warning("Skipped {} corrupt lines in session {}", skipped, resolved_key)
 
             if not messages and not metadata:
                 return None
 
             return Session(
-                key=key,
+                key=resolved_key,
                 messages=messages,
                 created_at=created_at or datetime.now(),
                 updated_at=updated_at or datetime.now(),
                 metadata=metadata,
-                last_consolidated=last_consolidated
+                last_consolidated=last_consolidated,
             )
         except Exception as e:
-            logger.warning("Repair failed for session {}: {}", key, e)
+            logger.warning("Repair failed for session {}: {}", resolved_key, e)
             return None
 
     @staticmethod
@@ -592,7 +721,21 @@ class SessionManager:
         Note: ``flush_all`` 在优雅关闭时强制 ``fsync=True`` 以确保持久化,
         满足"至少在 flush_all 中强制 fsync=True"的兜底要求;常规 save 保留
         ``fsync=False`` 默认值以避免每次写入都付 fsync 性能开销。
+
+        删除后复活防护:校验 ``session.generation`` 不小于 tombstone generation。
+        若 session 是删除前的旧引用(generation < tombstone),跳过保存并记录警告,
+        避免 late save 通过 ``os.replace`` 重新创建已删除的文件。
         """
+        # 删除后复活防护:旧 Session 引用的 generation 小于 tombstone 时跳过保存。
+        tombstone = self._tombstones.get(session.key)
+        if tombstone is not None and session.generation < tombstone:
+            logger.warning(
+                "Skipping save for deleted session {} (generation {} < tombstone {})",
+                session.key,
+                session.generation,
+                tombstone,
+            )
+            return
         # 使用 per-session 锁串行化同一 session 的并发 save,避免 tmp 文件
         # 互相覆盖导致的数据丢失 (不同 session 之间不互斥,可并行保存)。
         lock = self._get_save_lock(session.key)
@@ -619,7 +762,7 @@ class SessionManager:
                     "created_at": session.created_at.isoformat(),
                     "updated_at": session.updated_at.isoformat(),
                     "metadata": session.metadata,
-                    "last_consolidated": session.last_consolidated
+                    "last_consolidated": session.last_consolidated,
                 }
                 f.write(json.dumps(metadata_line, ensure_ascii=False) + "\n")
                 for msg in session.messages:
@@ -681,9 +824,21 @@ class SessionManager:
         """Remove a session from disk and the in-memory cache.
 
         Returns True if a JSONL file was found and unlinked.
+
+        写入 tombstone 并递增 generation:删除后,任何持有旧 Session 引用的
+        调用方调用 ``save()`` 都会因为 generation < tombstone 而被跳过,
+        避免 late save 通过 ``os.replace`` 重新创建已删除的文件。
+        重新 ``get_or_create`` 同一 key 时会使用 tombstone+1 作为新 generation,
+        确保新 Session 与旧引用的 generation 不冲突。
         """
         path = self._get_session_path(key)
         self.invalidate(key)
+        # 写 tombstone:递增 generation,记录删除时刻。
+        # _load/_get_or_create 创建新 Session 时使用 max(当前 gen, tombstone+1)。
+        current_gen = self._generations.get(key, 0)
+        new_gen = current_gen + 1
+        self._generations[key] = new_gen
+        self._tombstones[key] = new_gen
         if not path.exists():
             return False
         try:
@@ -784,7 +939,15 @@ class SessionManager:
         sessions = []
 
         for path in self.sessions_dir.glob("*.jsonl"):
-            fallback_key = path.stem.replace("_", ":", 1)
+            # v2 文件名格式:``<prefix>--<sha256>.jsonl``。
+            # v2 文件的 key 从 metadata 行读取(authoritative);fallback 仅用于
+            # metadata 缺失时的 _repair 调用,此时 v2 stem 无法可靠反推 key,
+            # 用 stem 原值即可(_repair 会因路径不匹配返回 None,安全跳过)。
+            stem = path.stem
+            if "--" in stem:
+                fallback_key = stem  # v2:无法从 stem 反推 key,用原值
+            else:
+                fallback_key = stem.replace("_", ":", 1)  # legacy:向后兼容
             try:
                 # Read the metadata line and a small preview for WebUI/session lists.
                 with open(path, encoding="utf-8") as f:
@@ -792,7 +955,7 @@ class SessionManager:
                     if first_line:
                         data = json.loads(first_line)
                         if data.get("_type") == "metadata":
-                            key = data.get("key") or path.stem.replace("_", ":", 1)
+                            key = data.get("key") or fallback_key
                             metadata = data.get("metadata", {})
                             title = metadata.get("title") if isinstance(metadata, dict) else None
                             preview = ""
@@ -821,36 +984,42 @@ class SessionManager:
                                 if not fallback_preview and item.get("role") == "assistant":
                                     fallback_preview = text
                             preview = preview or fallback_preview
-                            sessions.append({
-                                "key": key,
-                                "created_at": data.get("created_at"),
-                                "updated_at": data.get("updated_at"),
-                                "title": title if isinstance(title, str) else "",
-                                "preview": preview,
-                                "path": str(path)
-                            })
+                            sessions.append(
+                                {
+                                    "key": key,
+                                    "created_at": data.get("created_at"),
+                                    "updated_at": data.get("updated_at"),
+                                    "title": title if isinstance(title, str) else "",
+                                    "preview": preview,
+                                    "path": str(path),
+                                }
+                            )
             except Exception:
-                repaired = self._repair(fallback_key)
+                # 用 path 直接修复,不依赖 fallback_key 反推(fallback_key 在 v2
+                # 命名下无法可靠反推原始 key,但 _repair_path 可从 metadata 读取)。
+                repaired = self._repair_path(path)
                 if repaired is not None:
-                    sessions.append({
-                        "key": repaired.key,
-                        "created_at": repaired.created_at.isoformat(),
-                        "updated_at": repaired.updated_at.isoformat(),
-                        "title": (
-                            repaired.metadata.get("title")
-                            if isinstance(repaired.metadata.get("title"), str)
-                            else ""
-                        ),
-                        "preview": next(
-                            (
-                                text
-                                for msg in repaired.messages
-                                if (text := _message_preview_text(msg))
+                    sessions.append(
+                        {
+                            "key": repaired.key,
+                            "created_at": repaired.created_at.isoformat(),
+                            "updated_at": repaired.updated_at.isoformat(),
+                            "title": (
+                                repaired.metadata.get("title")
+                                if isinstance(repaired.metadata.get("title"), str)
+                                else ""
                             ),
-                            "",
-                        ),
-                        "path": str(path)
-                    })
+                            "preview": next(
+                                (
+                                    text
+                                    for msg in repaired.messages
+                                    if (text := _message_preview_text(msg))
+                                ),
+                                "",
+                            ),
+                            "path": str(path),
+                        }
+                    )
                 continue
 
         return sorted(sessions, key=lambda x: x.get("updated_at", ""), reverse=True)

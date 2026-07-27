@@ -19,7 +19,7 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
-from miniunicorn.config.loader import get_config_path, load_config, save_config
+from miniunicorn.config.loader import load_config, save_config
 from miniunicorn.config.schema import ModelPresetConfig
 from miniunicorn.providers.registry import PROVIDERS, find_by_name
 
@@ -63,10 +63,7 @@ def _validate_configured_provider(config: Any, provider: str) -> None:
     if spec is None:
         raise WebUISettingsError("unknown provider")
     provider_config = getattr(config.providers, provider, None)
-    if (
-        provider_config is None
-        or not _provider_configured_for_settings(spec, provider_config)
-    ):
+    if provider_config is None or not _provider_configured_for_settings(spec, provider_config):
         # custom provider 允许通过 per-preset 凭证绕过单例校验:
         # 调用方(create/update_model_configuration)会在传入 api_key+api_base
         # 后再调用本函数,这里只做 provider 注册表校验。
@@ -83,15 +80,11 @@ def _parse_context_window_tokens(value: str | None) -> int | None:
         raise WebUISettingsError("context_window_tokens must be an integer") from None
     # 仅允许预设的上下文窗口取值，避免用户填入任意数值。
     if parsed not in _ALLOWED_CONTEXT_WINDOWS:
-        raise WebUISettingsError(
-            f"context_window_tokens must be 65536 or 262144 (got {parsed})"
-        )
+        raise WebUISettingsError(f"context_window_tokens must be 65536 or 262144 (got {parsed})")
     return parsed
 
 
-def _resolve_context_window_for_settings(
-    model: str, configured: int | None
-) -> dict[str, Any]:
+def _resolve_context_window_for_settings(model: str, configured: int | None) -> dict[str, Any]:
     """Return the effective context window size and its resolution status.
 
     Resolution order (read-only, does NOT trigger HF queries):
@@ -233,12 +226,14 @@ def model_settings_payload(config: Any) -> dict[str, Any]:
     active_preset_name = config.agents.defaults.model_preset
     for preset_name, preset_cfg in config.model_presets.items():
         provider_key = preset_cfg.provider or "auto"
-        _presets_by_provider.setdefault(provider_key, []).append({
-            "name": preset_name,
-            "label": preset_cfg.label or preset_name,
-            "model": preset_cfg.model,
-            "active": preset_name == active_preset_name,
-        })
+        _presets_by_provider.setdefault(provider_key, []).append(
+            {
+                "name": preset_name,
+                "label": preset_cfg.label or preset_name,
+                "model": preset_cfg.model,
+                "active": preset_name == active_preset_name,
+            }
+        )
     for spec in PROVIDERS:
         provider_config = getattr(config.providers, spec.name, None)
         if provider_config is None:
@@ -249,7 +244,8 @@ def model_settings_payload(config: Any) -> dict[str, Any]:
         display_api_base = provider_config.api_base
         if spec.name == "custom" and provider_presets:
             custom_preset_cfgs = [
-                (name, cfg) for name, cfg in config.model_presets.items()
+                (name, cfg)
+                for name, cfg in config.model_presets.items()
                 if cfg.provider == "custom"
             ]
             represet = next(
@@ -286,7 +282,9 @@ def model_settings_payload(config: Any) -> dict[str, Any]:
             continue
         virtual_row = {
             "name": f"custom__{preset_name}",
-            "label": _extract_label_from_base_url(preset_cfg.api_base) or preset_cfg.label or preset_name,
+            "label": _extract_label_from_base_url(preset_cfg.api_base)
+            or preset_cfg.label
+            or preset_name,
             "configured": True,
             "auth_type": "api_key",
             "api_key_required": True,
@@ -440,6 +438,7 @@ def update_agent_settings(query: QueryParams) -> dict[str, Any]:
     raw_use_planner = _query_first_alias(query, "use_planner", "usePlanner")
     if raw_use_planner is not None:
         from ._query import _parse_bool
+
         use_planner = _parse_bool(raw_use_planner, "use_planner")
         if defaults.use_planner != use_planner:
             defaults.use_planner = use_planner
@@ -461,8 +460,12 @@ def update_agent_settings(query: QueryParams) -> dict[str, Any]:
         save_config(config)
     if model_changed:
         import threading
-        threading.Thread(target=_trigger_model_learning, args=(defaults.model,), daemon=True).start()
+
+        threading.Thread(
+            target=_trigger_model_learning, args=(defaults.model,), daemon=True
+        ).start()
     from .settings_api import settings_payload
+
     return settings_payload(requires_restart=restart_required)
 
 
@@ -523,8 +526,10 @@ def create_model_configuration(query: QueryParams) -> dict[str, Any]:
     config.agents.defaults.model_preset = name
     save_config(config)
     import threading
+
     threading.Thread(target=_trigger_model_learning, args=(model,), daemon=True).start()
     from .settings_api import settings_payload
+
     return settings_payload()
 
 
@@ -572,10 +577,7 @@ def update_model_configuration(query: QueryParams) -> dict[str, Any]:
     context_window_tokens = _parse_context_window_tokens(
         _query_first_alias(query, "context_window_tokens", "contextWindowTokens")
     )
-    if (
-        context_window_tokens is not None
-        and preset.context_window_tokens != context_window_tokens
-    ):
+    if context_window_tokens is not None and preset.context_window_tokens != context_window_tokens:
         preset.context_window_tokens = context_window_tokens
         changed = True
 
@@ -601,8 +603,10 @@ def update_model_configuration(query: QueryParams) -> dict[str, Any]:
         save_config(config)
     if model_changed:
         import threading
+
         threading.Thread(target=_trigger_model_learning, args=(preset.model,), daemon=True).start()
     from .settings_api import settings_payload
+
     return settings_payload()
 
 
@@ -637,6 +641,7 @@ def update_provider_settings(query: QueryParams) -> dict[str, Any]:
     if changed:
         save_config(config)
     from .settings_api import settings_payload
+
     return settings_payload(requires_restart=False)
 
 
@@ -663,9 +668,8 @@ async def list_provider_models(query: QueryParams) -> dict[str, Any]:
     if provider_config is None:
         raise WebUISettingsError("unknown provider")
 
-    api_key = (
-        _query_first_alias(query, "api_key", "apiKey")
-        or (provider_config.api_key if provider_config else None)
+    api_key = _query_first_alias(query, "api_key", "apiKey") or (
+        provider_config.api_key if provider_config else None
     )
     api_base = (
         _query_first_alias(query, "api_base", "apiBase")
@@ -716,6 +720,7 @@ def delete_model_configuration(query: QueryParams) -> dict[str, Any]:
 
     save_config(config)
     from .settings_api import settings_payload
+
     return settings_payload()
 
 
@@ -741,7 +746,8 @@ def delete_provider_settings(query: QueryParams) -> dict[str, Any]:
         changed = True
 
     preset_names_to_remove = [
-        name for name, preset in config.model_presets.items()
+        name
+        for name, preset in config.model_presets.items()
         if name != "default" and preset.provider == spec.name
     ]
     for name in preset_names_to_remove:
@@ -763,6 +769,7 @@ def delete_provider_settings(query: QueryParams) -> dict[str, Any]:
     if changed:
         save_config(config)
     from .settings_api import settings_payload
+
     return settings_payload(requires_restart=False)
 
 
@@ -778,9 +785,7 @@ def delete_all_providers(_query: QueryParams) -> dict[str, Any]:
             provider_config.api_base = None
             changed = True
 
-    preset_names_to_remove = [
-        name for name in config.model_presets if name != "default"
-    ]
+    preset_names_to_remove = [name for name in config.model_presets if name != "default"]
     for name in preset_names_to_remove:
         del config.model_presets[name]
         changed = True
@@ -794,4 +799,5 @@ def delete_all_providers(_query: QueryParams) -> dict[str, Any]:
     if changed:
         save_config(config)
     from .settings_api import settings_payload
+
     return settings_payload(requires_restart=False)

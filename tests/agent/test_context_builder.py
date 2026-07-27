@@ -11,6 +11,7 @@ from miniunicorn.session.goal_state import GOAL_STATE_KEY
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _builder(tmp_path: Path, **kw) -> ContextBuilder:
     return ContextBuilder(workspace=tmp_path, **kw)
 
@@ -164,6 +165,7 @@ class TestIsTemplateContent:
 
     def test_content_matching_template(self):
         from importlib.resources import files as pkg_files
+
         tpl = pkg_files("miniunicorn") / "templates" / "memory" / "MEMORY.md"
         if not tpl.is_file():
             pytest.skip("MEMORY.md template not bundled")
@@ -172,6 +174,7 @@ class TestIsTemplateContent:
 
     def test_modified_content_returns_false(self):
         from importlib.resources import files as pkg_files
+
         tpl = pkg_files("miniunicorn") / "templates" / "memory" / "MEMORY.md"
         if not tpl.is_file():
             pytest.skip("MEMORY.md template not bundled")
@@ -369,7 +372,7 @@ class TestEnforceInjectionBudget:
         """超预算时 HISTORY 应被截断但保留（不丢弃）。"""
         # 构造总量刚好超预算，但 HISTORY 单独不会触发丢弃 NOTES/SKILLS 的场景
         big_history = "h" * 200_000  # ~50K tokens
-        big_memory = "m" * 100_000   # ~25K tokens
+        big_memory = "m" * 100_000  # ~25K tokens
         parts = [
             (ContextBuilder._PRIORITY_CRITICAL, "identity"),
             (ContextBuilder._PRIORITY_MEMORY, big_memory),

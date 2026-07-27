@@ -9,6 +9,7 @@ N iterations (reflection_interval). Reflections are appended to
 The goal is cross-turn learning: avoid repeating the same mistakes. This
 module is self-contained and does not modify the existing ReAct loop.
 """
+
 from __future__ import annotations
 
 import json
@@ -40,9 +41,7 @@ class Reflection:
         self.provider = provider
         self.model = model
         self.workspace = workspace
-        self._reflections_dir = (
-            workspace / "memory" if workspace is not None else None
-        )
+        self._reflections_dir = workspace / "memory" if workspace is not None else None
         self._reflections_file = (
             self._reflections_dir / "reflections.jsonl"
             if self._reflections_dir is not None
@@ -82,7 +81,8 @@ class Reflection:
                     {
                         "role": "system",
                         "content": render_template(
-                            "agent/reflection_system.md", strip=True,
+                            "agent/reflection_system.md",
+                            strip=True,
                         ),
                     },
                     {
@@ -103,17 +103,21 @@ class Reflection:
                 reflection_text = reflection_text[:_REFLECTION_MAX_CHARS] + "..."
             if not reflection_text:
                 return None
-            self._append_reflection({
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "trigger": trigger,
-                "iteration": iteration,
-                "context": context_summary[:200],
-                "reflection": reflection_text,
-                "session_key": session_key,
-            })
+            self._append_reflection(
+                {
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "trigger": trigger,
+                    "iteration": iteration,
+                    "context": context_summary[:200],
+                    "reflection": reflection_text,
+                    "session_key": session_key,
+                }
+            )
             logger.info(
                 "Reflection ({}@{}): {}",
-                trigger, iteration, reflection_text[:100],
+                trigger,
+                iteration,
+                reflection_text[:100],
             )
             return reflection_text
         except Exception:

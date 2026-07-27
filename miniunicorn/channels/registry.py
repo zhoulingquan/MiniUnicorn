@@ -4,6 +4,7 @@ QwenPaw-style: each built-in channel lives in its own subpackage
 ``miniunicorn/channels/<name>/`` containing ``channel.py`` plus optional
 helpers. The package ``__init__.py`` re-exports the public channel class.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -110,7 +111,9 @@ def discover_enabled(
     if _include_all_external:
         result.update({k: v for k, v in external.items() if k not in shadowed})
     else:
-        result.update({k: v for k, v in external.items() if k not in shadowed and k in enabled_names})
+        result.update(
+            {k: v for k, v in external.items() if k not in shadowed and k in enabled_names}
+        )
 
     return result
 

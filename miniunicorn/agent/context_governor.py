@@ -7,6 +7,7 @@ Built-in strategies mirror the legacy hardcoded pipeline in AgentRunner.
 Third-party strategies can register via the ``miniunicorn.context_strategies``
 entry point group.
 """
+
 from __future__ import annotations
 
 from importlib.metadata import entry_points
@@ -123,7 +124,8 @@ class ContextGovernor:
                 else:
                     logger.warning(
                         "Context strategy plugin {} skipped: name {} conflicts with builtin",
-                        ep.name, strategy.name,
+                        ep.name,
+                        strategy.name,
                     )
             except Exception:
                 logger.exception("Failed to load context strategy plugin: %s", ep.name)

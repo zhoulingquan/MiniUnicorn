@@ -8,6 +8,7 @@ it to ``agents/<name>.md`` so it is immediately available for ``delegate``.
 Only the main agent (``core`` scope) may call this — subagents must not
 recursively spawn their own subagents.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -138,5 +139,5 @@ class CreateAgentTool(Tool):
         return (
             f"Created subagent '{name}' at {path}.\n\n"
             f"--- Preview ---\n{preview}\n--- End preview ---\n\n"
-            f"You can now delegate tasks to it via: delegate(subagent=\"{name}\", task=\"...\")"
+            f'You can now delegate tasks to it via: delegate(subagent="{name}", task="...")'
         )

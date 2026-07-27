@@ -11,6 +11,7 @@ from miniunicorn.providers.base import LLMResponse, ToolCallRequest
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
+
 async def test_runner_does_not_abort_on_workspace_violation_anymore():
     """v2 behavior: workspace-bound rejections are *soft* tool errors.
 
@@ -20,35 +21,41 @@ async def test_runner_does_not_abort_on_workspace_violation_anymore():
     we now hand the error back to the LLM as a recoverable tool result and
     rely on ``repeated_workspace_violation_error`` to throttle bypass loops.
     """
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
-    provider.chat_with_retry = AsyncMock(side_effect=[
-        LLMResponse(
-            content="trying outside",
-            tool_calls=[ToolCallRequest(
-                id="call_1", name="read_file", arguments={"path": "/tmp/outside.md"},
-            )],
-        ),
-        LLMResponse(content="ok, telling the user instead", tool_calls=[]),
-    ])
+    provider.chat_with_retry = AsyncMock(
+        side_effect=[
+            LLMResponse(
+                content="trying outside",
+                tool_calls=[
+                    ToolCallRequest(
+                        id="call_1",
+                        name="read_file",
+                        arguments={"path": "/tmp/outside.md"},
+                    )
+                ],
+            ),
+            LLMResponse(content="ok, telling the user instead", tool_calls=[]),
+        ]
+    )
     tools = MagicMock()
     tools.get_definitions.return_value = []
     tools.execute = AsyncMock(
-        side_effect=PermissionError(
-            "Path /tmp/outside.md is outside allowed directory /workspace"
-        )
+        side_effect=PermissionError("Path /tmp/outside.md is outside allowed directory /workspace")
     )
 
     runner = AgentRunner(provider)
 
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[],
-        tools=tools,
-        model="test-model",
-        max_iterations=3,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[],
+            tools=tools,
+            model="test-model",
+            max_iterations=3,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     assert provider.chat_with_retry.await_count == 2, (
         "workspace violation must NOT short-circuit the loop"
@@ -68,57 +75,65 @@ def test_is_ssrf_violation_recognizes_private_url_blocks():
 
     ssrf_msg = "Error: Command blocked by safety guard (internal/private URL detected)"
     assert AgentRunner._is_ssrf_violation(ssrf_msg) is True
-    assert AgentRunner._is_ssrf_violation(
-        "URL validation failed: Blocked: host resolves to private/internal address 192.168.1.2"
-    ) is True
+    assert (
+        AgentRunner._is_ssrf_violation(
+            "URL validation failed: Blocked: host resolves to private/internal address 192.168.1.2"
+        )
+        is True
+    )
 
     # Workspace-bound markers are NOT classified as SSRF.
-    assert AgentRunner._is_ssrf_violation(
-        "Error: Command blocked by safety guard (path outside working dir)"
-    ) is False
-    assert AgentRunner._is_ssrf_violation(
-        "Path /tmp/x is outside allowed directory /ws"
-    ) is False
+    assert (
+        AgentRunner._is_ssrf_violation(
+            "Error: Command blocked by safety guard (path outside working dir)"
+        )
+        is False
+    )
+    assert AgentRunner._is_ssrf_violation("Path /tmp/x is outside allowed directory /ws") is False
     # Deny / allowlist filter messages stay non-fatal too.
-    assert AgentRunner._is_ssrf_violation(
-        "Error: Command blocked by deny pattern filter"
-    ) is False
+    assert AgentRunner._is_ssrf_violation("Error: Command blocked by deny pattern filter") is False
 
 
 @pytest.mark.asyncio
 async def test_runner_returns_non_retryable_hint_on_ssrf_violation():
     """SSRF stays blocked, but the runtime gives the LLM a final chance to recover."""
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
-    provider.chat_with_retry = AsyncMock(side_effect=[
-        LLMResponse(
-            content="curl-ing metadata",
-            tool_calls=[ToolCallRequest(
-                id="call_ssrf",
-                name="exec",
-                arguments={"command": "curl http://169.254.169.254"},
-            )],
-        ),
-        LLMResponse(
-            content="I cannot access that private URL. Please share local files.",
-            tool_calls=[],
-        ),
-    ])
+    provider.chat_with_retry = AsyncMock(
+        side_effect=[
+            LLMResponse(
+                content="curl-ing metadata",
+                tool_calls=[
+                    ToolCallRequest(
+                        id="call_ssrf",
+                        name="exec",
+                        arguments={"command": "curl http://169.254.169.254"},
+                    )
+                ],
+            ),
+            LLMResponse(
+                content="I cannot access that private URL. Please share local files.",
+                tool_calls=[],
+            ),
+        ]
+    )
     tools = MagicMock()
     tools.get_definitions.return_value = []
-    tools.execute = AsyncMock(return_value=(
-        "Error: Command blocked by safety guard (internal/private URL detected)"
-    ))
+    tools.execute = AsyncMock(
+        return_value=("Error: Command blocked by safety guard (internal/private URL detected)")
+    )
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[],
-        tools=tools,
-        model="test-model",
-        max_iterations=3,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[],
+            tools=tools,
+            model="test-model",
+            max_iterations=3,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     assert provider.chat_with_retry.await_count == 2
     assert result.stop_reason == "completed"
@@ -141,7 +156,7 @@ async def test_runner_lets_llm_recover_from_shell_guard_path_outside():
     turn (silent hang on Telegram per #3605); now the LLM gets the soft
     error back and can finalize on the next iteration.
     """
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     captured_second_call: list[dict] = []
@@ -150,11 +165,13 @@ async def test_runner_lets_llm_recover_from_shell_guard_path_outside():
         if provider.chat_with_retry.await_count == 1:
             return LLMResponse(
                 content="trying noisy cleanup",
-                tool_calls=[ToolCallRequest(
-                    id="call_blocked",
-                    name="exec",
-                    arguments={"command": "rm scratch.txt 2>/dev/null"},
-                )],
+                tool_calls=[
+                    ToolCallRequest(
+                        id="call_blocked",
+                        name="exec",
+                        arguments={"command": "rm scratch.txt 2>/dev/null"},
+                    )
+                ],
             )
         captured_second_call[:] = list(messages)
         return LLMResponse(content="recovered final answer", tool_calls=[])
@@ -167,13 +184,15 @@ async def test_runner_lets_llm_recover_from_shell_guard_path_outside():
     )
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[],
-        tools=tools,
-        model="test-model",
-        max_iterations=3,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[],
+            tools=tools,
+            model="test-model",
+            max_iterations=3,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     assert provider.chat_with_retry.await_count == 2, (
         "guard hit must NOT short-circuit the loop -- LLM should get a second turn"
@@ -195,18 +214,18 @@ async def test_runner_throttles_repeated_workspace_bypass_attempts():
     the runner replaces the tool result with a hard "stop trying" message
     so the model finally gives up and surfaces the boundary to the user.
     """
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     bypass_attempts = [
         ToolCallRequest(
-            id=f"a{i}", name="exec",
+            id=f"a{i}",
+            name="exec",
             arguments={"command": f"cat /Users/x/Downloads/01.md  # try {i}"},
         )
         for i in range(4)
     ]
     responses: list[LLMResponse] = [
-        LLMResponse(content=f"try {i}", tool_calls=[bypass_attempts[i]])
-        for i in range(4)
+        LLMResponse(content=f"try {i}", tool_calls=[bypass_attempts[i]]) for i in range(4)
     ]
     responses.append(LLMResponse(content="ok telling user", tool_calls=[]))
 
@@ -219,13 +238,15 @@ async def test_runner_throttles_repeated_workspace_bypass_attempts():
     )
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[],
-        tools=tools,
-        model="test-model",
-        max_iterations=10,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[],
+            tools=tools,
+            model="test-model",
+            max_iterations=10,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     # All 4 bypass attempts surface to the LLM (no fatal abort), and the
     # runner finally completes once the LLM stops asking.
@@ -234,11 +255,10 @@ async def test_runner_throttles_repeated_workspace_bypass_attempts():
     assert result.final_content == "ok telling user"
     # The third+ attempts must have been escalated -- look at the events.
     escalated = [
-        ev for ev in result.tool_events
-        if ev["status"] == "error"
-        and ev["detail"].startswith("workspace_violation_escalated:")
+        ev
+        for ev in result.tool_events
+        if ev["status"] == "error" and ev["detail"].startswith("workspace_violation_escalated:")
     ]
     assert escalated, (
-        "expected at least one escalated workspace_violation event, got: "
-        f"{result.tool_events}"
+        f"expected at least one escalated workspace_violation event, got: {result.tool_events}"
     )

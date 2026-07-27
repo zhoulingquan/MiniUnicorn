@@ -9,7 +9,11 @@ from unittest.mock import patch
 import pytest
 
 from miniunicorn.agent.tools.shell import ExecTool
-from miniunicorn.security.workspace_access import bind_workspace_scope, build_workspace_scope, reset_workspace_scope
+from miniunicorn.security.workspace_access import (
+    bind_workspace_scope,
+    build_workspace_scope,
+    reset_workspace_scope,
+)
 
 
 def _fake_resolve_private(hostname, port, family=0, type_=0):
@@ -100,7 +104,9 @@ def test_exec_full_workspace_scope_still_blocks_metadata(tmp_path):
     token = bind_workspace_scope(scope)
     try:
         with patch("miniunicorn.security.network.socket.getaddrinfo", _fake_resolve_private):
-            error = tool._guard_command("curl http://169.254.169.254/latest/meta-data/", str(tmp_path))
+            error = tool._guard_command(
+                "curl http://169.254.169.254/latest/meta-data/", str(tmp_path)
+            )
     finally:
         reset_workspace_scope(token)
     assert error is not None

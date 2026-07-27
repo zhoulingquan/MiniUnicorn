@@ -16,8 +16,8 @@ _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 async def test_subagent_exec_tool_receives_allowed_env_keys(tmp_path):
     """allowed_env_keys from ExecToolConfig must be forwarded to the subagent's ExecTool."""
     from miniunicorn.agent.subagent import SubagentManager, SubagentStatus
-    from miniunicorn.bus.queue import MessageBus
     from miniunicorn.agent.tools.shell import ExecToolConfig
+    from miniunicorn.bus.queue import MessageBus
     from miniunicorn.config.schema import ToolsConfig
 
     bus = MessageBus()
@@ -116,7 +116,10 @@ async def test_spawn_forwards_temperature_to_run_spec(tmp_path):
     async def fake_run(spec):
         seen["temperature"] = spec.temperature
         return SimpleNamespace(
-            stop_reason="done", final_content="done", error=None, tool_events=[],
+            stop_reason="done",
+            final_content="done",
+            error=None,
+            tool_events=[],
         )
 
     mgr.runner.run = AsyncMock(side_effect=fake_run)
@@ -357,14 +360,16 @@ async def test_drain_pending_blocks_while_subagents_running(tmp_path):
     assert not drain_task.done(), "drain should block while sub-agents are running"
 
     # Now put a message in the queue (simulating sub-agent completion)
-    await pending_queue.put(InboundMessage(
-        sender_id="subagent",
-        channel="test",
-        chat_id="c1",
-        content="Sub-agent result",
-        media=None,
-        metadata={},
-    ))
+    await pending_queue.put(
+        InboundMessage(
+            sender_id="subagent",
+            channel="test",
+            chat_id="c1",
+            content="Sub-agent result",
+            media=None,
+            metadata={},
+        )
+    )
 
     # Should unblock and return results
     results = await asyncio.wait_for(drain_task, timeout=2.0)

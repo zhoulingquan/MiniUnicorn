@@ -1,4 +1,5 @@
 """Tests for tool plugin architecture: ToolLoader, ToolContext, metadata."""
+
 from __future__ import annotations
 
 from dataclasses import fields
@@ -55,8 +56,13 @@ from miniunicorn.agent.tools.context import ToolContext
 def test_tool_context_has_required_fields():
     field_names = {f.name for f in fields(ToolContext)}
     required = {
-        "config", "workspace", "bus", "subagent_manager",
-        "cron_service", "file_state_store", "provider_snapshot_loader",
+        "config",
+        "workspace",
+        "bus",
+        "subagent_manager",
+        "cron_service",
+        "file_state_store",
+        "provider_snapshot_loader",
         "timezone",
     }
     assert required <= field_names
@@ -73,12 +79,22 @@ def test_tool_context_defaults():
 
 # --- ToolLoader tests ---
 
-from miniunicorn.agent.tools.loader import ToolLoader, _SKIP_MODULES
+from miniunicorn.agent.tools.loader import _SKIP_MODULES, ToolLoader
 
 
 def test_skip_modules_excludes_infrastructure():
-    infra = {"base", "schema", "registry", "context", "loader", "config",
-             "file_state", "sandbox", "mcp", "__init__"}
+    infra = {
+        "base",
+        "schema",
+        "registry",
+        "context",
+        "loader",
+        "config",
+        "file_state",
+        "sandbox",
+        "mcp",
+        "__init__",
+    }
     assert infra <= _SKIP_MODULES
 
 
@@ -144,6 +160,7 @@ from pathlib import Path
 
 def test_fs_tool_create_builds_from_context():
     from miniunicorn.agent.tools.filesystem import ReadFileTool
+
     mock_config = MagicMock()
     mock_config.restrict_to_workspace = False
     mock_config.exec.sandbox = ""
@@ -155,6 +172,7 @@ def test_fs_tool_create_builds_from_context():
 
 def test_fs_tool_create_respects_restrict_to_workspace():
     from miniunicorn.agent.tools.filesystem import ReadFileTool
+
     mock_config = MagicMock()
     mock_config.restrict_to_workspace = True
     mock_config.exec.sandbox = ""
@@ -165,6 +183,7 @@ def test_fs_tool_create_respects_restrict_to_workspace():
 
 def test_fs_tool_create_respects_sandbox():
     from miniunicorn.agent.tools.filesystem import ReadFileTool
+
     mock_config = MagicMock()
     mock_config.restrict_to_workspace = False
     mock_config.exec.sandbox = "bwrap"
@@ -178,6 +197,7 @@ def test_fs_tool_create_respects_sandbox():
 
 async def test_message_tool_create():
     from miniunicorn.agent.tools.message import MessageTool
+
     mock_bus = MagicMock()
     mock_config = MagicMock()
     ctx = ToolContext(config=mock_config, workspace="/tmp", bus=mock_bus)
@@ -187,6 +207,7 @@ async def test_message_tool_create():
 
 def test_spawn_tool_create():
     from miniunicorn.agent.tools.spawn import SpawnTool
+
     mock_mgr = MagicMock()
     mock_config = MagicMock()
     ctx = ToolContext(config=mock_config, workspace="/tmp", subagent_manager=mock_mgr)
@@ -196,6 +217,7 @@ def test_spawn_tool_create():
 
 def test_cron_tool_enabled_without_service():
     from miniunicorn.agent.tools.cron import CronTool
+
     mock_config = MagicMock()
     ctx = ToolContext(config=mock_config, workspace="/tmp", cron_service=None)
     assert CronTool.enabled(ctx) is False
@@ -203,6 +225,7 @@ def test_cron_tool_enabled_without_service():
 
 def test_cron_tool_enabled_with_service():
     from miniunicorn.agent.tools.cron import CronTool
+
     mock_service = MagicMock()
     mock_config = MagicMock()
     ctx = ToolContext(config=mock_config, workspace="/tmp", cron_service=mock_service)
@@ -211,11 +234,14 @@ def test_cron_tool_enabled_with_service():
 
 def test_cron_tool_create():
     from miniunicorn.agent.tools.cron import CronTool
+
     mock_service = MagicMock()
     mock_config = MagicMock()
     ctx = ToolContext(
-        config=mock_config, workspace="/tmp",
-        cron_service=mock_service, timezone="Asia/Shanghai",
+        config=mock_config,
+        workspace="/tmp",
+        cron_service=mock_service,
+        timezone="Asia/Shanghai",
     )
     tool = CronTool.create(ctx)
     assert isinstance(tool, CronTool)
@@ -226,12 +252,14 @@ def test_cron_tool_create():
 
 def test_exec_tool_config_cls():
     from miniunicorn.agent.tools.shell import ExecTool, ExecToolConfig
+
     assert ExecTool.config_cls() is ExecToolConfig
     assert ExecTool.config_key == "exec"
 
 
 def test_exec_tool_enabled():
     from miniunicorn.agent.tools.shell import ExecTool
+
     mock_config = MagicMock()
     mock_config.exec.enable = True
     ctx = ToolContext(config=mock_config, workspace="/tmp")
@@ -242,6 +270,7 @@ def test_exec_tool_enabled():
 
 def test_exec_tool_create():
     from miniunicorn.agent.tools.shell import ExecTool
+
     mock_config = MagicMock()
     mock_config.exec.enable = True
     mock_config.exec.timeout = 120
@@ -258,12 +287,14 @@ def test_exec_tool_create():
 
 def test_web_tools_config_cls():
     from miniunicorn.agent.tools.web import WebFetchTool, WebToolsConfig
+
     assert WebFetchTool.config_key == "web"
     assert WebFetchTool.config_cls() is WebToolsConfig
 
 
 def test_web_fetch_tool_create():
     from miniunicorn.agent.tools.web import WebFetchTool
+
     mock_config = MagicMock()
     mock_config.web.enable = True
     mock_config.web.fetch = MagicMock()
@@ -279,12 +310,14 @@ def test_web_fetch_tool_create():
 
 def test_my_tool_config_cls():
     from miniunicorn.agent.tools.self import MyTool, MyToolConfig
+
     assert MyTool.config_key == "my"
     assert MyTool.config_cls() is MyToolConfig
 
 
 def test_my_tool_enabled():
     from miniunicorn.agent.tools.self import MyTool
+
     mock_config = MagicMock()
     mock_config.my.enable = True
     ctx = ToolContext(config=mock_config, workspace="/tmp")
@@ -294,7 +327,8 @@ def test_my_tool_enabled():
 
 
 def test_mcp_wrappers_not_discoverable():
-    from miniunicorn.agent.tools.mcp import MCPToolWrapper, MCPResourceWrapper, MCPPromptWrapper
+    from miniunicorn.agent.tools.mcp import MCPPromptWrapper, MCPResourceWrapper, MCPToolWrapper
+
     assert MCPToolWrapper._plugin_discoverable is False
     assert MCPResourceWrapper._plugin_discoverable is False
     assert MCPPromptWrapper._plugin_discoverable is False
@@ -373,10 +407,19 @@ def test_loader_registers_same_tools_as_old_hardcoded():
     registered = loader.load(ctx, registry)
 
     expected = {
-        "read_file", "write_file", "edit_file", "list_dir",
-        "find_files", "grep", "exec", "write_stdin", "list_exec_sessions",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "list_dir",
+        "find_files",
+        "grep",
+        "exec",
+        "write_stdin",
+        "list_exec_sessions",
         "web_fetch",
-        "message", "spawn", "cron",
+        "message",
+        "spawn",
+        "cron",
     }
     actual = set(registered)
     assert expected <= actual, f"Missing tools: {expected - actual}"

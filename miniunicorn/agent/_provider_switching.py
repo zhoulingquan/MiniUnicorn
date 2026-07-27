@@ -52,9 +52,7 @@ class ProviderSwitchingMixin:
         if context_window_tokens is None:
             from miniunicorn.cli.models import get_model_context_limit
 
-            context_window_tokens = get_model_context_limit(
-                model, raise_on_unknown=True
-            )
+            context_window_tokens = get_model_context_limit(model, raise_on_unknown=True)
         old_model = self.model
         self.provider = provider
         self.model = model
@@ -92,7 +90,9 @@ class ProviderSwitchingMixin:
             self._default_selection_signature = default_selection
         if snapshot.signature == self._provider_signature:
             return
-        self._default_selection_signature = preset_helpers.default_selection_signature(snapshot.signature)
+        self._default_selection_signature = preset_helpers.default_selection_signature(
+            snapshot.signature
+        )
         self._apply_provider_snapshot(snapshot)
 
     @property
@@ -111,7 +111,9 @@ class ProviderSwitchingMixin:
             loader=self._preset_snapshot_loader,
         )
 
-    def set_model_preset(self: "AgentLoop", name: str | None, *, publish_update: bool = True) -> None:
+    def set_model_preset(
+        self: "AgentLoop", name: str | None, *, publish_update: bool = True
+    ) -> None:
         """Resolve a preset by name and apply all runtime model dependents."""
         name = preset_helpers.normalize_preset_name(name, self.model_presets)
         snapshot = self._build_model_preset_snapshot(name)

@@ -77,9 +77,11 @@ def make_loop(
         kwargs["hooks"] = hooks
 
     if patch_deps:
-        with patch("miniunicorn.agent.loop.ContextBuilder"), \
-             patch("miniunicorn.agent.loop.SessionManager"), \
-             patch("miniunicorn.agent.loop.SubagentManager") as MockSubMgr:
+        with (
+            patch("miniunicorn.agent.loop.ContextBuilder"),
+            patch("miniunicorn.agent.loop.SessionManager"),
+            patch("miniunicorn.agent.loop.SubagentManager") as MockSubMgr,
+        ):
             MockSubMgr.return_value.cancel_by_session = AsyncMock(return_value=0)
             return AgentLoop(**kwargs)
     return AgentLoop(**kwargs)
@@ -88,6 +90,8 @@ def make_loop(
 @pytest.fixture
 def loop_factory(tmp_path):
     """Fixture providing a factory for creating AgentLoop instances."""
+
     def _factory(**kwargs):
         return make_loop(tmp_path, **kwargs)
+
     return _factory

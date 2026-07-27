@@ -205,6 +205,9 @@ export interface BootstrapResponse {
   runtime_capabilities?: RuntimeCapabilities;
   /** 后端 miniunicorn.__version__,用于顶栏 logo 旁显示版本号。 */
   version?: string;
+  /** 服务端 WebSocket 帧大小上限(字节),前端据此在发送前校验附件
+   * 总字节数,超限不调用 onSend 并保留草稿(见 §4.5 设计文档)。 */
+  max_message_bytes?: number;
 }
 
 export type RuntimeSurface = "browser" | "native";
@@ -865,7 +868,7 @@ export interface ContextUsagePayload {
 
 export type InboundEvent =
   | { event: "ready"; chat_id: string; client_id: string }
-  | { event: "attached"; chat_id: string }
+  | { event: "attached"; chat_id: string; request_id?: string }
   | {
       event: "message";
       chat_id: string;
@@ -996,7 +999,7 @@ export interface WebuiThreadPersistedPayload {
 }
 
 export type Outbound =
-  | { type: "new_chat"; workspace_scope?: WorkspaceScopePayload }
+  | { type: "new_chat"; request_id?: string; workspace_scope?: WorkspaceScopePayload }
   | { type: "attach"; chat_id: string }
   | { type: "set_workspace_scope"; chat_id: string; workspace_scope: WorkspaceScopePayload }
   | {

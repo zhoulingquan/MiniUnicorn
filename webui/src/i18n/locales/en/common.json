@@ -694,7 +694,8 @@
         "magic_mismatch": "File doesn't look like a real image",
         "decode_failed": "Couldn't decode this image",
         "too_large": "Image is too large — try a smaller one",
-        "io": "Couldn't read this file"
+        "io": "Couldn't read this file",
+        "frameTooLarge": "Message is {{overMb}} MB — exceeds the {{limitMb}} MB send limit. Remove some attachments or shorten the text."
       },
       "workspace": {
         "accessAria": "Workspace access mode",

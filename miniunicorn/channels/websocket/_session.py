@@ -32,16 +32,18 @@ def publish_runtime_model_update(
     model_preset: str | None,
 ) -> None:
     """Enqueue a runtime model snapshot for websocket subscribers (fan-out in-channel)."""
-    bus.outbound.put_nowait(OutboundMessage(
-        channel="websocket",
-        chat_id="*",
-        content="",
-        metadata={
-            "_runtime_model_updated": True,
-            "model": model,
-            "model_preset": model_preset,
-        },
-    ))
+    bus.outbound.put_nowait(
+        OutboundMessage(
+            channel="websocket",
+            chat_id="*",
+            content="",
+            metadata={
+                "_runtime_model_updated": True,
+                "model": model,
+                "model_preset": model_preset,
+            },
+        )
+    )
 
 
 def _parse_inbound_payload(raw: str) -> str | None:

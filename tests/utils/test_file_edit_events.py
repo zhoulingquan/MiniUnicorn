@@ -160,16 +160,20 @@ def test_streaming_write_file_tracker_emits_live_line_counts(tmp_path: Path) -> 
 
     async def run() -> None:
         tracker = StreamingFileEditTracker(workspace=tmp_path, tools={}, emit=emit)
-        await tracker.update({
-            "index": 0,
-            "call_id": "call-live",
-            "name": "write_file",
-            "arguments_delta": '{"path":"notes.md","content":"',
-        })
-        await tracker.update({
-            "index": 0,
-            "arguments_delta": "line\\n" * 24,
-        })
+        await tracker.update(
+            {
+                "index": 0,
+                "call_id": "call-live",
+                "name": "write_file",
+                "arguments_delta": '{"path":"notes.md","content":"',
+            }
+        )
+        await tracker.update(
+            {
+                "index": 0,
+                "arguments_delta": "line\\n" * 24,
+            }
+        )
 
     asyncio.run(run())
 
@@ -202,15 +206,17 @@ def test_streaming_apply_patch_tracker_emits_live_counts_per_file(tmp_path: Path
 
     async def run() -> None:
         tracker = StreamingFileEditTracker(workspace=tmp_path, tools={}, emit=emit)
-        await tracker.update({
-            "index": 0,
-            "call_id": "call-patch",
-            "name": "apply_patch",
-            "arguments_delta": (
-                '{"edits":[{"path":"src/existing.py","action":"replace","old_text":"old","new_text":"new"}'
-                ',{"path":"src/new.py","action":"add","new_text":"fresh"}]}'
-            ),
-        })
+        await tracker.update(
+            {
+                "index": 0,
+                "call_id": "call-patch",
+                "name": "apply_patch",
+                "arguments_delta": (
+                    '{"edits":[{"path":"src/existing.py","action":"replace","old_text":"old","new_text":"new"}'
+                    ',{"path":"src/new.py","action":"add","new_text":"fresh"}]}'
+                ),
+            }
+        )
 
     asyncio.run(run())
 
@@ -230,14 +236,16 @@ def test_streaming_apply_patch_tracker_skips_dry_run(tmp_path: Path) -> None:
 
     async def run() -> None:
         tracker = StreamingFileEditTracker(workspace=tmp_path, tools={}, emit=emit)
-        await tracker.update({
-            "index": 0,
-            "call_id": "call-patch",
-            "name": "apply_patch",
-            "arguments_delta": (
-                '{"dry_run":true,"edits":[{"path":"dry.md","action":"add","new_text":"preview"}]}'
-            ),
-        })
+        await tracker.update(
+            {
+                "index": 0,
+                "call_id": "call-patch",
+                "name": "apply_patch",
+                "arguments_delta": (
+                    '{"dry_run":true,"edits":[{"path":"dry.md","action":"add","new_text":"preview"}]}'
+                ),
+            }
+        )
 
     asyncio.run(run())
 
@@ -252,16 +260,20 @@ def test_streaming_write_file_tracker_emits_pending_before_path(tmp_path: Path) 
 
     async def run() -> None:
         tracker = StreamingFileEditTracker(workspace=tmp_path, tools={}, emit=emit)
-        await tracker.update({
-            "index": 0,
-            "call_id": "call-live",
-            "name": "write_file",
-            "arguments_delta": '{"content":"line\\n',
-        })
-        await tracker.update({
-            "index": 0,
-            "arguments_delta": 'more\\n","path":"late.md"',
-        })
+        await tracker.update(
+            {
+                "index": 0,
+                "call_id": "call-live",
+                "name": "write_file",
+                "arguments_delta": '{"content":"line\\n',
+            }
+        )
+        await tracker.update(
+            {
+                "index": 0,
+                "arguments_delta": 'more\\n","path":"late.md"',
+            }
+        )
 
     asyncio.run(run())
 
@@ -290,12 +302,14 @@ def test_streaming_write_file_tracker_flushes_small_pending_count(tmp_path: Path
 
     async def run() -> None:
         tracker = StreamingFileEditTracker(workspace=tmp_path, tools={}, emit=emit)
-        await tracker.update({
-            "index": 0,
-            "call_id": "call-live",
-            "name": "write_file",
-            "arguments_delta": '{"path":"small.md","content":"one\\n',
-        })
+        await tracker.update(
+            {
+                "index": 0,
+                "call_id": "call-live",
+                "name": "write_file",
+                "arguments_delta": '{"path":"small.md","content":"one\\n',
+            }
+        )
         await tracker.flush()
 
     asyncio.run(run())
@@ -312,12 +326,14 @@ def test_streaming_write_file_tracker_normalizes_crlf_line_counts(tmp_path: Path
 
     async def run() -> None:
         tracker = StreamingFileEditTracker(workspace=tmp_path, tools={}, emit=emit)
-        await tracker.update({
-            "index": 0,
-            "call_id": "call-live",
-            "name": "write_file",
-            "arguments_delta": '{"path":"windows.txt","content":"one\\r\\ntwo\\r\\n',
-        })
+        await tracker.update(
+            {
+                "index": 0,
+                "call_id": "call-live",
+                "name": "write_file",
+                "arguments_delta": '{"path":"windows.txt","content":"one\\r\\ntwo\\r\\n',
+            }
+        )
         await tracker.flush()
 
     asyncio.run(run())
@@ -333,12 +349,14 @@ def test_streaming_write_file_tracker_counts_unicode_escaped_newlines(tmp_path: 
 
     async def run() -> None:
         tracker = StreamingFileEditTracker(workspace=tmp_path, tools={}, emit=emit)
-        await tracker.update({
-            "index": 0,
-            "call_id": "call-live",
-            "name": "write_file",
-            "arguments_delta": '{"path":"unicode.txt","content":"one\\u000atwo',
-        })
+        await tracker.update(
+            {
+                "index": 0,
+                "call_id": "call-live",
+                "name": "write_file",
+                "arguments_delta": '{"path":"unicode.txt","content":"one\\u000atwo',
+            }
+        )
         await tracker.flush()
 
     asyncio.run(run())
@@ -356,16 +374,20 @@ def test_streaming_edit_file_tracker_emits_live_line_counts(tmp_path: Path) -> N
 
     async def run() -> None:
         tracker = StreamingFileEditTracker(workspace=tmp_path, tools={}, emit=emit)
-        await tracker.update({
-            "index": 0,
-            "call_id": "call-edit",
-            "name": "edit_file",
-            "arguments_delta": '{"path":"notes.md","old_text":"old\\nkeep","new_text":"',
-        })
-        await tracker.update({
-            "index": 0,
-            "arguments_delta": "new\\nkeep\\nextra\\n" * 8,
-        })
+        await tracker.update(
+            {
+                "index": 0,
+                "call_id": "call-edit",
+                "name": "edit_file",
+                "arguments_delta": '{"path":"notes.md","old_text":"old\\nkeep","new_text":"',
+            }
+        )
+        await tracker.update(
+            {
+                "index": 0,
+                "arguments_delta": "new\\nkeep\\nextra\\n" * 8,
+            }
+        )
 
     asyncio.run(run())
 
@@ -396,11 +418,13 @@ def test_streaming_tracker_applies_canonical_call_id_to_final_tool(tmp_path: Pat
 
     async def run() -> None:
         tracker = StreamingFileEditTracker(workspace=tmp_path, tools={}, emit=emit)
-        await tracker.update({
-            "index": 0,
-            "name": "write_file",
-            "arguments_delta": '{"path":"matched.md","content":"one\\n',
-        })
+        await tracker.update(
+            {
+                "index": 0,
+                "name": "write_file",
+                "arguments_delta": '{"path":"matched.md","content":"one\\n',
+            }
+        )
         final = SimpleNamespace(
             id="provider-final-id",
             name="write_file",
@@ -420,18 +444,22 @@ def test_streaming_tracker_does_not_restore_duplicate_canonical_ids(tmp_path: Pa
 
     async def run() -> None:
         tracker = StreamingFileEditTracker(workspace=tmp_path, tools={}, emit=emit)
-        await tracker.update({
-            "index": 0,
-            "call_id": "call_dup",
-            "name": "write_file",
-            "arguments_delta": '{"path":"a.md","content":"one\\n"}',
-        })
-        await tracker.update({
-            "index": 1,
-            "call_id": "call_dup",
-            "name": "write_file",
-            "arguments_delta": '{"path":"b.md","content":"two\\n"}',
-        })
+        await tracker.update(
+            {
+                "index": 0,
+                "call_id": "call_dup",
+                "name": "write_file",
+                "arguments_delta": '{"path":"a.md","content":"one\\n"}',
+            }
+        )
+        await tracker.update(
+            {
+                "index": 1,
+                "call_id": "call_dup",
+                "name": "write_file",
+                "arguments_delta": '{"path":"b.md","content":"two\\n"}',
+            }
+        )
         final_a = SimpleNamespace(
             id="call_dup",
             name="write_file",
@@ -459,12 +487,14 @@ def test_streaming_edit_file_tracker_flushes_small_pending_count(tmp_path: Path)
 
     async def run() -> None:
         tracker = StreamingFileEditTracker(workspace=tmp_path, tools={}, emit=emit)
-        await tracker.update({
-            "index": 0,
-            "call_id": "call-edit",
-            "name": "edit_file",
-            "arguments_delta": '{"path":"small.py","old_text":"old\\n","new_text":"new\\nextra',
-        })
+        await tracker.update(
+            {
+                "index": 0,
+                "call_id": "call-edit",
+                "name": "edit_file",
+                "arguments_delta": '{"path":"small.py","old_text":"old\\n","new_text":"new\\nextra',
+            }
+        )
         await tracker.flush()
 
     asyncio.run(run())
@@ -482,12 +512,14 @@ def test_streaming_write_file_tracker_errors_unmatched_live_edits(tmp_path: Path
 
     async def run() -> None:
         tracker = StreamingFileEditTracker(workspace=tmp_path, tools={}, emit=emit)
-        await tracker.update({
-            "index": 0,
-            "call_id": "call-live",
-            "name": "write_file",
-            "arguments_delta": '{"path":"aborted.md","content":"one\\n',
-        })
+        await tracker.update(
+            {
+                "index": 0,
+                "call_id": "call-live",
+                "name": "write_file",
+                "arguments_delta": '{"path":"aborted.md","content":"one\\n',
+            }
+        )
         await tracker.error_unmatched([], "Tool call did not complete.")
 
     asyncio.run(run())
@@ -504,19 +536,24 @@ def test_streaming_write_file_tracker_keeps_matched_final_tool_call(tmp_path: Pa
 
     async def run() -> None:
         tracker = StreamingFileEditTracker(workspace=tmp_path, tools={}, emit=emit)
-        await tracker.update({
-            "index": 0,
-            "call_id": "idx-only",
-            "name": "write_file",
-            "arguments_delta": '{"path":"matched.md","content":"one\\n',
-        })
-        await tracker.error_unmatched([
-            SimpleNamespace(
-                id="final-call",
-                name="write_file",
-                arguments={"path": "matched.md", "content": "one\n"},
-            )
-        ], "Tool call did not complete.")
+        await tracker.update(
+            {
+                "index": 0,
+                "call_id": "idx-only",
+                "name": "write_file",
+                "arguments_delta": '{"path":"matched.md","content":"one\\n',
+            }
+        )
+        await tracker.error_unmatched(
+            [
+                SimpleNamespace(
+                    id="final-call",
+                    name="write_file",
+                    arguments={"path": "matched.md", "content": "one\n"},
+                )
+            ],
+            "Tool call did not complete.",
+        )
 
     asyncio.run(run())
     assert events
@@ -524,10 +561,13 @@ def test_streaming_write_file_tracker_keeps_matched_final_tool_call(tmp_path: Pa
 
 
 def test_untracked_tools_do_not_prepare_file_edit_tracker(tmp_path: Path) -> None:
-    assert prepare_file_edit_tracker(
-        call_id="call-exec",
-        tool_name="exec",
-        tool=None,
-        workspace=tmp_path,
-        params={"path": "created-by-shell.txt"},
-    ) is None
+    assert (
+        prepare_file_edit_tracker(
+            call_id="call-exec",
+            tool_name="exec",
+            tool=None,
+            workspace=tmp_path,
+            params={"path": "created-by-shell.txt"},
+        )
+        is None
+    )

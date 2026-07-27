@@ -14,8 +14,12 @@ import pytest
 from miniunicorn.agent.tools.shell import ExecTool
 
 _WINDOWS_ENV_KEYS = {
-    "APPDATA", "LOCALAPPDATA", "ProgramData",
-    "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "ProgramData",
+    "ProgramFiles",
+    "ProgramFiles(x86)",
+    "ProgramW6432",
 }
 
 
@@ -23,8 +27,8 @@ _WINDOWS_ENV_KEYS = {
 # _build_env
 # ---------------------------------------------------------------------------
 
-class TestBuildEnvUnix:
 
+class TestBuildEnvUnix:
     def test_expected_keys(self):
         with patch("miniunicorn.agent.tools.shell._IS_WINDOWS", False):
             env = ExecTool()._build_env()
@@ -52,10 +56,17 @@ class TestBuildEnvUnix:
 
 
 class TestBuildEnvWindows:
-
     _EXPECTED_KEYS = {
-        "SYSTEMROOT", "COMSPEC", "USERPROFILE", "HOMEDRIVE",
-        "HOMEPATH", "TEMP", "TMP", "PATHEXT", "PATH", "PYTHONUNBUFFERED",
+        "SYSTEMROOT",
+        "COMSPEC",
+        "USERPROFILE",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "TEMP",
+        "TMP",
+        "PATHEXT",
+        "PATH",
+        "PYTHONUNBUFFERED",
         *_WINDOWS_ENV_KEYS,
     }
 
@@ -93,8 +104,8 @@ class TestBuildEnvWindows:
 # _spawn
 # ---------------------------------------------------------------------------
 
-class TestSpawnUnix:
 
+class TestSpawnUnix:
     @pytest.mark.asyncio
     async def test_uses_bash(self):
         with (
@@ -115,7 +126,6 @@ class TestSpawnUnix:
 
 
 class TestSpawnWindows:
-
     @pytest.mark.asyncio
     async def test_single_line_uses_shell(self):
         env = {"COMSPEC": r"C:\Windows\system32\cmd.exe", "PATH": ""}
@@ -172,8 +182,8 @@ class TestSpawnWindows:
 # path_append
 # ---------------------------------------------------------------------------
 
-class TestPathAppendPlatform:
 
+class TestPathAppendPlatform:
     @pytest.mark.asyncio
     async def test_unix_uses_env_var_in_fixed_export(self):
         """On Unix, path_append must not be interpolated into shell source."""
@@ -232,8 +242,8 @@ class TestPathAppendPlatform:
 # sandbox
 # ---------------------------------------------------------------------------
 
-class TestSandboxPlatform:
 
+class TestSandboxPlatform:
     @pytest.mark.asyncio
     async def test_bwrap_skipped_on_windows(self):
         """bwrap must be silently skipped on Windows, not crash."""
@@ -262,7 +272,9 @@ class TestSandboxPlatform:
 
         with (
             patch("miniunicorn.agent.tools.shell._IS_WINDOWS", False),
-            patch("miniunicorn.agent.tools.shell.wrap_command", return_value="bwrap -- sh -c ls") as mock_wrap,
+            patch(
+                "miniunicorn.agent.tools.shell.wrap_command", return_value="bwrap -- sh -c ls"
+            ) as mock_wrap,
             patch.object(ExecTool, "_spawn", return_value=mock_proc) as mock_spawn,
             patch.object(ExecTool, "_guard_command", return_value=None),
         ):
@@ -280,8 +292,8 @@ class TestSandboxPlatform:
 # end-to-end (mocked subprocess, full execute path)
 # ---------------------------------------------------------------------------
 
-class TestExecuteEndToEnd:
 
+class TestExecuteEndToEnd:
     @pytest.mark.asyncio
     async def test_windows_full_path(self):
         """Full execute() flow on Windows: env, spawn, output formatting."""
@@ -323,6 +335,7 @@ class TestExecuteEndToEnd:
 # _extract_absolute_paths - UNC path support
 # ---------------------------------------------------------------------------
 
+
 class TestExtractAbsolutePaths:
     """Tests for Windows UNC path extraction in shell commands."""
 
@@ -359,7 +372,7 @@ class TestExtractAbsolutePaths:
 
     def test_mixed_paths(self):
         """Test extraction of mixed UNC, drive, and POSIX paths."""
-        cmd = r'copy \\server\data\file.txt C:\local\temp && ls /tmp'
+        cmd = r"copy \\server\data\file.txt C:\local\temp && ls /tmp"
         paths = ExecTool._extract_absolute_paths(cmd)
         assert r"\\server\data\file.txt" in paths
         assert any("C:\\" in p for p in paths)
@@ -381,6 +394,7 @@ class TestExtractAbsolutePaths:
 # ---------------------------------------------------------------------------
 # Windows multi-line command PowerShell fallback
 # ---------------------------------------------------------------------------
+
 
 class TestWindowsMultilineExec:
     """Verify multi-line commands on Windows route through PowerShell."""

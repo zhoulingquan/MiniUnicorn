@@ -14,6 +14,7 @@ from miniunicorn.providers.base import LLMResponse, ToolCallRequest
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
+
 class _DelayTool(Tool):
     def __init__(
         self,
@@ -59,7 +60,7 @@ class _DelayTool(Tool):
 
 @pytest.mark.asyncio
 async def test_runner_batches_read_only_tools_before_exclusive_work():
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     tools = ToolRegistry()
     shared_events: list[str] = []
@@ -98,7 +99,7 @@ async def test_runner_batches_read_only_tools_before_exclusive_work():
 
 @pytest.mark.asyncio
 async def test_runner_does_not_batch_exclusive_read_only_tools():
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     tools = ToolRegistry()
     shared_events: list[str] = []
@@ -141,7 +142,7 @@ async def test_runner_does_not_batch_exclusive_read_only_tools():
 
 @pytest.mark.asyncio
 async def test_runner_blocks_repeated_external_fetches():
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     captured_final_call: list[dict] = []
@@ -152,7 +153,13 @@ async def test_runner_blocks_repeated_external_fetches():
         if call_count["n"] <= 3:
             return LLMResponse(
                 content="working",
-                tool_calls=[ToolCallRequest(id=f"call_{call_count['n']}", name="web_fetch", arguments={"url": "https://example.com"})],
+                tool_calls=[
+                    ToolCallRequest(
+                        id=f"call_{call_count['n']}",
+                        name="web_fetch",
+                        arguments={"url": "https://example.com"},
+                    )
+                ],
                 usage={},
             )
         captured_final_call[:] = messages
@@ -164,18 +171,21 @@ async def test_runner_blocks_repeated_external_fetches():
     tools.execute = AsyncMock(return_value="page content")
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "research task"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=4,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "research task"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=4,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     assert result.final_content == "done"
     assert tools.execute.await_count == 2
     blocked_tool_message = [
-        msg for msg in captured_final_call
+        msg
+        for msg in captured_final_call
         if msg.get("role") == "tool" and msg.get("tool_call_id") == "call_3"
     ][0]
     assert "repeated external lookup blocked" in blocked_tool_message["content"]

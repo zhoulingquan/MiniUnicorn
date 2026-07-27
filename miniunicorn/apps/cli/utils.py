@@ -29,7 +29,8 @@ def _cli_app_runtime_lines(
     structured = metadata.get("cli_apps") if isinstance(metadata, Mapping) else None
     if isinstance(structured, list):
         mentions = [
-            item for item in structured
+            item
+            for item in structured
             if isinstance(item, Mapping) and isinstance(item.get("name"), str)
         ]
         if mentions:

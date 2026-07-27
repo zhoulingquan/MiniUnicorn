@@ -146,7 +146,9 @@ def workspaces_payload(
             source_channel=_WEBUI_SCOPE_CHANNEL,
         )
         if default_access_mode == "default"
-        else build_workspace_scope(default_workspace, default_access_mode, source_channel=_WEBUI_SCOPE_CHANNEL)
+        else build_workspace_scope(
+            default_workspace, default_access_mode, source_channel=_WEBUI_SCOPE_CHANNEL
+        )
     )
     return {
         "schema_version": WEBUI_WORKSPACE_STATE_SCHEMA_VERSION,

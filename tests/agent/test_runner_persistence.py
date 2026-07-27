@@ -6,15 +6,14 @@ import os
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from miniunicorn.config.schema import AgentDefaults
 from miniunicorn.providers.base import LLMResponse, ToolCallRequest
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
+
 async def test_runner_persists_large_tool_results_for_follow_up_calls(tmp_path):
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     captured_second_call: list[dict] = []
@@ -25,7 +24,9 @@ async def test_runner_persists_large_tool_results_for_follow_up_calls(tmp_path):
         if call_count["n"] == 1:
             return LLMResponse(
                 content="working",
-                tool_calls=[ToolCallRequest(id="call_big", name="list_dir", arguments={"path": "."})],
+                tool_calls=[
+                    ToolCallRequest(id="call_big", name="list_dir", arguments={"path": "."})
+                ],
                 usage={"prompt_tokens": 5, "completion_tokens": 3},
             )
         captured_second_call[:] = messages
@@ -37,15 +38,17 @@ async def test_runner_persists_large_tool_results_for_follow_up_calls(tmp_path):
     tools.execute = AsyncMock(return_value="x" * 20_000)
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "do task"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=2,
-        workspace=tmp_path,
-        session_key="test:runner",
-        max_tool_result_chars=2048,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "do task"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=2,
+            workspace=tmp_path,
+            session_key="test:runner",
+            max_tool_result_chars=2048,
+        )
+    )
 
     assert result.final_content == "done"
     tool_message = next(msg for msg in captured_second_call if msg.get("role") == "tool")
@@ -123,8 +126,10 @@ def test_persist_tool_result_logs_cleanup_failures(monkeypatch, tmp_path):
 
     assert "[tool output persisted]" in persisted
     assert warnings and "Failed to clean stale tool result buckets" in warnings[0]
+
+
 async def test_runner_keeps_going_when_tool_result_persistence_fails():
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     captured_second_call: list[dict] = []
@@ -147,14 +152,18 @@ async def test_runner_keeps_going_when_tool_result_persistence_fails():
     tools.execute = AsyncMock(return_value="tool result")
 
     runner = AgentRunner(provider)
-    with patch("miniunicorn.agent.runner.maybe_persist_tool_result", side_effect=RuntimeError("disk full")):
-        result = await runner.run(AgentRunSpec(
-            initial_messages=[{"role": "user", "content": "do task"}],
-            tools=tools,
-            model="test-model",
-            max_iterations=2,
-            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        ))
+    with patch(
+        "miniunicorn.agent.runner.maybe_persist_tool_result", side_effect=RuntimeError("disk full")
+    ):
+        result = await runner.run(
+            AgentRunSpec(
+                initial_messages=[{"role": "user", "content": "do task"}],
+                tools=tools,
+                model="test-model",
+                max_iterations=2,
+                max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            )
+        )
 
     assert result.final_content == "done"
     tool_message = next(msg for msg in captured_second_call if msg.get("role") == "tool")

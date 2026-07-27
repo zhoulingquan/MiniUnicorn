@@ -134,18 +134,22 @@ async def test_dispatch_delivers_reasoning_when_channel_opts_in(manager):
     channel = manager.channels["mock"]
     channel.show_reasoning = True
     for chunk in ("first ", "second"):
-        await manager.bus.publish_outbound(OutboundMessage(
+        await manager.bus.publish_outbound(
+            OutboundMessage(
+                channel="mock",
+                chat_id="c1",
+                content=chunk,
+                metadata={"_progress": True, "_reasoning_delta": True, "_stream_id": "r1"},
+            )
+        )
+    await manager.bus.publish_outbound(
+        OutboundMessage(
             channel="mock",
             chat_id="c1",
-            content=chunk,
-            metadata={"_progress": True, "_reasoning_delta": True, "_stream_id": "r1"},
-        ))
-    await manager.bus.publish_outbound(OutboundMessage(
-        channel="mock",
-        chat_id="c1",
-        content="",
-        metadata={"_progress": True, "_reasoning_end": True, "_stream_id": "r1"},
-    ))
+            content="",
+            metadata={"_progress": True, "_reasoning_end": True, "_stream_id": "r1"},
+        )
+    )
 
     await _pump_one(manager)
 
@@ -190,9 +194,12 @@ async def test_base_channel_reasoning_primitives_are_noop_safe():
     assert await channel.send_reasoning_delta("c", "x") is None
     assert await channel.send_reasoning_end("c") is None
     # And the one-shot wrapper translates without raising.
-    assert await channel.send_reasoning(
-        OutboundMessage(channel="plain", chat_id="c", content="x", metadata={})
-    ) is None
+    assert (
+        await channel.send_reasoning(
+            OutboundMessage(channel="plain", chat_id="c", content="x", metadata={})
+        )
+        is None
+    )
 
 
 @pytest.mark.asyncio
@@ -202,12 +209,14 @@ async def test_reasoning_routing_does_not_consult_send_progress(manager):
     channel = manager.channels["mock"]
     channel.send_progress = False
     channel.show_reasoning = True
-    await manager.bus.publish_outbound(OutboundMessage(
-        channel="mock",
-        chat_id="c1",
-        content="still surfaces",
-        metadata={"_progress": True, "_reasoning_delta": True},
-    ))
+    await manager.bus.publish_outbound(
+        OutboundMessage(
+            channel="mock",
+            chat_id="c1",
+            content="still surfaces",
+            metadata={"_progress": True, "_reasoning_delta": True},
+        )
+    )
 
     await _pump_one(manager)
 

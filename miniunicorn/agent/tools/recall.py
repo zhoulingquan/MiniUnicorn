@@ -5,6 +5,7 @@ sqlite-vec installed), this tool lets the agent query past memories,
 conversation summaries, and lessons by semantic similarity instead of
 relying only on what was injected into the system prompt.
 """
+
 from __future__ import annotations
 
 import re
@@ -101,7 +102,8 @@ class RecallTool(Tool):
 
         try:
             embeddings = await provider.embed(
-                [query[:1000]], model=embed_model,
+                [query[:1000]],
+                model=embed_model,
             )
         except NotImplementedError:
             return "Recall is not available (provider does not support embeddings)."

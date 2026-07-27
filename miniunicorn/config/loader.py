@@ -4,10 +4,14 @@ import copy
 import json
 import os
 import re
+import sys
+import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 import pydantic
+from filelock import FileLock
 from loguru import logger
 from pydantic import BaseModel
 
@@ -49,19 +53,21 @@ def migrate_legacy_data_dir() -> None:
         if not new_dir.exists():
             try:
                 old_dir.rename(new_dir)
-                logger.info(
-                    "Migrated data directory: {} -> {}", old_dir, new_dir
-                )
+                logger.info("Migrated data directory: {} -> {}", old_dir, new_dir)
             except OSError as exc:
                 logger.warning(
                     "Failed to migrate data directory from {} to {}: {}",
-                    old_dir, new_dir, exc,
+                    old_dir,
+                    new_dir,
+                    exc,
                 )
         elif old_dir.resolve() != new_dir.resolve():
             logger.warning(
                 "Both {} and {} exist; using {}. Please manually migrate "
                 "data from the old directory if needed.",
-                old_dir, new_dir, new_dir,
+                old_dir,
+                new_dir,
+                new_dir,
             )
 
     _legacy_migration_done = True
@@ -120,21 +126,99 @@ def _apply_ssrf_whitelist(config: Config) -> None:
     configure_ssrf_whitelist(config.tools.ssrf_whitelist)
 
 
-def save_config(config: Config, config_path: Path | None = None) -> None:
+def _fsync_dir(dir_path: Path) -> bool:
+    """fsync the parent directory so the atomic rename is durable.
+
+    Returns ``True`` if the directory was synced, ``False`` if the platform
+    does not support directory fsync (notably Windows). On unsupported
+    platforms we log a debug message but never raise — the atomic
+    ``os.replace`` has already succeeded and must not be rolled back.
     """
-    Save configuration to file.
+    if sys.platform == "win32":
+        # Windows has no portable directory fsync; os.replace is still atomic.
+        logger.debug(
+            "Skipping directory fsync on Windows for {} (not supported)",
+            dir_path,
+        )
+        return False
+    try:
+        fd = os.open(str(dir_path), os.O_RDONLY)
+    except OSError as exc:
+        logger.debug("Could not open directory for fsync {}: {}", dir_path, exc)
+        return False
+    try:
+        os.fsync(fd)
+    except OSError as exc:
+        logger.debug("Could not fsync directory {}: {}", dir_path, exc)
+        return False
+    finally:
+        os.close(fd)
+    return True
+
+
+@contextmanager
+def _locked_config_write(path: Path):
+    """Acquire a cross-process FileLock for *path* for the duration of the block.
+
+    The lock file lives next to the config file (``<path>.lock``) and is
+    shared between this writer and any concurrent process writing the same
+    config. We deliberately keep the lock held only across the write+replace
+    window so concurrent readers (which never take the lock) are not blocked.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock = FileLock(str(path) + ".lock")
+    with lock:
+        yield
+
+
+def save_config(config: Config, config_path: Path | None = None) -> None:
+    """Save configuration to file atomically.
+
+    Writes the config to a temporary file in the same directory, fsyncs it,
+    then atomically replaces the destination via ``os.replace``. A
+    cross-process ``FileLock`` prevents two concurrent writers from
+    interleaving. On failure the temporary file is removed and the original
+    file is left untouched.
 
     Args:
         config: Configuration to save.
         config_path: Optional path to save to. Uses default if not provided.
     """
     path = config_path or get_config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
 
     data = config.model_dump(mode="json", by_alias=True)
+    payload = json.dumps(data, indent=2, ensure_ascii=False)
 
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    with _locked_config_write(path):
+        # Named temp file in the SAME directory so os.replace stays atomic
+        # on the same filesystem. We manage the lifecycle manually so we
+        # can fsync the file before the rename.
+        tmp_fd, tmp_name = tempfile.mkstemp(
+            prefix=path.name + ".",
+            suffix=".tmp",
+            dir=str(path.parent),
+        )
+        tmp_path = Path(tmp_name)
+        try:
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                f.write(payload)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, path)
+            # tmp_path is now gone after successful replace; mark it so the
+            # finally block does not try to remove it again.
+            tmp_path = None
+            _fsync_dir(path.parent)
+        except Exception:
+            # On any failure, remove the temp file and leave the original
+            # config untouched. Re-raise so callers see the error and do
+            # not silently fall back to a corrupt state.
+            if tmp_path is not None and tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    logger.warning("Could not remove temporary config file {}", tmp_path)
+            raise
 
 
 _ENV_REF_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-(.*))?\}")
@@ -202,9 +286,7 @@ def _env_replace(match: re.Match[str]) -> str:
         # 支持 ${VAR:-default} 语法：环境变量未设置时回退到默认值
         if default is not None:
             return default
-        raise ValueError(
-            f"Environment variable '{name}' referenced in config is not set"
-        )
+        raise ValueError(f"Environment variable '{name}' referenced in config is not set")
     return value
 
 

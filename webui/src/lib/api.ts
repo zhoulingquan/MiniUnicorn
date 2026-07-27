@@ -87,6 +87,28 @@ function mcpValuesHeader(values: Record<string, unknown>): HeadersInit | undefin
   return { "x-miniunicorn-MCP-Values": JSON.stringify(payload) };
 }
 
+/**
+ * Build the `x-miniunicorn-Values` header used to carry sensitive fields
+ * (api_key, api_base, config, etc.) out of the URL query string. The backend
+ * merges these into `ctx.query` transparently via `_merge_sensitive_values_header`.
+ * A single JSON string header is fine — `collect_chunked_header_limited` on the
+ * backend handles chunking if we ever need to split.
+ */
+function sensitiveValuesHeader(values: Record<string, unknown>): HeadersInit | undefined {
+  const payload: Record<string, unknown> = {};
+  Object.entries(values).forEach(([key, value]) => {
+    if (value === null || value === undefined) return;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) payload[key] = trimmed;
+      return;
+    }
+    payload[key] = value;
+  });
+  if (!Object.keys(payload).length) return undefined;
+  return { "x-miniunicorn-Values": JSON.stringify(payload) };
+}
+
 function splitKey(key: string): { channel: string; chatId: string } {
   const idx = key.indexOf(":");
   if (idx === -1) return { channel: "", chatId: key };
@@ -638,11 +660,14 @@ export async function createModelConfiguration(
   query.set("label", configuration.label);
   query.set("provider", configuration.provider);
   query.set("model", configuration.model);
-  if (configuration.apiKey !== undefined) query.set("api_key", configuration.apiKey);
-  if (configuration.apiBase !== undefined) query.set("api_base", configuration.apiBase);
+  const sensitive = sensitiveValuesHeader({
+    api_key: configuration.apiKey,
+    api_base: configuration.apiBase,
+  });
   return request<SettingsPayload>(
     `${base}/api/settings/model-configurations/create?${query}`,
     token,
+    { headers: sensitive ?? {} },
   );
 }
 
@@ -659,11 +684,14 @@ export async function updateModelConfiguration(
   if (configuration.contextWindowTokens !== undefined) {
     query.set("context_window_tokens", String(configuration.contextWindowTokens));
   }
-  if (configuration.apiKey !== undefined) query.set("api_key", configuration.apiKey);
-  if (configuration.apiBase !== undefined) query.set("api_base", configuration.apiBase);
+  const sensitive = sensitiveValuesHeader({
+    api_key: configuration.apiKey,
+    api_base: configuration.apiBase,
+  });
   return request<SettingsPayload>(
     `${base}/api/settings/model-configurations/update?${query}`,
     token,
+    { headers: sensitive ?? {} },
   );
 }
 
@@ -687,12 +715,15 @@ export async function updateProviderSettings(
 ): Promise<SettingsPayload> {
   const query = new URLSearchParams();
   query.set("provider", update.provider);
-  if (update.apiKey !== undefined) query.set("api_key", update.apiKey);
-  if (update.apiBase !== undefined) query.set("api_base", update.apiBase);
-  if (update.apiType !== undefined) query.set("api_type", update.apiType);
+  const sensitive = sensitiveValuesHeader({
+    api_key: update.apiKey,
+    api_base: update.apiBase,
+    api_type: update.apiType,
+  });
   return request<SettingsPayload>(
     `${base}/api/settings/provider/update?${query}`,
     token,
+    { method: "POST", headers: sensitive ?? {} },
   );
 }
 
@@ -727,11 +758,14 @@ export async function fetchProviderModels(
 ): Promise<string[]> {
   const query = new URLSearchParams();
   query.set("provider", provider);
-  if (options?.apiKey) query.set("api_key", options.apiKey);
-  if (options?.apiBase) query.set("api_base", options.apiBase);
+  const sensitive = sensitiveValuesHeader({
+    api_key: options?.apiKey,
+    api_base: options?.apiBase,
+  });
   const body = await request<{ provider: string; models: string[] }>(
     `${base}/api/settings/provider/models?${query}`,
     token,
+    { headers: sensitive ?? {} },
   );
   return body.models;
 }
@@ -803,7 +837,6 @@ export async function updateWebSearchSettings(
   query.set("provider", update.provider);
   query.set("max_results", String(update.max_results));
   query.set("timeout", String(update.timeout));
-  query.set("proxy", update.proxy);
   // backends 嵌套结构通过 JSON 字符串传递
   // 空 backends 对象传 "{}" 以便后端清空;只在有非空 api_key 时包含该后端
   const backendsObj: Record<string, { api_key?: string; base_url: string; timeout: number }> = {};
@@ -816,10 +849,16 @@ export async function updateWebSearchSettings(
       backendsObj[name].api_key = draft.api_key;
     }
   }
-  query.set("backends_json", JSON.stringify(backendsObj));
+  // proxy and backends_json (which may contain api_key values) are sensitive —
+  // move them out of the URL query string into the x-miniunicorn-Values header.
+  const sensitive = sensitiveValuesHeader({
+    proxy: update.proxy,
+    backends_json: JSON.stringify(backendsObj),
+  });
   return request<SettingsPayload>(
     `${base}/api/settings/web-search/update?${query}`,
     token,
+    { headers: sensitive ?? {} },
   );
 }
 
@@ -922,7 +961,10 @@ export async function toggleCronJob(
   const query = new URLSearchParams();
   query.set("job_id", jobId);
   query.set("enabled", String(enabled));
-  return request<CronJobPayload>(`${base}/api/cron/jobs/toggle?${query}`, token);
+  return request<CronJobPayload>(
+    `${base}/api/cron/jobs/toggle?${query}`,
+    token,
+  );
 }
 
 export async function fetchTools(
@@ -991,13 +1033,17 @@ export async function updateChannelConfig(
 ): Promise<{ ok: boolean; name: string; enabled: boolean; config: Record<string, unknown> | null }> {
   const query = new URLSearchParams();
   query.set("name", name);
-  if (config !== null) {
-    query.set("config", JSON.stringify(config));
-  }
   if (enabled !== undefined) {
     query.set("enabled", enabled ? "true" : "false");
   }
-  return request(`${base}/api/channels/update?${query}`, token);
+  // Channel config may contain secrets (api_key, tokens, etc.) — move it out
+  // of the URL query string into the x-miniunicorn-Values header.
+  const sensitive = sensitiveValuesHeader({
+    config: config === null ? undefined : JSON.stringify(config),
+  });
+  return request(`${base}/api/channels/update?${query}`, token, {
+    headers: sensitive ?? {},
+  });
 }
 
 export async function deleteChannelConfig(

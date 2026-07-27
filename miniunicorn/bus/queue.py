@@ -19,12 +19,8 @@ class MessageBus:
     _MAX_QUEUE_SIZE = 1000
 
     def __init__(self):
-        self.inbound: asyncio.Queue[InboundMessage] = asyncio.Queue(
-            maxsize=self._MAX_QUEUE_SIZE
-        )
-        self.outbound: asyncio.Queue[OutboundMessage] = asyncio.Queue(
-            maxsize=self._MAX_QUEUE_SIZE
-        )
+        self.inbound: asyncio.Queue[InboundMessage] = asyncio.Queue(maxsize=self._MAX_QUEUE_SIZE)
+        self.outbound: asyncio.Queue[OutboundMessage] = asyncio.Queue(maxsize=self._MAX_QUEUE_SIZE)
 
     async def publish_inbound(self, msg: InboundMessage) -> None:
         """Publish a message from a channel to the agent."""

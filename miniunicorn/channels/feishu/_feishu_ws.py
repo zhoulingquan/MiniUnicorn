@@ -58,9 +58,11 @@ class FeishuWsRunner:
         loop = self._loop
         # 1. 停止所有 client(通过事件循环线程异步执行)
         if loop is not None and not loop.is_closed() and loop.is_running():
+
             async def _stop_all() -> None:
                 for key in list(self._clients.keys()):
                     await self._stop_client(key)
+
             with suppress(Exception):
                 fut = asyncio.run_coroutine_threadsafe(_stop_all(), loop)
                 fut.result(timeout=10)

@@ -52,7 +52,9 @@ def _make_loop(tmp_path, *, mcp_servers: dict | None = None) -> AgentLoop:
 
 
 @pytest.mark.asyncio
-async def test_connect_mcp_retries_when_no_servers_connect(tmp_path, monkeypatch: pytest.MonkeyPatch):
+async def test_connect_mcp_retries_when_no_servers_connect(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
     loop = _make_loop(tmp_path)
     attempts = 0
 
@@ -208,7 +210,9 @@ async def test_reload_mcp_servers_retries_configured_server_without_live_stack(
         return stacks
 
     monkeypatch.setattr("miniunicorn.agent.tools.mcp.connect_mcp_servers", _fake_connect)
-    loop = _make_loop(tmp_path, mcp_servers={"browserbase": config.tools.mcp_servers["browserbase"]})
+    loop = _make_loop(
+        tmp_path, mcp_servers={"browserbase": config.tools.mcp_servers["browserbase"]}
+    )
 
     result = await mcp_runtime.reload_servers(loop, loop.tools)
 

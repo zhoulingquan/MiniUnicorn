@@ -55,9 +55,7 @@ def bus() -> MagicMock:
     return b
 
 
-async def _http_get(
-    url: str, headers: dict[str, str] | None = None
-) -> httpx.Response:
+async def _http_get(url: str, headers: dict[str, str] | None = None) -> httpx.Response:
     return await asyncio.to_thread(
         functools.partial(httpx.get, url, headers=headers or {}, timeout=5.0)
     )
@@ -82,9 +80,7 @@ def _seed_many(workspace: Path, keys: list[str]) -> SessionManager:
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_returns_token_for_localhost(
-    bus: MagicMock, tmp_path: Path
-) -> None:
+async def test_bootstrap_returns_token_for_localhost(bus: MagicMock, tmp_path: Path) -> None:
     sm = _seed_session(tmp_path)
     # 传入 runtime_model_name 确保 bootstrap 返回的 model_name 是字符串而非 None
     channel = _ch(bus, session_manager=sm, port=29901, runtime_model_name=lambda: "test-model")
@@ -105,9 +101,7 @@ async def test_bootstrap_returns_token_for_localhost(
 
 
 @pytest.mark.asyncio
-async def test_sessions_routes_require_bearer_token(
-    bus: MagicMock, tmp_path: Path
-) -> None:
+async def test_sessions_routes_require_bearer_token(bus: MagicMock, tmp_path: Path) -> None:
     sm = _seed_session(tmp_path, key="websocket:abc")
     channel = _ch(bus, session_manager=sm, port=29902)
     server_task = asyncio.create_task(channel.start())
@@ -306,9 +300,7 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
             "http://127.0.0.1:29913/api/settings/mcp-presets/enable?name=browserbase",
             headers={
                 **auth,
-                "x-miniunicorn-MCP-Values": json.dumps(
-                    {"browserbase_api_key": "bb_live_secret"}
-                ),
+                "x-miniunicorn-MCP-Values": json.dumps({"browserbase_api_key": "bb_live_secret"}),
             },
         )
         assert enabled.status_code == 200
@@ -329,9 +321,7 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
             "http://127.0.0.1:29913/api/settings/mcp-presets/custom",
             headers={
                 **auth,
-                "x-miniunicorn-MCP-Values": json.dumps(
-                    {"name": "docs", "command": "npx"}
-                ),
+                "x-miniunicorn-MCP-Values": json.dumps({"name": "docs", "command": "npx"}),
             },
         )
         assert custom.status_code == 200
@@ -349,9 +339,7 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
             "http://127.0.0.1:29913/api/settings/mcp-presets/tools",
             headers={
                 **auth,
-                "x-miniunicorn-MCP-Values": json.dumps(
-                    {"name": "docs", "enabled_tools": []}
-                ),
+                "x-miniunicorn-MCP-Values": json.dumps({"name": "docs", "enabled_tools": []}),
             },
         )
         assert tools.status_code == 200
@@ -385,9 +373,7 @@ async def test_sessions_list_only_returns_websocket_sessions_by_default(
         token = boot.json()["token"]
         auth = {"Authorization": f"Bearer {token}"}
 
-        listing = await _http_get(
-            "http://127.0.0.1:29906/api/sessions", headers=auth
-        )
+        listing = await _http_get("http://127.0.0.1:29906/api/sessions", headers=auth)
         assert listing.status_code == 200
         keys = {s["key"] for s in listing.json()["sessions"]}
         # Only websocket-channel sessions are part of the webui surface; CLI /
@@ -455,7 +441,9 @@ async def test_session_delete_removes_file(
     sm = _seed_session(tmp_path, key="websocket:doomed")
     from miniunicorn.webui.transcript import append_transcript_object
 
-    append_transcript_object("websocket:doomed", {"event": "user", "chat_id": "doomed", "text": "x"})
+    append_transcript_object(
+        "websocket:doomed", {"event": "user", "chat_id": "doomed", "text": "x"}
+    )
     channel = _ch(bus, session_manager=sm, port=29903)
     server_task = asyncio.create_task(channel.start())
     await asyncio.sleep(0.3)
@@ -516,9 +504,7 @@ async def test_session_routes_accept_percent_encoded_websocket_keys(
 
 
 @pytest.mark.asyncio
-async def test_session_routes_reject_non_websocket_keys(
-    bus: MagicMock, tmp_path: Path
-) -> None:
+async def test_session_routes_reject_non_websocket_keys(bus: MagicMock, tmp_path: Path) -> None:
     sm = _seed_many(
         tmp_path,
         [
@@ -557,9 +543,7 @@ async def test_session_routes_reject_non_websocket_keys(
 
 
 @pytest.mark.asyncio
-async def test_session_routes_reject_invalid_key(
-    bus: MagicMock, tmp_path: Path
-) -> None:
+async def test_session_routes_reject_invalid_key(bus: MagicMock, tmp_path: Path) -> None:
     sm = _seed_session(tmp_path)
     channel = _ch(bus, session_manager=sm, port=29904)
     server_task = asyncio.create_task(channel.start())
@@ -582,9 +566,7 @@ async def test_session_routes_reject_invalid_key(
 
 
 @pytest.mark.asyncio
-async def test_static_serves_index_when_dist_present(
-    bus: MagicMock, tmp_path: Path
-) -> None:
+async def test_static_serves_index_when_dist_present(bus: MagicMock, tmp_path: Path) -> None:
     dist = tmp_path / "dist"
     dist.mkdir()
     (dist / "index.html").write_text("<!doctype html><title>nbweb</title>")
@@ -612,9 +594,7 @@ async def test_static_serves_index_when_dist_present(
 
 
 @pytest.mark.asyncio
-async def test_static_rejects_path_traversal(
-    bus: MagicMock, tmp_path: Path
-) -> None:
+async def test_static_rejects_path_traversal(bus: MagicMock, tmp_path: Path) -> None:
     dist = tmp_path / "dist"
     dist.mkdir()
     (dist / "index.html").write_text("ok")
@@ -651,6 +631,7 @@ async def test_api_token_pool_purges_expired(bus: MagicMock, tmp_path: Path) -> 
     channel = _ch(bus, session_manager=sm, port=29908)
     # Don't start a server — directly inject and validate.
     import time as _time
+
     channel._api_tokens["expired"] = _time.monotonic() - 1
     channel._api_tokens["live"] = _time.monotonic() + 60
 
@@ -719,18 +700,14 @@ def test_wildcard_ipv6_without_auth_raises(bus: MagicMock) -> None:
 
 def test_wildcard_ipv6_with_secret_is_valid(bus: MagicMock) -> None:
     channel = _ch(bus, host="::", allowFrom=["caller"], tokenIssueSecret="s3cret")
-    resp = channel._handle_bootstrap(
-        _REMOTE, _FakeReq({"x-miniunicorn-Auth": "s3cret"})
-    )
+    resp = channel._handle_bootstrap(_REMOTE, _FakeReq({"x-miniunicorn-Auth": "s3cret"}))
     assert resp.status_code == 200
 
 
 def test_bootstrap_accepts_static_token_as_secret(bus: MagicMock) -> None:
     """When only token (not token_issue_secret) is set, bootstrap accepts it."""
     channel = _ch(bus, host="0.0.0.0", allowFrom=["caller"], token="static-tok")
-    resp = channel._handle_bootstrap(
-        _REMOTE, _FakeReq({"Authorization": "Bearer static-tok"})
-    )
+    resp = channel._handle_bootstrap(_REMOTE, _FakeReq({"Authorization": "Bearer static-tok"}))
     assert resp.status_code == 200
     body = json.loads(resp.body)
     assert body["token"].startswith("nbwt_")
@@ -753,7 +730,9 @@ def test_localhost_without_auth_is_valid(bus: MagicMock) -> None:
     assert resp.status_code == 200
 
 
-def test_bootstrap_prefers_runtime_model_name(bus: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_bootstrap_prefers_runtime_model_name(
+    bus: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(
         "miniunicorn.channels.websocket.channel._default_model_name_from_config",
         lambda: "from-disk",
@@ -765,7 +744,9 @@ def test_bootstrap_prefers_runtime_model_name(bus: MagicMock, monkeypatch: pytes
     assert body["model_name"] == "live/model"
 
 
-def test_bootstrap_falls_back_when_runtime_returns_empty(bus: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_bootstrap_falls_back_when_runtime_returns_empty(
+    bus: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(
         "miniunicorn.channels.websocket.channel._default_model_name_from_config",
         lambda: "from-disk",
@@ -777,7 +758,9 @@ def test_bootstrap_falls_back_when_runtime_returns_empty(bus: MagicMock, monkeyp
     assert body["model_name"] == "from-disk"
 
 
-def test_bootstrap_falls_back_when_runtime_raises(bus: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_bootstrap_falls_back_when_runtime_raises(
+    bus: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(
         "miniunicorn.channels.websocket.channel._default_model_name_from_config",
         lambda: "from-disk",
@@ -795,17 +778,13 @@ def test_bootstrap_falls_back_when_runtime_raises(bus: MagicMock, monkeypatch: p
 
 def test_bootstrap_rejects_wrong_secret(bus: MagicMock) -> None:
     channel = _ch(bus, host="0.0.0.0", allowFrom=["caller"], tokenIssueSecret="correct")
-    resp = channel._handle_bootstrap(
-        _REMOTE, _FakeReq({"Authorization": "Bearer wrong"})
-    )
+    resp = channel._handle_bootstrap(_REMOTE, _FakeReq({"Authorization": "Bearer wrong"}))
     assert resp.status_code == 401
 
 
 def test_bootstrap_accepts_remote_with_valid_secret(bus: MagicMock) -> None:
     channel = _ch(bus, host="0.0.0.0", allowFrom=["caller"], tokenIssueSecret="s3cret")
-    resp = channel._handle_bootstrap(
-        _REMOTE, _FakeReq({"Authorization": "Bearer s3cret"})
-    )
+    resp = channel._handle_bootstrap(_REMOTE, _FakeReq({"Authorization": "Bearer s3cret"}))
     assert resp.status_code == 200
     body = json.loads(resp.body)
     assert body["token"].startswith("nbwt_")
@@ -813,9 +792,7 @@ def test_bootstrap_accepts_remote_with_valid_secret(bus: MagicMock) -> None:
 
 def test_bootstrap_accepts_x_miniunicorn_auth_header(bus: MagicMock) -> None:
     channel = _ch(bus, host="0.0.0.0", allowFrom=["caller"], tokenIssueSecret="s3cret")
-    resp = channel._handle_bootstrap(
-        _REMOTE, _FakeReq({"x-miniunicorn-Auth": "s3cret"})
-    )
+    resp = channel._handle_bootstrap(_REMOTE, _FakeReq({"x-miniunicorn-Auth": "s3cret"}))
     assert resp.status_code == 200
 
 
@@ -824,3 +801,213 @@ def test_bootstrap_secret_also_enforced_on_localhost(bus: MagicMock) -> None:
     channel = _ch(bus, host="0.0.0.0", allowFrom=["caller"], tokenIssueSecret="s3cret")
     resp = channel._handle_bootstrap(_LOCAL, _NO_HEADERS)
     assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# 4.1 regression: method / Origin / sensitive-header / ZIP-limit enforcement
+# ---------------------------------------------------------------------------
+
+
+async def _http_request(
+    method: str,
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+) -> httpx.Response:
+    """HTTP request helper that supports arbitrary methods (POST/PUT/...)."""
+    return await asyncio.to_thread(
+        functools.partial(httpx.request, method, url, headers=headers or {}, timeout=5.0)
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_only_route_rejects_post_with_405(bus: MagicMock, tmp_path: Path) -> None:
+    """Routes declared ``methods={"GET"}`` must return 405 for POST.
+
+    The websockets HTTP layer rejects POST at the transport level, so we test
+    the dispatch logic directly with a fake POST request.
+    """
+    from websockets.datastructures import Headers
+    from websockets.http11 import Request
+
+    from miniunicorn.channels.websocket._http_router import router
+
+    sm = _seed_session(tmp_path, key="websocket:m")
+    channel = _ch(bus, session_manager=sm, port=29930)
+    # Build a fake POST request to /api/sessions (a GET-only route).
+    req = Request("/api/sessions", Headers([("Host", "127.0.0.1")]))
+    # Attach method attribute — websockets Request doesn't store it, but
+    # dispatch reads it via getattr(request, "method", "GET").
+    req.method = "POST"  # type: ignore[attr-defined]
+    deps = channel._build_route_deps()
+    resp = await router.dispatch(deps, None, req)
+    assert resp is not None
+    assert resp.status_code == 405
+
+
+@pytest.mark.asyncio
+async def test_state_change_route_rejects_bad_origin_with_403(
+    bus: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """State-changing routes (accept POST) must 403 on non-allowlisted Origin.
+
+    Since the websockets HTTP layer only supports GET, state changes arrive as
+    GET. A cross-origin browser GET can still trigger the state change, so
+    Origin enforcement must cover these routes regardless of method.
+    """
+    sm = _seed_session(tmp_path, key="websocket:origin")
+    channel = _ch(bus, session_manager=sm, port=29931)
+    server_task = asyncio.create_task(channel.start())
+    await asyncio.sleep(0.3)
+    try:
+        boot = await _http_get("http://127.0.0.1:29931/webui/bootstrap")
+        token = boot.json()["token"]
+        auth = {"Authorization": f"Bearer {token}"}
+        # GET on a state-changing route (/api/skills/toggle accepts POST)
+        # with a cross-origin Origin header — must be rejected.
+        resp = await _http_get(
+            "http://127.0.0.1:29931/api/skills/toggle?name=x&disabled=true",
+            headers={**auth, "Origin": "http://evil.example.com"},
+        )
+        assert resp.status_code == 403
+        # Empty Origin (non-browser client) must still be allowed.
+        ok = await _http_get(
+            "http://127.0.0.1:29931/api/skills/toggle?name=x&disabled=true",
+            headers=auth,
+        )
+        # 200 or 400 (invalid name) is fine; the point is it's NOT 403.
+        assert ok.status_code != 403
+    finally:
+        await channel.stop()
+        await server_task
+
+
+@pytest.mark.asyncio
+async def test_sensitive_values_header_merges_into_query(
+    bus: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``x-miniunicorn-Values`` JSON header must merge into ``ctx.query``."""
+    captured: list[dict[str, list[str]]] = []
+
+    def _capture(query: dict[str, list[str]]) -> dict:
+        captured.append({k: list(v) for k, v in query.items()})
+        return {}
+
+    # Patch the handler module's imported reference, not the source module.
+    monkeypatch.setattr(
+        "miniunicorn.channels.websocket.handlers.settings.update_provider_settings",
+        _capture,
+    )
+    sm = _seed_session(tmp_path, key="websocket:sens")
+    channel = _ch(bus, session_manager=sm, port=29932)
+    server_task = asyncio.create_task(channel.start())
+    await asyncio.sleep(0.3)
+    try:
+        boot = await _http_get("http://127.0.0.1:29932/webui/bootstrap")
+        token = boot.json()["token"]
+        auth = {"Authorization": f"Bearer {token}"}
+        # Non-sensitive field in query, sensitive field in header.
+        resp = await _http_get(
+            "http://127.0.0.1:29932/api/settings/provider/update?provider=deepseek",
+            headers={
+                **auth,
+                "x-miniunicorn-Values": json.dumps(
+                    {"api_key": "sk-secret-123", "api_base": "https://api.deepseek.com"}
+                ),
+            },
+        )
+        assert resp.status_code == 200
+        assert captured, "handler must have been invoked"
+        merged = captured[-1]
+        # Non-sensitive field from query preserved.
+        assert merged["provider"] == ["deepseek"]
+        # Sensitive field from header merged in.
+        assert merged["api_key"] == ["sk-secret-123"]
+        assert merged["api_base"] == ["https://api.deepseek.com"]
+        # Sensitive value must NOT appear in the URL (only in the header).
+        assert "sk-secret-123" not in str(resp.url)
+    finally:
+        await channel.stop()
+        await server_task
+
+
+def test_skill_zip_too_many_headers_returns_413() -> None:
+    """Skill ZIP upload exceeding the header-count limit must return 413.
+
+    Tested at the helper level because the websockets HTTP layer has its own
+    header-line size limit that rejects oversized headers before dispatch.
+    """
+    from websockets.datastructures import Headers
+
+    from miniunicorn.channels.websocket._http_routes import (
+        SKILL_ZIP_MAX_HEADERS,
+        ChunkedHeaderLimitError,
+        collect_chunked_header_limited,
+    )
+
+    # Build headers with more chunks than allowed.
+    pairs: list[tuple[str, str]] = [("x-miniunicorn-Skill-Zip", "AAAA")]
+    for i in range(1, SKILL_ZIP_MAX_HEADERS + 5):
+        pairs.append((f"x-miniunicorn-Skill-Zip-{i}", "AAAA"))
+    headers = Headers(pairs)
+    with pytest.raises(ChunkedHeaderLimitError):
+        collect_chunked_header_limited(
+            headers,
+            "x-miniunicorn-Skill-Zip",
+            max_count=SKILL_ZIP_MAX_HEADERS,
+            max_total_bytes=32 * 1024 * 1024,
+        )
+
+
+def test_skill_zip_payload_too_large_returns_413() -> None:
+    """Skill ZIP upload exceeding the total-byte limit must return 413."""
+    from websockets.datastructures import Headers
+
+    from miniunicorn.channels.websocket._http_routes import (
+        SKILL_ZIP_MAX_TOTAL_BYTES,
+        ChunkedHeaderLimitError,
+        collect_chunked_header_limited,
+    )
+
+    oversize = "A" * (SKILL_ZIP_MAX_TOTAL_BYTES + 1024)
+    headers = Headers([("x-miniunicorn-Skill-Zip", oversize)])
+    with pytest.raises(ChunkedHeaderLimitError):
+        collect_chunked_header_limited(
+            headers,
+            "x-miniunicorn-Skill-Zip",
+            max_count=200,
+            max_total_bytes=SKILL_ZIP_MAX_TOTAL_BYTES,
+        )
+
+
+@pytest.mark.asyncio
+async def test_state_change_with_allowed_origin_succeeds(
+    bus: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET on a state-changing route from an allowlisted Origin must pass."""
+    # Patch the handler module's imported reference.
+    monkeypatch.setattr(
+        "miniunicorn.channels.websocket.handlers.settings.update_runtime_settings",
+        lambda q: {},
+    )
+    monkeypatch.setattr(
+        "miniunicorn.channels.websocket.channel.WebSocketChannel._reload_cron_safe",
+        lambda self: None,
+    )
+    sm = _seed_session(tmp_path, key="websocket:ok")
+    channel = _ch(bus, session_manager=sm, port=29935)
+    server_task = asyncio.create_task(channel.start())
+    await asyncio.sleep(0.3)
+    try:
+        boot = await _http_get("http://127.0.0.1:29935/webui/bootstrap")
+        token = boot.json()["token"]
+        auth = {"Authorization": f"Bearer {token}"}
+        # localhost Origin is on the default allowlist; GET must succeed.
+        resp = await _http_get(
+            "http://127.0.0.1:29935/api/settings/runtime/update?heartbeat_interval_s=30",
+            headers={**auth, "Origin": "http://127.0.0.1:5173"},
+        )
+        assert resp.status_code == 200
+    finally:
+        await channel.stop()
+        await server_task

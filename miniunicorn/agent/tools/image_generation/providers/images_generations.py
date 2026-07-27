@@ -27,7 +27,6 @@ from miniunicorn.agent.tools.image_generation.providers.base import (
     ImageGenerationError,
     build_headers,
     download_url_to_data_url,
-    file_to_data_url,
     get_api_base,
     merge_extra_body,
     resolve_timeout,
@@ -201,9 +200,7 @@ class ImagesGenerationsAdapter(ImageGenerationAdapter):
             with image_path.open("rb") as f:
                 image_bytes = f.read()
         except OSError as exc:
-            raise ImageGenerationError(
-                f"cannot read reference image {image_path}: {exc}"
-            ) from exc
+            raise ImageGenerationError(f"cannot read reference image {image_path}: {exc}") from exc
 
         files = {"image": (image_path.name, image_bytes, "application/octet-stream")}
 

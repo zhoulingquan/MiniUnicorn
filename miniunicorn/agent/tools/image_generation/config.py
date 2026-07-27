@@ -25,12 +25,10 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import AliasChoices, Field, model_validator
+from pydantic import AliasChoices, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
-from pydantic import ConfigDict
 
 from miniunicorn.config.schema import Base
-
 
 # 支持的协议适配器白名单 (与 providers/__init__.py 的注册表保持一致)
 SUPPORTED_API_TYPES: tuple[str, ...] = (
@@ -67,9 +65,9 @@ def infer_api_type_from_provider(provider: str | None) -> str:
 # 其他协议不读 response_format, 推断结果无影响)
 # 仅列出明确返回临时 URL 的 provider, 其余 (openai/aihubmix/gemini/ollama/custom 等) 回退到 b64_json
 _PROVIDER_TO_RESPONSE_FORMAT: dict[str, str] = {
-    "zhipu": "url",     # 文档明确: glm-image/cogview 返回临时 URL (30 天有效)
-    "stepfun": "url",   # 阶跃星辰 step-image 系列返回临时 URL
-    "minimax": "url",   # MiniMax image-01 返回临时 URL
+    "zhipu": "url",  # 文档明确: glm-image/cogview 返回临时 URL (30 天有效)
+    "stepfun": "url",  # 阶跃星辰 step-image 系列返回临时 URL
+    "minimax": "url",  # MiniMax image-01 返回临时 URL
 }
 
 

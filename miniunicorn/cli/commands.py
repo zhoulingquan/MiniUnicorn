@@ -118,9 +118,7 @@ def version_callback(value: bool):
 
 @app.callback()
 def main(
-    version: bool = typer.Option(
-        None, "--version", "-v", callback=version_callback, is_eager=True
-    ),
+    version: bool = typer.Option(None, "--version", "-v", callback=version_callback, is_eager=True),
 ):
     """MiniUnicorn - Personal AI Assistant."""
     pass
@@ -129,6 +127,12 @@ def main(
 # ============================================================================
 # Onboard / Setup
 # ============================================================================
+
+# System directories that --config must never point at (prevents accidental
+# overwrites of OS files when a user passes e.g. --config /etc).
+_BLOCKED_CONFIG_PATHS: frozenset[str] = frozenset(
+    {"/etc", "/usr", "/bin", "/sbin", "/var", "/boot", "/sys", "/proc"}
+)
 
 
 @app.command()
@@ -144,10 +148,9 @@ def onboard(
     if config:
         config_path = Path(config).expanduser().resolve()
         # 校验路径不在系统目录，避免误操作覆盖系统文件
-        _BLOCKED_PATHS = {"/etc", "/usr", "/bin", "/sbin", "/var", "/boot", "/sys", "/proc"}
         config_str = str(config_path)
-        if config_str in _BLOCKED_PATHS or any(
-            config_str.startswith(p + "/") for p in _BLOCKED_PATHS
+        if config_str in _BLOCKED_CONFIG_PATHS or any(
+            config_str.startswith(p + "/") for p in _BLOCKED_CONFIG_PATHS
         ):
             raise click.UsageError(f"--config 路径不允许指向系统目录: {config_path}")
         set_config_path(config_path)
@@ -204,7 +207,9 @@ def onboard(
             console.print(f"[green]✓[/green] Config saved at {config_path}")
         except Exception as e:
             console.print(f"[red]✗[/red] Error during configuration: {e}")
-            console.print("[yellow]Please run 'miniunicorn onboard' again to complete setup.[/yellow]")
+            console.print(
+                "[yellow]Please run 'miniunicorn onboard' again to complete setup.[/yellow]"
+            )
             raise typer.Exit(1)
     _onboard_plugins(config_path)
 
@@ -253,7 +258,6 @@ def _merge_missing_defaults(existing: Any, defaults: Any) -> Any:
 def _onboard_plugins(config_path: Path) -> None:
     """Inject default config for all discovered channels (built-in + plugins)."""
     import json
-    import os
     import tempfile
 
     from miniunicorn.channels.registry import discover_all
@@ -357,7 +361,9 @@ def _migrate_cron_store(config: "Config") -> None:
 def serve(
     port: int | None = typer.Option(None, "--port", "-p", help="API server port"),
     host: str | None = typer.Option(None, "--host", "-H", help="Bind address"),
-    timeout: float | None = typer.Option(None, "--timeout", "-t", help="Per-request timeout (seconds)"),
+    timeout: float | None = typer.Option(
+        None, "--timeout", "-t", help="Per-request timeout (seconds)"
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show MiniUnicorn runtime logs"),
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
@@ -366,7 +372,9 @@ def serve(
     try:
         from aiohttp import web  # noqa: F401
     except ImportError:
-        console.print("[red]aiohttp is required. Install with: pip install 'miniunicorn-ai[api]'[/red]")
+        console.print(
+            "[red]aiohttp is required. Install with: pip install 'miniunicorn-ai[api]'[/red]"
+        )
         raise typer.Exit(1)
 
     from loguru import logger
@@ -390,7 +398,8 @@ def serve(
     session_manager = SessionManager(runtime_config.workspace_path)
     try:
         agent_loop = AgentLoop.from_config(
-            runtime_config, bus,
+            runtime_config,
+            bus,
             session_manager=session_manager,
         )
     except ValueError as exc:
@@ -407,7 +416,9 @@ def serve(
     if api_key:
         console.print("  [cyan]Auth[/cyan]     : Bearer token required for /v1/*")
     else:
-        console.print("  [yellow]Auth[/yellow]     : disabled (set api.api_key to require Bearer token)")
+        console.print(
+            "  [yellow]Auth[/yellow]     : disabled (set api.api_key to require Bearer token)"
+        )
     if host in {"0.0.0.0", "::"}:
         if not api_key:
             console.print(
@@ -571,9 +582,13 @@ def _configure_desktop_gateway(
 @app.command("desktop-gateway", hidden=True)
 def desktop_gateway(
     webui_port: int = typer.Option(0, "--webui-port", min=0, max=65535),
-    webui_socket: str | None = typer.Option(None, "--webui-socket", help="Unix socket path for desktop IPC"),
+    webui_socket: str | None = typer.Option(
+        None, "--webui-socket", help="Unix socket path for desktop IPC"
+    ),
     token_issue_secret: str = typer.Option(..., "--token-issue-secret"),
-    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Desktop workspace directory"),
+    workspace: str | None = typer.Option(
+        None, "--workspace", "-w", help="Desktop workspace directory"
+    ),
     config: str | None = typer.Option(None, "--config", "-c", help="Desktop config file"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
@@ -629,8 +644,12 @@ def agent(
     session_id: str = typer.Option("cli:direct", "--session", "-s", help="Session ID"),
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
-    markdown: bool = typer.Option(True, "--markdown/--no-markdown", help="Render assistant output as Markdown"),
-    logs: bool = typer.Option(False, "--logs/--no-logs", help="Show MiniUnicorn runtime logs during chat"),
+    markdown: bool = typer.Option(
+        True, "--markdown/--no-markdown", help="Render assistant output as Markdown"
+    ),
+    logs: bool = typer.Option(
+        False, "--logs/--no-logs", help="Show MiniUnicorn runtime logs during chat"
+    ),
 ):
     """Interact with the agent directly."""
     from loguru import logger
@@ -658,7 +677,8 @@ def agent(
 
     try:
         agent_loop = AgentLoop.from_config(
-            config, bus,
+            config,
+            bus,
             cron_service=cron,
         )
     except ValueError as exc:
@@ -677,7 +697,9 @@ def agent(
     def _make_progress(renderer: StreamRenderer | None = None):
         reasoning_buffer = _ReasoningBuffer()
 
-        async def _cli_progress(content: str, *, tool_hint: bool = False, reasoning: bool = False, **_kwargs: Any) -> None:
+        async def _cli_progress(
+            content: str, *, tool_hint: bool = False, reasoning: bool = False, **_kwargs: Any
+        ) -> None:
             ch = agent_loop.channels_config
 
             if _kwargs.get("reasoning_end"):
@@ -700,6 +722,7 @@ def agent(
             if ch and not tool_hint and not ch.send_progress:
                 return
             _print_cli_progress_line(content, _thinking, renderer)
+
         return _cli_progress
 
     if message:
@@ -711,7 +734,8 @@ def agent(
                 bot_icon=config.agents.defaults.bot_icon,
             )
             response = await agent_loop.process_direct(
-                message, session_id,
+                message,
+                session_id,
                 on_progress=_make_progress(renderer),
                 on_stream=renderer.on_delta,
                 on_stream_end=renderer.on_end,
@@ -733,9 +757,12 @@ def agent(
     else:
         # Interactive mode — route through bus like other channels
         from miniunicorn.bus.events import InboundMessage
+
         _init_prompt_session()
         _model, _preset_tag = _model_display(config)
-        console.print(f"{__logo__} Interactive mode [bold blue]({_model})[/bold blue]{_preset_tag} — type [bold]exit[/bold] or [bold]Ctrl+C[/bold] to quit\n")
+        console.print(
+            f"{__logo__} Interactive mode [bold blue]({_model})[/bold blue]{_preset_tag} — type [bold]exit[/bold] or [bold]Ctrl+C[/bold] to quit\n"
+        )
 
         if ":" in session_id:
             cli_channel, cli_chat_id = session_id.split(":", 1)
@@ -751,11 +778,11 @@ def agent(
         signal.signal(signal.SIGINT, _handle_signal)
         signal.signal(signal.SIGTERM, _handle_signal)
         # SIGHUP is not available on Windows
-        if hasattr(signal, 'SIGHUP'):
+        if hasattr(signal, "SIGHUP"):
             signal.signal(signal.SIGHUP, _handle_signal)
         # Ignore SIGPIPE to prevent silent process termination when writing to closed pipes
         # SIGPIPE is not available on Windows
-        if hasattr(signal, 'SIGPIPE'):
+        if hasattr(signal, "SIGPIPE"):
             signal.signal(signal.SIGPIPE, signal.SIG_IGN)
 
         async def run_interactive():
@@ -838,13 +865,15 @@ def agent(
                             bot_icon=config.agents.defaults.bot_icon,
                         )
 
-                        await bus.publish_inbound(InboundMessage(
-                            channel=cli_channel,
-                            sender_id="user",
-                            chat_id=cli_chat_id,
-                            content=user_input,
-                            metadata={"_wants_stream": True},
-                        ))
+                        await bus.publish_inbound(
+                            InboundMessage(
+                                channel=cli_channel,
+                                sender_id="user",
+                                chat_id=cli_chat_id,
+                                content=user_input,
+                                metadata={"_wants_stream": True},
+                            )
+                        )
 
                         await turn_done.wait()
 
@@ -926,8 +955,12 @@ def channels_status(
 
 @channels_app.command("login")
 def channels_login(
-    channel_name: str = typer.Argument(..., help="Channel name (use 'miniunicorn channels list' to see available)"),
-    force: bool = typer.Option(False, "--force", "-f", help="Force re-authentication even if already logged in"),
+    channel_name: str = typer.Argument(
+        ..., help="Channel name (use 'miniunicorn channels list' to see available)"
+    ),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Force re-authentication even if already logged in"
+    ),
     config_path: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
 ):
     """Authenticate with a channel via QR code or other interactive login."""
@@ -1017,8 +1050,12 @@ def status():
 
     console.print(f"{__logo__} MiniUnicorn Status\n")
 
-    console.print(f"Config: {config_path} {'[green]✓[/green]' if config_path.exists() else '[red]✗[/red]'}")
-    console.print(f"Workspace: {workspace} {'[green]✓[/green]' if workspace.exists() else '[red]✗[/red]'}")
+    console.print(
+        f"Config: {config_path} {'[green]✓[/green]' if config_path.exists() else '[red]✗[/red]'}"
+    )
+    console.print(
+        f"Workspace: {workspace} {'[green]✓[/green]' if workspace.exists() else '[red]✗[/red]'}"
+    )
 
     if config_path.exists():
         from miniunicorn.providers.registry import PROVIDERS
@@ -1039,7 +1076,9 @@ def status():
                     console.print(f"{spec.label}: [dim]not set[/dim]")
             else:
                 has_key = bool(p.api_key)
-                console.print(f"{spec.label}: {'[green]✓[/green]' if has_key else '[dim]not set[/dim]'}")
+                console.print(
+                    f"{spec.label}: {'[green]✓[/green]' if has_key else '[dim]not set[/dim]'}"
+                )
 
 
 # ============================================================================
@@ -1052,7 +1091,9 @@ app.add_typer(provider_app, name="provider")
 
 def _resolve_oauth_provider(provider: str):
     """Resolve and validate an OAuth provider configuration."""
-    console.print(f"[red]Unknown OAuth provider: {provider}[/red]  No OAuth providers available in this build.")
+    console.print(
+        f"[red]Unknown OAuth provider: {provider}[/red]  No OAuth providers available in this build."
+    )
     raise typer.Exit(1)
 
 
@@ -1081,7 +1122,7 @@ def provider_logout(
 # 注意:下方 import 中已剔除文件顶部从 _terminal_render 引入过的符号
 # (_print_agent_response / _print_cli_reasoning / _ReasoningBuffer / _sanitize_surrogates),
 # 避免重复 import。它们仍属于本模块的兼容导出表面(见 __all___compat__)。
-from miniunicorn.cli._terminal_render import (
+from miniunicorn.cli._terminal_render import (  # noqa: F401 — compat re-exports
     FileHistory,
     SafeFileHistory,
     _print_interactive_line,
@@ -1090,7 +1131,7 @@ from miniunicorn.cli._terminal_render import (
     _response_renderable,
     patch_stdout,
 )
-from miniunicorn.utils.evaluator import evaluate_response
+from miniunicorn.utils.evaluator import evaluate_response  # noqa: F401 — compat re-export
 
 # 显式声明 __all__ 之外的兼容导出(避免被 linter 当作未使用而移除)。
 # 同时列出文件顶部已 import 的符号,以便集中查阅兼容表面。

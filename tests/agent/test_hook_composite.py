@@ -82,12 +82,18 @@ async def test_composite_fans_out_all_async_methods():
     await hook.after_iteration(ctx)
 
     assert events == [
-        "before_iteration", "before_iteration",
-        "emit_reasoning:thinking...", "emit_reasoning:thinking...",
-        "on_stream:hi", "on_stream:hi",
-        "on_stream_end:True", "on_stream_end:True",
-        "before_execute_tools", "before_execute_tools",
-        "after_iteration", "after_iteration",
+        "before_iteration",
+        "before_iteration",
+        "emit_reasoning:thinking...",
+        "emit_reasoning:thinking...",
+        "on_stream:hi",
+        "on_stream:hi",
+        "on_stream_end:True",
+        "on_stream_end:True",
+        "before_execute_tools",
+        "before_execute_tools",
+        "after_iteration",
+        "after_iteration",
     ]
 
 
@@ -138,20 +144,26 @@ async def test_composite_error_isolation_all_async():
     class Bad(AgentHook):
         async def emit_reasoning(self, reasoning_content):
             raise RuntimeError("err")
+
         async def on_stream_end(self, context, *, resuming):
             raise RuntimeError("err")
+
         async def before_execute_tools(self, context):
             raise RuntimeError("err")
+
         async def after_iteration(self, context):
             raise RuntimeError("err")
 
     class Good(AgentHook):
         async def emit_reasoning(self, reasoning_content):
             calls.append("emit_reasoning")
+
         async def on_stream_end(self, context, *, resuming):
             calls.append("on_stream_end")
+
         async def before_execute_tools(self, context):
             calls.append("before_execute_tools")
+
         async def after_iteration(self, context):
             calls.append("after_iteration")
 
@@ -296,14 +308,19 @@ def _make_loop(tmp_path, hooks=None):
     provider.get_default_model.return_value = "test-model"
     provider.generation.max_tokens = 4096
 
-    with patch("miniunicorn.agent.loop.ContextBuilder"), \
-         patch("miniunicorn.agent.loop.SessionManager"), \
-         patch("miniunicorn.agent.loop.SubagentManager") as mock_sub_mgr, \
-         patch("miniunicorn.agent.loop.Consolidator"), \
-         patch("miniunicorn.agent.loop.Dream"):
+    with (
+        patch("miniunicorn.agent.loop.ContextBuilder"),
+        patch("miniunicorn.agent.loop.SessionManager"),
+        patch("miniunicorn.agent.loop.SubagentManager") as mock_sub_mgr,
+        patch("miniunicorn.agent.loop.Consolidator"),
+        patch("miniunicorn.agent.loop.Dream"),
+    ):
         mock_sub_mgr.return_value.cancel_by_session = AsyncMock(return_value=0)
         loop = AgentLoop(
-            bus=bus, provider=provider, workspace=tmp_path, hooks=hooks,
+            bus=bus,
+            provider=provider,
+            workspace=tmp_path,
+            hooks=hooks,
         )
     return loop
 
@@ -352,9 +369,7 @@ async def test_agent_loop_extra_hook_error_isolation(tmp_path):
     )
     loop.tools.get_definitions = MagicMock(return_value=[])
 
-    content, _, _, _, _ = await loop._run_agent_loop(
-        [{"role": "user", "content": "hi"}]
-    )
+    content, _, _, _, _ = await loop._run_agent_loop([{"role": "user", "content": "hi"}])
 
     assert content == "still works"
 
@@ -365,11 +380,13 @@ async def test_agent_loop_extra_hooks_do_not_swallow_loop_hook_errors(tmp_path):
     from miniunicorn.providers.base import LLMResponse, ToolCallRequest
 
     loop = _make_loop(tmp_path, hooks=[AgentHook()])
-    loop.provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content="working",
-        tool_calls=[ToolCallRequest(id="c1", name="list_dir", arguments={"path": "."})],
-        usage={},
-    ))
+    loop.provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(
+            content="working",
+            tool_calls=[ToolCallRequest(id="c1", name="list_dir", arguments={"path": "."})],
+            usage={},
+        )
+    )
     loop.tools.get_definitions = MagicMock(return_value=[])
     loop.tools.execute = AsyncMock(return_value="ok")
 
@@ -386,10 +403,12 @@ async def test_agent_loop_no_hooks_backward_compat(tmp_path):
     from miniunicorn.providers.base import LLMResponse, ToolCallRequest
 
     loop = _make_loop(tmp_path)
-    loop.provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content="working",
-        tool_calls=[ToolCallRequest(id="c1", name="list_dir", arguments={"path": "."})],
-    ))
+    loop.provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(
+            content="working",
+            tool_calls=[ToolCallRequest(id="c1", name="list_dir", arguments={"path": "."})],
+        )
+    )
     loop.tools.get_definitions = MagicMock(return_value=[])
     loop.tools.execute = AsyncMock(return_value="ok")
     loop.max_iterations = 2

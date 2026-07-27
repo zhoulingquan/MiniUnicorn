@@ -153,7 +153,9 @@ def build_headers(
     return headers
 
 
-def merge_extra_body(body: dict[str, Any], provider_config: ImageGenerationProviderConfig) -> dict[str, Any]:
+def merge_extra_body(
+    body: dict[str, Any], provider_config: ImageGenerationProviderConfig
+) -> dict[str, Any]:
     """把 provider_config.extra_body 浅合并到请求体 (用户传入字段优先级最低, 不覆盖已设字段)。"""
     if not provider_config.extra_body:
         return body
@@ -168,7 +170,9 @@ def get_api_base(provider_config: ImageGenerationProviderConfig, *, fallback: st
     return base or fallback
 
 
-def resolve_timeout(provider_config: ImageGenerationProviderConfig, adapter_default: float) -> float:
+def resolve_timeout(
+    provider_config: ImageGenerationProviderConfig, adapter_default: float
+) -> float:
     """取超时秒数; None 时使用适配器默认值。"""
     if provider_config.timeout is None or provider_config.timeout <= 0:
         return adapter_default

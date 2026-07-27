@@ -1,6 +1,6 @@
 [project]
 name = "miniunicorn-ai"
-version = "0.1.0"
+version = "0.2.0"
 description = "A lightweight personal AI assistant framework"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
@@ -160,6 +160,11 @@ ignore = [
 "miniunicorn/providers/factory.py" = ["E402"]
 "miniunicorn/agent/loop.py" = ["E402"]
 "miniunicorn/cli/commands.py" = ["E402"]
+# Tests use CamelCase aliases for mock patch targets (e.g. ``MockClient``) and
+# sectioned late imports to keep each test block self-contained. N806/E402
+# would otherwise fire noisily on conventions that are idiomatic in pytest
+# suites.
+"tests/**" = ["N806", "E402"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

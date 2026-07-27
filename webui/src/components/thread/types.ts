@@ -61,6 +61,9 @@ export interface ThreadComposerProps {
   prefillText?: string | null;
   /** ``prefillText`` 被填入输入框后调用,父组件据此清空 prefill 状态。 */
   onPrefillConsumed?: () => void;
+  /** 服务端 WebSocket 帧大小上限(字节)。Composer 在发送前对最终 JSON frame
+   * 的 UTF-8 字节数做校验,超限直接拦截并保留草稿(见设计 §4.5)。 */
+  maxMessageBytes?: number;
 }
 
 /** 斜杠命令面板的弹出位置(输入框上方或下方)。 */

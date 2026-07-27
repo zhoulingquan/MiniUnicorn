@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from miniunicorn.config.schema import AgentDefaults
-from miniunicorn.agent.tools.registry import ToolRegistry
 from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
@@ -18,7 +17,7 @@ _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
 @pytest.mark.asyncio
 async def test_runner_preserves_reasoning_fields_and_tool_results():
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
     captured_second_call: list[dict] = []
@@ -43,25 +42,26 @@ async def test_runner_preserves_reasoning_fields_and_tool_results():
     tools.execute = AsyncMock(return_value="tool result")
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[
-            {"role": "system", "content": "system"},
-            {"role": "user", "content": "do task"},
-        ],
-        tools=tools,
-        model="test-model",
-        max_iterations=3,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[
+                {"role": "system", "content": "system"},
+                {"role": "user", "content": "do task"},
+            ],
+            tools=tools,
+            model="test-model",
+            max_iterations=3,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     assert result.final_content == "done"
     assert result.tools_used == ["list_dir"]
-    assert result.tool_events == [
-        {"name": "list_dir", "status": "ok", "detail": "tool result"}
-    ]
+    assert result.tool_events == [{"name": "list_dir", "status": "ok", "detail": "tool result"}]
 
     assistant_messages = [
-        msg for msg in captured_second_call
+        msg
+        for msg in captured_second_call
         if msg.get("role") == "assistant" and msg.get("tool_calls")
     ]
     assert len(assistant_messages) == 1
@@ -75,25 +75,29 @@ async def test_runner_preserves_reasoning_fields_and_tool_results():
 
 @pytest.mark.asyncio
 async def test_runner_returns_max_iterations_fallback():
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
-    provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
-        content="still working",
-        tool_calls=[ToolCallRequest(id="call_1", name="list_dir", arguments={"path": "."})],
-    ))
+    provider.chat_with_retry = AsyncMock(
+        return_value=LLMResponse(
+            content="still working",
+            tool_calls=[ToolCallRequest(id="call_1", name="list_dir", arguments={"path": "."})],
+        )
+    )
     tools = MagicMock()
     tools.get_definitions.return_value = []
     tools.execute = AsyncMock(return_value="tool result")
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[],
-        tools=tools,
-        model="test-model",
-        max_iterations=2,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[],
+            tools=tools,
+            model="test-model",
+            max_iterations=2,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     assert result.stop_reason == "max_iterations"
     assert result.final_content == (
@@ -106,7 +110,7 @@ async def test_runner_returns_max_iterations_fallback():
 
 @pytest.mark.asyncio
 async def test_runner_times_out_hung_llm_request():
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
 
@@ -119,14 +123,16 @@ async def test_runner_times_out_hung_llm_request():
 
     runner = AgentRunner(provider)
     started = time.monotonic()
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "hello"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        llm_timeout_s=0.05,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "hello"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            llm_timeout_s=0.05,
+        )
+    )
 
     assert (time.monotonic() - started) < 1.0
     assert result.stop_reason == "error"
@@ -136,7 +142,7 @@ async def test_runner_times_out_hung_llm_request():
 @pytest.mark.asyncio
 async def test_runner_does_not_apply_outer_wall_timeout_to_streaming_requests():
     from miniunicorn.agent.hook import AgentHook, AgentHookContext
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
     streamed: list[str] = []
@@ -161,15 +167,17 @@ async def test_runner_does_not_apply_outer_wall_timeout_to_streaming_requests():
             streamed.append(delta)
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "think for a while"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        hook=StreamingHook(),
-        llm_timeout_s=0.01,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "think for a while"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            hook=StreamingHook(),
+            llm_timeout_s=0.01,
+        )
+    )
 
     assert result.stop_reason == "completed"
     assert result.final_content == "still alive"
@@ -179,7 +187,7 @@ async def test_runner_does_not_apply_outer_wall_timeout_to_streaming_requests():
 
 @pytest.mark.asyncio
 async def test_runner_replaces_empty_tool_result_with_marker():
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
     captured_second_call: list[dict] = []
@@ -202,13 +210,15 @@ async def test_runner_replaces_empty_tool_result_with_marker():
     tools.execute = AsyncMock(return_value="")
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "do task"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=2,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "do task"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=2,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     assert result.final_content == "done"
     tool_message = next(msg for msg in captured_second_call if msg.get("role") == "tool")
@@ -218,7 +228,7 @@ async def test_runner_replaces_empty_tool_result_with_marker():
 @pytest.mark.asyncio
 async def test_runner_retries_empty_final_response_with_summary_prompt():
     """Empty responses get 2 silent retries before finalization kicks in."""
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
     calls: list[dict] = []
@@ -242,13 +252,15 @@ async def test_runner_retries_empty_final_response_with_summary_prompt():
     tools.get_definitions.return_value = []
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "do task"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=3,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "do task"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=3,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     assert result.final_content == "final answer"
     # 2 silent retries (iterations 0,1) + finalization on iteration 1
@@ -263,7 +275,7 @@ async def test_runner_retries_empty_final_response_with_summary_prompt():
 @pytest.mark.asyncio
 async def test_runner_uses_specific_message_after_empty_finalization_retry():
     """After silent retries + finalization all return empty, stop_reason is empty_final_response."""
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
     from miniunicorn.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
 
     provider = MagicMock(spec=LLMProvider)
@@ -276,13 +288,15 @@ async def test_runner_uses_specific_message_after_empty_finalization_retry():
     tools.get_definitions.return_value = []
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "do task"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=3,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "do task"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=3,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     assert result.final_content == EMPTY_FINAL_RESPONSE_MESSAGE
     assert result.stop_reason == "empty_final_response"
@@ -295,7 +309,7 @@ async def test_runner_empty_response_does_not_break_tool_chain():
     Sequence: tool_call -> empty -> tool_call -> final text.
     The runner should recover via silent retry and complete normally.
     """
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
     call_count = 0
@@ -306,15 +320,21 @@ async def test_runner_empty_response_does_not_break_tool_chain():
         if call_count == 1:
             return LLMResponse(
                 content=None,
-                tool_calls=[ToolCallRequest(id="tc1", name="read_file", arguments={"path": "a.txt"})],
+                tool_calls=[
+                    ToolCallRequest(id="tc1", name="read_file", arguments={"path": "a.txt"})
+                ],
                 usage={"prompt_tokens": 10, "completion_tokens": 5},
             )
         if call_count == 2:
-            return LLMResponse(content=None, tool_calls=[], usage={"prompt_tokens": 10, "completion_tokens": 1})
+            return LLMResponse(
+                content=None, tool_calls=[], usage={"prompt_tokens": 10, "completion_tokens": 1}
+            )
         if call_count == 3:
             return LLMResponse(
                 content=None,
-                tool_calls=[ToolCallRequest(id="tc2", name="read_file", arguments={"path": "b.txt"})],
+                tool_calls=[
+                    ToolCallRequest(id="tc2", name="read_file", arguments={"path": "b.txt"})
+                ],
                 usage={"prompt_tokens": 10, "completion_tokens": 5},
             )
         return LLMResponse(
@@ -330,17 +350,21 @@ async def test_runner_empty_response_does_not_break_tool_chain():
         return "file content"
 
     tool_registry = MagicMock()
-    tool_registry.get_definitions.return_value = [{"type": "function", "function": {"name": "read_file"}}]
+    tool_registry.get_definitions.return_value = [
+        {"type": "function", "function": {"name": "read_file"}}
+    ]
     tool_registry.execute = AsyncMock(side_effect=fake_tool)
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "read both files"}],
-        tools=tool_registry,
-        model="test-model",
-        max_iterations=10,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "read both files"}],
+            tools=tool_registry,
+            model="test-model",
+            max_iterations=10,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     assert result.final_content == "Here are the results."
     assert result.stop_reason == "completed"
@@ -352,7 +376,7 @@ async def test_runner_empty_response_does_not_break_tool_chain():
 async def test_runner_accumulates_usage_and_preserves_cached_tokens():
     """Runner should accumulate prompt/completion tokens across iterations
     and preserve cached_tokens from provider responses."""
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
     call_count = {"n": 0}
@@ -362,7 +386,9 @@ async def test_runner_accumulates_usage_and_preserves_cached_tokens():
         if call_count["n"] == 1:
             return LLMResponse(
                 content="thinking",
-                tool_calls=[ToolCallRequest(id="call_1", name="read_file", arguments={"path": "x"})],
+                tool_calls=[
+                    ToolCallRequest(id="call_1", name="read_file", arguments={"path": "x"})
+                ],
                 usage={"prompt_tokens": 100, "completion_tokens": 10, "cached_tokens": 80},
             )
         return LLMResponse(
@@ -377,13 +403,15 @@ async def test_runner_accumulates_usage_and_preserves_cached_tokens():
     tools.execute = AsyncMock(return_value="file content")
 
     runner = AgentRunner(provider)
-    result = await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "do task"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=3,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-    ))
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "do task"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=3,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
+    )
 
     # Usage should be accumulated across iterations
     assert result.usage["prompt_tokens"] == 300  # 100 + 200
@@ -399,7 +427,7 @@ async def test_runner_binds_on_retry_wait_to_retry_callback_not_progress():
     internal retry diagnostics like "Model request failed, retry in 1s"
     to leak to end-user channels as normal progress updates.
     """
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     captured: dict = {}
 
@@ -416,18 +444,20 @@ async def test_runner_binds_on_retry_wait_to_retry_callback_not_progress():
     retry_wait_cb = AsyncMock()
 
     runner = AgentRunner(provider)
-    await runner.run(AgentRunSpec(
-        initial_messages=[
-            {"role": "system", "content": "system"},
-            {"role": "user", "content": "hi"},
-        ],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        progress_callback=progress_cb,
-        retry_wait_callback=retry_wait_cb,
-    ))
+    await runner.run(
+        AgentRunSpec(
+            initial_messages=[
+                {"role": "system", "content": "system"},
+                {"role": "user", "content": "hi"},
+            ],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            progress_callback=progress_cb,
+            retry_wait_callback=retry_wait_cb,
+        )
+    )
 
     assert captured["on_retry_wait"] is retry_wait_cb
     assert captured["on_retry_wait"] is not progress_cb
@@ -441,7 +471,7 @@ async def test_runner_binds_on_retry_wait_to_retry_callback_not_progress():
 @pytest.mark.asyncio
 async def test_runner_passes_temperature_to_provider():
     """temperature from AgentRunSpec should reach provider.chat_with_retry."""
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     captured: dict = {}
 
@@ -455,14 +485,16 @@ async def test_runner_passes_temperature_to_provider():
     tools.get_definitions.return_value = []
 
     runner = AgentRunner(provider)
-    await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "hi"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        temperature=0.7,
-    ))
+    await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "hi"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            temperature=0.7,
+        )
+    )
 
     assert captured["temperature"] == 0.7
 
@@ -470,7 +502,7 @@ async def test_runner_passes_temperature_to_provider():
 @pytest.mark.asyncio
 async def test_runner_passes_max_tokens_to_provider():
     """max_tokens from AgentRunSpec should reach provider.chat_with_retry."""
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     captured: dict = {}
 
@@ -484,14 +516,16 @@ async def test_runner_passes_max_tokens_to_provider():
     tools.get_definitions.return_value = []
 
     runner = AgentRunner(provider)
-    await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "hi"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        max_tokens=8192,
-    ))
+    await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "hi"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            max_tokens=8192,
+        )
+    )
 
     assert captured["max_tokens"] == 8192
 
@@ -499,7 +533,7 @@ async def test_runner_passes_max_tokens_to_provider():
 @pytest.mark.asyncio
 async def test_runner_passes_reasoning_effort_to_provider():
     """reasoning_effort from AgentRunSpec should reach provider.chat_with_retry."""
-    from miniunicorn.agent.runner import AgentRunSpec, AgentRunner
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     captured: dict = {}
 
@@ -513,13 +547,15 @@ async def test_runner_passes_reasoning_effort_to_provider():
     tools.get_definitions.return_value = []
 
     runner = AgentRunner(provider)
-    await runner.run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "hi"}],
-        tools=tools,
-        model="test-model",
-        max_iterations=1,
-        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
-        reasoning_effort="high",
-    ))
+    await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "hi"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            reasoning_effort="high",
+        )
+    )
 
     assert captured["reasoning_effort"] == "high"

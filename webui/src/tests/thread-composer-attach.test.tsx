@@ -170,4 +170,72 @@ describe("ThreadComposer — image attachments", () => {
     fireEvent.keyDown(textarea, { key: "Enter" });
     expect(onSend).not.toHaveBeenCalled();
   });
+
+  it("blocks send and preserves draft when frame exceeds maxMessageBytes", async () => {
+    // 设计 §4.5:附件 + 文本超限时,不调用 onSend、不清空输入框或附件。
+    const file = pngFile("big.png");
+    encodeImage.mockResolvedValueOnce(resolveReady(file));
+    const onSend = vi.fn();
+
+    render(<ThreadComposer onSend={onSend} maxMessageBytes={2048} />);
+
+    const fileInput = screen
+      .getByLabelText(/message input/i)
+      .closest("form")!
+      .querySelector('input[type="file"]') as HTMLInputElement;
+
+    await act(async () => {
+      fireEvent.change(fileInput, { target: { files: [file] } });
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("composer-chip")).toBeInTheDocument(),
+    );
+
+    const textarea = screen.getByLabelText(/message input/i);
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    // onSend must NOT fire — the frame (data URL + text) exceeds the 2048 B cap.
+    expect(onSend).not.toHaveBeenCalled();
+
+    // Draft must be preserved: textarea still has the text, chip still visible.
+    expect(textarea).toHaveValue("hello");
+    expect(screen.getByTestId("composer-chip")).toBeInTheDocument();
+
+    // An inline error must surface so the user understands why send was blocked.
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent ?? "").toMatch(/exceeds|超过/i);
+  });
+
+  it("sends normally when frame fits under maxMessageBytes", async () => {
+    // Sanity check: a generous limit must still let normal sends through.
+    const file = pngFile("small.png");
+    encodeImage.mockResolvedValueOnce(resolveReady(file));
+    const onSend = vi.fn();
+
+    render(<ThreadComposer onSend={onSend} maxMessageBytes={37_748_736} />);
+
+    const fileInput = screen
+      .getByLabelText(/message input/i)
+      .closest("form")!
+      .querySelector('input[type="file"]') as HTMLInputElement;
+
+    await act(async () => {
+      fireEvent.change(fileInput, { target: { files: [file] } });
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("composer-chip")).toBeInTheDocument(),
+    );
+
+    const textarea = screen.getByLabelText(/message input/i);
+    fireEvent.change(textarea, { target: { value: "hi" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    expect(onSend).toHaveBeenCalledTimes(1);
+    // Text and chip are cleared after a successful send.
+    expect(textarea).toHaveValue("");
+    expect(screen.queryByTestId("composer-chip")).toBeNull();
+  });
 });

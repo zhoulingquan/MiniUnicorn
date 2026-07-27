@@ -5,6 +5,7 @@ prompt lists available subagents (from agents/*.md), and the LLM calls
 this tool to autonomously delegate when a task matches a subagent's
 description.
 """
+
 from __future__ import annotations
 
 from contextvars import ContextVar

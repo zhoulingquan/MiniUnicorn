@@ -79,10 +79,12 @@ class ChatCompletionsAdapter(ImageGenerationAdapter):
                     raise ImageGenerationError(
                         f"cannot read reference image {img_path}: {exc}"
                     ) from exc
-                content.append({
-                    "type": "image_url",
-                    "image_url": {"url": data_url},
-                })
+                content.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": data_url},
+                    }
+                )
             content.append({"type": "text", "text": prompt})
         else:
             content = prompt

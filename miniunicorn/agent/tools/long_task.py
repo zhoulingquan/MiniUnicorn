@@ -140,9 +140,7 @@ class LongTaskTool(Tool, _GoalToolsMixin):
     async def execute(self, goal: str, ui_summary: str | None = None, **kwargs: Any) -> str:
         sess = self._session()
         if sess is None:
-            return (
-                "Error: long_task requires an active chat session (missing routing context)."
-            )
+            return "Error: long_task requires an active chat session (missing routing context)."
         prior = parse_goal_state(goal_state_raw(sess.metadata))
         if isinstance(prior, dict) and prior.get("status") == "active":
             return (

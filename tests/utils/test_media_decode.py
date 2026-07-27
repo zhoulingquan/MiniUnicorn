@@ -8,8 +8,8 @@ import pytest
 
 from miniunicorn.utils.media_decode import (
     DEFAULT_MAX_BYTES,
-    FileSizeExceededError,
     MAX_FILE_SIZE,
+    FileSizeExceededError,
     save_base64_data_url,
 )
 

@@ -82,6 +82,7 @@ def _is_model_id_relevant(query_key: str, candidate_id: str) -> bool:
         return True
     # 规则2:提取字母数字 token,计算交集比例
     import re as _re
+
     q_tokens = set(_re.findall(r"[a-z0-9]+", q))
     c_tokens = set(_re.findall(r"[a-z0-9]+", cand_last))
     if not q_tokens or not c_tokens:
@@ -249,7 +250,9 @@ def get_model_context_limit(
             ) from exc
         logger.warning(
             "无法确定模型 {} 的上下文窗口大小,使用默认值 {}: {}",
-            model, DEFAULT_CONTEXT_LIMIT, exc,
+            model,
+            DEFAULT_CONTEXT_LIMIT,
+            exc,
         )
         return DEFAULT_CONTEXT_LIMIT
 
@@ -259,7 +262,10 @@ def get_model_context_limit(
     _save_learned_limit(key, limit, source=source, hf_model_id=hf_model_id)
     logger.info(
         "模型 {} 上下文窗口: 查询到 {} tokens (source: {}, id: {})",
-        model, limit, source, hf_model_id,
+        model,
+        limit,
+        source,
+        hf_model_id,
     )
     return limit
 
@@ -359,10 +365,12 @@ def learn_model_context_limit(
 # Permanent learning table (replaces the old 7-day TTL cache).
 # ---------------------------------------------------------------------------
 
+
 def _get_learning_table_path() -> Path:
     """Return the permanent learning table path under the instance data dir."""
     try:
         from miniunicorn.config.paths import get_runtime_subdir
+
         return get_runtime_subdir("cache") / "model_context_learned.json"
     except Exception:
         # Fallback when config loader is not yet initialized (rare).
@@ -403,7 +411,11 @@ def _load_learned_limit(model_key: str) -> int | None:
 
 
 def _save_learned_limit(
-    model_key: str, limit: int, *, source: str, hf_model_id: str | None,
+    model_key: str,
+    limit: int,
+    *,
+    source: str,
+    hf_model_id: str | None,
 ) -> None:
     """Persist a learned context limit to the permanent table (best-effort)."""
     try:
@@ -444,7 +456,11 @@ def _save_learned_failure(model_key_raw: str, error: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         data = _load_learning_table()
         existing = data.get(key) if isinstance(data.get(key), dict) else {}
-        prev_count = existing.get("failure_count", 0) if isinstance(existing.get("failure_count"), int) else 0
+        prev_count = (
+            existing.get("failure_count", 0)
+            if isinstance(existing.get("failure_count"), int)
+            else 0
+        )
         data[key] = {
             "limit": None,
             "source": None,
@@ -758,7 +774,8 @@ def _query_hf_card_and_configs(model_id: str) -> tuple[int, str] | None:
 
 
 def _query_hf_context_limit_with_search(
-    model: str, key: str,
+    model: str,
+    key: str,
 ) -> tuple[int, str, str]:
     """Query Hugging Face for the model's context window.
 
@@ -787,7 +804,9 @@ def _query_hf_context_limit_with_search(
             limit, source = result
             logger.info(
                 "模型 {} 上下文窗口: 通过 HuggingFace 直接查询到 {} tokens (source: {})",
-                model, limit, source,
+                model,
+                limit,
+                source,
             )
             return limit, source, model_id
         errors.append(f"{model_id}: 直接查询失败")
@@ -801,7 +820,9 @@ def _query_hf_context_limit_with_search(
         # 相似度校验:防止误匹配无关同名模型(如 agnes-2.0-flash 命中 Agnes-SeaLLM-8b)
         if not _is_model_id_relevant(key, model_id):
             logger.debug(
-                "跳过无关 HF 候选: query={} candidate={}", key, model_id,
+                "跳过无关 HF 候选: query={} candidate={}",
+                key,
+                model_id,
             )
             errors.append(f"{model_id}: 与查询不相关,跳过")
             continue
@@ -811,15 +832,17 @@ def _query_hf_context_limit_with_search(
             logger.info(
                 "模型 {} 上下文窗口: 通过 HuggingFace search 查询到 {} tokens "
                 "(source: {}, hf_id: {})",
-                model, limit, source, model_id,
+                model,
+                limit,
+                source,
+                model_id,
             )
             return limit, source, model_id
         errors.append(f"{model_id}: search 查询失败")
 
     raise RuntimeError(
         f"无法从 HuggingFace 查询模型 '{model}' 的上下文窗口; "
-        f"尝试了 {len(tried)} 个候选(直接 + 搜索),均失败: "
-        + "; ".join(errors[:3])
+        f"尝试了 {len(tried)} 个候选(直接 + 搜索),均失败: " + "; ".join(errors[:3])
     )
 
 
@@ -975,7 +998,8 @@ def _query_modelscope_config(model_id: str) -> tuple[int, str] | None:
 
 
 def _query_modelscope_with_search(
-    model: str, key: str,
+    model: str,
+    key: str,
 ) -> tuple[int, str, str]:
     """Query ModelScope for the model's context window (HF fallback).
 
@@ -998,7 +1022,9 @@ def _query_modelscope_with_search(
             limit, source = result
             logger.info(
                 "模型 {} 上下文窗口: 通过 ModelScope 直接查询到 {} tokens (source: {})",
-                model, limit, source,
+                model,
+                limit,
+                source,
             )
             return limit, source, model_id
         errors.append(f"{model_id}: 直接查询失败")
@@ -1011,7 +1037,9 @@ def _query_modelscope_with_search(
         # 相似度校验:防止误匹配无关同名模型
         if not _is_model_id_relevant(key, model_id):
             logger.debug(
-                "跳过无关 ModelScope 候选: query={} candidate={}", key, model_id,
+                "跳过无关 ModelScope 候选: query={} candidate={}",
+                key,
+                model_id,
             )
             errors.append(f"{model_id}: 与查询不相关,跳过")
             continue
@@ -1021,20 +1049,23 @@ def _query_modelscope_with_search(
             logger.info(
                 "模型 {} 上下文窗口: 通过 ModelScope search 查询到 {} tokens "
                 "(source: {}, ms_id: {})",
-                model, limit, source, model_id,
+                model,
+                limit,
+                source,
+                model_id,
             )
             return limit, source, model_id
         errors.append(f"{model_id}: search 查询失败")
 
     raise RuntimeError(
         f"无法从 ModelScope 查询模型 '{model}' 的上下文窗口; "
-        f"尝试了 {len(tried)} 个候选(直接 + 搜索),均失败: "
-        + "; ".join(errors[:3])
+        f"尝试了 {len(tried)} 个候选(直接 + 搜索),均失败: " + "; ".join(errors[:3])
     )
 
 
 def _query_model_context_limit(
-    model: str, key: str,
+    model: str,
+    key: str,
 ) -> tuple[int, str, str]:
     """Query Hugging Face first, then ModelScope as fallback.
 
@@ -1044,7 +1075,8 @@ def _query_model_context_limit(
         return _query_hf_context_limit_with_search(model, key)
     except Exception as hf_exc:
         logger.debug(
-            "HuggingFace 查询失败,尝试 ModelScope fallback: {}", hf_exc,
+            "HuggingFace 查询失败,尝试 ModelScope fallback: {}",
+            hf_exc,
         )
         try:
             return _query_modelscope_with_search(model, key)

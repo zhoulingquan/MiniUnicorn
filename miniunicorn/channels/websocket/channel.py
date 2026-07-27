@@ -14,7 +14,6 @@ import asyncio
 import hmac
 import json
 import mimetypes
-import re
 import secrets
 import ssl
 import time
@@ -23,7 +22,6 @@ from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.parse import unquote
 
 from loguru import logger
 from websockets.asyncio.server import ServerConnection, serve, unix_serve
@@ -31,18 +29,16 @@ from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Request as WsRequest
 from websockets.http11 import Response
 
+from miniunicorn import __version__
 from miniunicorn.agent.tools.mcp import request_mcp_reload
 from miniunicorn.bus.events import OUTBOUND_META_AGENT_UI, OutboundMessage
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.channels.base import BaseChannel
-from miniunicorn import __version__
-from miniunicorn.command.builtin import builtin_command_palette
 from miniunicorn.config.paths import get_media_dir, get_workspace_path
 from miniunicorn.security.workspace_access import (
     WORKSPACE_SCOPE_METADATA_KEY,
     WorkspaceScopeError,
 )
-from miniunicorn.security.workspace_policy import is_path_within
 from miniunicorn.session.goal_state import goal_state_ws_blob
 from miniunicorn.session.webui_turns import websocket_turn_wall_started_at
 from miniunicorn.utils.media_decode import (
@@ -50,8 +46,6 @@ from miniunicorn.utils.media_decode import (
     save_base64_data_url,
 )
 from miniunicorn.webui.cli_apps_api import (
-    cli_apps_action,
-    cli_apps_payload,
     normalize_cli_app_mentions,
 )
 from miniunicorn.webui.mcp_presets_api import (
@@ -72,6 +66,11 @@ from miniunicorn.webui.transcript import (
 from miniunicorn.webui.workspaces import (
     WebUIWorkspaceController,
 )
+
+# Importing the handlers package triggers ``@router.route(...)`` registration
+# for all migrated WebUI HTTP endpoints. Must come after ``_http_router`` so
+# the decorators find the global ``router`` singleton already bound.
+from . import handlers  # noqa: F401 — side effect: registers declarative routes
 
 # Re-export helpers from sibling submodules so the public surface and the
 # test monkeypatch targets keep working unchanged. The original module
@@ -130,11 +129,6 @@ from ._ws_upgrade import (  # noqa: F401
     _safe_host_header,
     _strip_trailing_slash,
 )
-
-# Importing the handlers package triggers ``@router.route(...)`` registration
-# for all migrated WebUI HTTP endpoints. Must come after ``_http_router`` so
-# the decorators find the global ``router`` singleton already bound.
-from . import handlers  # noqa: F401 — side effect: registers declarative routes
 
 if TYPE_CHECKING:
     from miniunicorn.session.manager import SessionManager
@@ -220,9 +214,7 @@ class WebSocketChannel(BaseChannel):
         self._agent_model_refresher = agent_model_refresher
         self._cron_service = cron_service
         self._tool_registry = tool_registry
-        self._runtime_surface = (
-            "native" if runtime_surface in {"native", "desktop"} else "browser"
-        )
+        self._runtime_surface = "native" if runtime_surface in {"native", "desktop"} else "browser"
         self._runtime_capabilities = runtime_capabilities(
             self._runtime_surface,
             runtime_capabilities_overrides,
@@ -270,9 +262,8 @@ class WebSocketChannel(BaseChannel):
         if peer_ip in self.config.trusted_proxies:
             request = getattr(connection, "request", None)
             if request is not None:
-                xff = (
-                    request.headers.get("X-Forwarded-For")
-                    or request.headers.get("x-forwarded-for")
+                xff = request.headers.get("X-Forwarded-For") or request.headers.get(
+                    "x-forwarded-for"
                 )
                 if xff:
                     # Leftmost entry is the original client IP.
@@ -286,9 +277,7 @@ class WebSocketChannel(BaseChannel):
         ip = self._get_real_client_ip(connection)
         return ip in _LOCALHOSTS
 
-    def _check_rate_limit(
-        self, limiter: _RateLimiter, connection: Any, label: str
-    ) -> bool:
+    def _check_rate_limit(self, limiter: _RateLimiter, connection: Any, label: str) -> bool:
         """Return True if the request passes the rate limit, else log and return False."""
         ip = self._get_real_client_ip(connection)
         if not ip:
@@ -537,9 +526,7 @@ class WebSocketChannel(BaseChannel):
         token_value = f"nbwt_{secrets.token_urlsafe(32)}"
         self._issued_tokens[token_value] = time.monotonic() + float(self.config.token_ttl_s)
 
-        return _http_json_response(
-            {"token": token_value, "expires_in": self.config.token_ttl_s}
-        )
+        return _http_json_response({"token": token_value, "expires_in": self.config.token_ttl_s})
 
     # -- HTTP dispatch ------------------------------------------------------
 
@@ -563,6 +550,13 @@ class WebSocketChannel(BaseChannel):
             if got == issue_expected:
                 return self._handle_token_issue_http(connection, request)
 
+        # 1b. /health (公开 liveness probe)
+        # 设计 §4.6: Compose healthcheck 必须改用公开的 /health,避免 API 启用
+        # key 后 /v1/models 返回 401,导致 healthcheck 永远判定容器不健康。
+        # /health 不需要 token、不读任何状态,只表示进程能接收 HTTP 请求。
+        if got == "/health":
+            return _http_json_response({"status": "ok"})
+
         # 2. /webui/bootstrap (channel-side stateful bootstrap endpoint)
         if got == "/webui/bootstrap":
             return self._handle_bootstrap(connection, request)
@@ -574,9 +568,7 @@ class WebSocketChannel(BaseChannel):
             return api_response
 
         # 4. WebSocket 升级
-        ws_matched, ws_response = self._dispatch_websocket_upgrade(
-            connection, request, got, query
-        )
+        ws_matched, ws_response = self._dispatch_websocket_upgrade(connection, request, got, query)
         if ws_matched:
             return ws_response
 
@@ -776,6 +768,10 @@ class WebSocketChannel(BaseChannel):
                 "runtime_surface": self._runtime_surface,
                 "runtime_capabilities": self._runtime_capabilities,
                 "version": __version__,
+                # 把 WebSocket 帧大小上限回传给前端,使 Composer 能在发送前
+                # 校验附件 + 文本的总 UTF-8 字节数(设计 §4.5),超限直接拦截、
+                # 保留草稿,避免服务端 1009 关闭连接后丢失输入。
+                "max_message_bytes": int(self.config.max_message_bytes),
             }
         )
 
@@ -920,9 +916,7 @@ class WebSocketChannel(BaseChannel):
         entry = router._exact.get(got)
         if entry is None:
             return _http_error(404, "not found")
-        ctx = RouteContext(
-            deps=deps, connection=None, request=request, query=query, got=got
-        )
+        ctx = RouteContext(deps=deps, connection=None, request=request, query=query, got=got)
         return entry.fn(ctx)  # type: ignore[return-value]
 
     def _handle_webui_thread_get(self, request: WsRequest, key: str) -> Response:
@@ -1113,9 +1107,7 @@ class WebSocketChannel(BaseChannel):
 
         self._server_task = asyncio.create_task(runner())
         # 启动周期性清理后台任务(流缓冲 TTL + RateLimiter 陈旧 key)
-        self._periodic_cleanup_task = asyncio.create_task(
-            self._periodic_cleanup_loop()
-        )
+        self._periodic_cleanup_task = asyncio.create_task(self._periodic_cleanup_loop())
         await self._server_task
 
     async def _connection_loop(self, connection: Any) -> None:
@@ -1205,7 +1197,9 @@ class WebSocketChannel(BaseChannel):
         image_count = 0
         video_count = 0
         for item in media:
-            mime = _extract_data_url_mime(item.get("data_url", "")) if isinstance(item, dict) else None
+            mime = (
+                _extract_data_url_mime(item.get("data_url", "")) if isinstance(item, dict) else None
+            )
             if mime in _VIDEO_MIME_ALLOWED:
                 video_count += 1
             elif mime in _IMAGE_MIME_ALLOWED or mime in _DOCUMENT_MIME_ALLOWED:
@@ -1225,9 +1219,7 @@ class WebSocketChannel(BaseChannel):
                 try:
                     Path(p).unlink(missing_ok=True)
                 except OSError as exc:
-                    self.logger.warning(
-                        "failed to unlink partial media {}: {}", p, exc
-                    )
+                    self.logger.warning("failed to unlink partial media {}: {}", p, exc)
             return [], reason
 
         for item in media:
@@ -1256,7 +1248,9 @@ class WebSocketChannel(BaseChannel):
             name_hint = item.get("name") if isinstance(item.get("name"), str) else None
             try:
                 saved = save_base64_data_url(
-                    data_url, media_dir, max_bytes=max_bytes,
+                    data_url,
+                    media_dir,
+                    max_bytes=max_bytes,
                     filename_hint=name_hint,
                 )
             except FileSizeExceededError:
@@ -1279,6 +1273,13 @@ class WebSocketChannel(BaseChannel):
         t = envelope.get("type")
         if t == "new_chat":
             new_id = str(uuid.uuid4())
+            # Echo the client-supplied ``request_id`` so the WebUI can
+            # correlate a pending ``newChat()`` promise with the correct
+            # ``attached`` response. A missing/empty ``request_id`` keeps
+            # the old protocol working for legacy clients.
+            req_id = envelope.get("request_id")
+            if not isinstance(req_id, str) or not req_id:
+                req_id = None
             scope = await self._workspace_scope_or_error(
                 connection,
                 lambda: self._webui_workspaces.scope_for_new_chat(
@@ -1290,7 +1291,10 @@ class WebSocketChannel(BaseChannel):
                 return
             self._webui_workspaces.persist_scope(new_id, scope)
             self._attach(connection, new_id)
-            await self._send_event(connection, "attached", chat_id=new_id)
+            attached_fields: dict[str, Any] = {"chat_id": new_id}
+            if req_id is not None:
+                attached_fields["request_id"] = req_id
+            await self._send_event(connection, "attached", **attached_fields)
             await self._send_event(
                 connection,
                 "session_updated",
@@ -1350,24 +1354,28 @@ class WebSocketChannel(BaseChannel):
             if raw_media is not None:
                 if not isinstance(raw_media, list):
                     await self._send_event(
-                        connection, "error",
-                        detail="image_rejected", reason="malformed",
+                        connection,
+                        "error",
+                        detail="image_rejected",
+                        reason="malformed",
                     )
                     return
                 # Per-IP media upload rate limit (10/hour).
-                if not self._check_rate_limit(
-                    self._media_rate_limiter, connection, "media_upload"
-                ):
+                if not self._check_rate_limit(self._media_rate_limiter, connection, "media_upload"):
                     await self._send_event(
-                        connection, "error",
-                        detail="image_rejected", reason="rate_limited",
+                        connection,
+                        "error",
+                        detail="image_rejected",
+                        reason="rate_limited",
                     )
                     return
                 media_paths, reason = self._save_envelope_media(raw_media)
                 if reason is not None:
                     await self._send_event(
-                        connection, "error",
-                        detail="image_rejected", reason=reason,
+                        connection,
+                        "error",
+                        detail="image_rejected",
+                        reason=reason,
                     )
                     return
 
@@ -1516,7 +1524,9 @@ class WebSocketChannel(BaseChannel):
             return
         if msg.metadata.get("_goal_state_sync"):
             blob = msg.metadata.get("goal_state")
-            await self.send_goal_state(msg.chat_id, blob if isinstance(blob, dict) else {"active": False})
+            await self.send_goal_state(
+                msg.chat_id, blob if isinstance(blob, dict) else {"active": False}
+            )
             return
         if msg.metadata.get("_goal_status"):
             status = msg.metadata.get("goal_status")

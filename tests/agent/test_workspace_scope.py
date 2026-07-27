@@ -10,6 +10,7 @@ from miniunicorn.agent.tools.filesystem import ReadFileTool
 from miniunicorn.agent.tools.message import MessageTool
 from miniunicorn.agent.tools.shell import ExecTool
 from miniunicorn.agent.tools.spawn import SpawnTool
+from miniunicorn.apps.cli.service import CliAppManager, CliAppsRuntimeConfig
 from miniunicorn.security.workspace_access import (
     WORKSPACE_SCOPE_METADATA_KEY,
     WorkspaceScopeError,
@@ -19,7 +20,6 @@ from miniunicorn.security.workspace_access import (
     validate_workspace_scope_payload,
     workspace_scope_from_metadata,
 )
-from miniunicorn.apps.cli.service import CliAppManager, CliAppsRuntimeConfig
 
 PNG_BYTES = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
@@ -148,7 +148,9 @@ async def test_exec_full_scope_allows_explicit_cwd_outside_project(tmp_path: Pat
     )
     token = bind_workspace_scope(scope)
     try:
-        result = await tool.execute(command="printf ok > outside-marker.txt", working_dir=str(outside))
+        result = await tool.execute(
+            command="printf ok > outside-marker.txt", working_dir=str(outside)
+        )
     finally:
         reset_workspace_scope(token)
 

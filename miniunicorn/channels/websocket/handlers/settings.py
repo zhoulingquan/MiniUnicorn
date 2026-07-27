@@ -6,14 +6,7 @@ import asyncio
 
 from websockets.http11 import Response
 
-from .._http_routes import (
-    _http_error,
-    _http_json_response,
-    _parse_mcp_settings_query,
-    _MCP_PRESET_ACTIONS_BY_PATH,
-)
-from .._http_router import RouteContext, router
-from ._common import require_auth, unauthorized
+from miniunicorn.webui.mcp_presets_api import mcp_presets_settings_action
 from miniunicorn.webui.settings_api import (
     WebUISettingsError,
     create_model_configuration,
@@ -33,10 +26,18 @@ from miniunicorn.webui.settings_api import (
     update_web_fetch_settings,
     update_web_search_settings,
 )
-from miniunicorn.webui.mcp_presets_api import mcp_presets_settings_action
+
+from .._http_router import RouteContext, router
+from .._http_routes import (
+    _MCP_PRESET_ACTIONS_BY_PATH,
+    _http_error,
+    _http_json_response,
+    _parse_mcp_settings_query,
+)
+from ._common import require_auth
 
 
-@router.route("/api/settings")
+@router.route("/api/settings", methods={"GET"})
 @require_auth
 def settings(ctx: RouteContext) -> Response:
     return _http_json_response(
@@ -50,7 +51,7 @@ def settings(ctx: RouteContext) -> Response:
     )
 
 
-@router.route("/api/settings/update")
+@router.route("/api/settings/update", methods={"GET", "POST"})
 @require_auth
 def settings_update(ctx: RouteContext) -> Response:
     query = ctx.query
@@ -59,12 +60,10 @@ def settings_update(ctx: RouteContext) -> Response:
     except WebUISettingsError as e:
         return _http_error(e.status, e.message)
     ctx.deps.refresh_agent_model()
-    return _http_json_response(
-        ctx.deps.with_restart_state(payload, section="runtime")
-    )
+    return _http_json_response(ctx.deps.with_restart_state(payload, section="runtime"))
 
 
-@router.route("/api/settings/model-configurations/create")
+@router.route("/api/settings/model-configurations/create", methods={"GET", "POST"})
 @require_auth
 def model_config_create(ctx: RouteContext) -> Response:
     query = ctx.query
@@ -76,7 +75,7 @@ def model_config_create(ctx: RouteContext) -> Response:
     return _http_json_response(ctx.deps.with_restart_state(payload, section=None))
 
 
-@router.route("/api/settings/model-configurations/update")
+@router.route("/api/settings/model-configurations/update", methods={"GET", "POST"})
 @require_auth
 def model_config_update(ctx: RouteContext) -> Response:
     query = ctx.query
@@ -88,7 +87,7 @@ def model_config_update(ctx: RouteContext) -> Response:
     return _http_json_response(ctx.deps.with_restart_state(payload, section=None))
 
 
-@router.route("/api/settings/model-configurations/delete")
+@router.route("/api/settings/model-configurations/delete", methods={"GET", "POST"})
 @require_auth
 def model_config_delete(ctx: RouteContext) -> Response:
     query = ctx.query
@@ -100,7 +99,7 @@ def model_config_delete(ctx: RouteContext) -> Response:
     return _http_json_response(ctx.deps.with_restart_state(payload, section=None))
 
 
-@router.route("/api/settings/provider/update")
+@router.route("/api/settings/provider/update", methods={"GET", "POST"})
 @require_auth
 def provider_update(ctx: RouteContext) -> Response:
     query = ctx.query
@@ -111,7 +110,7 @@ def provider_update(ctx: RouteContext) -> Response:
     return _http_json_response(ctx.deps.with_restart_state(payload, section=None))
 
 
-@router.route("/api/settings/provider/delete")
+@router.route("/api/settings/provider/delete", methods={"GET", "POST"})
 @require_auth
 def provider_delete(ctx: RouteContext) -> Response:
     query = ctx.query
@@ -122,7 +121,7 @@ def provider_delete(ctx: RouteContext) -> Response:
     return _http_json_response(ctx.deps.with_restart_state(payload, section=None))
 
 
-@router.route("/api/settings/providers/delete-all")
+@router.route("/api/settings/providers/delete-all", methods={"GET", "POST"})
 @require_auth
 def providers_delete_all(ctx: RouteContext) -> Response:
     query = ctx.query
@@ -133,7 +132,7 @@ def providers_delete_all(ctx: RouteContext) -> Response:
     return _http_json_response(ctx.deps.with_restart_state(payload, section=None))
 
 
-@router.route("/api/settings/provider/models")
+@router.route("/api/settings/provider/models", methods={"GET"})
 @require_auth
 async def provider_models(ctx: RouteContext) -> Response:
     query = ctx.query
@@ -148,8 +147,6 @@ async def provider_models(ctx: RouteContext) -> Response:
 
 
 async def _provider_oauth(ctx: RouteContext, action: str) -> Response:
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     query = ctx.query
     try:
         if action == "login":
@@ -161,17 +158,17 @@ async def _provider_oauth(ctx: RouteContext, action: str) -> Response:
     return _http_json_response(ctx.deps.with_restart_state(payload, section=None))
 
 
-@router.route("/api/settings/provider/oauth-login")
+@router.route("/api/settings/provider/oauth-login", methods={"GET", "POST"})
 async def provider_oauth_login(ctx: RouteContext) -> Response:
     return await _provider_oauth(ctx, "login")
 
 
-@router.route("/api/settings/provider/oauth-logout")
+@router.route("/api/settings/provider/oauth-logout", methods={"GET", "POST"})
 async def provider_oauth_logout(ctx: RouteContext) -> Response:
     return await _provider_oauth(ctx, "logout")
 
 
-@router.route("/api/settings/web-fetch/update")
+@router.route("/api/settings/web-fetch/update", methods={"GET", "POST"})
 @require_auth
 def web_fetch_update(ctx: RouteContext) -> Response:
     query = ctx.query
@@ -182,7 +179,7 @@ def web_fetch_update(ctx: RouteContext) -> Response:
     return _http_json_response(ctx.deps.with_restart_state(payload, section="browser"))
 
 
-@router.route("/api/settings/web-search/update")
+@router.route("/api/settings/web-search/update", methods={"GET", "POST"})
 @require_auth
 def web_search_update(ctx: RouteContext) -> Response:
     query = ctx.query
@@ -193,7 +190,7 @@ def web_search_update(ctx: RouteContext) -> Response:
     return _http_json_response(ctx.deps.with_restart_state(payload, section="browser"))
 
 
-@router.route("/api/settings/image-generation/update")
+@router.route("/api/settings/image-generation/update", methods={"GET", "POST"})
 @require_auth
 def image_generation_update(ctx: RouteContext) -> Response:
     query = ctx.query
@@ -204,7 +201,7 @@ def image_generation_update(ctx: RouteContext) -> Response:
     return _http_json_response(ctx.deps.with_restart_state(payload, section="runtime"))
 
 
-@router.route("/api/settings/network-safety/update")
+@router.route("/api/settings/network-safety/update", methods={"GET", "POST"})
 @require_auth
 def network_safety_update(ctx: RouteContext) -> Response:
     query = ctx.query
@@ -215,7 +212,7 @@ def network_safety_update(ctx: RouteContext) -> Response:
     return _http_json_response(ctx.deps.with_restart_state(payload, section="runtime"))
 
 
-@router.route("/api/settings/runtime/update")
+@router.route("/api/settings/runtime/update", methods={"GET", "POST"})
 @require_auth
 def runtime_update(ctx: RouteContext) -> Response:
     query = ctx.query
@@ -227,7 +224,7 @@ def runtime_update(ctx: RouteContext) -> Response:
     return _http_json_response(ctx.deps.with_restart_state(payload, section="runtime"))
 
 
-@router.route("/api/settings/cli-apps")
+@router.route("/api/settings/cli-apps", methods={"GET"})
 @require_auth
 def cli_apps(ctx: RouteContext) -> Response:
     # Import from channel module so tests can monkeypatch
@@ -243,8 +240,6 @@ def cli_apps(ctx: RouteContext) -> Response:
 
 
 async def _cli_apps_action(ctx: RouteContext, action: str) -> Response:
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     query = ctx.query
     # Import from channel module so tests can monkeypatch
     # ``channel.cli_apps_action`` and intercept the call.
@@ -263,29 +258,27 @@ async def _cli_apps_action(ctx: RouteContext, action: str) -> Response:
     return _http_json_response(payload)
 
 
-@router.route("/api/settings/cli-apps/install")
+@router.route("/api/settings/cli-apps/install", methods={"GET", "POST"})
 async def cli_apps_install(ctx: RouteContext) -> Response:
     return await _cli_apps_action(ctx, "install")
 
 
-@router.route("/api/settings/cli-apps/update")
+@router.route("/api/settings/cli-apps/update", methods={"GET", "POST"})
 async def cli_apps_update(ctx: RouteContext) -> Response:
     return await _cli_apps_action(ctx, "update")
 
 
-@router.route("/api/settings/cli-apps/uninstall")
+@router.route("/api/settings/cli-apps/uninstall", methods={"GET", "POST"})
 async def cli_apps_uninstall(ctx: RouteContext) -> Response:
     return await _cli_apps_action(ctx, "uninstall")
 
 
-@router.route("/api/settings/cli-apps/test")
+@router.route("/api/settings/cli-apps/test", methods={"GET", "POST"})
 async def cli_apps_test(ctx: RouteContext) -> Response:
     return await _cli_apps_action(ctx, "test")
 
 
 async def _mcp_presets_handler(ctx: RouteContext, action: str | None) -> Response:
-    if not ctx.deps.check_api_token(ctx.request):
-        return unauthorized()
     try:
         payload = await mcp_presets_settings_action(
             action,
@@ -300,12 +293,10 @@ async def _mcp_presets_handler(ctx: RouteContext, action: str | None) -> Respons
         return _http_error(status, message)
     if action is None:
         return _http_json_response(payload)
-    return _http_json_response(
-        ctx.deps.with_restart_state(payload, section="runtime")
-    )
+    return _http_json_response(ctx.deps.with_restart_state(payload, section="runtime"))
 
 
-@router.route("/api/settings/mcp-presets")
+@router.route("/api/settings/mcp-presets", methods={"GET"})
 async def mcp_presets(ctx: RouteContext) -> Response:
     return await _mcp_presets_handler(ctx, None)
 
@@ -317,5 +308,7 @@ def _make_mcp_preset_action_handler(action: str):
     return _handler
 
 
+# MCP preset 状态变更动作路由:create/enable/remove/test/custom/import/...
+# 都允许 GET(旧客户端兼容)和 POST(新 WebUI),dispatch 统一做 token + Origin 校验。
 for _path, _action in _MCP_PRESET_ACTIONS_BY_PATH.items():
-    router.register(_path, _make_mcp_preset_action_handler(_action))
+    router.register(_path, _make_mcp_preset_action_handler(_action), methods={"GET", "POST"})

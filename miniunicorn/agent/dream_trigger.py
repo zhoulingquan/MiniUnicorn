@@ -9,6 +9,7 @@
 
 两者共享同一个 ``Dream.run()``，cursor 机制保证不会重复处理。
 """
+
 from __future__ import annotations
 
 import asyncio

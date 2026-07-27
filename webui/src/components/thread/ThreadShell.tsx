@@ -89,6 +89,8 @@ interface ThreadShellProps {
   onSelectAgent?: (agentId: string) => void;
   /** Called when the user clears the active subagent selection. */
   onClearAgent?: () => void;
+  /** 服务端 WebSocket 帧大小上限(字节),透传给 ThreadComposer 用于发送前校验。 */
+  maxMessageBytes?: number;
 }
 
 function toModelBadgeLabel(modelName: string | null): string | null {
@@ -177,6 +179,7 @@ export function ThreadShell({
   selectedAgentId = null,
   onSelectAgent,
   onClearAgent,
+  maxMessageBytes,
 }: ThreadShellProps) {
   const { t } = useTranslation();
   const chatId = session?.chatId ?? null;
@@ -642,6 +645,7 @@ export function ThreadShell({
           conversationKey={historyKey}
           prefillText={prefillText}
           onPrefillConsumed={clearPrefillText}
+          maxMessageBytes={maxMessageBytes}
         />
       ) : (
         <ThreadComposer
@@ -677,6 +681,7 @@ export function ThreadShell({
           messageCount={conversationMessageCount}
           contextWindowTokens={contextWindowTokens}
           contextUsage={contextUsage}
+          maxMessageBytes={maxMessageBytes}
         />
       )}
     </>
