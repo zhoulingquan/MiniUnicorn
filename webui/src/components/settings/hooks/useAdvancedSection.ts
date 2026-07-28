@@ -4,13 +4,16 @@
 // 行为保持与拆分前一致：
 //   - form 初值、dirty 判定、save 流程（applyPayload → pendingRestart → maybeRestart → setError）原样迁入
 //   - form 同步改为监听 settings 变化（原 applyPayload 中的同步逻辑移至此处 useEffect）
+//   - save 流程统一走 useSaveAction 原语
 
-import { Dispatch, SetStateAction, useCallback, useEffect, useMemo, useState } from "react";
+import { Dispatch, SetStateAction, useEffect, useMemo, useState } from "react";
 
 import { updateNetworkSafetySettings } from "@/lib/api";
-import type { NetworkSafetySettingsUpdate, SettingsPayload } from "@/lib/types";
+import type { NetworkSafetySettingsUpdate } from "@/lib/types";
 
-import { visibleWebuiDefaultAccessMode, type RestartAwarePayload } from "../types";
+import { visibleWebuiDefaultAccessMode } from "../types";
+import { useSaveAction } from "./useSaveAction";
+import type { SaveActionSharedDeps } from "./useSaveAction";
 import type { UseSectionShared } from "./useWebSearchSection";
 
 /** Advanced section 暴露的状态与回调 */
@@ -23,20 +26,12 @@ export interface AdvancedSectionState {
 }
 
 export function useAdvancedSection(shared: UseSectionShared): AdvancedSectionState {
-  const {
-    settings,
-    token,
-    setError,
-    applyPayload,
-    setPendingRestartSections,
-    maybeRestartHostEngine,
-  } = shared;
+  const { settings, token } = shared;
 
   const [networkSafetyForm, setNetworkSafetyForm] = useState<NetworkSafetySettingsUpdate>({
     webuiAllowLocalServiceAccess: true,
     webuiDefaultAccessMode: "default",
   });
-  const [networkSafetySaving, setNetworkSafetySaving] = useState(false);
 
   // 监听 settings 变化同步 form（原 applyPayload 中的逻辑，移至此处）
   useEffect(() => {
@@ -61,29 +56,27 @@ export function useAdvancedSection(shared: UseSectionShared): AdvancedSectionSta
     );
   }, [networkSafetyForm, settings]);
 
-  const saveNetworkSafetySettings = useCallback(async () => {
-    if (!settings || !networkSafetyDirty || networkSafetySaving) return;
-    setNetworkSafetySaving(true);
-    try {
-      const payload: SettingsPayload = await updateNetworkSafetySettings(token, networkSafetyForm);
-      applyPayload(payload);
-      if (payload.requires_restart) {
-        setPendingRestartSections((prev) => ({ ...prev, runtime: true }));
-      }
-      await maybeRestartHostEngine(payload as RestartAwarePayload);
-      setError(null);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setNetworkSafetySaving(false);
-    }
-  }, [settings, networkSafetyDirty, networkSafetySaving, networkSafetyForm, token, applyPayload, setPendingRestartSections, maybeRestartHostEngine, setError]);
+  const sharedDeps: SaveActionSharedDeps = {
+    applyPayload: shared.applyPayload,
+    setError: shared.setError,
+    setPendingRestartSections: shared.setPendingRestartSections,
+    maybeRestartHostEngine: shared.maybeRestartHostEngine,
+  };
+
+  const networkSafetyAction = useSaveAction<void, NetworkSafetySettingsUpdate>({
+    shared: sharedDeps,
+    token,
+    enabled: !!settings && networkSafetyDirty,
+    buildPayload: () => networkSafetyForm,
+    apiCall: updateNetworkSafetySettings,
+    restartSectionKey: "runtime",
+  });
 
   return {
     networkSafetyForm,
     setNetworkSafetyForm,
-    networkSafetySaving,
+    networkSafetySaving: networkSafetyAction.saving,
     networkSafetyDirty,
-    saveNetworkSafetySettings,
+    saveNetworkSafetySettings: networkSafetyAction.save,
   };
 }

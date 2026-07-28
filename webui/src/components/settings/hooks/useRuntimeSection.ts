@@ -5,14 +5,20 @@
 // 行为保持与拆分前一致：
 //   - form 初值、dirty 判定、save 流程（applyPayload → pendingRestart → maybeRestart → setError）原样迁入
 //   - form 同步改为监听 settings 变化（原 applyPayload 中的同步逻辑移至此处 useEffect）
+//   - save 流程统一走 useSaveAction 原语
 
-import { Dispatch, SetStateAction, useCallback, useEffect, useMemo, useState } from "react";
+import { Dispatch, SetStateAction, useEffect, useMemo, useState } from "react";
 
 import { updateRuntimeSettings, updateSettings } from "@/lib/api";
-import type { RuntimeSettingsUpdate, SettingsPayload } from "@/lib/types";
+import type { RuntimeSettingsUpdate, SettingsUpdate } from "@/lib/types";
 
-import { extractDreamCron, type RestartAwarePayload } from "../types";
+import { extractDreamCron } from "../types";
+import { useSaveAction } from "./useSaveAction";
+import type { SaveActionSharedDeps } from "./useSaveAction";
 import type { UseSectionShared } from "./useWebSearchSection";
+
+/** Planner save argument: partial update forwarded to the generic settings API. */
+export type PlannerUpdate = { usePlanner?: boolean; plannerModel?: string | null };
 
 /** Runtime section 暴露的状态与回调 */
 export interface RuntimeSectionState {
@@ -22,26 +28,17 @@ export interface RuntimeSectionState {
   runtimeDirty: boolean;
   saveRuntimeSettings: () => Promise<void>;
   plannerSaving: boolean;
-  savePlannerSettings: (update: { usePlanner?: boolean; plannerModel?: string | null }) => Promise<void>;
+  savePlannerSettings: (update: PlannerUpdate) => Promise<void>;
 }
 
 export function useRuntimeSection(shared: UseSectionShared): RuntimeSectionState {
-  const {
-    settings,
-    token,
-    setError,
-    applyPayload,
-    setPendingRestartSections,
-    maybeRestartHostEngine,
-  } = shared;
+  const { settings, token } = shared;
 
   const [runtimeForm, setRuntimeForm] = useState<RuntimeSettingsUpdate>({
     heartbeatIntervalS: 3600,
     dreamCron: "0 3 * * *",
     heartbeatModelPreset: "",
   });
-  const [runtimeSaving, setRuntimeSaving] = useState(false);
-  const [plannerSaving, setPlannerSaving] = useState(false);
 
   // 监听 settings 变化同步 form（原 applyPayload 中的逻辑，移至此处）
   useEffect(() => {
@@ -66,12 +63,20 @@ export function useRuntimeSection(shared: UseSectionShared): RuntimeSectionState
     );
   }, [runtimeForm, settings]);
 
-  const saveRuntimeSettings = useCallback(async () => {
-    if (!settings || !runtimeDirty || runtimeSaving) return;
-    setRuntimeSaving(true);
-    try {
-      const rt = settings.runtime;
+  const sharedDeps: SaveActionSharedDeps = {
+    applyPayload: shared.applyPayload,
+    setError: shared.setError,
+    setPendingRestartSections: shared.setPendingRestartSections,
+    maybeRestartHostEngine: shared.maybeRestartHostEngine,
+  };
+
+  const runtimeAction = useSaveAction<void, RuntimeSettingsUpdate>({
+    shared: sharedDeps,
+    token,
+    enabled: !!settings && runtimeDirty,
+    buildPayload: () => {
       // 仅发送发生变化的字段，避免意外清除其他 runtime 配置。
+      const rt = settings!.runtime;
       const update: RuntimeSettingsUpdate = {};
       if (runtimeForm.heartbeatIntervalS !== undefined && runtimeForm.heartbeatIntervalS !== rt.heartbeat.interval_s) {
         update.heartbeatIntervalS = runtimeForm.heartbeatIntervalS;
@@ -85,48 +90,28 @@ export function useRuntimeSection(shared: UseSectionShared): RuntimeSectionState
       if (hbPresetChanged) {
         update.heartbeatModelPreset = runtimeForm.heartbeatModelPreset ?? "";
       }
-      const payload: SettingsPayload = await updateRuntimeSettings(token, update);
-      applyPayload(payload);
-      if (payload.requires_restart) {
-        setPendingRestartSections((prev) => ({ ...prev, runtime: true }));
-      }
-      await maybeRestartHostEngine(payload as RestartAwarePayload);
-      setError(null);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setRuntimeSaving(false);
-    }
-  }, [settings, runtimeDirty, runtimeSaving, runtimeForm, token, applyPayload, setPendingRestartSections, maybeRestartHostEngine, setError]);
-
-  const savePlannerSettings = useCallback(
-    async (update: { usePlanner?: boolean; plannerModel?: string | null }) => {
-      if (!settings || plannerSaving) return;
-      setPlannerSaving(true);
-      try {
-        const payload: SettingsPayload = await updateSettings(token, update);
-        applyPayload(payload);
-        if (payload.requires_restart) {
-          setPendingRestartSections((prev) => ({ ...prev, runtime: true }));
-        }
-        await maybeRestartHostEngine(payload as RestartAwarePayload);
-        setError(null);
-      } catch (err) {
-        setError((err as Error).message);
-      } finally {
-        setPlannerSaving(false);
-      }
+      return update;
     },
-    [settings, plannerSaving, token, applyPayload, setPendingRestartSections, maybeRestartHostEngine, setError],
-  );
+    apiCall: updateRuntimeSettings,
+    restartSectionKey: "runtime",
+  });
+
+  const plannerAction = useSaveAction<PlannerUpdate, SettingsUpdate>({
+    shared: sharedDeps,
+    token,
+    enabled: !!settings,
+    buildPayload: (arg) => arg,
+    apiCall: (tok, payload) => updateSettings(tok, payload),
+    restartSectionKey: "runtime",
+  });
 
   return {
     runtimeForm,
     setRuntimeForm,
-    runtimeSaving,
+    runtimeSaving: runtimeAction.saving,
     runtimeDirty,
-    saveRuntimeSettings,
-    plannerSaving,
-    savePlannerSettings,
+    saveRuntimeSettings: runtimeAction.save,
+    plannerSaving: plannerAction.saving,
+    savePlannerSettings: plannerAction.save,
   };
 }

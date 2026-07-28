@@ -4,10 +4,11 @@
 // 行为保持与拆分前一致：
 //   - form 初值、dirty 判定、save 流程（applyPayload → pendingRestart → maybeRestart → setError）原样迁入
 //   - form 同步改为监听 settings 变化（原 applyPayload 中的同步逻辑移至此处 useEffect）
+//   - save 流程统一走 useSaveAction 原语（in-flight guard + saving + error + restart）
 //
 // 共享依赖由主 hook 传入：settings / token / setError / applyPayload / setPendingRestartSections / maybeRestartHostEngine
 
-import { Dispatch, SetStateAction, useCallback, useEffect, useMemo, useState } from "react";
+import { Dispatch, SetStateAction, useEffect, useMemo, useState } from "react";
 
 import { updateWebFetchSettings, updateWebSearchSettings } from "@/lib/api";
 import type {
@@ -17,6 +18,8 @@ import type {
 } from "@/lib/types";
 
 import type { PendingRestartSections, RestartAwarePayload } from "../types";
+import { useSaveAction } from "./useSaveAction";
+import type { SaveActionSharedDeps } from "./useSaveAction";
 
 /** 主 hook 传入的共享依赖 */
 export interface UseSectionShared {
@@ -46,10 +49,6 @@ export function useWebSearchSection(shared: UseSectionShared): WebSearchSectionS
   const {
     settings,
     token,
-    setError,
-    applyPayload,
-    setPendingRestartSections,
-    maybeRestartHostEngine,
   } = shared;
 
   const [webSearchForm, setWebSearchForm] = useState<WebSearchSettingsUpdate>({
@@ -60,11 +59,9 @@ export function useWebSearchSection(shared: UseSectionShared): WebSearchSectionS
     proxy: "",
     backends: {},
   });
-  const [webSearchSaving, setWebSearchSaving] = useState(false);
   const [webFetchForm, setWebFetchForm] = useState<WebFetchSettingsUpdate>({
     useJinaReader: true,
   });
-  const [webFetchSaving, setWebFetchSaving] = useState(false);
 
   // 监听 settings 变化同步 form（原 applyPayload 中的逻辑，移至此处）
   useEffect(() => {
@@ -126,52 +123,41 @@ export function useWebSearchSection(shared: UseSectionShared): WebSearchSectionS
     return webFetchForm.useJinaReader !== settings.web.fetch.use_jina_reader;
   }, [webFetchForm, settings]);
 
-  const saveWebSearchSettings = useCallback(async () => {
-    if (!settings || !webSearchDirty || webSearchSaving) return;
-    setWebSearchSaving(true);
-    try {
-      const payload = await updateWebSearchSettings(token, webSearchForm);
-      applyPayload(payload);
-      if (payload.requires_restart) {
-        setPendingRestartSections((prev) => ({ ...prev, browser: true }));
-      }
-      await maybeRestartHostEngine(payload);
-      setError(null);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setWebSearchSaving(false);
-    }
-  }, [settings, webSearchDirty, webSearchSaving, webSearchForm, token, applyPayload, setPendingRestartSections, maybeRestartHostEngine, setError]);
+  const sharedDeps: SaveActionSharedDeps = {
+    applyPayload: shared.applyPayload,
+    setError: shared.setError,
+    setPendingRestartSections: shared.setPendingRestartSections,
+    maybeRestartHostEngine: shared.maybeRestartHostEngine,
+  };
 
-  const saveWebFetchSettings = useCallback(async () => {
-    if (!settings || !webFetchDirty || webFetchSaving) return;
-    setWebFetchSaving(true);
-    try {
-      const payload = await updateWebFetchSettings(token, webFetchForm);
-      applyPayload(payload);
-      if (payload.requires_restart) {
-        setPendingRestartSections((prev) => ({ ...prev, browser: true }));
-      }
-      await maybeRestartHostEngine(payload);
-      setError(null);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setWebFetchSaving(false);
-    }
-  }, [settings, webFetchDirty, webFetchSaving, webFetchForm, token, applyPayload, setPendingRestartSections, maybeRestartHostEngine, setError]);
+  const webSearchAction = useSaveAction<void, WebSearchSettingsUpdate>({
+    shared: sharedDeps,
+    token,
+    enabled: !!settings && webSearchDirty,
+    buildPayload: () => webSearchForm,
+    apiCall: updateWebSearchSettings,
+    restartSectionKey: "browser",
+  });
+
+  const webFetchAction = useSaveAction<void, WebFetchSettingsUpdate>({
+    shared: sharedDeps,
+    token,
+    enabled: !!settings && webFetchDirty,
+    buildPayload: () => webFetchForm,
+    apiCall: updateWebFetchSettings,
+    restartSectionKey: "browser",
+  });
 
   return {
     webSearchForm,
     setWebSearchForm,
-    webSearchSaving,
+    webSearchSaving: webSearchAction.saving,
     webSearchDirty,
-    saveWebSearchSettings,
+    saveWebSearchSettings: webSearchAction.save,
     webFetchForm,
     setWebFetchForm,
-    webFetchSaving,
+    webFetchSaving: webFetchAction.saving,
     webFetchDirty,
-    saveWebFetchSettings,
+    saveWebFetchSettings: webFetchAction.save,
   };
 }
