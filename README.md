@@ -11,6 +11,8 @@
 [![Release](https://img.shields.io/badge/release-v0.2.0-success)](https://github.com/zhoulingquan/MiniUnicorn/releases)
 [![Status](https://img.shields.io/badge/status-alpha-orange)]()
 
+**[简体中文]** | [English](./README.en.md)
+
 </div>
 
 ---
