@@ -53,6 +53,10 @@ export interface ViewRenderContext {
   onRestart?: () => void;
   isRestarting: boolean;
   hostChromeInset: boolean;
+  /** 侧边栏折叠态(供 settings 等有独立 sidebar 的视图使用)。 */
+  sidebarCollapsed?: boolean;
+  /** 切换侧边栏折叠态。 */
+  onToggleSidebar?: () => void;
 }
 
 export interface ViewRegistration {
@@ -140,6 +144,8 @@ export const VIEW_REGISTRY: ViewRegistration[] = [
         onRestart={ctx.onRestart}
         isRestarting={ctx.isRestarting}
         hostChromeInset={ctx.hostChromeInset}
+        sidebarCollapsed={ctx.sidebarCollapsed}
+        onToggleSidebar={ctx.onToggleSidebar}
       />
     ),
   },

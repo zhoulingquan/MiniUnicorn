@@ -1071,6 +1071,8 @@ function Shell({
                 onRestart,
                 isRestarting,
                 hostChromeInset: showHostChrome,
+                sidebarCollapsed: !hostSidebarOpen,
+                onToggleSidebar: toggleSidebar,
               };
               const content = (
                 <div className="absolute inset-0 flex flex-col">

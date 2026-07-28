@@ -7,7 +7,7 @@
 //  - 删除 provider 确认 Dialog 留在此处(与主状态强耦合)
 //  - 重新导出 SettingsSectionKey,保证外部 import 路径不变
 
-import { Loader2, RotateCcw } from "lucide-react";
+import { ChevronLeft, Loader2, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -55,6 +55,8 @@ export function SettingsView({
   onRestart,
   isRestarting = false,
   hostChromeInset = false,
+  sidebarCollapsed = false,
+  onToggleSidebar,
 }: SettingsViewProps) {
   const { t } = useTranslation();
   const { token } = useClient();
@@ -212,9 +214,10 @@ export function SettingsView({
         <SettingsSidebar
           activeSection={state.activeSection}
           onSelectSection={state.setActiveSection}
-          onBackToChat={onBackToChat}
           onLogout={onLogout}
           hostChromeInset={hostChromeInset}
+          collapsed={sidebarCollapsed}
+          onToggleSidebar={onToggleSidebar}
         />
       ) : null}
 
@@ -352,35 +355,44 @@ export function SettingsView({
           )}
         >
           <div className="mb-7">
-            <p className="mb-2 text-[13px] font-medium text-muted-foreground">
-              {t("settings.sidebar.title")}
-            </p>
-            <div className="flex items-center justify-between gap-3">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onBackToChat}
+              className="mb-3 gap-1.5 rounded-full text-muted-foreground hover:text-foreground"
+              title={t("settings.backToChat")}
+            >
+              <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
+              {t("settings.backToChat")}
+            </Button>
+            <div className="flex items-end justify-between gap-3">
               <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em] text-foreground sm:text-[34px]">
                 {state.text(`settings.nav.${state.activeSection}`, titleForSection(state.activeSection))}
               </h1>
-              {state.activeSection === "overview" ? (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={state.restartViaSettingsSurface}
-                  disabled={!state.hasPendingRestart || isRestarting || state.hostEngineApplying}
-                  className={cn(
-                    "shrink-0 rounded-full",
-                    !state.hasPendingRestart && "opacity-40 cursor-not-allowed hover:bg-transparent",
-                  )}
-                  title={state.hasPendingRestart ? undefined : t("settings.values.ready", { defaultValue: "Ready" })}
-                >
-                  {isRestarting || state.hostEngineApplying ? (
-                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
-                  ) : (
-                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-                  )}
-                  {isRestarting || state.hostEngineApplying
-                    ? t("app.system.restarting")
-                    : t("app.system.restart")}
-                </Button>
-              ) : null}
+              <div className="flex shrink-0 items-center gap-2 pb-1.5">
+                {state.activeSection === "overview" ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={state.restartViaSettingsSurface}
+                    disabled={!state.hasPendingRestart || isRestarting || state.hostEngineApplying}
+                    className={cn(
+                      "shrink-0 rounded-full",
+                      !state.hasPendingRestart && "opacity-40 cursor-not-allowed hover:bg-transparent",
+                    )}
+                    title={state.hasPendingRestart ? undefined : t("settings.values.ready", { defaultValue: "Ready" })}
+                  >
+                    {isRestarting || state.hostEngineApplying ? (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+                    ) : (
+                      <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                    )}
+                    {isRestarting || state.hostEngineApplying
+                      ? t("app.system.restarting")
+                      : t("app.system.restart")}
+                  </Button>
+                ) : null}
+              </div>
             </div>
           </div>
 

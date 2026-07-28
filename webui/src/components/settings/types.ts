@@ -90,6 +90,10 @@ export interface SettingsViewProps {
   onRestart?: () => void;
   isRestarting?: boolean;
   hostChromeInset?: boolean;
+  /** 侧边栏是否折叠(桌面端 PanelLeft 按钮控制)。 */
+  sidebarCollapsed?: boolean;
+  /** 切换侧边栏折叠态。 */
+  onToggleSidebar?: () => void;
 }
 
 export const LOCAL_PREFS_STORAGE_KEY = STORAGE_KEYS.settingsPreferences;

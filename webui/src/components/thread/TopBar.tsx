@@ -26,8 +26,8 @@ interface TopBarProvider {
 }
 
 interface TopBarProps {
-  /** 点击 PanelLeft 按钮:切换侧边栏宽度。 */
-  onToggleSidebar: () => void;
+  /** 点击 PanelLeft 按钮:切换侧边栏宽度。undefined 时隐藏按钮(如设置页面)。 */
+  onToggleSidebar?: () => void;
   /** 点击搜索按钮:打开会话搜索弹窗。 */
   onOpenSearch: () => void;
   /** 可选的中间标题(chat 视图传会话标题;其他视图可不传)。 */
@@ -89,15 +89,17 @@ export function TopBar({
           <VersionBadge version={version} />
         </div>
         <div className="flex items-center -space-x-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label={t("sidebar.collapse")}
-            onClick={onToggleSidebar}
-            className="h-8 w-8 rounded-full text-muted-foreground hover:bg-accent/40 hover:text-foreground"
-          >
-            <PanelLeft className="h-4 w-4" />
-          </Button>
+          {onToggleSidebar ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={t("sidebar.collapse")}
+              onClick={onToggleSidebar}
+              className="h-8 w-8 rounded-full text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+            >
+              <PanelLeft className="h-4 w-4" />
+            </Button>
+          ) : null}
           <Button
             variant="ghost"
             size="icon"
