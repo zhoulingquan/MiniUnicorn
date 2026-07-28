@@ -621,3 +621,28 @@ def load_bundled_template(template_name: str) -> str | None:
         if tpl.is_file():
             return tpl.read_text(encoding="utf-8")
     return None
+
+
+def merge_message_content(left: Any, right: Any) -> str | list[dict[str, Any]]:
+    """Merge two message ``content`` values into one.
+
+    Behavior:
+    - two strings are joined with two newlines (empty left returns right);
+    - ``None`` contributes no blocks;
+    - non-dict list items are wrapped as text blocks;
+    - multimodal block order is preserved (left blocks then right blocks).
+    """
+    if isinstance(left, str) and isinstance(right, str):
+        return f"{left}\n\n{right}" if left else right
+
+    def _to_blocks(value: Any) -> list[dict[str, Any]]:
+        if isinstance(value, list):
+            return [
+                item if isinstance(item, dict) else {"type": "text", "text": str(item)}
+                for item in value
+            ]
+        if value is None:
+            return []
+        return [{"type": "text", "text": str(value)}]
+
+    return _to_blocks(left) + _to_blocks(right)
