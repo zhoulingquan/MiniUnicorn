@@ -306,7 +306,12 @@ def test_create_vector_store_falls_back_to_noop(tmp_path, monkeypatch):
 
 
 def test_agent_loop_uses_memory_db_for_vector_recall(tmp_path, monkeypatch):
-    """Vector recall stores its internal index at memory/memory.db."""
+    """Vector recall stores its internal index at memory/memory.db.
+
+    The local embedding provider (FastEmbed/BGE, dim=512) is wired in
+    alongside the chat provider; the chat provider is never used for
+    embeddings.
+    """
     from miniunicorn.agent import vector_memory as vm
     from miniunicorn.agent.loop import AgentLoop
 
@@ -321,7 +326,7 @@ def test_agent_loop_uses_memory_db_for_vector_recall(tmp_path, monkeypatch):
     create_vector_store = MagicMock(return_value=vector_store)
     monkeypatch.setattr(vm, "create_vector_store", create_vector_store)
 
-    AgentLoop(
+    loop = AgentLoop(
         bus=MessageBus(),
         provider=provider,
         workspace=tmp_path,
@@ -330,7 +335,14 @@ def test_agent_loop_uses_memory_db_for_vector_recall(tmp_path, monkeypatch):
         vector_recall=True,
     )
 
-    create_vector_store.assert_called_once_with(tmp_path / "memory" / "memory.db")
+    create_vector_store.assert_called_once()
+    call_args = create_vector_store.call_args
+    assert call_args.args[0] == tmp_path / "memory" / "memory.db"
+    assert call_args.kwargs["embedding_dim"] == 512
+    assert call_args.kwargs["model_id"] == "BAAI/bge-small-zh-v1.5"
+    # The loop owns a dedicated local embedding provider, separate from chat.
+    assert loop._embedding_provider is not None
+    assert loop._embedding_provider is not provider
 
 
 # ---------------------------------------------------------------------------

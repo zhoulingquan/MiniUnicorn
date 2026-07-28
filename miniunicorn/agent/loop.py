@@ -162,7 +162,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         consolidation_ratio: float = 0.5,
         max_messages: int = 120,
         vector_recall: bool = False,
-        embedding_model: str = "text-embedding-3-small",
+        embedding_model: str = "BAAI/bge-small-zh-v1.5",
         hooks: list[AgentHook] | None = None,
         unified_session: bool = False,
         disabled_skills: list[str] | None = None,
@@ -342,21 +342,28 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             min_interval_s=defaults.dream.idle_trigger_min_interval_s,
         )
         # Attach vector store to memory if enabled (optional sqlite-vec dependency).
+        # Vector memory uses a dedicated local CPU embedding provider
+        # (FastEmbed/BGE) that is independent of the chat LLM provider.
+        # Runtime chat-provider switching never touches ``_embedding_provider``.
         self._vector_recall = vector_recall
         self._embedding_model = embedding_model
+        self._embedding_provider = None
         if vector_recall:
             from miniunicorn.agent.vector_memory import create_vector_store
+            from miniunicorn.providers.local_embedding import LocalEmbeddingProvider
 
-            vector_store = create_vector_store(self.workspace / "memory" / "memory.db")
+            embedding_provider = LocalEmbeddingProvider(model_name=embedding_model)
+            vector_store = create_vector_store(
+                self.workspace / "memory" / "memory.db",
+                embedding_dim=embedding_provider.dimension,
+                model_id=embedding_provider.model_name,
+            )
             self.context.memory.attach_vector_store(vector_store)
-            # TODO(embedding): wrap `provider` with EmbeddingProvider when
-            # config.providers.embedding_provider is set, so a non-OpenAI chat
-            # provider (e.g. Anthropic) can emit embeddings via a separate
-            # OpenAI-compatible endpoint. Sketch:
-            #   from miniunicorn.providers.embedding import EmbeddingProvider
-            #   emb_cfg = config.providers  # has embedding_* fields
-            #   provider = EmbeddingProvider(provider, emb_cfg)
-            self.context.memory.set_embed_provider(provider, model=embedding_model)
+            # MemoryStore.index_text and the recall tool read the provider
+            # back via MemoryStore._embed_provider, so hand them the same
+            # local instance rather than the chat provider.
+            self.context.memory.set_embed_provider(embedding_provider, model=embedding_model)
+            self._embedding_provider = embedding_provider
         self.model_presets: dict[str, ModelPresetConfig] = model_presets or {}
         self._active_preset: str | None = None
         if model_preset:
@@ -472,18 +479,23 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         return False
 
     async def _compute_query_embedding(self, text: str) -> list[float] | None:
-        """Compute embedding for *text* when vector recall is enabled."""
+        """Compute embedding for *text* when vector recall is enabled.
+
+        Uses the dedicated local embedding provider, never the chat provider,
+        so switching chat providers mid-session does not perturb recall.
+        """
         if not self._vector_recall or not text:
             return None
+        provider = self._embedding_provider
+        if provider is None:
+            return None
         try:
-            embeddings = await self.provider.embed(
+            embeddings = await provider.embed(
                 [text[:500]],
                 model=self._embedding_model,
             )
             if embeddings:
                 return embeddings[0]
-        except NotImplementedError:
-            pass
         except Exception:
             logger.debug("Query embedding failed", exc_info=True)
         return None

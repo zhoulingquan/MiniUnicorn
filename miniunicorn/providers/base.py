@@ -874,11 +874,12 @@ class LLMProvider(ABC):
         Default implementation raises NotImplementedError. Providers that
         support embeddings (OpenAI-compatible) override this.
 
-        To use embeddings with a provider that doesn't support them (e.g.,
-        Anthropic), configure a separate embedding_provider in config.
+        Note: Vector memory retrieval uses the local CPU
+        :class:`~miniunicorn.providers.local_embedding.LocalEmbeddingProvider`
+        and no longer calls this method. This hook remains part of the
+        provider API for direct OpenAI-compatible embedding use.
         """
         raise NotImplementedError(
             f"{type(self).__name__} does not support embeddings. "
-            f"Configure a separate 'embedding_provider' in config to use "
-            f"an OpenAI-compatible endpoint for embeddings."
+            f"Vector memory uses the local LocalEmbeddingProvider instead."
         )

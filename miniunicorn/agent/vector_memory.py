@@ -46,20 +46,47 @@ def _serialize_f32(vec: list[float]) -> bytes:
     return struct.pack(f"{len(vec)}f", *vec)
 
 
+#: Fingerprint schema version. Bump when the on-disk vector metadata layout
+#: changes so older databases are rejected rather than silently misread.
+_VEC_SCHEMA_VERSION = "1"
+
+#: Default vector dimension for the local embedding model
+#: (:data:`BAAI/bge-small-zh-v1.5 <miniunicorn.providers.local_embedding.DEFAULT_LOCAL_MODEL>`).
+_DEFAULT_EMBEDDING_DIM = 512
+
+#: Default local model id used to fingerprint the vector database.
+_DEFAULT_MODEL_ID = "BAAI/bge-small-zh-v1.5"
+
+
 class VectorMemoryStore:
     """SQLite-backed vector store for memory entries.
 
     Schema:
+        vec_meta(key TEXT PK, value TEXT) — fingerprint (schema version,
+            model id, vector dimension)
         vec_entries(id INTEGER PK, kind TEXT, text TEXT, embedding BLOB,
                     metadata_json TEXT, created_at TEXT)
         vec0_virtual(embedding FLOAT[N] distance) — sqlite-vec virtual table
 
     The store is safe for concurrent reads; writes are serialized via a lock.
+
+    If an existing ``memory.db`` has no matching fingerprint or a different
+    model/dimension, the store leaves the file untouched, disables itself
+    for the run, and logs one actionable message telling the developer to
+    remove the development database and restart. It never silently mixes
+    vectors from different models and never deletes the database
+    automatically.
     """
 
-    def __init__(self, db_path: Path, embedding_dim: int = 1536):
+    def __init__(
+        self,
+        db_path: Path,
+        embedding_dim: int = _DEFAULT_EMBEDDING_DIM,
+        model_id: str = _DEFAULT_MODEL_ID,
+    ):
         self.db_path = db_path
         self.embedding_dim = embedding_dim
+        self.model_id = model_id
         self._lock = threading.Lock()
         self._enabled = False
         self._conn: sqlite3.Connection | None = None
@@ -73,6 +100,21 @@ class VectorMemoryStore:
             self._conn.row_factory = sqlite3.Row
             self._enabled = _try_load_sqlite_vec(self._conn)
             if not self._enabled:
+                return
+            # Fingerprint table — must exist before we check it so a fresh
+            # database can be stamped and an existing one can be inspected.
+            self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS vec_meta (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+            """)
+            if not self._fingerprint_matches():
+                # Leave the file untouched and disable for this run. The
+                # caller (NoOp fallback) takes over so chat keeps working.
+                self._enabled = False
+                self._conn.close()
+                self._conn = None
                 return
             # Metadata table
             self._conn.execute("""
@@ -100,11 +142,66 @@ class VectorMemoryStore:
             )
             self._conn.commit()
             logger.debug(
-                "VectorMemoryStore initialized at {} (dim={})", self.db_path, self.embedding_dim
+                "VectorMemoryStore initialized at {} (dim={}, model={})",
+                self.db_path,
+                self.embedding_dim,
+                self.model_id,
             )
         except Exception:
             logger.exception("VectorMemoryStore init failed; disabling")
             self._enabled = False
+
+    def _fingerprint_matches(self) -> bool:
+        """Check/stamp the database fingerprint.
+
+        A fresh database (no ``vec_meta`` rows) is stamped with the current
+        schema version, model id, and dimension. An existing database is
+        inspected: if any of those three values differ, the store refuses
+        to initialize and logs an actionable message.
+
+        Returns ``True`` when the fingerprint matches (or was just stamped),
+        ``False`` when a mismatched fingerprint is detected.
+        """
+        assert self._conn is not None
+        rows = {
+            row["key"]: row["value"]
+            for row in self._conn.execute("SELECT key, value FROM vec_meta").fetchall()
+        }
+        if not rows:
+            # Fresh database — stamp the fingerprint.
+            self._conn.executemany(
+                "INSERT INTO vec_meta(key, value) VALUES (?, ?)",
+                [
+                    ("schema_version", _VEC_SCHEMA_VERSION),
+                    ("model_id", self.model_id),
+                    ("vector_dim", str(self.embedding_dim)),
+                ],
+            )
+            self._conn.commit()
+            return True
+
+        expected = {
+            "schema_version": _VEC_SCHEMA_VERSION,
+            "model_id": self.model_id,
+            "vector_dim": str(self.embedding_dim),
+        }
+        for key, value in expected.items():
+            if rows.get(key) != value:
+                logger.warning(
+                    "Vector memory fingerprint mismatch for {}: "
+                    "key={!r} expected={!r} found={!r}. "
+                    "The existing database was created by a different model "
+                    "or schema. Vector recall is disabled for this run to "
+                    "avoid mixing vectors. To reset, remove the database "
+                    "file and restart: {}",
+                    self.db_path,
+                    key,
+                    value,
+                    rows.get(key),
+                    self.db_path,
+                )
+                return False
+        return True
 
     @property
     def enabled(self) -> bool:
@@ -324,9 +421,19 @@ class NoOpVectorStore:
         pass
 
 
-def create_vector_store(db_path: Path, embedding_dim: int = 1536):
-    """Factory: return a real store if sqlite-vec loads, else NoOp."""
-    store = VectorMemoryStore(db_path, embedding_dim=embedding_dim)
+def create_vector_store(
+    db_path: Path,
+    embedding_dim: int = _DEFAULT_EMBEDDING_DIM,
+    model_id: str = _DEFAULT_MODEL_ID,
+):
+    """Factory: return a real store if sqlite-vec loads, else NoOp.
+
+    ``embedding_dim`` and ``model_id`` default to the local BGE model's
+    values (512 / ``BAAI/bge-small-zh-v1.5``) and are written to the
+    database fingerprint so a future model swap is detected rather than
+    silently mixing vectors.
+    """
+    store = VectorMemoryStore(db_path, embedding_dim=embedding_dim, model_id=model_id)
     if store.enabled:
         return store
     store.close()

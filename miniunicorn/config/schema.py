@@ -278,10 +278,10 @@ class AgentDefaults(Base):
         serialization_alias="maxCostPerTurnUsd",
     )  # Per-turn cost budget in USD (None = unlimited)
     embedding_model: str = Field(
-        default="text-embedding-3-small",
+        default="BAAI/bge-small-zh-v1.5",
         validation_alias=AliasChoices("embeddingModel"),
         serialization_alias="embeddingModel",
-    )  # Model for generating embeddings
+    )  # Local CPU embedding model id (FastEmbed). Independent of chat provider.
     dream: DreamConfig = Field(default_factory=DreamConfig)
 
 
@@ -317,31 +317,6 @@ class ProvidersConfig(Base):
     opencode: ProviderConfig = Field(default_factory=ProviderConfig)
     agnes: ProviderConfig = Field(default_factory=ProviderConfig)
 
-    # Optional separate embedding provider — allows using a different backend
-    # for embeddings than for chat (e.g. Anthropic Claude for chat + OpenAI
-    # text-embedding-3-small for embeddings). When embedding_provider is None,
-    # the main LLM provider's embed() is used (OpenAI-compatible endpoints).
-    embedding_provider: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices("embeddingProvider"),
-        serialization_alias="embeddingProvider",
-    )  # e.g. "openai" / "custom"; None = reuse the main chat provider
-    embedding_model: str = Field(
-        default="text-embedding-3-small",
-        validation_alias=AliasChoices("embeddingModel"),
-        serialization_alias="embeddingModel",
-    )  # 嵌入模型（优先级高于 agents.defaults.embedding_model，仅当使用独立 embedding_provider 时生效）
-    embedding_api_base: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices("embeddingApiBase"),
-        serialization_alias="embeddingApiBase",
-    )  # Optional custom endpoint; defaults to OpenAI when omitted
-    embedding_api_key: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices("embeddingApiKey"),
-        serialization_alias="embeddingApiKey",
-    )  # Optional custom key; inherits from chat provider when omitted
-
     @model_validator(mode="after")
     def _coerce_extra_providers(self) -> "ProvidersConfig":
         """把 extra 字段中的 dict 转为 ProviderConfig，保证访问一致。
@@ -359,9 +334,7 @@ class ProvidersConfig(Base):
 
 # Names that collide with built-in provider fields declared on ProvidersConfig;
 # rejected as custom overrides to prevent shadowing the typed schema fields.
-_BUILTIN_PROVIDER_NAMES: frozenset[str] = frozenset(
-    {"custom", "deepseek", "opencode", "agnes"}
-)
+_BUILTIN_PROVIDER_NAMES: frozenset[str] = frozenset({"custom", "deepseek", "opencode", "agnes"})
 
 
 class HeartbeatConfig(Base):
