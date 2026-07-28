@@ -70,11 +70,13 @@ export function ImageGenerationSettings({
   const ig = settings.image_generation;
   // 直接复用 settings.model_presets (与"模型设置已配置区域"卡片同源,同 PlannerConfig 模式)
   const presets = settings.model_presets;
+  // 过滤掉虚拟 default 条目:本组件已硬编码"主模型"选项,default 冗余。
+  const visiblePresets = presets.filter((p) => !p.is_default);
   // 主模型选项 (default): 用 agents.defaults 的 model
   const mainModel = settings.agent.model;
   const mainProvider = settings.agent.resolved_provider ?? settings.agent.provider;
   const currentValue = form.preset ?? "default";
-  const selectedPreset = presets.find((p) => p.name === currentValue) ?? null;
+  const selectedPreset = visiblePresets.find((p) => p.name === currentValue) ?? null;
 
   const aspectRatioOptions = (ig?.aspect_ratio_options ?? [
     "1:1", "16:9", "9:16", "4:3", "3:4",
@@ -159,7 +161,7 @@ export function ImageGenerationSettings({
                   type="button"
                   variant="outline"
                   disabled={saving}
-                  className="h-8 w-[min(220px,42vw)] justify-between rounded-full border-input bg-background px-3 text-[12.5px] font-normal shadow-none hover:bg-accent/55 focus-visible:ring-2 focus-visible:ring-ring"
+                  className="h-auto w-[min(220px,42vw)] justify-between rounded-full border-input bg-background px-3 py-1.5 text-[12.5px] font-normal shadow-none hover:bg-accent/55 focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <span className="flex min-w-0 items-center gap-2">
                     <ProviderPickerIcon
@@ -206,8 +208,8 @@ export function ImageGenerationSettings({
                     <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />
                   ) : null}
                 </DropdownMenuItem>
-                {presets.length > 0 ? <div className="my-1 border-t border-border/55" /> : null}
-                {presets.map((preset) => {
+                {visiblePresets.length > 0 ? <div className="my-1 border-t border-border/55" /> : null}
+                {visiblePresets.map((preset) => {
                   const selected = preset.name === currentValue;
                   return (
                     <DropdownMenuItem

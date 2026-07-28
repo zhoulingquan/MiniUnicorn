@@ -39,20 +39,21 @@ export function ModelPresetPicker({
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
-  // 重构后 settings.model_presets 不再包含 virtual "default"。
-  // 当 value === "default"(初始状态或删除 preset 后的回退)时,下拉列表中
-  // 没有匹配项,此时显示占位符"默认配置(Default)"让用户知道当前是 fallback 状态。
-  const selectedPreset = presets.find((preset) => preset.name === value) ?? null;
+  // default 虚拟条目代表"主配置"(agents.defaults)。当用户选中命名预设后,
+  // 主配置不再使用,default 卡片 model 为空,显示冗余,过滤掉。
+  // 仅当 default 自身是 active(主配置正在使用)时才保留。
+  const visiblePresets = presets.filter((p) => !p.is_default || p.active);
+  const selectedPreset = visiblePresets.find((preset) => preset.name === value) ?? null;
   const isDefaultFallback = value === "default" || !value;
   const defaultLabel = tx("settings.models.defaultPreset", "Default configuration");
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild disabled={!presets.length && isDefaultFallback}>
+      <DropdownMenuTrigger asChild disabled={!visiblePresets.length && isDefaultFallback}>
         <Button
           type="button"
           variant="outline"
-          disabled={!presets.length && isDefaultFallback}
+          disabled={!visiblePresets.length && isDefaultFallback}
           className={cn(
             "h-10 w-[min(260px,60vw)] justify-between rounded-full border-input bg-background px-3 text-[13px] font-normal shadow-none",
             "hover:bg-accent/55 focus-visible:ring-2 focus-visible:ring-ring",
@@ -91,7 +92,7 @@ export function ModelPresetPicker({
         align="end"
         className="max-h-[20rem] w-[280px] max-w-[calc(100vw-2rem)] overflow-y-auto"
       >
-        {presets.map((preset) => {
+        {visiblePresets.map((preset) => {
           const selected = preset.name === value;
           return (
             <DropdownMenuItem

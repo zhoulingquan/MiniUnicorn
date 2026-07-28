@@ -34,8 +34,10 @@ export function HeartbeatLlmConfig({
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
   const presets = settings.model_presets;
+  // 过滤掉虚拟 default 条目:本组件已硬编码"主模型"选项,default 冗余。
+  const visiblePresets = presets.filter((p) => !p.is_default);
   const currentValue = runtimeForm.heartbeatModelPreset ?? settings.runtime.heartbeat.model_preset ?? "";
-  const selectedPreset = presets.find((p) => p.name === currentValue) ?? null;
+  const selectedPreset = visiblePresets.find((p) => p.name === currentValue) ?? null;
   const defaultOptionLabel = tx("settings.heartbeat.useMain", "Main model");
 
   return (
@@ -56,10 +58,15 @@ export function HeartbeatLlmConfig({
           <Button
             type="button"
             variant="outline"
-            className="h-8 w-[min(220px,50vw)] justify-between rounded-full border-input bg-background px-3 text-[12.5px] font-normal shadow-none hover:bg-accent/55 focus-visible:ring-2 focus-visible:ring-ring"
+            className="h-auto w-[min(220px,50vw)] justify-between rounded-full border-input bg-background px-3 py-1.5 text-[12.5px] font-normal shadow-none hover:bg-accent/55 focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <span className="min-w-0 truncate text-left">
-              {selectedPreset ? selectedPreset.label || selectedPreset.model : defaultOptionLabel}
+            <span className="min-w-0 text-left leading-tight">
+              <span className="block truncate font-medium text-foreground">
+                {selectedPreset ? selectedPreset.label || selectedPreset.model : defaultOptionLabel}
+              </span>
+              <span className="mt-0.5 block truncate text-[11.5px] text-muted-foreground">
+                {selectedPreset ? selectedPreset.model : (settings.agent.model || "—")}
+              </span>
             </span>
             <ChevronDown className="ml-2 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
           </Button>
@@ -86,8 +93,8 @@ export function HeartbeatLlmConfig({
             </span>
             {!currentValue ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden /> : null}
           </DropdownMenuItem>
-          {presets.length > 0 ? <div className="my-1 border-t border-border/55" /> : null}
-          {presets.map((preset) => {
+          {visiblePresets.length > 0 ? <div className="my-1 border-t border-border/55" /> : null}
+          {visiblePresets.map((preset) => {
             const selected = preset.name === currentValue;
             return (
               <DropdownMenuItem
