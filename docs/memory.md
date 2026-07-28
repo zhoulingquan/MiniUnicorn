@@ -70,6 +70,7 @@ workspace/
 └── memory/
     ├── MEMORY.md        # Project facts, decisions, and durable context
     ├── history.jsonl    # Append-only history summaries
+    ├── memory.db        # Optional local SQLite index for semantic recall
     ├── .cursor          # Consolidator write cursor
     ├── .dream_cursor    # Dream consumption cursor
     └── .git/            # Version history for long-term memory files
@@ -81,6 +82,7 @@ These files play different roles:
 - `USER.md` remembers who the user is and what they prefer.
 - `MEMORY.md` remembers what remains true about the work itself.
 - `history.jsonl` remembers what happened on the way there.
+- `memory.db` indexes selected internal memories for semantic recall when vector recall is enabled; it is not an external document knowledge base.
 
 ## Why `history.jsonl`
 
