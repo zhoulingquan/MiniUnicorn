@@ -308,6 +308,7 @@ function MediaCell({ media }: { media: UIMediaAttachment }) {
   if (media.kind === "video" && hasUrl) {
     return (
       <figure className="max-w-[min(100%,32rem)] overflow-hidden rounded-[14px] border border-border/60 bg-muted/40">
+        {/* eslint-disable-next-line jsx-a11y/media-has-caption -- user-provided media without caption data */}
         <video
           src={media.url}
           controls

@@ -117,7 +117,7 @@ export function ChannelDrawer({
     }
   }, [channel]);
 
-  const schema = channel?.config_schema ?? [];
+  const schema = useMemo(() => channel?.config_schema ?? [], [channel]);
   const isDirty = useMemo(() => {
     if (!channel || schema.length === 0) return false;
     const original = (channel.config ?? channel.default_config ?? {}) as Record<string, unknown>;

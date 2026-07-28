@@ -110,6 +110,14 @@ function AuthForm({
   const { t } = useTranslation();
   const [value, setValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Focus the secret input on mount so users can immediately type without
+  // relying on the raw `autoFocus` prop (which harms usability for
+  // screen-reader / keyboard users who may be focused elsewhere).
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -135,12 +143,12 @@ function AuthForm({
           </p>
         )}
         <Input
+          ref={inputRef}
           type="password"
           placeholder={t("app.auth.placeholder")}
           value={value}
           onChange={(e) => setValue(e.target.value)}
           disabled={submitting}
-          autoFocus
         />
         <Button
           type="submit"
@@ -676,7 +684,7 @@ function Shell({
       }
       return null;
     }
-  }, [activeWorkspaceScope, createChat, t]);
+  }, [activeWorkspaceScope, createChat, setWorkspaceError, setWorkspaceOverrides, t]);
 
   const onNewChat = useCallback(() => {
     setActiveKey(null);
@@ -684,7 +692,7 @@ function Shell({
     setWorkspaceError(null);
     setView("chat");
     setMobileSidebarOpen(false);
-  }, []);
+  }, [setDraftWorkspaceScope, setWorkspaceError]);
 
   const onNewChatInProject = useCallback(
     (projectPath: string, projectName: string) => {
@@ -705,7 +713,7 @@ function Shell({
       setView("chat");
       setMobileSidebarOpen(false);
     },
-    [activeWorkspaceScope, onNewChat, workspaces?.default_scope],
+    [activeWorkspaceScope, onNewChat, setDraftWorkspaceScope, setWorkspaceError, workspaces?.default_scope],
   );
 
   const onSelectChat = useCallback(
@@ -725,7 +733,7 @@ function Shell({
       setView("chat");
       setMobileSidebarOpen(false);
     },
-    [clearCompleted, sessions],
+    [clearCompleted, sessions, setDraftWorkspaceScope, setWorkspaceError],
   );
 
   const {

@@ -125,6 +125,7 @@ export default function MarkdownTextRenderer({
                 "border border-border/70 bg-background shadow-sm",
               )}
             >
+              {/* eslint-disable-next-line jsx-a11y/media-has-caption -- user-provided media without caption data */}
               <video
                 src={source}
                 controls

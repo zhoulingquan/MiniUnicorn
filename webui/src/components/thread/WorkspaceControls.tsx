@@ -176,6 +176,7 @@ export function WorkspaceProjectPicker({
             {!currentProjectScope ? <Check className="h-4 w-4 text-foreground/80" /> : null}
           </DropdownMenuItem>
           <div className="my-1 h-px bg-border/45" />
+          {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- container manages key event propagation for nested form, not an interactive widget */}
           <div
             className="space-y-1.5 px-1.5 py-1.5"
             onKeyDown={(event) => {

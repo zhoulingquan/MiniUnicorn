@@ -82,16 +82,3 @@ export async function encodeImage(file: File): Promise<EncodeResponse> {
     }
   });
 }
-
-/** Release the singleton Worker (tests / teardown). */
-export function disposeImageEncoder(): void {
-  if (worker) {
-    worker.terminate();
-    worker = null;
-  }
-  bootAttempted = false;
-  for (const [, entry] of pending) {
-    entry.reject(new Error("image encoder disposed"));
-  }
-  pending.clear();
-}

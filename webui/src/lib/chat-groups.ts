@@ -210,18 +210,6 @@ export function visibleSessionsForGroup(
   return active ? [...visible, active] : visible;
 }
 
-export function displayTitle(
-  session: ChatSummary,
-  titleOverrides: Record<string, string>,
-  fallbackTitle: string,
-): string {
-  return (
-    titleOverrides[session.key]?.trim()
-    || session.title?.trim()
-    || deriveTitle(session.preview, fallbackTitle)
-  );
-}
-
 function groupSessionsByProject(
   sessions: ChatSummary[],
   labels: Pick<ChatGroupLabels, "all">,

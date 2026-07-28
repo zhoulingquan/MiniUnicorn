@@ -2,6 +2,7 @@
 // 替代原先的 NewModelConfigurationDialog 弹窗,样式与卡片展开后的
 // API Key / API Base / Model ID 字段一致(ClearableInput + rounded-full)。
 
+import { useEffect, useRef } from "react";
 import { Loader2, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -51,6 +52,14 @@ export function InlineAddModelForm({
 }: InlineAddModelFormProps) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
+  // ClearableInput does not forward a ref, so we focus the Model ID input
+  // through its wrapping label on mount. This replaces the previous raw
+  // `autoFocus` prop (which harms screen-reader / keyboard UX).
+  const modelIdLabelRef = useRef<HTMLLabelElement>(null);
+
+  useEffect(() => {
+    modelIdLabelRef.current?.querySelector("input")?.focus();
+  }, []);
 
   const canSave =
     Boolean(draft.provider.trim() && draft.model.trim())
@@ -63,13 +72,12 @@ export function InlineAddModelForm({
       {/* inline 变体(卡片内添加模型):Model ID 在前,凭证在后 */}
       {(() => {
         const modelIdField = (
-          <label className="block space-y-1.5">
+          <label ref={modelIdLabelRef} className="block space-y-1.5">
             <span className="text-[12px] font-medium text-muted-foreground">
               {tx("settings.byok.modelId", "Model ID")}
             </span>
             <div className="flex gap-2">
               <ClearableInput
-                autoFocus
                 value={draft.model}
                 onChange={(event) => onChangeDraft({ ...draft, model: event.target.value })}
                 onClear={() => onChangeDraft({ ...draft, model: "" })}

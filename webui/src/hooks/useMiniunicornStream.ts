@@ -697,6 +697,7 @@ export function useMiniunicornStream(
   useEffect(() => {
     if (!chatId) return;
 
+    const closedAssistantStreamIds = closedAssistantStreamIdsRef.current;
     const handle = (ev: InboundEvent) => {
       // Any incoming event while the debounce timer is alive means the model
       // is still working (e.g. tool result arrived, more text to stream).
@@ -963,7 +964,7 @@ export function useMiniunicornStream(
       unsub();
       buffer.current = null;
       activeAssistantRef.current = null;
-      closedAssistantStreamIdsRef.current.clear();
+      closedAssistantStreamIds.clear();
       clearActivitySegment();
       clearPendingStreamWork();
       if (streamEndTimerRef.current !== null) {
