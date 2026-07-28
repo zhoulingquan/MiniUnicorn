@@ -210,9 +210,7 @@ async def test_reload_mcp_servers_retries_configured_server_without_live_stack(
         return stacks
 
     monkeypatch.setattr("miniunicorn.agent.tools.mcp.connect_mcp_servers", _fake_connect)
-    loop = _make_loop(
-        tmp_path, mcp_servers={"playwright": config.tools.mcp_servers["playwright"]}
-    )
+    loop = _make_loop(tmp_path, mcp_servers={"playwright": config.tools.mcp_servers["playwright"]})
 
     result = await mcp_runtime.reload_servers(loop, loop.tools)
 
