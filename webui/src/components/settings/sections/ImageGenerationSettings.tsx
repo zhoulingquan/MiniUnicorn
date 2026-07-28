@@ -7,17 +7,12 @@
 
 import { useRef, type Dispatch, type SetStateAction } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, ChevronDown, Folder, Image as ImageIcon } from "lucide-react";
+import { Folder, Image as ImageIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import type { ImageGenerationSettingsUpdate, SettingsPayload } from "@/lib/types";
 
+import { ModelPresetSelect } from "../components/ModelPresetSelect";
 import { SegmentedControl, ToggleButton } from "../components/SegmentedControl";
 import { RestartSettingsFooter } from "../components/RestartSettingsFooter";
 import {
@@ -26,8 +21,6 @@ import {
   SettingsRow,
   SettingsSectionTitle,
 } from "../components/SettingsRow";
-import { ProviderPickerIcon } from "../components/ProviderIcon";
-import { cn } from "@/lib/utils";
 
 // 预设图片尺寸简写 (与后端 default_image_size 透传逻辑对齐, 这些字符串原样发给 provider)
 const PRESET_SIZES = ["1K", "2K", "4K"] as const;
@@ -74,7 +67,6 @@ export function ImageGenerationSettings({
   const visiblePresets = presets.filter((p) => !p.is_default);
   // 主模型选项 (default): 用 agents.defaults 的 model
   const mainModel = settings.agent.model;
-  const mainProvider = settings.agent.resolved_provider ?? settings.agent.provider;
   const currentValue = form.preset ?? "default";
   const selectedPreset = visiblePresets.find((p) => p.name === currentValue) ?? null;
 
@@ -155,84 +147,17 @@ export function ImageGenerationSettings({
             title={tx("settings.rows.imageGenPreset", "Model Preset")}
             description={providerDescription}
           >
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={saving}
-                  className="h-auto w-[min(220px,42vw)] justify-between rounded-full border-input bg-background px-3 py-1.5 text-[12.5px] font-normal shadow-none hover:bg-accent/55 focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <span className="flex min-w-0 items-center gap-2">
-                    <ProviderPickerIcon
-                      provider={selectedPreset?.provider ?? mainProvider}
-                      showBrandLogos
-                    />
-                    <span className="min-w-0 text-left leading-tight">
-                      <span className="block truncate font-medium text-foreground">
-                        {selectedPreset
-                          ? selectedPreset.label || selectedPreset.name
-                          : tx("settings.values.imageGenMain", "Main model")}
-                      </span>
-                      <span className="mt-0.5 block truncate text-[11.5px] text-muted-foreground">
-                        {selectedPreset ? selectedPreset.model : mainModel || "—"}
-                      </span>
-                    </span>
-                  </span>
-                  <ChevronDown className="ml-2 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                className="max-h-[20rem] w-[260px] max-w-[calc(100vw-2rem)] overflow-y-auto"
-              >
-                {/* 主模型 (default) 选项 */}
-                <DropdownMenuItem
-                  onSelect={() => setField("preset", "default")}
-                  className={cn(
-                    "flex cursor-default items-center justify-between gap-2 rounded-[12px] px-2.5 py-2 text-[13px]",
-                    "focus:bg-muted/85 focus:text-foreground",
-                    (!currentValue || currentValue === "default") &&
-                      "bg-muted/80 text-foreground focus:bg-muted",
-                  )}
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate font-medium">
-                      {tx("settings.values.imageGenMain", "Main model")}
-                    </span>
-                    <span className="mt-0.5 block truncate text-[11.5px] text-muted-foreground">
-                      {mainModel || "—"}
-                    </span>
-                  </span>
-                  {(!currentValue || currentValue === "default") ? (
-                    <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                  ) : null}
-                </DropdownMenuItem>
-                {visiblePresets.length > 0 ? <div className="my-1 border-t border-border/55" /> : null}
-                {visiblePresets.map((preset) => {
-                  const selected = preset.name === currentValue;
-                  return (
-                    <DropdownMenuItem
-                      key={preset.name}
-                      onSelect={() => setField("preset", preset.name)}
-                      className={cn(
-                        "flex cursor-default items-center justify-between gap-2 rounded-[12px] px-2.5 py-2 text-[13px]",
-                        "focus:bg-muted/85 focus:text-foreground",
-                        selected && "bg-muted/80 text-foreground focus:bg-muted",
-                      )}
-                    >
-                      <span className="min-w-0">
-                        <span className="block truncate font-medium">{preset.label || preset.name}</span>
-                        <span className="mt-0.5 block truncate text-[11.5px] text-muted-foreground">
-                          {preset.model}
-                        </span>
-                      </span>
-                      {selected ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden /> : null}
-                    </DropdownMenuItem>
-                  );
-                })}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <ModelPresetSelect
+              defaultSentinel="default"
+              value={currentValue}
+              disabled={saving}
+              presets={presets}
+              settings={settings}
+              showProviderIcon
+              label={tx("settings.rows.imageGenPreset", "Model Preset")}
+              defaultOptionLabel={tx("settings.values.imageGenMain", "Main model")}
+              onChange={(value) => setField("preset", (value as string) ?? "default")}
+            />
           </SettingsRow>
         </SettingsGroup>
       </section>
