@@ -611,6 +611,15 @@ def update_model_configuration(query: QueryParams) -> dict[str, Any]:
 
 
 def update_provider_settings(query: QueryParams) -> dict[str, Any]:
+    """Atomically update provider credentials and optional active model.
+
+    Accepts the historical credential fields (``api_key``/``api_base``) plus an
+    optional ``model``. When ``model`` is supplied, the active provider/model on
+    ``agents.defaults`` is updated in the same in-memory config object and
+    persisted with a single ``save_config()`` call, so a validation failure
+    writes nothing and the frontend no longer needs two sequential requests.
+    Context-window auto-learning is preserved for a changed model.
+    """
     provider_name = (_query_first(query, "provider") or "").strip()
     if not provider_name:
         raise WebUISettingsError("provider is required")
@@ -638,8 +647,36 @@ def update_provider_settings(query: QueryParams) -> dict[str, Any]:
             provider_config.api_base = api_base
             changed = True
 
+    # Optional model selection: collapse the previous two-step flow
+    # (updateProviderSettings → updateSettings) into one atomic save. The
+    # provider was just configured on the in-memory config object above, so
+    # ``_validate_configured_provider`` now succeeds without a separate save.
+    model_changed = False
+    model = _query_first(query, "model")
+    if model is not None:
+        model = model.strip()
+        if not model:
+            raise WebUISettingsError("model is required")
+        _validate_configured_provider(config, provider_name)
+        defaults = config.agents.defaults
+        if defaults.provider != provider_name:
+            defaults.provider = provider_name
+            changed = True
+        if defaults.model != model:
+            defaults.model = model
+            changed = True
+            model_changed = True
+
     if changed:
         save_config(config)
+    if model_changed:
+        import threading
+
+        threading.Thread(
+            target=_trigger_model_learning,
+            args=(config.agents.defaults.model,),
+            daemon=True,
+        ).start()
     from .settings_api import settings_payload
 
     return settings_payload(requires_restart=False)

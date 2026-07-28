@@ -719,6 +719,7 @@ export async function updateProviderSettings(
 ): Promise<SettingsPayload> {
   const query = new URLSearchParams();
   query.set("provider", update.provider);
+  if (update.model !== undefined) query.set("model", update.model);
   const sensitive = sensitiveValuesHeader({
     api_key: update.apiKey,
     api_base: update.apiBase,

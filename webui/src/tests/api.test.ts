@@ -177,6 +177,28 @@ describe("webui API helpers", () => {
     expect(String(url)).not.toContain("api_base");
   });
 
+  it("includes the optional model in the provider update query string", async () => {
+    await updateProviderSettings("tok", {
+      provider: "deepseek",
+      apiKey: "sk-deep-test",
+      model: "deepseek/deepseek-chat-v3",
+    });
+
+    // `model` is not sensitive, so it stays in the URL alongside `provider`.
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/settings/provider/update?provider=deepseek&model=deepseek%2Fdeepseek-chat-v3",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          Authorization: "Bearer tok",
+          "x-miniunicorn-Values": JSON.stringify({
+            api_key: "sk-deep-test",
+          }),
+        }),
+      }),
+    );
+  });
+
   it("serializes provider OAuth login and logout actions", async () => {
     await loginProviderOAuth("tok", "opencode");
     expect(fetch).toHaveBeenCalledWith(

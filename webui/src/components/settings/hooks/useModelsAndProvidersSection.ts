@@ -808,18 +808,16 @@ export function useModelsAndProvidersSection(
           apiBase: providerForm.apiBase.trim() || undefined,
         });
       } else {
+        // Single atomic request: credentials + optional model selection.
+        // The backend updates provider credentials and the active
+        // provider/model on one config object and calls save_config() once.
         payload = await updateProviderSettings(token, {
           provider: providerName,
           apiKey: apiKey || undefined,
           apiBase: providerForm.apiBase.trim(),
           apiType: providerForm.apiType,
+          model: modelId || undefined,
         });
-        if (modelId) {
-          payload = await updateSettings(token, {
-            provider: providerName,
-            model: modelId,
-          });
-        }
       }
       applyPayload(payload);
       onModelNameChange(payload.agent.model || null);

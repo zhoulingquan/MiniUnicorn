@@ -636,6 +636,9 @@ export interface ProviderSettingsUpdate {
   apiKey?: string;
   apiBase?: string;
   apiType?: "auto" | "chat_completions" | "responses";
+  /** Optional model selection; when set, the backend updates the active
+   * provider/model atomically in the same request as the credentials. */
+  model?: string;
 }
 
 export interface WebFetchSettingsUpdate {
