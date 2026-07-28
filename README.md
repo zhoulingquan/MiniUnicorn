@@ -40,7 +40,7 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 <table>
 <tr><td>
 
-**消息总线** `bus/queue.py` (~130 行)<br>
+**消息总线** `bus/queue.py` (49 行)<br>
 异步队列，解耦频道与代理
 
 </td></tr>
@@ -77,11 +77,12 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 
 | 模块 | 职责 |
 |------|------|
-| `agent/` | AgentLoop 协调对话轮次，AgentRunner 执行 LLM 循环 |
+| `agent/` | AgentLoop 协调对话轮次，AgentRunner 执行 LLM 循环，含上下文治理策略与自动压缩 |
 | `session/` | 会话历史持久化、自动压缩、目标状态跟踪 |
 | `config/` | Pydantic 配置模型，支持 `${VAR}` 环境变量 |
 | `cron/` | 自然语言定时任务，持久化，重启补执行 |
 | `bus/` | 异步消息总线 |
+| `command/` | 斜杠命令路由（priority/exact/prefix 三层匹配） |
 
 ### 扩展模块
 
@@ -89,11 +90,14 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 |------|------|
 | `channels/` | 6 个频道适配器（飞书/钉钉/企微/微信/QQ/WebSocket） |
 | `agent/tools/` | 25 类内置工具（文件/Shell/搜索/MCP/子代理...） |
-| `webui/` | 网关 HTTP/WebSocket 路由与负载构建 |
+| `webui/`（仓库根） | React 18 + Vite + TypeScript 前端（约 4 万行 TS/TSX） |
+| `miniunicorn/webui/` | Python 网关：HTTP/WebSocket 路由、设置/频道/工具管理 API |
+| `apps/` | Agent App 生态：CLI 应用目录、安装与扩展市场协议 |
 | `cli/` | Typer CLI 命令、终端渲染、网关运行器 |
 | `utils/` | 文档解析、媒体解码、Git 存储等工具 |
 | `providers/` | LLM 提供商抽象与 OpenAI 兼容实现 |
 | `security/` | 工作区限制、SSRF 防护、Shell 沙箱 |
+| `pairing/` | DM 发送者配对码审批存储（0600 权限持久化） |
 | `api/` | OpenAI 兼容 HTTP API |
 
 ## 技术特点
@@ -104,7 +108,7 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 
 ### 2. 总线解耦
 
-频道与代理通过 `MessageBus`（130 行）完全解耦。频道只管发布 `InboundMessage`、消费 `OutboundMessage`，不感知代理内部状态。添加新频道不需要修改核心。
+频道与代理通过 `MessageBus`（49 行）完全解耦。频道只管发布 `InboundMessage`、消费 `OutboundMessage`，不感知代理内部状态。添加新频道不需要修改核心。
 
 ### 3. 扩展在边缘
 
@@ -118,7 +122,9 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 
 ### 4. 记忆即上下文
 
-Dream 两阶段记忆将历史整合为上下文片段，按需注入而非持久编排。会话写入是原子的（临时文件 + fsync + rename），崩溃安全。自动压缩基于 Token 预算，跳过活跃任务。
+Dream 两阶段记忆将历史整合为上下文片段，按需注入而非持久编排。会话写入是原子的（临时文件 + fsync + rename），崩溃安全。自动压缩基于 Token 预算，跳过活跃任务。可选向量记忆（`[vector]` 附加依赖，基于 sqlite-vec）支持语义检索历史。
+
+上下文治理是策略化的：`runner_strategies` + `context_governor` + 轮次预算共同决定注入什么、压缩什么、丢弃什么，第三方策略可通过入口点插件注册。
 
 ### 5. 安全边界明确
 
@@ -131,16 +137,17 @@ Dream 两阶段记忆将历史整合为上下文片段，按需注入而非持�
 
 ### 6. 工具生态
 
-25 类内置工具，覆盖代理的主要能力需求：
+25 类内置工具（`pkgutil` 自动发现，第三方工具可经入口点插件注册）：
 
 | 类别 | 工具 |
 |------|------|
-| 文件系统 | `read_file` · `write_file` · `edit_file` · `list_dir` |
-| 执行 | `exec`（沙箱可选）· `run_cli_app`（本机 CLI） |
-| 检索 | `web_search`（多后端聚合）· `web_fetch` · `deep_research` |
-| 编排 | `cron` · `long_task` · `execute_plan` · `delegate` |
-| 外部 | `mcp_*`（多服务器）· `message`（跨频道） |
-| 自省 | `self` · `runtime_state` · `recall` |
+| 文件系统 | `read_file` · `write_file` · `edit_file` · `apply_patch` · `list_dir` · `find_files` · `grep` |
+| 执行 | `exec`（沙箱可选，持久会话）· `write_stdin` · `list_exec_sessions` · `run_cli_app`（本机 CLI） |
+| 检索 | `web_search`（多后端聚合 + 缓存/熔断）· `web_fetch` · `deep_research` |
+| 编排 | `cron` · `long_task` · `execute_plan` · `complete_goal` |
+| 子代理 | `spawn` · `delegate` · `create_agent` |
+| 外部 | `mcp_*`（多服务器）· `message`（跨频道）· `image_generation`（多 provider） |
+| 自省 | `self` · `recall`（记忆检索） |
 
 ## 适用场景
 
@@ -255,6 +262,15 @@ curl http://127.0.0.1:8765/v1/chat/completions \
 Markdown + YAML frontmatter 定义，按需加载：
 
 `cron` · `document-processing` · `github` · `image-generation` · `long-goal` · `memory` · `my` · `skill-creator` · `summarize` · `tmux` · `update-setup` · `weather`
+
+## 测试与质量
+
+约 185 个测试文件覆盖全部核心模块（agent 59 · channels 27 · tools 23 · utils 16 · providers 14 · cli/config/session/cron/security/pairing 等），`pytest-asyncio` 自动模式 + 覆盖率统计，`ruff` 静态检查。
+
+```bash
+pip install -e ".[dev]"
+pytest
+```
 
 ## 文档
 
