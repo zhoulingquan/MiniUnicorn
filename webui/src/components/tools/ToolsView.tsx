@@ -447,10 +447,10 @@ function ImportForm({
       ) : null}
 
       <DialogFooter>
-        <Button variant="ghost" size="sm" className="h-8" onClick={onCancel} disabled={saving}>
+        <Button variant="outline" onClick={onCancel} disabled={saving}>
           {t("tools.cancel")}
         </Button>
-        <Button size="sm" className="h-8" onClick={onSave} disabled={saving}>
+        <Button onClick={onSave} disabled={saving}>
           {saving ? (
             <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
           ) : null}

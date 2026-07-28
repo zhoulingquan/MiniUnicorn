@@ -338,9 +338,7 @@ export function ChannelDrawer({
 
         <DialogFooter>
           <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 gap-1.5"
+            variant="destructive"
             onClick={onDelete}
             disabled={acting || !channel.configured}
           >
@@ -348,8 +346,6 @@ export function ChannelDrawer({
             {t("channels.delete")}
           </Button>
           <Button
-            size="sm"
-            className="h-8 gap-1.5"
             onClick={handleSave}
             disabled={acting || !isDirty}
           >

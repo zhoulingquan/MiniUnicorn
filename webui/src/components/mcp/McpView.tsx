@@ -594,9 +594,7 @@ export function McpView({ onBack, token }: McpViewProps) {
           )}
           <DialogFooter>
             <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-3 text-[11px]"
+              variant="outline"
               onClick={() => {
                 setShowImport(false);
                 setImportText("");
@@ -606,8 +604,6 @@ export function McpView({ onBack, token }: McpViewProps) {
               {t("mcp.form.cancel")}
             </Button>
             <Button
-              size="sm"
-              className="h-7 gap-1 px-3 text-[11px]"
               disabled={importing || !importText.trim()}
               onClick={handleImport}
             >
@@ -743,9 +739,7 @@ export function McpView({ onBack, token }: McpViewProps) {
 
           <DialogFooter>
             <Button
-              variant="ghost"
-              size="sm"
-              className="h-8"
+              variant="outline"
               onClick={() => {
                 setShowForm(false);
                 setForm(EMPTY_FORM);
@@ -755,8 +749,6 @@ export function McpView({ onBack, token }: McpViewProps) {
               {t("mcp.form.cancel")}
             </Button>
             <Button
-              size="sm"
-              className="h-8 gap-1.5"
               disabled={saving}
               onClick={handleSaveCustom}
             >

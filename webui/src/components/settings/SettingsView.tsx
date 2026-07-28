@@ -283,7 +283,6 @@ export function SettingsView({
               variant="outline"
               onClick={() => state.models.setProviderToDelete(null)}
               disabled={state.models.providerDeleting}
-              className="rounded-full"
             >
               {t("settings.bootstrap.cancel", { defaultValue: "Cancel" })}
             </Button>
@@ -291,7 +290,6 @@ export function SettingsView({
               variant="destructive"
               onClick={state.models.confirmDeleteProvider}
               disabled={state.models.providerDeleting}
-              className="rounded-full"
             >
               {state.models.providerDeleting ? (
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
@@ -328,14 +326,12 @@ export function SettingsView({
               variant="outline"
               onClick={state.cancelRestart}
               disabled={isRestarting || state.hostEngineApplying}
-              className="rounded-full"
             >
               {t("settings.restart.later", { defaultValue: "Later" })}
             </Button>
             <Button
               onClick={state.confirmRestart}
               disabled={isRestarting || state.hostEngineApplying}
-              className="rounded-full"
             >
               {(isRestarting || state.hostEngineApplying) && (
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />

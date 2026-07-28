@@ -514,7 +514,6 @@ export function ProvidersSettings({
               variant="outline"
               onClick={() => setDeleteAllConfirmOpen(false)}
               disabled={deletingAllProviders}
-              className="rounded-full"
             >
               {t("settings.bootstrap.cancel", { defaultValue: "Cancel" })}
             </Button>
@@ -525,7 +524,6 @@ export function ProvidersSettings({
                 await onDeleteAllProviders();
                 setDeleteAllConfirmOpen(false);
               }}
-              className="rounded-full"
             >
               {deletingAllProviders ? (
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />

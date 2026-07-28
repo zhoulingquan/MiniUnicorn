@@ -373,10 +373,10 @@ export function AgentsView({ onBack, token, onUseAgent }: AgentsViewProps) {
             )}
           </div>
           <DialogFooter>
-            <Button variant="ghost" size="sm" className="h-8" onClick={() => setCreateOpen(false)}>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>
               {t("agents.cancel")}
             </Button>
-            <Button size="sm" className="h-8" onClick={handleCreate} disabled={creating}>
+            <Button onClick={handleCreate} disabled={creating}>
               {creating ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : null}
               {creating ? t("agents.saving") : t("agents.save")}
             </Button>
@@ -405,10 +405,10 @@ export function AgentsView({ onBack, token, onUseAgent }: AgentsViewProps) {
             )}
           </div>
           <DialogFooter>
-            <Button variant="ghost" size="sm" className="h-8" onClick={() => setEditorOpen(false)}>
+            <Button variant="outline" onClick={() => setEditorOpen(false)}>
               {t("agents.cancel")}
             </Button>
-            <Button size="sm" className="h-8" onClick={handleSave} disabled={saving}>
+            <Button onClick={handleSave} disabled={saving}>
               {saving ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : null}
               {saving ? t("agents.saving") : t("agents.save")}
             </Button>
@@ -452,16 +452,16 @@ export function AgentsView({ onBack, token, onUseAgent }: AgentsViewProps) {
             </div>
           )}
           <DialogFooter>
-            <Button variant="ghost" size="sm" className="h-8" onClick={() => setGenerateOpen(false)}>
+            <Button variant="outline" onClick={() => setGenerateOpen(false)}>
               {t("agents.cancel")}
             </Button>
             {generateStage === "input" ? (
-              <Button size="sm" className="h-8" onClick={handleGenerate} disabled={generating}>
+              <Button onClick={handleGenerate} disabled={generating}>
                 {generating ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <Sparkles className="mr-1.5 h-3 w-3" />}
                 {generating ? t("agents.generateLoading") : t("agents.generate")}
               </Button>
             ) : (
-              <Button size="sm" className="h-8" onClick={handleGenerateSave} disabled={generateSaving}>
+              <Button onClick={handleGenerateSave} disabled={generateSaving}>
                 {generateSaving ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : null}
                 {generateSaving ? t("agents.saving") : t("agents.save")}
               </Button>

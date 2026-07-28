@@ -157,8 +157,7 @@ export function NewModelConfigurationDialog({
           <DialogFooter className="border-t border-border/45 px-5 py-4 sm:space-x-2">
             <Button
               type="button"
-              variant="ghost"
-              className="rounded-full"
+              variant="outline"
               disabled={saving || learning}
               onClick={() => onOpenChange(false)}
             >
@@ -166,8 +165,6 @@ export function NewModelConfigurationDialog({
             </Button>
             <Button
               type="submit"
-              variant="outline"
-              className="rounded-full"
               disabled={!canSave || saving || learning || providers.length === 0}
             >
               {saving || learning ? (

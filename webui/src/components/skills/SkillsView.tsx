@@ -382,10 +382,10 @@ export function SkillsView({ onBack, token }: SkillsViewProps) {
             )}
           </div>
           <DialogFooter>
-            <Button variant="ghost" size="sm" className="h-8" onClick={() => setEditorOpen(false)}>
+            <Button variant="outline" onClick={() => setEditorOpen(false)}>
               {t("skills.cancel")}
             </Button>
-            <Button size="sm" className="h-8" onClick={handleSave} disabled={saving}>
+            <Button onClick={handleSave} disabled={saving}>
               {saving ? (
                 <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
               ) : null}

@@ -253,17 +253,12 @@ export function DreamFilesButton() {
 
           <DialogFooter>
             <Button
-              variant="ghost"
-              size="sm"
-              className="h-8"
+              variant="outline"
               onClick={() => setOpen(false)}
             >
               {tx("settings.dream.files.close", "Close")}
             </Button>
             <Button
-              variant="outline"
-              size="sm"
-              className="h-8"
               onClick={loadList}
               disabled={loadingList}
             >

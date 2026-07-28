@@ -119,10 +119,10 @@ export function BootstrapFileRow({ fileName }: { fileName: string }) {
             {error && <p className="text-[11px] text-destructive">{error}</p>}
           </div>
           <DialogFooter>
-            <Button variant="ghost" size="sm" className="h-8" onClick={() => setOpen(false)} disabled={saving}>
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>
               {tx("settings.bootstrap.cancel", "Cancel")}
             </Button>
-            <Button size="sm" className="h-8" onClick={handleSave} disabled={saving || loading}>
+            <Button onClick={handleSave} disabled={saving || loading}>
               {saving ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : null}
               {saving ? tx("settings.bootstrap.saving", "Saving…") : tx("settings.bootstrap.save", "Save")}
             </Button>
