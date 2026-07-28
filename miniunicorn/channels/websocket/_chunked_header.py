@@ -15,13 +15,21 @@ from __future__ import annotations
 from typing import Any
 
 
-def collect_chunked_header(headers: Any, base_name: str) -> str:
-    """Concatenate a chunked header transmitted as repeated headers.
+def collect_chunked_header_parts(headers: Any, base_name: str) -> dict[int, str]:
+    """Collect the indexed parts of a chunked header.
 
     The websockets HTTP layer caps each header line at 8KB. The frontend
-    splits large payloads across ``{base_name}`` (first chunk) and
-    ``{base_name}-1``, ``{base_name}-2``, ... headers. This helper reassembles
-    them in order.
+    splits large payloads across ``{base_name}`` (first chunk, index 0) and
+    ``{base_name}-1``, ``{base_name}-2``, ... headers. This helper collects
+    them into a mapping of ``index -> value``.
+
+    Behavior:
+
+    - the base header (``{base_name}``) is index 0 when present;
+    - suffixed headers are matched case-insensitively;
+    - non-numeric suffixes are rejected;
+    - duplicate indices keep the last value seen during iteration;
+    - an empty result means no matching headers were found.
     """
     parts: dict[int, str] = {}
     first = headers.get(base_name)
@@ -37,6 +45,18 @@ def collect_chunked_header(headers: Any, base_name: str) -> str:
             except ValueError:
                 continue
             parts[idx] = value
+    return parts
+
+
+def collect_chunked_header(headers: Any, base_name: str) -> str:
+    """Concatenate a chunked header transmitted as repeated headers.
+
+    The websockets HTTP layer caps each header line at 8KB. The frontend
+    splits large payloads across ``{base_name}`` (first chunk) and
+    ``{base_name}-1``, ``{base_name}-2``, ... headers. This helper reassembles
+    them in order.
+    """
+    parts = collect_chunked_header_parts(headers, base_name)
     if not parts:
         return ""
     return "".join(parts[i] for i in sorted(parts))

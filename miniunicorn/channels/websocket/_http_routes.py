@@ -25,6 +25,7 @@ from websockets.http11 import Response
 from miniunicorn.channels.websocket._chunked_header import (  # noqa: F401 — re-exported for channel.py
     _collect_chunked_header,
     collect_chunked_header,
+    collect_chunked_header_parts,
 )
 from miniunicorn.webui.settings_api import WebUISettingsError
 
@@ -69,21 +70,12 @@ def collect_chunked_header_limited(
     """与 :func:`collect_chunked_header` 相同,但强制数量与字节上限。
 
     超过上限抛出 :class:`ChunkedHeaderLimitError`,调用方应返回 413 给客户端。
+
+    Collection is delegated to :func:`collect_chunked_header_parts` so the
+    chunked-header reassembly logic has one canonical implementation. This
+    wrapper retains its own count and UTF-8 byte checks.
     """
-    parts: dict[int, str] = {}
-    first = headers.get(base_name)
-    if first:
-        parts[0] = first
-    for key, value in headers.raw_items():
-        lower = key.lower()
-        prefix = f"{base_name.lower()}-"
-        if lower.startswith(prefix):
-            suffix = key[len(base_name) + 1 :]
-            try:
-                idx = int(suffix)
-            except ValueError:
-                continue
-            parts[idx] = value
+    parts = collect_chunked_header_parts(headers, base_name)
     if not parts:
         return ""
     if len(parts) > max_count:
