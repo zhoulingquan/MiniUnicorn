@@ -347,7 +347,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         if vector_recall:
             from miniunicorn.agent.vector_memory import create_vector_store
 
-            vector_store = create_vector_store(self.workspace / "memory" / "vectors.db")
+            vector_store = create_vector_store(self.workspace / "memory" / "memory.db")
             self.context.memory.attach_vector_store(vector_store)
             # TODO(embedding): wrap `provider` with EmbeddingProvider when
             # config.providers.embedding_provider is set, so a non-OpenAI chat

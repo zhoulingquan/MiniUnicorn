@@ -305,6 +305,34 @@ def test_create_vector_store_falls_back_to_noop(tmp_path, monkeypatch):
     assert store.enabled is False
 
 
+def test_agent_loop_uses_memory_db_for_vector_recall(tmp_path, monkeypatch):
+    """Vector recall stores its internal index at memory/memory.db."""
+    from miniunicorn.agent import vector_memory as vm
+    from miniunicorn.agent.loop import AgentLoop
+
+    provider = MagicMock(spec=LLMProvider)
+    provider.get_default_model.return_value = "test-model"
+    provider.generation = SimpleNamespace(
+        max_tokens=4096,
+        temperature=0.1,
+        reasoning_effort=None,
+    )
+    vector_store = MagicMock()
+    create_vector_store = MagicMock(return_value=vector_store)
+    monkeypatch.setattr(vm, "create_vector_store", create_vector_store)
+
+    AgentLoop(
+        bus=MessageBus(),
+        provider=provider,
+        workspace=tmp_path,
+        model="test-model",
+        context_window_tokens=128_000,
+        vector_recall=True,
+    )
+
+    create_vector_store.assert_called_once_with(tmp_path / "memory" / "memory.db")
+
+
 # ---------------------------------------------------------------------------
 # 5. TurnBudget tracking
 # ---------------------------------------------------------------------------
