@@ -10,23 +10,30 @@ class.
 
 from __future__ import annotations
 
-import email.utils
 import hmac
-import http
 import json
 import re
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from websockets.datastructures import Headers
 from websockets.http11 import Request as WsRequest
-from websockets.http11 import Response
 
 from miniunicorn.channels.websocket._chunked_header import (  # noqa: F401 — re-exported for channel.py
     _collect_chunked_header,
     collect_chunked_header,
     collect_chunked_header_parts,
 )
+from miniunicorn.webui._http import (  # noqa: F401 — re-exported for handlers
+    _case_insensitive_header,
+    _http_error,
+    _http_json_response,
+    _http_response,
+    case_insensitive_header,
+    http_error,
+    http_json_response,
+    http_response,
+)
+from miniunicorn.webui._query import _query_first  # noqa: F401 — re-exported for handlers
 from miniunicorn.webui.settings_api import WebUISettingsError
 
 # Path → action mapping for the MCP presets HTTP surface. Used by both
@@ -143,44 +150,6 @@ def _human_readable_size(num_bytes: int) -> str:
     return f"{size:.1f} {units[idx]}"
 
 
-def _http_json_response(data: dict[str, Any], *, status: int = 200) -> Response:
-    body = json.dumps(data, ensure_ascii=False).encode("utf-8")
-    headers = Headers(
-        [
-            ("Date", email.utils.formatdate(usegmt=True)),
-            ("Connection", "close"),
-            ("Content-Length", str(len(body))),
-            ("Content-Type", "application/json; charset=utf-8"),
-        ]
-    )
-    reason = http.HTTPStatus(status).phrase
-    return Response(status, reason, headers, body)
-
-
-def _http_response(
-    body: bytes,
-    *,
-    status: int = 200,
-    content_type: str = "text/plain; charset=utf-8",
-    extra_headers: list[tuple[str, str]] | None = None,
-) -> Response:
-    headers = [
-        ("Date", email.utils.formatdate(usegmt=True)),
-        ("Connection", "close"),
-        ("Content-Length", str(len(body))),
-        ("Content-Type", content_type),
-    ]
-    if extra_headers:
-        headers.extend(extra_headers)
-    reason = http.HTTPStatus(status).phrase
-    return Response(status, reason, Headers(headers), body)
-
-
-def _http_error(status: int, message: str | None = None) -> Response:
-    body = (message or http.HTTPStatus(status).phrase).encode("utf-8")
-    return _http_response(body, status=status)
-
-
 def _bearer_token(headers: Any) -> str | None:
     """Pull a Bearer token out of standard or query-style headers."""
     auth = headers.get("Authorization") or headers.get("authorization")
@@ -249,12 +218,6 @@ def _parse_mcp_settings_query(request: WsRequest) -> dict[str, list[str]]:
         if text:
             merged[key] = [text]
     return merged
-
-
-def _query_first(query: dict[str, list[str]], key: str) -> str | None:
-    """Return the first value for *key*, or None."""
-    values = query.get(key)
-    return values[0] if values else None
 
 
 # Matches the legacy chat-id pattern but allows file-system-safe stems too,

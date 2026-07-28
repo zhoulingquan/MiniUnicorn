@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import base64
 import binascii
-import email.utils
 import hashlib
 import hmac
-import http
 import mimetypes
 import re
 import shutil
@@ -16,12 +14,16 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from websockets.datastructures import Headers
 from websockets.http11 import Request as WsRequest
 from websockets.http11 import Response
 
 from miniunicorn.config.paths import get_media_dir
 from miniunicorn.utils.helpers import safe_filename
+from miniunicorn.webui._http import (
+    _case_insensitive_header,
+    _http_error,
+    _http_response,
+)
 
 MediaDirProvider = Callable[[str | None], Path]
 
@@ -58,43 +60,6 @@ _MEDIA_ALLOWED_MIMES: frozenset[str] = frozenset(
 )
 
 _BYTE_RANGE_RE = re.compile(r"^bytes=(\d*)-(\d*)$")
-
-
-def _http_response(
-    body: bytes,
-    *,
-    status: int = 200,
-    content_type: str = "text/plain; charset=utf-8",
-    extra_headers: list[tuple[str, str]] | None = None,
-) -> Response:
-    headers = [
-        ("Date", email.utils.formatdate(usegmt=True)),
-        ("Connection", "close"),
-        ("Content-Length", str(len(body))),
-        ("Content-Type", content_type),
-    ]
-    if extra_headers:
-        headers.extend(extra_headers)
-    reason = http.HTTPStatus(status).phrase
-    return Response(status, reason, Headers(headers), body)
-
-
-def _http_error(status: int, message: str | None = None) -> Response:
-    body = (message or http.HTTPStatus(status).phrase).encode("utf-8")
-    return _http_response(body, status=status)
-
-
-def _case_insensitive_header(headers: Any, key: str) -> str:
-    try:
-        value = headers.get(key)
-    except Exception:
-        value = None
-    if value is None:
-        try:
-            value = headers.get(key.lower())
-        except Exception:
-            value = None
-    return str(value or "").strip()
 
 
 def _parse_single_byte_range(range_header: str, size: int) -> tuple[int, int]:
