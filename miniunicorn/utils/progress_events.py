@@ -9,15 +9,17 @@ from typing import Any
 from miniunicorn.agent.hook import AgentHookContext
 
 
-def on_progress_accepts_tool_events(cb: Callable[..., Any]) -> bool:
-    return _on_progress_accepts(cb, "tool_events")
+def on_progress_accepts(cb: Callable[..., Any], name: str) -> bool:
+    """Return whether ``cb`` accepts a keyword argument named ``name``.
 
+    Single canonical helper for progress-callback signature detection.
+    Preserves the original failure behavior:
 
-def on_progress_accepts_file_edit_events(cb: Callable[..., Any]) -> bool:
-    return _on_progress_accepts(cb, "file_edit_events")
-
-
-def _on_progress_accepts(cb: Callable[..., Any], name: str) -> bool:
+    - uninspectable callables (``TypeError`` / ``ValueError`` from
+      :func:`inspect.signature`) return ``False``;
+    - callables declaring ``**kwargs`` accept any named parameter;
+    - otherwise the parameter must appear explicitly in the signature.
+    """
     try:
         sig = inspect.signature(cb)
     except (TypeError, ValueError):
@@ -25,6 +27,14 @@ def _on_progress_accepts(cb: Callable[..., Any], name: str) -> bool:
     if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
         return True
     return name in sig.parameters
+
+
+def on_progress_accepts_tool_events(cb: Callable[..., Any]) -> bool:
+    return on_progress_accepts(cb, "tool_events")
+
+
+def on_progress_accepts_file_edit_events(cb: Callable[..., Any]) -> bool:
+    return on_progress_accepts(cb, "file_edit_events")
 
 
 async def invoke_on_progress(
