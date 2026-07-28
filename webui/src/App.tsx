@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Menu, Monitor, Moon, Sun, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ResourceDeleteConfirmDialog } from "@/components/ui/resource-delete-confirm-dialog";
@@ -7,7 +7,6 @@ import { RenameChatDialog } from "@/components/RenameChatDialog";
 import { Sidebar } from "@/components/Sidebar";
 import type { SettingsSectionKey } from "@/components/settings/types";
 import { SearchDialog } from "@/components/search/SearchDialog";
-import { ThreadShell, resolvedModelProvider } from "@/components/thread/ThreadShell";
 import { TopBar } from "@/components/thread/TopBar";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { VIEW_REGISTRY, getSidebarNavItems, getView, type ViewRenderContext } from "@/views/registry";
@@ -56,6 +55,15 @@ import {
 } from "@/lib/runtime";
 import { projectNameFromPath } from "@/lib/workspace";
 import { STORAGE_KEYS } from "@/lib/storage";
+import { resolvedModelProvider } from "@/lib/model-preset";
+
+// Lazy-load the ready-state chat shell so it is not included in the initial
+// bootstrap/authentication chunk. ThreadShell pulls in the streaming hook,
+// composer, viewport, and slash-command/agent/skill fetchers — none of which
+// are needed until the app reaches the "ready" state.
+const ThreadShell = lazy(() =>
+  import("@/components/thread/ThreadShell").then((m) => ({ default: m.ThreadShell })),
+);
 
 type BootState =
   | { status: "loading" }
@@ -1044,24 +1052,26 @@ function Shell({
                 view !== "chat" && "invisible pointer-events-none",
               )}
             >
-              <ThreadShell
-                session={activeSession}
-                onCreateChat={onCreateChat}
-                onTurnEnd={onTurnEnd}
-                workspaceScope={activeWorkspaceScope}
-                workspaceDefaultScope={workspaces?.default_scope ?? null}
-                workspaceControls={workspaces?.controls ?? null}
-                workspaceScopeDisabled={activeChatRunning}
-                workspaceError={workspaceError}
-                onWorkspaceScopeChange={applyWorkspaceScope}
-                settingsSnapshot={settingsSnapshot}
-                onSettingsChange={setSettingsSnapshot}
-                currentProvider={currentProvider}
-                selectedAgentId={selectedAgentId}
-                onSelectAgent={onSelectAgent}
-                onClearAgent={onClearAgent}
-                maxMessageBytes={maxMessageBytes}
-              />
+              <Suspense fallback={null}>
+                <ThreadShell
+                  session={activeSession}
+                  onCreateChat={onCreateChat}
+                  onTurnEnd={onTurnEnd}
+                  workspaceScope={activeWorkspaceScope}
+                  workspaceDefaultScope={workspaces?.default_scope ?? null}
+                  workspaceControls={workspaces?.controls ?? null}
+                  workspaceScopeDisabled={activeChatRunning}
+                  workspaceError={workspaceError}
+                  onWorkspaceScopeChange={applyWorkspaceScope}
+                  settingsSnapshot={settingsSnapshot}
+                  onSettingsChange={setSettingsSnapshot}
+                  currentProvider={currentProvider}
+                  selectedAgentId={selectedAgentId}
+                  onSelectAgent={onSelectAgent}
+                  onClearAgent={onClearAgent}
+                  maxMessageBytes={maxMessageBytes}
+                />
+              </Suspense>
             </div>
             {view !== "chat" && (() => {
               const reg = getView(view);

@@ -66,6 +66,17 @@ export default defineConfig(({ mode }) => {
             if (id.includes("node_modules/katex")) {
               return "katex";
             }
+            // Split React core into its own chunk so the entry (index) chunk
+            // stays under 500 KB. This is a standard vendor split and does
+            // not change runtime behavior.
+            if (
+              id.includes("node_modules/react/")
+              || id.includes("node_modules/react-dom/")
+              || id.includes("node_modules/react/")
+              || id.includes("node_modules/scheduler/")
+            ) {
+              return "react-vendor";
+            }
           },
         },
       },
