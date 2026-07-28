@@ -115,7 +115,9 @@ class InlineFallbackConfig(Base):
     model: str
     provider: str
     max_tokens: int | None = None
-    context_window_tokens: int | None = None
+    # Configuration default is 65_536. Explicit ``null`` marks an incomplete
+    # model that will be rejected by the runtime validation boundary.
+    context_window_tokens: int | None = 65_536
     temperature: float | None = None
     reasoning_effort: str | None = None
 
@@ -130,10 +132,11 @@ class ModelPresetConfig(Base):
     model: str
     provider: str = "auto"
     max_tokens: int = 8192
-    # None means auto-detect from the built-in model metadata table
-    # (see cli.models.get_model_context_limit). Falls back to 65_536 when
-    # the model is not in the table. Set an explicit int to override.
-    context_window_tokens: int | None = None
+    # Configuration default is 65_536. Explicit ``null`` marks an incomplete
+    # model that will be rejected by the runtime validation boundary
+    # (``require_context_window``). Configuration-time discovery (HF/ModelScope)
+    # may overwrite this with the discovered concrete value.
+    context_window_tokens: int | None = 65_536
     temperature: float = 0.1
     reasoning_effort: str | None = None
 
@@ -170,10 +173,11 @@ class AgentDefaults(Base):
         "auto"  # Provider name (e.g. "anthropic", "openrouter") or "auto" for auto-detection
     )
     max_tokens: int = 8192
-    # None means auto-detect via Hugging Face search
-    # (see cli.models.get_model_context_limit). Falls back to 65_536 when
-    # the model is not found on HF. Set an explicit int to override.
-    context_window_tokens: int | None = None
+    # Configuration default is 65_536. Explicit ``null`` marks an incomplete
+    # model that will be rejected by the runtime validation boundary
+    # (``require_context_window``). Configuration-time discovery (HF/ModelScope)
+    # may overwrite this with the discovered concrete value.
+    context_window_tokens: int | None = 65_536
     context_block_limit: int | None = None
     temperature: float = 0.1
     fallback_models: list[FallbackCandidate] = Field(default_factory=list)

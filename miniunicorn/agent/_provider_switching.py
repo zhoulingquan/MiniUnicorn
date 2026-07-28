@@ -46,13 +46,11 @@ class ProviderSwitchingMixin:
         """Swap model/provider for future turns without disturbing an active one."""
         provider = snapshot.provider
         model = snapshot.model
-        context_window_tokens = snapshot.context_window_tokens
-        # Auto-detect when snapshot didn't carry a concrete value.
-        # Resolution: built-in table → cache → Hugging Face API → fail-loud.
-        if context_window_tokens is None:
-            from miniunicorn.cli.models import get_model_context_limit
+        # Runtime contract: require a resolved positive integer. No network
+        # lookup. The snapshot must carry a concrete value from config-time.
+        from miniunicorn.config.context_window import require_context_window
 
-            context_window_tokens = get_model_context_limit(model, raise_on_unknown=True)
+        context_window_tokens = require_context_window(model, snapshot.context_window_tokens)
         old_model = self.model
         self.provider = provider
         self.model = model

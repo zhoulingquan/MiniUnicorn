@@ -30,10 +30,11 @@ from ._runtime import WebUISettingsError, _mask_secret_hint
 
 _MODEL_CONFIGURATION_SLUG_RE = re.compile(r"[^a-z0-9_-]+")
 
-# 允许的 context_window_tokens 取值集合。
-# 仅接受 65536（默认上下文）与 262144（扩展上下文），其他值一律拒绝，
-# 避免用户填入不合理的数值导致 agent 上下文预算错乱。
-_ALLOWED_CONTEXT_WINDOWS: frozenset[int] = frozenset({65536, 262144})
+# context_window_tokens 合理取值范围。
+# 接受任意正整数(1024 ~ 10_000_000),允许 HF/ModelScope 自动发现的值
+# (如 128000、1000000)回写配置。不再使用 {65536, 262144} 白名单。
+_MIN_CONTEXT_WINDOW = 1024
+_MAX_CONTEXT_WINDOW = 10_000_000
 
 
 # === 专属 helper ===
@@ -78,9 +79,10 @@ def _parse_context_window_tokens(value: str | None) -> int | None:
         parsed = int(value)
     except ValueError:
         raise WebUISettingsError("context_window_tokens must be an integer") from None
-    # 仅允许预设的上下文窗口取值，避免用户填入任意数值。
-    if parsed not in _ALLOWED_CONTEXT_WINDOWS:
-        raise WebUISettingsError(f"context_window_tokens must be 65536 or 262144 (got {parsed})")
+    if parsed < _MIN_CONTEXT_WINDOW or parsed > _MAX_CONTEXT_WINDOW:
+        raise WebUISettingsError(
+            f"context_window_tokens must be between {_MIN_CONTEXT_WINDOW} and {_MAX_CONTEXT_WINDOW} (got {parsed})"
+        )
     return parsed
 
 
@@ -91,8 +93,8 @@ def _resolve_context_window_for_settings(model: str, configured: int | None) -> 
     1. Explicit user-configured value (``context_window_tokens`` in config).
     2. Permanent learning table entry (already learned by a prior save).
 
-    Use :func:`_trigger_model_learning` to actively query HF when a model is
-    saved/selected.
+    Use :func:`_resolve_context_window_for_save` to actively query HF when a
+    model is saved/selected.
     """
     if isinstance(configured, int) and configured > 0:
         return {"limit": configured, "status": "configured", "error": None}
@@ -121,38 +123,50 @@ def _resolve_context_window_for_settings(model: str, configured: int | None) -> 
     }
 
 
-def _trigger_model_learning(model: str) -> dict[str, Any]:
-    """Actively query Hugging Face for *model*'s context window.
+def _resolve_context_window_for_save(
+    model: str,
+    explicit_value: int | None,
+) -> dict[str, Any]:
+    """Resolve context window for a model save operation (synchronous).
 
-    Called by create/update model configuration handlers when a model is
-    saved or changed. Persists the result (success or failure) to the
-    learning table so subsequent page loads can display the status without
-    re-querying HF.
+    Replaces the former background-thread + poll pattern. Called by
+    create/update model handlers when a model is saved or changed.
+
+    1. A valid explicit value bypasses discovery (zero network requests).
+    2. Otherwise, runs Hugging Face → ModelScope discovery synchronously.
+    3. On success, returns the concrete integer for the caller to persist.
+    4. On failure, returns ``limit=None`` so the caller can apply
+       incomplete-model failure semantics.
+
+    Returns ``{"limit": int | None, "status": str, "error": str | None}``.
     """
+    # 1. Explicit value bypasses discovery.
+    if isinstance(explicit_value, int) and explicit_value > 0:
+        return {"limit": explicit_value, "status": "configured", "error": None}
+
     if not model:
         return {"limit": 65_536, "status": "default", "error": None}
+
+    # 2. Run discovery (synchronous, no config lock held).
     try:
         from miniunicorn.cli.models import learn_model_context_limit
 
         result = learn_model_context_limit(model)
     except Exception as exc:
-        return {"limit": 65_536, "status": "failed", "error": str(exc)}
+        return {"limit": None, "status": "failed", "error": str(exc)}
 
     if result.get("status") == "ok" and isinstance(result.get("limit"), int):
-        return {
-            "limit": result["limit"],
-            "status": "learned",
-            "error": None,
-        }
+        return {"limit": result["limit"], "status": "learned", "error": None}
+
+    # 3. Persist the failure reason so the settings page can show it.
     error = result.get("error") or "未知错误"
-    # Persist the failure reason so the settings page can show it.
     try:
         from miniunicorn.cli.models import _save_learned_failure
 
         _save_learned_failure(model, error)
     except Exception:
         pass
-    return {"limit": 65_536, "status": "failed", "error": error}
+    return {"limit": None, "status": "failed", "error": error}
 
 
 def _model_configuration_slug(label: str) -> str:
@@ -388,6 +402,7 @@ def update_agent_settings(query: QueryParams) -> dict[str, Any]:
 
     model = _query_first(query, "model")
     model_changed = False
+    old_model = defaults.model
     if model is not None:
         model = model.strip()
         if not model:
@@ -407,14 +422,11 @@ def update_agent_settings(query: QueryParams) -> dict[str, Any]:
             defaults.provider = provider
             changed = True
 
-    context_window_tokens = _parse_context_window_tokens(
+    explicit_cw = _parse_context_window_tokens(
         _query_first_alias(query, "context_window_tokens", "contextWindowTokens")
     )
-    if (
-        context_window_tokens is not None
-        and defaults.context_window_tokens != context_window_tokens
-    ):
-        defaults.context_window_tokens = context_window_tokens
+    if explicit_cw is not None and defaults.context_window_tokens != explicit_cw:
+        defaults.context_window_tokens = explicit_cw
         changed = True
 
     tool_hint_max_length = _query_first_alias(
@@ -456,14 +468,25 @@ def update_agent_settings(query: QueryParams) -> dict[str, Any]:
             changed = True
             restart_required = True
 
+    # Context window resolution for model change (synchronous, replaces
+    # the former background-thread + poll pattern). A valid explicit value
+    # bypasses discovery. On failure, the prior config is preserved.
+    if model_changed and explicit_cw is None:
+        resolution = _resolve_context_window_for_save(defaults.model, None)
+        if resolution["status"] == "failed":
+            raise WebUISettingsError(
+                f"无法确定模型 {defaults.model!r} 的上下文窗口: {resolution['error']}"
+            )
+        if resolution.get("limit") is not None:
+            defaults.context_window_tokens = resolution["limit"]
+            changed = True
+        # Concurrency check: reload and verify target hasn't changed.
+        reloaded = load_config()
+        if reloaded.agents.defaults.model != old_model:
+            raise WebUISettingsError("另一个保存操作已更改模型,请重试")
+
     if changed:
         save_config(config)
-    if model_changed:
-        import threading
-
-        threading.Thread(
-            target=_trigger_model_learning, args=(defaults.model,), daemon=True
-        ).start()
     from .settings_api import settings_payload
 
     return settings_payload(requires_restart=restart_required)
@@ -512,22 +535,41 @@ def create_model_configuration(query: QueryParams) -> dict[str, Any]:
         api_base = None
 
     base = config.resolve_default_preset()
+    explicit_cw = _parse_context_window_tokens(
+        _query_first_alias(query, "context_window_tokens", "contextWindowTokens")
+    )
+
+    # Context window resolution (synchronous). A valid explicit value bypasses
+    # discovery. On failure, the model is saved as incomplete (inactive).
+    if explicit_cw is not None:
+        resolved_cw: int | None = explicit_cw
+        incomplete = False
+    else:
+        resolution = _resolve_context_window_for_save(model, None)
+        if resolution["status"] == "failed":
+            resolved_cw = None
+            incomplete = True
+        else:
+            resolved_cw = resolution.get("limit")
+            incomplete = False
+
     config.model_presets[name] = ModelPresetConfig(
         label=label,
         model=model,
         provider=provider,
         max_tokens=base.max_tokens,
-        context_window_tokens=base.context_window_tokens,
+        context_window_tokens=resolved_cw
+        if resolved_cw is not None
+        else base.context_window_tokens,
         temperature=base.temperature,
         reasoning_effort=base.reasoning_effort,
         api_key=api_key,
         api_base=api_base,
     )
-    config.agents.defaults.model_preset = name
+    # Only activate the new preset when it is not incomplete.
+    if not incomplete:
+        config.agents.defaults.model_preset = name
     save_config(config)
-    import threading
-
-    threading.Thread(target=_trigger_model_learning, args=(model,), daemon=True).start()
     from .settings_api import settings_payload
 
     return settings_payload()
@@ -555,6 +597,7 @@ def update_model_configuration(query: QueryParams) -> dict[str, Any]:
 
     model = _query_first(query, "model")
     model_changed = False
+    old_model = preset.model
     if model is not None:
         model = model.strip()
         if not model:
@@ -574,11 +617,11 @@ def update_model_configuration(query: QueryParams) -> dict[str, Any]:
             preset.provider = provider
             changed = True
 
-    context_window_tokens = _parse_context_window_tokens(
+    explicit_cw = _parse_context_window_tokens(
         _query_first_alias(query, "context_window_tokens", "contextWindowTokens")
     )
-    if context_window_tokens is not None and preset.context_window_tokens != context_window_tokens:
-        preset.context_window_tokens = context_window_tokens
+    if explicit_cw is not None and preset.context_window_tokens != explicit_cw:
+        preset.context_window_tokens = explicit_cw
         changed = True
 
     if "api_key" in query or "apiKey" in query:
@@ -599,12 +642,25 @@ def update_model_configuration(query: QueryParams) -> dict[str, Any]:
         config.agents.defaults.model_preset = name
         changed = True
 
+    # Context window resolution for model change (synchronous). On failure,
+    # the prior config is preserved.
+    if model_changed and explicit_cw is None:
+        resolution = _resolve_context_window_for_save(preset.model, None)
+        if resolution["status"] == "failed":
+            raise WebUISettingsError(
+                f"无法确定模型 {preset.model!r} 的上下文窗口: {resolution['error']}"
+            )
+        if resolution.get("limit") is not None:
+            preset.context_window_tokens = resolution["limit"]
+            changed = True
+        # Concurrency check: reload and verify target hasn't changed.
+        reloaded = load_config()
+        reloaded_preset = reloaded.model_presets.get(name)
+        if reloaded_preset is None or reloaded_preset.model != old_model:
+            raise WebUISettingsError("另一个保存操作已更改该模型配置,请重试")
+
     if changed:
         save_config(config)
-    if model_changed:
-        import threading
-
-        threading.Thread(target=_trigger_model_learning, args=(preset.model,), daemon=True).start()
     from .settings_api import settings_payload
 
     return settings_payload()
@@ -652,6 +708,10 @@ def update_provider_settings(query: QueryParams) -> dict[str, Any]:
     # provider was just configured on the in-memory config object above, so
     # ``_validate_configured_provider`` now succeeds without a separate save.
     model_changed = False
+    old_model = config.agents.defaults.model
+    explicit_cw = _parse_context_window_tokens(
+        _query_first_alias(query, "context_window_tokens", "contextWindowTokens")
+    )
     model = _query_first(query, "model")
     if model is not None:
         model = model.strip()
@@ -666,17 +726,29 @@ def update_provider_settings(query: QueryParams) -> dict[str, Any]:
             defaults.model = model
             changed = True
             model_changed = True
+        if explicit_cw is not None:
+            if defaults.context_window_tokens != explicit_cw:
+                defaults.context_window_tokens = explicit_cw
+                changed = True
+
+    # Context window resolution for model change (synchronous). On failure,
+    # the prior config is preserved.
+    if model_changed and explicit_cw is None:
+        resolution = _resolve_context_window_for_save(config.agents.defaults.model, None)
+        if resolution["status"] == "failed":
+            raise WebUISettingsError(
+                f"无法确定模型 {config.agents.defaults.model!r} 的上下文窗口: {resolution['error']}"
+            )
+        if resolution.get("limit") is not None:
+            config.agents.defaults.context_window_tokens = resolution["limit"]
+            changed = True
+        # Concurrency check: reload and verify target hasn't changed.
+        reloaded = load_config()
+        if reloaded.agents.defaults.model != old_model:
+            raise WebUISettingsError("另一个保存操作已更改模型,请重试")
 
     if changed:
         save_config(config)
-    if model_changed:
-        import threading
-
-        threading.Thread(
-            target=_trigger_model_learning,
-            args=(config.agents.defaults.model,),
-            daemon=True,
-        ).start()
     from .settings_api import settings_payload
 
     return settings_payload(requires_restart=False)

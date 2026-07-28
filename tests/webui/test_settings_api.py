@@ -28,6 +28,11 @@ def test_create_model_configuration_writes_label_and_selects(
     config.providers.deepseek.api_key = "sk-test"
     save_config(config, config_path)
     monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
+    # Mock synchronous context-window discovery (replaces former background thread).
+    monkeypatch.setattr(
+        "miniunicorn.webui.model_settings_api._resolve_context_window_for_save",
+        lambda model, explicit: {"limit": 128_000, "status": "learned", "error": None},
+    )
 
     payload = create_model_configuration(
         {
@@ -119,16 +124,36 @@ def test_update_model_configuration_accepts_context_window_options(
     assert saved.model_presets["codex"].context_window_tokens == 262144
 
 
-def test_update_context_window_rejects_unknown_values(
+def test_update_context_window_accepts_arbitrary_values(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Any positive int in [1024, 10_000_000] is accepted (no whitelist)."""
     config_path = tmp_path / "config.json"
     save_config(Config(), config_path)
     monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
 
-    with pytest.raises(WebUISettingsError, match="context_window_tokens must be 65536 or 262144"):
-        update_agent_settings({"context_window_tokens": ["128000"]})
+    payload = update_agent_settings({"context_window_tokens": ["128000"]})
+
+    assert payload["agent"]["context_window_tokens"] == 128000
+    saved = load_config(config_path)
+    assert saved.agents.defaults.context_window_tokens == 128000
+
+
+def test_update_context_window_rejects_out_of_range(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Values outside [1024, 10_000_000] are rejected."""
+    config_path = tmp_path / "config.json"
+    save_config(Config(), config_path)
+    monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
+
+    with pytest.raises(WebUISettingsError, match="context_window_tokens must be between"):
+        update_agent_settings({"context_window_tokens": ["100"]})
+
+    with pytest.raises(WebUISettingsError, match="context_window_tokens must be between"):
+        update_agent_settings({"context_window_tokens": ["20000000"]})
 
 
 def test_update_model_configuration_rejects_default_preset(
@@ -243,8 +268,8 @@ def test_update_provider_settings_atomic_credentials_and_model(
 
     monkeypatch.setattr("miniunicorn.webui.model_settings_api.save_config", _counting_save)
     monkeypatch.setattr(
-        "miniunicorn.webui.model_settings_api._trigger_model_learning",
-        lambda model: {"limit": 65536, "status": "learned", "error": None},
+        "miniunicorn.webui.model_settings_api._resolve_context_window_for_save",
+        lambda model, explicit: {"limit": 128_000, "status": "learned", "error": None},
     )
 
     payload = update_provider_settings(

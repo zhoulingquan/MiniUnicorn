@@ -6,7 +6,7 @@ independent of the chat LLM provider. The same instance is shared by
 ``MemoryStore.index_text``, the automatic query-embedding path in
 ``AgentLoop``, and the ``recall`` tool.
 
-Design contract (see docs/superpowers/specs/2026-07-28-comprehensive-code-review-remediation-design.md §4.4):
+Design contract (see docs/superpowers/specs/2026-07-28-comprehensive-code-review-remediation-design.md §5.4):
 
 - model loading is lazy (first ``embed`` call);
 - the execution provider is CPU (no CUDA / GPU packages are added);

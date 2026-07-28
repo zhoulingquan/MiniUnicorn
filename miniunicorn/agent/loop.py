@@ -193,31 +193,21 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         self.max_iterations = (
             max_iterations if max_iterations is not None else defaults.max_tool_iterations
         )
-        self.context_window_tokens = (
+        # Runtime contract: require a resolved positive integer. No network
+        # lookup, no cache, no default guess. Configuration-time resolution
+        # (HF/ModelScope discovery) must have persisted a concrete value via
+        # the model-save handlers before the agent starts.
+        from miniunicorn.config.context_window import require_context_window
+
+        self.context_window_tokens = require_context_window(
+            self.model,
             context_window_tokens
             if context_window_tokens is not None
-            else defaults.context_window_tokens
+            else defaults.context_window_tokens,
         )
-        # Auto-detect context window when still unset. Resolution chain:
-        # permanent learning table → Hugging Face API → fail-loud.
-        # ``raise_on_unknown=True`` enforces the user's preference: when the
-        # model is not in the learning table AND HF lookup fails, surface a
-        # clear error instead of silently defaulting to 65_536. Use the
-        # ``MINIUNICORN_NO_AUTO_LOOKUP`` env var to opt out (returns default).
-        if self.context_window_tokens is None:
-            from miniunicorn.cli.models import get_model_context_limit
-
-            self.context_window_tokens = get_model_context_limit(self.model, raise_on_unknown=True)
-        # resolved_context_window_tokens: 后端解析值,用于 /status 等显示场景
-        # 优先使用用户显式配置,否则回退到默认值(DEFAULT_CONTEXT_LIMIT)
-        # 不依赖学习表缓存,因为学习表可能包含过时或误匹配的值(如 test-model → 512)
-        from miniunicorn.cli.models import DEFAULT_CONTEXT_LIMIT
-
-        self.resolved_context_window_tokens = (
-            context_window_tokens
-            if context_window_tokens is not None
-            else defaults.context_window_tokens
-        ) or DEFAULT_CONTEXT_LIMIT
+        # resolved_context_window_tokens: 后端解析值,用于 /status 等显示场景。
+        # Now equal to the validated runtime value (no separate fallback path).
+        self.resolved_context_window_tokens = self.context_window_tokens
         self.context_block_limit = context_block_limit
         self.max_tool_result_chars = (
             max_tool_result_chars

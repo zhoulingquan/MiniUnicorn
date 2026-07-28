@@ -223,18 +223,13 @@ def build_provider_snapshot(
     preset: ModelPresetConfig | None = None,
 ) -> ProviderSnapshot:
     resolved = _resolve_model_preset(config, preset_name=preset_name, preset=preset)
-    # Auto-detect context window from built-in model metadata table when the
-    # preset leaves it unset (None). Trae-style: built-in metadata + fallback.
-    from miniunicorn.cli.models import get_model_context_limit
+    # Runtime contract: require resolved positive integers. No network lookup.
+    # Configuration-time resolution must have persisted concrete values.
+    from miniunicorn.config.context_window import require_context_window
 
-    primary_window = resolved.context_window_tokens
-    if primary_window is None:
-        provider_name = config.get_provider_name(resolved.model, preset=resolved)
-        primary_window = get_model_context_limit(resolved.model, provider_name)
+    primary_window = require_context_window(resolved.model, resolved.context_window_tokens)
     fallback_windows = [
-        fallback.context_window_tokens
-        if fallback.context_window_tokens is not None
-        else get_model_context_limit(fallback.model, fallback.provider)
+        require_context_window(fallback.model, fallback.context_window_tokens)
         for fallback in _resolve_fallback_presets(config, resolved)
     ]
     return ProviderSnapshot(
