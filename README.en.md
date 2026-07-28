@@ -2,7 +2,7 @@
 
 <img src="docs/logo.svg" alt="MiniUnicorn Logo" width="200" height="200">
 
-**An open-source, ultra-lightweight personal AI agent framework**
+**An open-source personal AI agent framework — lightweight at its core, auditable, and extensible**
 
 Built around one readable core loop — messages come in, the LLM decides, tools execute, memory is injected on demand.
 
@@ -20,6 +20,8 @@ Built around one readable core loop — messages come in, the LLM decides, tools
 ## What is this
 
 MiniUnicorn is a personal AI agent that runs long-term. It is not a chatbot framework, nor an orchestration engine — it is just a **small agent loop**: receive a message, call the LLM, execute tools, return the result. Everything heavy (channel adapters, tool implementations, memory strategies) hangs on the edges of the loop, keeping the core readable, auditable, and replaceable.
+
+A note on "lightweight": here it refers to the architectural philosophy and dependency cost — the orchestration core is only about 3.4k lines, the runtime pulls in roughly 30 pure-Python dependencies, and a single process is enough to deploy; yet the full codebase, with channel adapters, 30 tool classes, and the WebUI on the edges, totals roughly 110k lines of source — far from "small-script" territory.
 
 Built on top of [Nanobot](https://github.com/marm-io/nanobot), extending its lightweight agent core with channel adapters, a memory system, a WebUI, and multi-platform deployment.
 
