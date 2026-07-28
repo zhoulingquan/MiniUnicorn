@@ -107,6 +107,7 @@ export function ChannelsView({ onBack, token }: ChannelsViewProps) {
             ? {
                 ...c,
                 configured: nextEnabled,
+                has_credentials: nextEnabled ? c.has_credentials : false,
                 config:
                   nextEnabled && !c.config && c.default_config
                     ? c.default_config
@@ -138,6 +139,7 @@ export function ChannelsView({ onBack, token }: ChannelsViewProps) {
                 ...c,
                 configured: true,
                 enabled: true,
+                has_credentials: false,
                 config: c.default_config ? { ...c.default_config } : c.config,
               }
             : c,
@@ -169,6 +171,7 @@ export function ChannelsView({ onBack, token }: ChannelsViewProps) {
                 config: payload as Record<string, unknown>,
                 configured: true,
                 enabled: true,
+                has_credentials: true,
               }
             : c,
         ),
@@ -190,7 +193,7 @@ export function ChannelsView({ onBack, token }: ChannelsViewProps) {
       setChannels((prev) =>
         prev.map((c) =>
           c.name === activeChannel.name
-            ? { ...c, config: null, configured: false, enabled: false }
+            ? { ...c, config: null, configured: false, enabled: false, has_credentials: false }
             : c,
         ),
       );
@@ -214,6 +217,7 @@ export function ChannelsView({ onBack, token }: ChannelsViewProps) {
               config,
               configured: true,
               enabled: true,
+              has_credentials: true,
             }
           : c,
       ),

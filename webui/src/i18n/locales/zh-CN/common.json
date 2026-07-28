@@ -1112,7 +1112,8 @@
     "custom": "插件",
     "badge": {
       "configured": "已配置",
-      "unconfigured": "未配置"
+      "unconfigured": "未配置",
+      "needsConfig": "待配置"
     },
     "toggle": {
       "aria": "切换 {{name}} 频道"

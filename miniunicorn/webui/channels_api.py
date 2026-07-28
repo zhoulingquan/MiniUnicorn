@@ -94,6 +94,31 @@ def _channel_is_configured(cfg: ChannelsConfig, name: str) -> bool:
     return name in extras
 
 
+def _channel_has_credentials(
+    config_dict: dict[str, Any] | None, schema: list[dict[str, Any]]
+) -> bool:
+    """判断 channel 是否已填写至少一个凭证字段。
+
+    凭证字段 = 字符串类型(text/password)且默认值为空的字段（排除 enabled、
+    base_url 等有非空默认值的字段）。只要任一凭证字段非空即视为已配置凭证。
+    """
+    if not config_dict or not isinstance(config_dict, dict):
+        return False
+    for field in schema:
+        if field.get("ui_type") not in ("text", "password"):
+            continue
+        default = field.get("default")
+        # 跳过有非空默认值的字段（如 base_url、instance_id、ack_message）
+        if isinstance(default, str) and default:
+            continue
+        name = field.get("name", "")
+        alias = field.get("alias", name)
+        value = config_dict.get(alias) or config_dict.get(name)
+        if isinstance(value, str) and value:
+            return True
+    return False
+
+
 # 字段名包含这些关键字时，前端渲染为 password 输入框
 _SECRET_NAME_HINTS = ("secret", "token", "password", "apikey", "api_key")
 
@@ -286,6 +311,7 @@ def list_channels() -> dict[str, Any]:
                 "config_schema": meta["config_schema"],
                 "configured": config_dict is not None,
                 "enabled": _channel_is_configured(channels_cfg, name),
+                "has_credentials": _channel_has_credentials(config_dict, meta["config_schema"]),
                 "config": config_dict,
                 "is_builtin": is_builtin,
                 "qr_login_supported": name in _QR_LOGIN_SUPPORTED,

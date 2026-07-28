@@ -1112,7 +1112,8 @@
     "custom": "Plugin",
     "badge": {
       "configured": "Configured",
-      "unconfigured": "Not configured"
+      "unconfigured": "Not configured",
+      "needsConfig": "Needs config"
     },
     "toggle": {
       "aria": "Toggle {{name}} channel"

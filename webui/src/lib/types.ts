@@ -808,6 +808,8 @@ export interface ChannelPayload {
   description: string;
   configured: boolean;
   enabled: boolean;
+  /** 是否已填写至少一个凭证字段（区分"已启用但待配置"与"已配置"）。 */
+  has_credentials: boolean;
   config: Record<string, unknown> | null;
   /** Channel 类的 default_config() 返回的完整字段模板，供 UI 填充与 toggle 启用兜底使用。 */
   default_config: Record<string, unknown> | null;

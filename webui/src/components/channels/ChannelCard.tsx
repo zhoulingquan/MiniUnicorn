@@ -97,11 +97,19 @@ export function ChannelCard({
             <span
               className={cn(
                 "h-1.5 w-1.5 rounded-full",
-                enabled ? "bg-emerald-500" : "bg-muted-foreground/40",
+                enabled
+                  ? channel.has_credentials
+                    ? "bg-emerald-500"
+                    : "bg-amber-500"
+                  : "bg-muted-foreground/40",
               )}
             />
             <span>
-              {enabled ? t("channels.badge.configured") : t("channels.badge.unconfigured")}
+              {enabled
+                ? channel.has_credentials
+                  ? t("channels.badge.configured")
+                  : t("channels.badge.needsConfig")
+                : t("channels.badge.unconfigured")}
             </span>
           </div>
         </div>
