@@ -154,12 +154,12 @@ describe("webui API helpers", () => {
 
     // Secrets must NOT appear in the URL query string — only the non-sensitive
     // `provider` field stays in the URL. The api_key/api_base move into the
-    // x-miniunicorn-Values header, and the request uses POST per the design at
-    // docs/superpowers/specs/2026-07-27-fix-all-review-findings-design.md §4.1.
+    // x-miniunicorn-Values header. Uses GET because the websockets HTTP layer
+    // only supports GET (POST requests are rejected at the transport layer).
     expect(fetch).toHaveBeenCalledWith(
       "/api/settings/provider/update?provider=deepseek",
       expect.objectContaining({
-        method: "POST",
+        method: "GET",
         headers: expect.objectContaining({
           Authorization: "Bearer tok",
           "x-miniunicorn-Values": JSON.stringify({

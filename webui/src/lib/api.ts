@@ -570,14 +570,18 @@ export async function generateAgent(
   token: string,
   base: string = "",
 ): Promise<{ content: string; name: string }> {
+  const headers: Record<string, string> = {};
+  chunkHeaderValue(description).forEach((chunk, idx) => {
+    if (idx === 0) {
+      headers["x-miniunicorn-Agent-Description"] = chunk;
+    } else {
+      headers[`x-miniunicorn-Agent-Description-${idx}`] = chunk;
+    }
+  });
   return request<{ content: string; name: string }>(
     `${base}/api/agents/generate`,
     token,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ description }),
-    },
+    { headers },
   );
 }
 
@@ -723,7 +727,7 @@ export async function updateProviderSettings(
   return request<SettingsPayload>(
     `${base}/api/settings/provider/update?${query}`,
     token,
-    { method: "POST", headers: sensitive ?? {} },
+    { method: "GET", headers: sensitive ?? {} },
   );
 }
 
