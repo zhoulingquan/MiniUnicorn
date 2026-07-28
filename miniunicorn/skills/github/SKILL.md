@@ -4,6 +4,8 @@ description: "Interact with GitHub using the `gh` CLI. Use `gh issue`, `gh pr`, 
 metadata: {"miniunicorn":{"emoji":"🐙","requires":{"bins":["gh"]},"install":[{"id":"brew","kind":"brew","formula":"gh","bins":["gh"],"label":"Install GitHub CLI (brew)"},{"id":"apt","kind":"apt","package":"gh","bins":["gh"],"label":"Install GitHub CLI (apt)"}]}}
 ---
 
+<!-- 运行条件：需要 `gh` CLI（GitHub 官方命令行工具，可通过 brew/apt/winget 安装）。未安装时该技能标记为“不可用”。 -->
+
 # GitHub Skill
 
 Use the `gh` CLI to interact with GitHub. Always specify `--repo owner/repo` when not in a git directory, or use URLs directly.

@@ -4,6 +4,8 @@ description: Remote-control tmux sessions for interactive CLIs by sending keystr
 metadata: {"miniunicorn":{"emoji":"🧵","os":["darwin","linux"],"requires":{"bins":["tmux"]}}}
 ---
 
+<!-- 运行条件：需要 `tmux` 命令，且仅支持 macOS/Linux（不支持 Windows 原生，可在 WSL 中使用）。未安装或系统不支持时该技能标记为“不可用”。 -->
+
 # tmux Skill
 
 Use tmux only when you need an interactive TTY. Prefer exec background mode for long-running, non-interactive tasks.

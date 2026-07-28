@@ -5,6 +5,8 @@ homepage: https://summarize.sh
 metadata: {"miniunicorn":{"emoji":"🧾","requires":{"bins":["summarize"]},"install":[{"id":"brew","kind":"brew","formula":"steipete/tap/summarize","bins":["summarize"],"label":"Install summarize (brew)"}]}}
 ---
 
+<!-- 运行条件：需要 `summarize` CLI（来自 summarize.sh，可通过 brew 安装 steipete/tap/summarize）。未安装时该技能标记为“不可用”。 -->
+
 # Summarize
 
 Fast CLI to summarize URLs, local files, and YouTube links.

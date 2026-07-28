@@ -484,6 +484,11 @@ export interface McpPresetField {
   env_var?: string | null;
 }
 
+export interface SkillRequires {
+  bins: string[];
+  env: string[];
+}
+
 export interface SkillInfo {
   name: string;
   description: string;
@@ -493,6 +498,10 @@ export interface SkillInfo {
   always: boolean;
   builtin_only: boolean;
   path: string;
+  /** 声明的运行依赖(CLI 命令/环境变量),用于卡片展示"需要什么"。 */
+  requires?: SkillRequires;
+  /** 不可用时具体缺失项的可读描述(如 "CLI: gh, ENV: GITHUB_TOKEN"),可用时为空串。 */
+  missing?: string;
 }
 
 export interface SkillsPayload {

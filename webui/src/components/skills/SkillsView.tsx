@@ -493,6 +493,19 @@ function SkillCard({
         {getSkillDescription(skill) || "—"}
       </p>
 
+      {!skill.disabled && !skill.available ? (
+        <p className="mt-1.5 text-[11px] leading-snug text-amber-700 dark:text-amber-400/90">
+          {skill.missing
+            ? `${t("skills.requiresMissing")}: ${skill.missing}`
+            : (skill.requires && (skill.requires.bins.length > 0 || skill.requires.env.length > 0))
+              ? `${t("skills.requiresLabel")}: ${[
+                  ...skill.requires.bins.map((b) => `\`${b}\``),
+                  ...skill.requires.env.map((e) => `\`${e}\``),
+                ].join(", ")}`
+              : t("skills.unavailableHint")}
+        </p>
+      ) : null}
+
       <div className="mt-2 flex items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
         <IconButton title={t("skills.viewDetails")} onClick={onView}>
           <Eye className="h-3 w-3" />

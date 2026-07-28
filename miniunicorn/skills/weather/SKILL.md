@@ -5,6 +5,8 @@ homepage: https://wttr.in/:help
 metadata: {"miniunicorn":{"emoji":"🌤️","requires":{"bins":["curl"]}}}
 ---
 
+<!-- 运行条件：需要 `curl` 命令（Win10+ 自带，macOS/Linux 通常预装）。未安装时该技能标记为“不可用”。 -->
+
 # Weather
 
 Two free services, no API keys needed.

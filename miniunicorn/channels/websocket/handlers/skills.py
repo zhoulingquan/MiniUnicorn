@@ -50,11 +50,19 @@ def list_skills(ctx: RouteContext) -> Response:
         for entry in all_entries:
             meta = loader.get_skill_metadata(entry["name"]) or {}
             description = meta.get("description", entry["name"])
-            available = loader._check_requirements(loader._get_skill_meta(entry["name"]))
+            skill_meta = loader._get_skill_meta(entry["name"])
+            available = loader._check_requirements(skill_meta)
             always = bool(
                 loader._parse_miniunicorn_metadata(meta.get("metadata")).get("always")
                 or meta.get("always")
             )
+            # 暴露声明的依赖(requires)与缺失项(missing),供前端卡片展示。
+            requires_meta = skill_meta.get("requires", {}) or {}
+            requires = {
+                "bins": list(requires_meta.get("bins", []) or []),
+                "env": list(requires_meta.get("env", []) or []),
+            }
+            missing = loader._get_missing_requirements(skill_meta) if not available else ""
             result.append(
                 {
                     "name": entry["name"],
@@ -65,6 +73,8 @@ def list_skills(ctx: RouteContext) -> Response:
                     "always": always,
                     "builtin_only": loader.is_builtin_skill(entry["name"]),
                     "path": entry["path"],
+                    "requires": requires,
+                    "missing": missing,
                 }
             )
         return _http_json_response({"skills": result})
