@@ -5,10 +5,6 @@ description = "A personal AI agent framework with a lightweight, auditable core"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
 license = {text = "MIT"}
-authors = [
-    {name = "Xubin Ren"},
-    {name = "the MiniUnicorn contributors"}
-]
 keywords = ["ai", "agent", "chatbot"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -170,6 +166,13 @@ ignore = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "core: fast correctness gate for orchestration, sessions, providers, config, and security",
+    "integration: multi-component integration test",
+    "channel: external channel adapter test",
+    "platform: operating-system-specific test",
+    "slow: test intentionally excluded from the fast gate",
+]
 
 [tool.coverage.run]
 source = ["miniunicorn"]

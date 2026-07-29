@@ -3,6 +3,23 @@ import { beforeEach } from "vitest";
 
 import i18n from "@/i18n";
 
+// happy-dom does not emit a doctype by default, which puts the document in
+// quirks mode and triggers console warnings (e.g. KaTeX). Inject a real
+// HTML5 doctype once at module initialization so tests run in standards
+// mode, matching the production ``index.html``.
+if (!document.doctype) {
+  const doctype = document.implementation.createDocumentType("html", "", "");
+  document.insertBefore(doctype, document.documentElement);
+}
+// happy-dom does not derive ``compatMode`` from the doctype, so force
+// standards mode explicitly. KaTeX checks this property at render time.
+if (document.compatMode !== "CSS1Compat") {
+  Object.defineProperty(document, "compatMode", {
+    value: "CSS1Compat",
+    configurable: true,
+  });
+}
+
 function createTestStorage(): Storage {
   const store = new Map<string, string>();
   return {
