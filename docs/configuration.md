@@ -1404,6 +1404,10 @@ at once. If your provider can handle more parallel work, raise the limit:
 }
 ```
 
+See also [Turn Concurrency](concurrency.md) for the full contract on how
+same-session turns are serialized and how cross-session concurrency is gated
+by `MINIUNICORN_MAX_CONCURRENT_REQUESTS`.
+
 | Option | Default | Description |
 |--------|---------|-------------|
 | `agents.defaults.maxConcurrentSubagents` | `1` | Maximum number of spawned subagents that may run at the same time. Attempts to spawn beyond this limit return an error. |
