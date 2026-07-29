@@ -107,3 +107,19 @@ export MINIUNICORN_MAX_CONCURRENT_REQUESTS=0
   serialized.
 - **Do** be aware that provider rate limits are global and may further
   constrain throughput regardless of the `max_concurrent_requests` setting.
+
+## Agent loop ownership
+
+`TurnDispatcher` owns both message-bus and direct entry into the shared
+`TurnCoordinator`. `TurnExecutor` assumes a task-local `TurnRuntime` is bound
+while it drives a normal turn. The compatibility `_process_message()` method
+creates a coordinator scope when called without one, so extensions cannot
+bypass same-session serialization by calling it directly.
+
+The task registries and pending queues are process-lifecycle state, not turn
+state. They live on `TurnDispatcher` and remain visible through read-only
+`AgentLoop` compatibility properties. Iteration, usage, latency, hooks, and
+state traces never live in those registries.
+
+See [Agent Loop Architecture](agent-loop-architecture.md) for the full facade
+ownership table, compatibility call chain, and downstream batch guidance.
