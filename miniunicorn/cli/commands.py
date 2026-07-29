@@ -84,7 +84,7 @@ from miniunicorn.cli._terminal_render import (
 )
 from miniunicorn.cli.stream import StreamRenderer, ThinkingSpinner
 from miniunicorn.config.paths import get_workspace_path, is_default_workspace
-from miniunicorn.config.schema import Config
+from miniunicorn.config.schema import Config, validate_api_bind_security
 from miniunicorn.utils.helpers import sync_workspace_templates
 from miniunicorn.utils.restart import (
     consume_restart_notice_from_env,
@@ -393,6 +393,15 @@ def serve(
     host = host if host is not None else api_cfg.host
     port = port if port is not None else api_cfg.port
     timeout = timeout if timeout is not None else api_cfg.timeout
+    try:
+        validate_api_bind_security(
+            host,
+            api_cfg.api_key,
+            api_cfg.allow_insecure_public_bind,
+        )
+    except ValueError as exc:
+        console.print(f"[red]Error: {exc}[/red]")
+        raise typer.Exit(1) from exc
     sync_workspace_templates(runtime_config.workspace_path)
     bus = MessageBus()
     session_manager = SessionManager(runtime_config.workspace_path)
