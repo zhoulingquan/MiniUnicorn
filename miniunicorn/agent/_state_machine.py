@@ -71,6 +71,8 @@ class TurnContext:
     all_messages: list[dict[str, Any]] = field(default_factory=list)
     stop_reason: str = ""
     had_injections: bool = False
+    usage: dict[str, int] = field(default_factory=dict)
+    last_call_usage: dict[str, int] = field(default_factory=dict)
 
     user_persisted_early: bool = False
     save_skip: int = 0
