@@ -1,0 +1,187 @@
+"""WP0 — Runtime dependency and module-boundary characterization.
+
+These tests pin the invariant that Agent Core must not import SQLite or
+multiprocessing implementations (design §6.17, §6.23, acceptance #23).
+They also document the not-yet-existing runtime package as failing tests
+marked for WP1 so the inventory is visible during migration.
+
+No production behavior is changed by this file.
+"""
+
+from __future__ import annotations
+
+import ast
+from pathlib import Path
+
+import pytest
+
+_AGENT_ROOT = Path(__file__).resolve().parents[2] / "miniunicorn" / "agent"
+_RUNTIME_PKG = Path(__file__).resolve().parents[2] / "miniunicorn" / "runtime"
+_AGENT_PORTS = Path(__file__).resolve().parents[2] / "miniunicorn" / "agent" / "ports.py"
+
+# Modules Agent Core may not import at runtime. The durable runtime lives in
+# ``miniunicorn.runtime`` and IPC/multiprocessing primitives live in the
+# supervisor layer. Agent Core must depend only on its own ports.
+_FORBIDDEN_AGENT_IMPORTS = {
+    "sqlite3",
+    "multiprocessing",
+    "miniunicorn.runtime",
+}
+
+# Current exceptions: modules under ``miniunicorn/agent/`` that import a
+# forbidden module today and are scheduled for hardening by a later WP.
+# Each entry maps the file name (relative to ``miniunicorn/agent/``) to the
+# WP that will remove the violation. When that WP lands, remove the entry.
+_KNOWN_VIOLATIONS: dict[str, str] = {
+    # vector_memory.py owns the derived ``memory.db`` vector index (design §6.3,
+    # §22.2). WP7 hardens it (WAL, busy timeout, scope, idempotency). It is
+    # the memory index, not runtime.sqlite — but it still imports sqlite3
+    # directly, which the design wants routed behind a port.
+    "vector_memory.py": "WP7: harden vector store behind a port (design §22.2)",
+}
+
+
+def _iter_agent_py_files() -> list[Path]:
+    """Yield every ``.py`` under ``miniunicorn/agent/`` (recursive)."""
+    if not _AGENT_ROOT.exists():
+        return []
+    return sorted(_AGENT_ROOT.rglob("*.py"))
+
+
+def _imports(tree: ast.AST) -> list[str]:
+    """Return module names referenced by ``import`` / ``from ... import``."""
+
+    names: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                names.append(alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                names.append(node.module)
+    return names
+
+
+def _forbidden_violations(path: Path) -> list[str]:
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except SyntaxError:
+        return []
+    imports = _imports(tree)
+    violations: list[str] = []
+    for forbidden in _FORBIDDEN_AGENT_IMPORTS:
+        for imported in imports:
+            if imported == forbidden or imported.startswith(forbidden + "."):
+                violations.append(imported)
+    return violations
+
+
+# ---------------------------------------------------------------------------
+# Current invariants (must pass today and after every WP)
+# ---------------------------------------------------------------------------
+
+
+class TestAgentCoreDependencyPurity:
+    """Agent Core must not import SQLite, multiprocessing, or runtime impl."""
+
+    def test_agent_directory_exists(self) -> None:
+        assert _AGENT_ROOT.exists(), "miniunicorn/agent/ must exist"
+
+    @pytest.mark.parametrize(
+        "path",
+        _iter_agent_py_files(),
+        ids=lambda p: str(p.relative_to(_AGENT_ROOT.parent.parent)),
+    )
+    def test_agent_module_does_not_import_forbidden_runtimes(self, path: Path) -> None:
+        relative = path.relative_to(_AGENT_ROOT).as_posix()
+        violations = _forbidden_violations(path)
+        if not violations:
+            return
+        if relative in _KNOWN_VIOLATIONS:
+            pytest.xfail(_KNOWN_VIOLATIONS[relative])
+        assert not violations, (
+            f"{path.relative_to(_AGENT_ROOT.parent.parent)} imports forbidden runtime "
+            f"modules: {violations}. Agent Core must depend only on its own ports."
+        )
+
+    def test_agent_loop_collaborators_do_not_import_loop_at_runtime(self) -> None:
+        """Existing boundary: collaborators must not import ``AgentLoop``.
+
+        This re-asserts the rule from ``test_agent_loop_structure`` so the
+        runtime migration cannot silently regress it.
+        """
+        collaborators = [
+            _AGENT_ROOT / "turn_executor.py",
+            _AGENT_ROOT / "turn_dispatcher.py",
+            _AGENT_ROOT / "turn_persistence.py",
+            _AGENT_ROOT / "agent_run_adapter.py",
+        ]
+        for path in collaborators:
+            assert path.exists(), f"missing collaborator: {path.name}"
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for imported in _imports(tree):
+                assert "miniunicorn.agent.loop" not in imported, (
+                    f"{path.name} imports miniunicorn.agent.loop at runtime"
+                )
+
+
+# ---------------------------------------------------------------------------
+# Future-state inventory (xfail until WP1 lands)
+# ---------------------------------------------------------------------------
+
+
+class TestRuntimePackageNotYetCreated:
+    """Documents the not-yet-existing runtime package.
+
+    These tests are expected to fail until WP1 creates the runtime package.
+    They exist so the inventory is machine-checkable: once WP1 lands, the
+    xfails flip to passing tests that prevent the package from being removed.
+    """
+
+    @pytest.mark.xfail(
+        reason="WP1: create miniunicorn/runtime/ package per design §10.2",
+        strict=True,
+        raises=AssertionError,
+    )
+    def test_runtime_package_exists(self) -> None:
+        assert _RUNTIME_PKG.exists() and _RUNTIME_PKG.is_dir()
+
+    @pytest.mark.xfail(
+        reason="WP1: create miniunicorn/agent/ports.py per design §10.1",
+        strict=True,
+        raises=AssertionError,
+    )
+    def test_agent_ports_module_exists(self) -> None:
+        assert _AGENT_PORTS.exists() and _AGENT_PORTS.is_file()
+
+
+# ---------------------------------------------------------------------------
+# Allowed dependency direction (design §7.2)
+# ---------------------------------------------------------------------------
+
+
+class TestDependencyDirection:
+    """Document the allowed dependency direction from design §7.2.
+
+    Today this is informational; after WP1 it becomes a hard constraint.
+    """
+
+    def test_runtime_contracts_must_not_import_agent_loop(self) -> None:
+        """When ``miniunicorn/runtime/contracts.py`` exists, it must not
+        import ``miniunicorn.agent.loop`` (only the ports module)."""
+        runtime_contracts = _RUNTIME_PKG / "contracts.py"
+        if not runtime_contracts.exists():
+            pytest.skip("WP1: runtime/contracts.py not yet created")
+        tree = ast.parse(runtime_contracts.read_text(encoding="utf-8"))
+        for imported in _imports(tree):
+            assert "miniunicorn.agent.loop" not in imported
+            assert "miniunicorn.agent.runner" not in imported
+
+    def test_runtime_store_must_not_import_agent_loop(self) -> None:
+        runtime_store = _RUNTIME_PKG / "store.py"
+        if not runtime_store.exists():
+            pytest.skip("WP1: runtime/store.py not yet created")
+        tree = ast.parse(runtime_store.read_text(encoding="utf-8"))
+        for imported in _imports(tree):
+            assert "miniunicorn.agent.loop" not in imported
+            assert "miniunicorn.agent.runner" not in imported
