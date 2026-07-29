@@ -44,6 +44,7 @@ from miniunicorn.agent.tools.file_state import FileStateStore, bind_file_states,
 from miniunicorn.agent.tools.message import MessageTool
 from miniunicorn.agent.tools.registry import ToolRegistry
 from miniunicorn.agent.turn_coordinator import TurnCoordinator
+from miniunicorn.agent.turn_executor import TURN_TRANSITIONS, TurnExecutor
 from miniunicorn.agent.turn_runtime import (
     AgentLoopRunResult,
     ProcessedTurn,
@@ -161,17 +162,10 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
     _PENDING_USER_TURN_KEY = "pending_user_turn"
 
     # Event-driven state transition table.
-    # Handlers return an event string; the driver looks up the next state here.
-    _TRANSITIONS: dict[tuple[TurnState, str], TurnState] = {
-        (TurnState.RESTORE, "ok"): TurnState.COMPACT,
-        (TurnState.COMPACT, "ok"): TurnState.COMMAND,
-        (TurnState.COMMAND, "dispatch"): TurnState.BUILD,
-        (TurnState.COMMAND, "shortcut"): TurnState.DONE,
-        (TurnState.BUILD, "ok"): TurnState.RUN,
-        (TurnState.RUN, "ok"): TurnState.SAVE,
-        (TurnState.SAVE, "ok"): TurnState.RESPOND,
-        (TurnState.RESPOND, "ok"): TurnState.DONE,
-    }
+    # The canonical table lives in ``turn_executor.TURN_TRANSITIONS``; this
+    # alias preserves the legacy ``AgentLoop._TRANSITIONS`` seam used by tests
+    # and extensions. It is the same object, not a mutable copy.
+    _TRANSITIONS = TURN_TRANSITIONS
 
     def __init__(
         self,
@@ -337,6 +331,9 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         # (e.g. /stop introspection). Mutations of this dict still flow
         # through the coordinator.
         self._session_locks = self._turn_coordinator.session_locks
+        # TurnExecutor owns the single-turn state-machine driver. It sees the
+        # host through a narrow protocol and never imports AgentLoop at runtime.
+        self._turn_executor = TurnExecutor(self)
         # Telemetry sink: one structured record per turn. Defaults to
         # LogTelemetrySink (Loguru ``turn_completed`` event). Sink exceptions
         # are logged and suppressed so telemetry can never break a turn.
@@ -1139,9 +1136,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         try:
             await self.telemetry_sink.emit_turn(build_turn_telemetry(turn_runtime))
         except Exception:
-            logger.exception(
-                "Telemetry sink failed for turn {}", turn_runtime.turn_id
-            )
+            logger.exception("Telemetry sink failed for turn {}", turn_runtime.turn_id)
 
     def stop(self) -> None:
         """Stop the agent loop."""
@@ -1158,101 +1153,13 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         pending_queue: asyncio.Queue | None = None,
     ) -> OutboundMessage | None:
         """Process a system inbound message (e.g. subagent announce)."""
-        channel, chat_id = msg.chat_id.split(":", 1) if ":" in msg.chat_id else ("cli", msg.chat_id)
-        logger.info("Processing system message from {}", msg.sender_id)
-        key = msg.session_key_override or f"{channel}:{chat_id}"
-        session = self.sessions.get_or_create(key)
-        if self._restore_runtime_checkpoint(session):
-            self.sessions.save(session)
-        if self._restore_pending_user_turn(session):
-            self.sessions.save(session)
-
-        session, pending = self.auto_compact.prepare_session(session, key)
-        if pending:
-            logger.info("Memory compact triggered for session {}", key)
-
-        await self.consolidator.maybe_consolidate_by_tokens(
-            session,
-            replay_max_messages=self._max_messages,
-        )
-        is_subagent = msg.sender_id == "subagent"
-        if is_subagent and self._persist_subagent_followup(session, msg):
-            logger.debug("Subagent result persisted for session {}", key)
-            self.sessions.save(session)
-        self._set_tool_context(
-            channel,
-            chat_id,
-            msg.metadata.get("message_id"),
-            msg.metadata,
-            session_key=key,
-        )
-        _hist_kwargs: dict[str, Any] = {
-            "max_messages": self._max_messages,
-            "max_tokens": self._replay_token_budget(),
-            "include_timestamps": True,
-        }
-        history = session.get_history(**_hist_kwargs)
-        current_role = "assistant" if is_subagent else "user"
-        workspace_scope = self.workspace_scopes.for_message(msg, session.metadata)
-        query_embedding = await self._compute_query_embedding(
-            "" if is_subagent else msg.content,
-        )
-
-        messages = self.context.build_messages(
-            history=history,
-            current_message="" if is_subagent else msg.content,
-            channel=channel,
-            chat_id=chat_id,
-            current_role=current_role,
-            sender_id=msg.sender_id,
-            session_summary=pending,
-            session_metadata=session.metadata,
-            workspace=workspace_scope.project_path,
-            runtime_state=self,
-            inbound_message=msg,
-            skip_runtime_lines=is_subagent,
-            query_embedding=query_embedding,
-            vector_recall=self._vector_recall,
-        )
-        t_wall = time.time()
-        result = await self._run_agent_loop(
-            messages,
-            session=session,
-            channel=channel,
-            chat_id=chat_id,
-            message_id=msg.metadata.get("message_id"),
-            metadata=msg.metadata,
-            session_key=key,
+        return await self._turn_executor.process_system_message(
+            msg,
+            session_key=session_key,
+            on_progress=on_progress,
+            on_stream=on_stream,
+            on_stream_end=on_stream_end,
             pending_queue=pending_queue,
-        )
-        wall_done = time.time()
-        latency_ms = max(0, int((wall_done - t_wall) * 1000))
-        self._save_turn(session, result.messages, 1 + len(history), turn_latency_ms=latency_ms)
-        session.enforce_file_cap(on_archive=self.context.memory.raw_archive)
-        self._clear_runtime_checkpoint(session)
-        self.sessions.save(session)
-        self._schedule_background(
-            self.consolidator.maybe_consolidate_by_tokens(
-                session,
-                replay_max_messages=self._max_messages,
-            ),
-            name=f"consolidate:{session.key}",
-        )
-        content = result.final_content or "Background task completed."
-        outbound_metadata: dict[str, Any] = {}
-        if origin_message_id := msg.metadata.get("origin_message_id"):
-            outbound_metadata["origin_message_id"] = origin_message_id
-        # 从 thread-scoped session key 中提取 slack thread_ts,确保 subagent
-        # followup 回到原线程而非频道主页(session key 格式: slack:C123:1700.42)
-        if channel == "slack":
-            parts = key.split(":", 2)
-            if len(parts) == 3:
-                outbound_metadata["slack"] = {"thread_ts": parts[2]}
-        return OutboundMessage(
-            channel=channel,
-            chat_id=chat_id,
-            content=content,
-            metadata=outbound_metadata,
         )
 
     async def _execute_message(
@@ -1265,101 +1172,16 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         pending_queue: asyncio.Queue | None = None,
         turn_hooks: list[AgentHook] | None = None,
     ) -> ProcessedTurn:
-        """Execute a single inbound message and return the outbound + context.
-
-        Returns a :class:`ProcessedTurn` carrying the optional outbound
-        payload and the completed :class:`TurnContext` (when one was built).
-        System-message shortcuts return ``ProcessedTurn(outbound, None)``
-        because they bypass the state machine and have no TurnContext to
-        copy cumulative metrics from.
-        """
-        self._refresh_provider_snapshot()
-
-        if msg.channel == "system":
-            system_outbound = await self._process_system_message(
-                msg,
-                session_key=session_key,
-                on_progress=on_progress,
-                on_stream=on_stream,
-                on_stream_end=on_stream_end,
-                pending_queue=pending_queue,
-            )
-            return ProcessedTurn(outbound=system_outbound, context=None)
-
-        key = session_key or msg.session_key
-        # Pull the turn ID from the bound TurnRuntime so the state trace,
-        # telemetry, and coordinator all share one identifier. The runtime
-        # is bound by ``TurnCoordinator.scope`` before this method runs.
-        # Fall back to a generated ID for legacy callers (e.g. tests) that
-        # invoke _process_message without entering a coordinator scope.
-        runtime = current_turn_runtime()
-        turn_id = runtime.turn_id if runtime is not None else f"{key}:{time.time_ns()}"
-        ctx = TurnContext(
-            msg=msg,
-            session=None,
-            session_key=key,
-            state=TurnState.RESTORE,
-            turn_id=turn_id,
+        """Execute a single inbound message and return the outbound + context."""
+        return await self._turn_executor.execute(
+            msg,
+            session_key=session_key,
             on_progress=on_progress,
             on_stream=on_stream,
             on_stream_end=on_stream_end,
             pending_queue=pending_queue,
-            agent_override=self._resolve_agent_override(msg),
-            turn_hooks=list(turn_hooks or []),
+            turn_hooks=turn_hooks,
         )
-
-        while ctx.state is not TurnState.DONE:
-            handler_name = f"_state_{ctx.state.name.lower()}"
-            handler = getattr(self, handler_name, None)
-            if handler is None:
-                raise RuntimeError(f"Missing state handler for {ctx.state}")
-
-            t0 = time.perf_counter()
-            try:
-                event = await handler(ctx)
-            except Exception:
-                duration = (time.perf_counter() - t0) * 1000
-                ctx.trace.append(
-                    StateTraceEntry(
-                        state=ctx.state,
-                        started_at=t0,
-                        duration_ms=duration,
-                        event="",
-                        error="exception",
-                    )
-                )
-                raise
-
-            duration = (time.perf_counter() - t0) * 1000
-            ctx.trace.append(
-                StateTraceEntry(
-                    state=ctx.state,
-                    started_at=t0,
-                    duration_ms=duration,
-                    event=event,
-                )
-            )
-            logger.debug(
-                "[turn {}] State {} took {:.1f}ms -> event {}",
-                ctx.turn_id,
-                ctx.state.name,
-                duration,
-                event,
-            )
-
-            next_state = self._TRANSITIONS.get((ctx.state, event))
-            if next_state is None:
-                raise RuntimeError(
-                    f"[turn {ctx.turn_id}] No transition from {ctx.state} on event {event!r}"
-                )
-            ctx.state = next_state
-
-        logger.debug(
-            "[turn {}] Turn completed after {} states",
-            ctx.turn_id,
-            len(ctx.trace),
-        )
-        return ProcessedTurn(outbound=ctx.outbound, context=ctx)
 
     async def _process_message(
         self,

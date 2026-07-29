@@ -55,18 +55,8 @@ def test_agent_loop_source_stays_under_facade_limit() -> None:
     assert len(_loop_path().read_text(encoding="utf-8").splitlines()) <= LOOP_LINE_LIMIT
 
 
-def test_agent_loop_does_not_yet_construct_partial_collaborators(
-    loop_factory,
-) -> None:
+def test_agent_loop_constructs_turn_executor(loop_factory) -> None:
+    from miniunicorn.agent.turn_executor import TurnExecutor
+
     loop = loop_factory()
-    partial = [
-        name
-        for name in (
-            "_turn_executor",
-            "_agent_run_adapter",
-            "_turn_persistence",
-            "_turn_dispatcher",
-        )
-        if hasattr(loop, name)
-    ]
-    assert partial == []
+    assert isinstance(loop._turn_executor, TurnExecutor)
