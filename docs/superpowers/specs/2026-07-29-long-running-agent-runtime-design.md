@@ -1,1600 +1,2889 @@
-# MiniUnicorn Long-Running Agent Runtime Design
+# MiniUnicorn Thin Durable Runtime Design
 
-Date: 2026-07-29
-
-Status: Approved design
-
-Audience: implementation agents and reviewers
+**Status:** Approved architecture, implementation-ready specification
+**Date:** 2026-07-29
+**Supersedes:** The earlier full-runtime version of this document
+**Primary decision:** Add one thin durable runtime kernel around the existing
+Agent Core. Do not build a second Agent system.
 
 ## 1. Purpose
 
-This design strengthens MiniUnicorn for unattended, long-running operation on
-one machine. It preserves the existing Agent outer state machine and inner
-LLM/tool loop while adding durable scheduling, process isolation, resumable
-checkpoints, side-effect safety, bounded resources, and operational visibility.
+MiniUnicorn already has a capable Agent loop, Provider abstraction, tool
+registry, session store, memory system, channels, typed Agent events, telemetry,
+and process-local concurrency controls. The missing capability is a durable
+coordination layer that can answer five questions after a process crash:
 
-The selected approach is:
+1. Which user or maintenance tasks were accepted?
+2. Which task may run next for each session?
+3. Which LLM and tool boundaries were durably completed?
+4. Which session mutations were committed?
+5. Which user-visible messages still need delivery?
 
-> One reliability protocol, one local durable task ledger, and two deployment
-> modes: a lightweight single-process mode and a supervised three-worker mode.
+This design adds that capability without replacing the existing Agent Core.
+The durable runtime is intentionally thin:
 
-The stable production topology is:
+- it owns task coordination, recovery facts, fencing, and reliable delivery;
+- it calls the current Agent loop through narrow ports;
+- it reuses the current Tool Registry, Session Manager, Channel Manager,
+  memory behavior, Provider clients, and Agent event protocol;
+- it supports lightweight and supervised deployment through different hosts
+  around the same runtime kernel;
+- it assigns exactly one authority to every durable fact.
 
-- one Supervisor process;
-- one Control Plane process;
-- three Worker processes;
-- one active root task per Worker;
-- one local `runtime.sqlite` operational ledger;
-- the existing session and memory files;
-- the existing `memory/memory.db` vector-memory index.
-
-This is not a distributed cluster design. All processes run on one host and
-share one local workspace.
+This document is detailed enough to hand to an implementation Agent. It fixes
+the module boundaries, contracts, schema, transactions, recovery behavior,
+migration order, tests, and acceptance criteria. Implementation may rename
+private helpers, but it must not change the public responsibilities or safety
+semantics without revising this specification.
 
 ## 2. Existing Baseline
 
-The implementation must build on, rather than replace, these existing
-capabilities:
+The implementation must evolve the current code rather than bypass it.
 
-- `TurnExecutor` drives
-  `RESTORE → COMPACT → COMMAND → BUILD → RUN → SAVE → RESPOND → DONE`.
-- `AgentRunner` performs the inner LLM/tool loop.
-- `ContextGovernor` governs model context before LLM calls.
-- `TurnRuntime` uses task-local state and prevents cross-turn usage leakage.
-- `TurnCoordinator` serializes the same session and limits in-process
-  concurrency.
-- `TurnTelemetry` emits bounded, content-free per-turn metrics.
-- typed Agent events validate outbound event payloads.
-- `turn_persistence.py` stores current runtime checkpoints in session metadata.
-- `TaskSupervisor` owns and drains process-local background coroutines.
-- provider fallback and turn budgets already exist.
-- session, memory, and cron writes already use atomic-write techniques in
-  several important paths.
-- `MemoryStore`, `Consolidator`, and `Dream` manage durable memory files.
-- `memory/memory.db` is the optional `sqlite-vec` index for semantic recall.
+Current useful boundaries include:
 
-The principal gaps are:
+- `miniunicorn/agent/turn_dispatcher.py`
+  - accepts inbound messages;
+  - owns process-local pending queues and task creation today;
+- `miniunicorn/agent/turn_coordinator.py`
+  - provides process-local per-session locks and a global semaphore;
+- `miniunicorn/agent/turn_executor.py`
+  - owns the outer turn state machine;
+- `miniunicorn/agent/turn_persistence.py`
+  - persists current session metadata checkpoints;
+- `miniunicorn/agent/turn_runtime.py`
+  - provides task-local `contextvars` state;
+- `miniunicorn/agent/runner.py`
+  - owns the inner LLM/tool loop, Context Governor, Planner integration,
+    budgets, hooks, and tool-result injection;
+- `miniunicorn/agent/tools/registry.py`
+  - owns tool discovery, schema, preparation, and dispatch;
+- `miniunicorn/session/manager.py`
+  - owns session transcript persistence and its process-local cache;
+- `miniunicorn/agent/memory.py` and `vector_memory.py`
+  - own long-term memory semantics and the derived vector index;
+- `miniunicorn/channels/manager.py`
+  - owns Channel lifecycle, formatting, retry, and delivery adapters;
+- `miniunicorn/bus/queue.py`
+  - provides bounded in-memory inbound and outbound queues;
+- `miniunicorn/bus/agent_events.py`
+  - defines the strict versioned Agent event protocol;
+- `miniunicorn/utils/task_supervisor.py`
+  - owns disposable process-local background coroutines;
+- `miniunicorn/agent/telemetry.py`
+  - owns current turn telemetry.
 
-- accepted turns do not have a host-crash-safe durable queue;
-- current session locks and the global semaphore are process-local;
-- runtime checkpoints are not a complete cross-process task journal;
-- a restored pending tool call becomes a synthetic error instead of being
-  classified and safely resumed;
-- required background work can still be owned only by an in-memory coroutine;
-- tool permission, idempotency, and uncertain-side-effect handling are not one
-  mandatory execution boundary;
-- Channels are coupled closely enough to turn execution that a Worker cannot
-  be treated as replaceable compute;
-- process liveness, task liveness, and user-visible delivery are not modeled as
-  separate durable concerns.
+The runtime must preserve these domain behaviors. It changes who owns durable
+coordination, not how MiniUnicorn reasons.
+
+### 2.1 Problems being corrected
+
+The current process-local design has the following failure modes:
+
+- accepted inbound work can exist only in an `asyncio.Queue`;
+- pending session work can exist only in an in-memory deque;
+- `asyncio.create_task()` can be the sole owner of required work;
+- per-session locks and global semaphores do not coordinate processes;
+- a final response can be generated but lost before Channel delivery;
+- a tool can finish while its result is not durably recorded;
+- a Provider retry or fallback attempt is hidden from the turn journal;
+- two `SessionManager` instances can overwrite each other from stale caches;
+- required Dream, consolidation, indexing, or cleanup work can be lost;
+- killing a Worker can leave tool subprocesses or browser processes alive.
+
+The durable runtime exists only to correct these failure modes.
 
 ## 3. Goals
 
-The first production version must satisfy all of the following:
-
-1. A task acknowledged as accepted is not lost after a process or host restart.
-2. The same session remains strictly ordered.
-3. Three Workers can execute three unrelated root tasks concurrently.
-4. A fourth runnable task waits in the durable queue.
-5. A dead Worker is replaceable; its task resumes from the last safe
-   checkpoint.
-6. A Worker with no heartbeat for 180 seconds loses its lease.
-7. A live task with no progress for 600 seconds is treated as stalled.
-8. A stalled safe operation receives at most one automatic recovery attempt.
-9. A dangerous or non-idempotent external action is never silently repeated
-   when its outcome is unknown.
-10. Final replies survive Channel or Control Plane outages.
-11. Required maintenance work survives process restarts.
-12. CPU, memory, Token, iteration, subagent, and Provider use are bounded.
-13. The runtime can complete a seven-day fault-injected soak without unbounded
-    growth in memory, threads, file handles, background tasks, or SQLite WAL.
-14. Lightweight and supervised modes use the same task, checkpoint, tool, and
-    delivery contracts.
+1. Every accepted user turn is durable before acknowledgement.
+2. Every required maintenance operation is represented as a durable task.
+3. Tasks for one session execute in strict `session_sequence` order.
+4. Different sessions may execute concurrently.
+5. A Worker crash cannot let stale work commit after its lease is reclaimed.
+6. Recovery resumes from the latest safe boundary.
+7. A non-idempotent external effect is never guessed to be safe after an
+   uncertain outcome.
+8. Final replies and Agent-originated outbound messages are reliably delivered
+   through one outbox.
+9. Lightweight and supervised modes use the same state machine, store,
+   scheduler, checkpoint format, Tool Gateway, and delivery semantics.
+10. The existing Agent Core remains testable without SQLite or multiprocessing.
+11. Existing session and memory formats remain the content authorities.
+12. The design remains efficient for one host and one to three Workers.
+13. Every migration phase is independently testable and reversible before
+    durable traffic is accepted.
 
 ## 4. Non-Goals
 
-This design does not authorize:
+This version does not provide:
 
-- multi-host scheduling;
-- Redis, RabbitMQ, Kafka, or another external queue;
-- replacing SQLite with PostgreSQL;
-- replacing the existing outer or inner Agent loops;
-- replacing `memory/memory.db` with another vector database;
-- building an external document knowledge base;
-- unrestricted multi-tenant hosting;
-- exactly-once guarantees from external services that provide neither an
-  idempotency key nor a reliable receipt;
-- storing every streamed LLM token durably;
-- restoring a vanished Python stack frame or coroutine object;
-- a new Channel-specific implementation of the Agent core;
-- opportunistic refactors unrelated to runtime reliability.
+- multi-host distributed scheduling;
+- remote database support;
+- exactly-once execution for arbitrary third-party side effects;
+- transparent live migration between lightweight and supervised mode;
+- automatic mode selection from Prompt text, task duration, CPU load, or queue
+  depth;
+- a replacement for the Agent loop, Provider system, Tool Registry, Channel
+  adapters, Session Manager, or memory system;
+- a general workflow language or DAG engine;
+- unbounded Worker, subagent, or tool parallelism;
+- durable storage of every streamed Token;
+- permanent dual-write compatibility between the legacy and durable paths.
 
-Multiple independent users may share the same service only when their
-principal, workspace, Agent, and session scopes are separated. A supervised
-deployment is not automatically a secure multi-tenant deployment.
+## 5. Terms
 
-## 5. Non-Negotiable Invariants
+- **Agent Core:** Existing turn execution and reasoning code.
+- **Runtime Kernel:** Task Service, Scheduler, Runtime Store ports,
+  Worker Adapter, Tool Gateway, and Outbox Sender.
+- **Runtime Store:** One transactional façade implemented by SQLite. Consumers
+  use narrow protocol views of the same façade.
+- **Task:** One durable unit of user or internal work.
+- **Turn:** A user-facing interaction identified by `turn_id`.
+- **Run segment:** One bounded execution period for a task. A continued task
+  keeps its `task_id` and increments `run_segment`.
+- **Lease:** Time-bounded permission for one Worker to mutate one task.
+- **Fencing:** Rejection of writes from an expired or superseded lease.
+- **Checkpoint:** Durable Agent execution state at a defined safe boundary.
+- **Durable event:** A bounded recovery or audit fact stored in SQLite.
+- **Agent event:** Existing strict realtime UI protocol. It may be transient.
+- **External effect:** A tool or Channel operation visible outside runtime
+  bookkeeping.
+- **Session commit:** Idempotent mutation of the authoritative session
+  transcript.
+- **Authority:** The only component allowed to decide the current truth for a
+  class of data.
 
-The implementation must preserve these invariants:
+## 6. Non-Negotiable Invariants
 
-1. SQLite is the authority for current operational task ownership.
-2. `task_events` is append-only.
-3. Only the holder of the current lease token and lease epoch may advance a
-   running task.
-4. A stale Worker result is rejected even if the old process becomes responsive
-   again.
-5. The same session has at most one active root task.
-6. A waiting, retrying, or recovering task continues to hold its logical place
-   in the session order.
-7. An LLM response is resumable only after the complete response is persisted.
-8. A tool result is reusable only after its terminal result is persisted.
-9. Every external write passes through Tool Gateway.
-10. Every final reply passes through the durable outbox.
-11. Required work is never owned only by `asyncio.create_task()`.
-12. Telemetry and ordinary logs never contain prompt content, response
-    content, tool arguments, tool results, credentials, or media.
-13. `memory/memory.db` remains separate from `runtime.sqlite`.
-14. Agent Core does not import SQLite infrastructure.
-15. A database transaction never remains open across an LLM, tool, Channel, or
-    filesystem call.
+1. `runtime.sqlite` is the authority for task state, task order, leases,
+   durable execution facts, control requests, and outbound delivery state.
+2. `SessionManager` is the authority for session transcript content.
+3. The existing memory source files and Git history are authoritative for
+   long-term memory; `memory.db` is a rebuildable index.
+4. `ToolRegistry` is the authority for tool discovery, schema, argument
+   preparation, and actual invocation.
+5. `ToolGateway` is the authority for effective risk, approval, idempotency,
+   execution journaling, and crash recovery of Agent-originated tool calls.
+6. Outbox is the authority for whether a final or Agent-originated message was
+   delivered.
+7. Message Bus and multiprocessing IPC carry wake hints and realtime events
+   only. Their contents are never required for recovery.
+8. At most one non-terminal task is active for a session.
+9. Only the earliest non-terminal `session_sequence` is claimable.
+10. Every task mutation from a Worker includes `task_id`, `lease_token`, and
+    `lease_epoch`.
+11. Lease renewal does not grant permission to a stale token and does not
+    advance task business-state version.
+12. No SQLite transaction remains open across a Provider, tool, Channel,
+    session filesystem, memory filesystem, or arbitrary user-code call.
+13. An LLM response is not consumed by Agent Core until its completed attempt
+    is durable.
+14. A tool result is not consumed by Agent Core until its terminal result is
+    durable.
+15. A final reply is not considered complete until it is durable in Outbox.
+16. Required work is never owned only by `asyncio.create_task()`.
+17. Agent Core does not import SQLite, multiprocessing, Supervisor, or Channel
+    infrastructure.
+18. Lightweight and supervised modes never select different Agent logic.
+19. The deployment mode is selected at startup and does not change while work
+    is active.
+20. Durable events and normal logs never contain raw prompts, responses, tool
+    arguments, tool results, credentials, or media.
+21. Runtime Store write methods are the only code allowed to perform
+    multi-table runtime transactions.
+22. New durable tasks never dual-write legacy `runtime_checkpoint` or
+    `pending_user_turn` metadata as a second recovery authority.
+23. `runtime.sqlite` and `memory.db` remain separate files with separate
+    connections, migrations, backup policy, and rebuild semantics.
 
-## 6. Deployment Modes
+## 7. Authority and Dependency Model
 
-### 6.1 Lightweight mode
+### 7.1 Unique authority table
 
-Lightweight mode runs Gateway, scheduling, execution, outbox, and maintenance
-inside one process. It still uses:
+| Fact | Authority | Non-authoritative consumers |
+|---|---|---|
+| Task lifecycle | Runtime Store | Dispatcher, Worker, UI |
+| Session execution order | Runtime Store `session_slots` | Coordinator |
+| Lease ownership | Runtime Store | Supervisor, Worker |
+| Durable checkpoints | Runtime Store | Turn Persistence |
+| LLM attempt facts | Runtime Store | Provider observer, telemetry |
+| Tool safety and result state | Tool Gateway plus Runtime Store | Runner |
+| Session transcript | Session Manager | Runtime Store commit record |
+| Final delivery state | Outbox | Message Bus, Channel Manager |
+| Realtime Agent events | Agent event protocol | WebUI, Channel bridge |
+| Tool definitions and schemas | Tool Registry | Tool Gateway |
+| Long-term memory source | Existing memory files/GitStore | Agent Core |
+| Vector search index | `memory.db` | Recall path |
+| Worker process liveness | Supervised Host | Health reporting |
+
+### 7.2 Allowed dependency direction
+
+```text
+CLI / Channels / Cron
+        |
+        v
+Runtime contracts and Runtime Kernel
+        |
+        v
+Agent Core interfaces and existing Agent Core
+        |
+        v
+Provider / Tool Registry / Session / Memory interfaces
+
+SQLite / multiprocessing / OS process containment
+        ^
+        |
+Runtime infrastructure implementations only
+```
+
+Agent Core defines the ports it needs from execution infrastructure. Runtime
+implements those ports. This consumer-owned-port rule prevents Agent Core from
+depending on the durable runtime implementation.
+
+### 7.3 No service per table
+
+`tasks`, `task_events`, `checkpoints`, `tool_calls`, and Outbox are tables with
+different semantics. They are not separate deployable services.
+
+One `SqliteRuntimeStore` implements several narrow protocol views:
+
+- `TaskIngressStore`;
+- `WorkerLedger`;
+- `ExecutionJournal`;
+- `SessionCommitLedger`;
+- `DeliveryLedger`;
+- `ResourceLedger`;
+- `MaintenanceLedger`.
+
+The views exist for interface segregation and tests. They share one connection
+factory, migration owner, transaction policy, and database file.
+
+### 7.4 Convergence from the earlier design
+
+| Earlier concept | Thin-kernel decision |
+|---|---|
+| Durable Task Queue service | Task rows plus Task Service and stateless Scheduler |
+| Turn Journal service | `ExecutionJournal` view of Runtime Store |
+| Checkpoint Store service | Checkpoint methods on the same Runtime Store |
+| Session Slot service | Claim transaction over `session_slots` |
+| Worker Registry table/service | Removed; Host owns processes, task leases fence work |
+| Approval subsystem | Merged into `task_controls` |
+| Resource Lock Manager plus Quota Manager | Merged into `resource_leases` |
+| Durable event bus | Removed; facts use SQLite, realtime remains transient |
+| Separate maintenance scheduler | Existing triggers submit typed durable tasks |
+| Separate memory candidate store | Removed; existing memory remains authoritative |
+
+This convergence removes duplicate deployment units without collapsing
+interfaces. Consumers still depend on narrow protocols, while one
+implementation owns each transactional fact.
+
+## 8. Component Boundaries
+
+### 8.1 Task Service
+
+`TaskService` is the only normal ingress into durable work.
+
+Responsibilities:
+
+- normalize Channel, CLI, SDK, cron, and maintenance requests;
+- validate protocol version and required scope;
+- store protected payloads;
+- deduplicate Channel messages;
+- allocate `session_sequence`;
+- create tasks;
+- append cancellation, approval, rejection, steering, and continuation
+  controls;
+- notify local or remote Workers with a best-effort wake hint.
+
+It does not:
+
+- execute Agent turns;
+- own an in-memory pending-work queue;
+- select a Worker;
+- publish final replies directly;
+- edit session files directly.
+
+The existing `TurnDispatcher` becomes a compatibility adapter over this
+service.
+
+### 8.2 Scheduler
+
+`Scheduler` is a stateless library over `WorkerLedger`.
+
+Responsibilities:
+
+- atomically claim the highest-priority eligible session head;
+- issue a random lease token and increment `lease_epoch`;
+- renew valid leases;
+- release or reclaim expired work;
+- move elapsed `RETRY_WAIT` tasks back to `QUEUED`;
+- prevent maintenance claims while user work is queued;
+- acquire generic cross-process resource leases where required.
+
+There is no central in-memory dispatch queue. In supervised mode each Worker
+calls the same Scheduler against SQLite. SQLite serializes the short claim
+transaction. Wake IPC only reduces polling latency.
+
+### 8.3 Worker Adapter
+
+`AgentTaskWorker` adapts one claimed durable task to the existing Agent Core.
+
+Responsibilities:
+
+- load the protected task payload;
+- construct a task-scoped `TurnRuntime`;
+- construct or reset an Agent execution instance through `AgentFactory`;
+- restore the latest valid checkpoint;
+- apply pending control requests at safe boundaries;
+- call the existing `TurnExecutor`;
+- provide Agent Core with journal, tool execution, and session commit ports;
+- checkpoint progress;
+- map terminal outcomes to Runtime Store operations;
+- release task-local resources.
+
+One Worker handles one root task at a time in supervised version one. Provider
+clients and immutable configuration may be reused within that Worker process.
+Mutable Agent turn state may not leak between tasks.
+
+### 8.4 Runtime Store
+
+`SqliteRuntimeStore` owns:
+
+- schema migrations;
+- SQLite connection configuration;
+- all task and session-slot transactions;
+- append-only durable events;
+- checkpoints and protected runtime blobs;
+- LLM and tool attempt records;
+- task control requests;
+- session commit coordination records;
+- Outbox records and delivery leases;
+- generic resource leases;
+- retention and online backup bookkeeping.
+
+It does not own session transcript content, memory content, Provider clients,
+tools, Channels, or Agent behavior.
+
+### 8.5 Tool Gateway
+
+`ToolGateway` implements Agent Core's `ToolExecutionPort`.
+
+It combines:
+
+- existing Tool Registry preparation and invocation;
+- invocation-specific risk classification;
+- approval policy;
+- stable idempotency keys;
+- durable logical-call and attempt records;
+- resource locking;
+- recovery decisions.
+
+It is not a second registry and does not duplicate tool schemas.
+
+### 8.6 Session Committer
+
+`SessionCommitter` implements Agent Core's `SessionCommitPort`.
+
+It coordinates a Runtime Store commit intent with an idempotent, revision-aware
+`SessionManager.commit_turn()` operation. It does not store transcript content
+in SQLite.
+
+### 8.7 Outbox Sender
+
+`OutboxSender`:
+
+- claims the earliest pending record per delivery target;
+- invokes the existing `ChannelManager`;
+- stores a provider receipt when available;
+- retries transient failures with bounded backoff;
+- marks permanent failures and raises an operational alert.
+
+Outbox delivery does not consume an Agent Worker slot.
+
+### 8.8 Realtime Event Bridge
+
+The bridge consumes current typed Agent events from Workers and forwards them
+to WebUI or Channel streaming adapters.
+
+It is explicitly lossy:
+
+- Token deltas may be coalesced or dropped;
+- progress updates may be replaced by the latest value;
+- state changes may be reconstructed from Runtime Store;
+- final complete messages are delivered only from Outbox.
+
+### 8.9 Hosts
+
+Hosts are composition roots. They choose process boundaries, not behavior.
+
+- `LightweightHost` constructs all components in one process.
+- `SupervisedHost` starts Supervisor, Control Plane, and Worker processes.
+
+Only host and configuration modules inspect `runtime.mode`.
+
+## 9. Deployment Modes
+
+### 9.1 Lightweight mode
+
+Lightweight mode runs in one process:
+
+```text
+LightweightHost
+├── Channel or CLI ingress
+├── TaskService
+├── one SqliteRuntimeStore connection factory
+├── Scheduler
+├── 1..3 AgentTaskWorker coroutines
+├── OutboxSender
+└── maintenance enqueue loop
+```
+
+It still uses:
 
 - `runtime.sqlite`;
-- the durable task model;
-- lease and fencing checks;
-- Turn Journal;
-- Tool Gateway;
-- durable outbox;
-- the same recovery code as supervised mode.
+- durable tasks;
+- the same leases and fencing;
+- the same checkpoints;
+- the same Tool Gateway;
+- the same Outbox;
+- the same session commit protocol;
+- the same recovery paths.
 
-The default lightweight execution-slot count is one. It may be configured up
-to three, but extra in-process slots do not provide process isolation.
+Default execution slots: one. Configurable maximum: three. Extra slots provide
+concurrency but no process isolation.
 
-CLI, tests, and development launchers default to lightweight mode unless
-explicitly configured otherwise.
+CLI, tests, and development launchers default to lightweight mode.
 
-### 6.2 Supervised mode
-
-The long-running service launcher defaults to supervised mode:
+### 9.2 Supervised mode
 
 ```text
 Supervisor
-├── Control Plane
+├── Control Plane process
 │   ├── Channel Gateway
-│   ├── Task service
-│   ├── Outbox sender
-│   ├── Control-message handler
-│   └── realtime AgentEvent bridge
-├── Worker 1
-├── Worker 2
-└── Worker 3
+│   ├── TaskService
+│   ├── OutboxSender
+│   ├── control API
+│   ├── realtime AgentEvent bridge
+│   └── maintenance enqueue loop
+├── Worker process 1
+│   └── Scheduler + AgentTaskWorker
+├── Worker process 2
+│   └── Scheduler + AgentTaskWorker
+└── Worker process 3
+    └── Scheduler + AgentTaskWorker
 ```
 
-Each Worker executes one root task at a time. Workers may use bounded
-subagents, but subagents count against root-task and global quotas.
+Every child uses spawn semantics and creates its own:
 
-Worker processes use spawn semantics on every supported platform. They do not
-inherit SQLite connections, Provider clients, event loops, open Channel
-sockets, or mutable Agent instances from Supervisor.
+- event loop;
+- SQLite connections;
+- Provider clients;
+- Tool instances;
+- Agent factory;
+- IPC endpoints.
 
-### 6.3 Same engine, different assembly
+No child inherits open Channel sockets, SQLite connections, Provider clients,
+or mutable Agent instances.
 
-No `if supervised: use a different Agent` branch is allowed. Deployment mode
-may change:
+The long-running service launcher defaults to supervised mode.
 
-- process boundaries;
-- IPC transport;
-- number of execution slots;
-- process monitoring.
+### 9.3 Mode selection
 
-It may not change:
-
-- task states;
-- checkpoint formats;
-- lease rules;
-- tool safety rules;
-- outbox semantics;
-- session ordering;
-- Agent outer or inner loop behavior.
-
-## 7. Component Boundaries
-
-### 7.1 Channel Gateway
-
-Responsibilities:
-
-- authenticate or identify the Channel sender;
-- normalize inbound Channel payloads;
-- create stable request identifiers;
-- submit an `InboundTaskEnvelope`;
-- acknowledge acceptance only after the task transaction commits;
-- forward transient typed Agent events;
-- deliver durable outbox messages.
-
-Forbidden responsibilities:
-
-- calling `AgentLoop` or `AgentRunner` directly;
-- deciding tool permissions;
-- owning task recovery;
-- writing session history.
-
-### 7.2 Task Service and Durable Scheduler
-
-Responsibilities:
-
-- inbound deduplication;
-- per-session sequence allocation;
-- priority and availability ordering;
-- atomic task claim;
-- session-slot ownership;
-- task lease renewal;
-- retry and recovery scheduling;
-- terminal task transitions.
-
-The scheduler is a logical module backed by SQLite. It need not be a dedicated
-process. Workers pull work through this module. No correctness property may
-depend on an in-memory dispatch queue.
-
-### 7.3 Supervisor
-
-Responsibilities:
-
-- start and monitor Control Plane and Worker processes;
-- assign Worker generation numbers;
-- restart failed processes;
-- quarantine crash-looping Worker slots;
-- coordinate drain and shutdown;
-- expose process-health information.
-
-Forbidden responsibilities:
-
-- interpreting Agent checkpoints;
-- retrying tools;
-- writing user replies;
-- deciding whether an external side effect occurred.
-
-### 7.4 Worker Host
-
-Responsibilities:
-
-- claim one task;
-- bind one isolated `TurnRuntime`;
-- restore the latest durable checkpoint;
-- run `TurnExecutor` and `AgentRunner`;
-- renew its lease and report progress;
-- stop on lease loss;
-- release or complete the task at a safe boundary.
-
-A Worker is replaceable compute, not a backup copy of session or memory data.
-
-### 7.5 Agent Core
-
-Agent Core contains:
-
-- `TurnExecutor`;
-- `AgentLoop`;
-- `AgentRunner`;
-- `ContextGovernor`;
-- Planner and Agent strategies;
-- hook and progress abstractions.
-
-It reasons and emits typed decisions. It reads or writes durable runtime state
-only through ports supplied by the host.
-
-### 7.6 Tool Gateway
-
-Responsibilities:
-
-- tool lookup and schema validation;
-- permission policy;
-- risk classification;
-- idempotency keys;
-- approval;
-- durable tool-call state;
-- resource locks;
-- retry classification;
-- timeout and cancellation;
-- result normalization.
-
-No Agent or subagent may execute an external-write tool through another path.
-
-### 7.7 Session and Memory Stores
-
-Responsibilities remain with existing storage:
-
-- session JSONL: conversation;
-- `history.jsonl`: consolidated historical summaries;
-- `SOUL.md`, `USER.md`, and `MEMORY.md`: durable meaning;
-- GitStore: version history;
-- `memory.db`: semantic recall index.
-
-They do not own task leases, task retries, or delivery state.
-
-### 7.8 Outbox
-
-Responsibilities:
-
-- persist final and approval messages before delivery;
-- lease messages to a sender;
-- retry supported Channel delivery;
-- record Provider message receipts;
-- expose unknown delivery outcomes.
-
-Worker code never sends a final response directly to a Channel.
-
-## 8. Contract and Identifier Model
-
-All cross-component models use strict typed validation and reject unknown
-fields. Contracts carry `protocol_version=1`.
-
-### 8.1 Identifiers
-
-The runtime uses separate identifiers for separate concerns:
-
-- `channel_message_id`: identifier supplied by a Channel;
-- `task_id`: one durable scheduled unit;
-- `turn_id`: one logical user/assistant turn;
-- `event_id`: one immutable durable or realtime event;
-- `llm_call_id`: one persisted model request decision;
-- `tool_call_id`: one logical tool action from a persisted LLM response;
-- `approval_id`: one user decision request;
-- `delivery_id`: one logical outbound message;
-- `worker_id`: stable Worker slot identity;
-- `worker_generation`: process incarnation of a Worker slot;
-- `lease_token`: unguessable token for the current claim;
-- `lease_epoch`: monotonically increasing claim number for a task.
-
-UUID4 is sufficient for globally unique IDs. Ordering uses explicit integer
-sequence and timestamp fields, not lexical UUID order.
-
-`tool_call_id` is a runtime-generated ID. A Provider-supplied tool-call ID is
-stored separately and namespaced by LLM call and ordinal; it is not assumed to
-be globally unique.
-
-### 8.2 Time representation
-
-Persistent timestamps use UTC Unix milliseconds in SQLite. Human-readable
-ISO-8601 timestamps may be derived at API boundaries.
-
-Lease comparisons use database wall time. In-process duration metrics use a
-monotonic clock. Code must not compare monotonic values written by different
-processes.
-
-### 8.3 Inbound task envelope
-
-Required fields:
-
-- protocol version;
-- Channel and Channel account;
-- Channel message ID;
-- tenant, principal, Agent, workspace, and session scope;
-- normalized user content reference;
-- media references;
-- task kind;
-- priority;
-- received time;
-- trace identifiers;
-- optional reply-to and control metadata.
-
-The full user payload is stored in protected runtime data. The queue row stores
-only references, hashes, routing metadata, and bounded summaries.
-
-### 8.4 Durable event envelope
-
-Required fields:
-
-- protocol version;
-- event ID;
-- task ID and turn ID;
-- event sequence;
-- task attempt number;
-- Worker ID and generation when applicable;
-- lease epoch when applicable;
-- event type;
-- payload reference;
-- UTC creation time.
-
-### 8.5 Port contracts
-
-The initial ports are:
-
-- `TaskQueue.accept(envelope) -> AcceptResult`
-- `TaskQueue.enqueue_internal(envelope) -> EnqueueResult`
-- `TaskQueue.claim(worker) -> TaskLease | None`
-- `TaskQueue.renew(lease) -> RenewResult`
-- `TaskQueue.release(lease, reason, available_at) -> None`
-- `TaskQueue.pause(lease, approval) -> None`
-- `TaskQueue.complete(lease, result) -> None`
-- `TurnJournal.append(lease, expected_version, event) -> new_version`
-- `CheckpointStore.load(task_id) -> TurnCheckpoint | None`
-- `CheckpointStore.save(lease, expected_version, checkpoint) -> new_version`
-- `ToolGateway.execute(context, request) -> ToolOutcome`
-- `Outbox.enqueue(task_id, message) -> delivery_id`
-- `Outbox.claim(sender_id) -> DeliveryLease | None`
-- `Outbox.finish(lease, outcome) -> None`
-- `WorkerRegistry.heartbeat(worker, task, progress) -> None`
-- `ResourceQuota.acquire(subject, resource) -> QuotaLease`
-
-Python names may vary during implementation, but the separation and semantics
-may not.
-
-## 9. Task, Session, and Lease State
-
-### 9.1 Task states
-
-Allowed task states:
-
-- `QUEUED`
-- `LEASED`
-- `RUNNING`
-- `WAITING_USER`
-- `RETRY_WAIT`
-- `COMPLETED`
-- `FAILED`
-- `CANCELLED`
-
-Terminal states are `COMPLETED`, `FAILED`, and `CANCELLED`.
-
-Worker death is not a task state. A recoverable task returns to `QUEUED` or
-`RETRY_WAIT`. A side effect with an unknown outcome enters `WAITING_USER`.
-
-### 9.2 Allowed transitions
+Mode is selected once at startup using:
 
 ```text
-QUEUED      -> LEASED | CANCELLED
-LEASED      -> RUNNING | QUEUED | CANCELLED
-RUNNING     -> COMPLETED | RETRY_WAIT | WAITING_USER | FAILED | CANCELLED
-RETRY_WAIT  -> QUEUED | CANCELLED | FAILED
-WAITING_USER-> QUEUED | CANCELLED | FAILED
+CLI flag
+> environment variable
+> configuration file
+> launcher default
 ```
 
-No other transition is valid. The transition table is centralized and tested.
+Required forms:
 
-### 9.3 Session ordering
+- CLI: `--runtime-mode lightweight|supervised`;
+- environment: `MINIUNICORN_RUNTIME_MODE`;
+- configuration: `runtime.mode`.
 
-Gateway atomically assigns a monotonically increasing `session_sequence`.
+The runtime never infers mode from Prompt text or expected task duration. A
+one-second task sent to a supervised Gateway runs in supervised mode. A
+two-hour task started by a lightweight CLI runs in lightweight mode unless the
+operator explicitly selects supervised mode.
 
-`session_slots` stores one `active_task_id`. The earliest non-terminal task
-becomes active. That task remains the active task while it is:
+Mode changes require a graceful stop followed by a new start. The database and
+task model remain compatible across modes.
 
-- leased;
-- running;
-- waiting for retry;
-- waiting for user approval;
-- recovering.
+### 9.4 Same engine, different assembly
 
-Normal later messages wait behind it. Approval, cancellation, and stop messages
-use the control path and may target the active task immediately.
+Mode may change only:
 
-On terminal completion, the session slot is cleared and the next sequence may
-run.
+- process boundaries;
+- IPC implementation;
+- execution slot count;
+- process monitoring and containment.
 
-### 9.4 Lease fencing
+Mode may not change:
 
-A claim creates:
+- task states or transitions;
+- database schema;
+- claim ordering;
+- checkpoint format;
+- lease or fencing rules;
+- Agent outer or inner loop;
+- tool policy;
+- session commit behavior;
+- Outbox behavior;
+- recovery decisions.
 
-- `leased_by`;
-- `lease_token`;
-- `lease_epoch += 1`;
-- `lease_until`;
-- `state_version += 1`.
+## 10. Code Layout
 
-Every running write checks all of:
+### 10.1 New Agent-owned ports
 
-- task ID;
-- Worker ID;
-- Worker generation;
-- lease token;
-- lease epoch;
-- expected state version.
+Create:
 
-If any check fails, the write returns `LEASE_LOST` and the Worker stops before
-performing another LLM or tool action.
+```text
+miniunicorn/agent/ports.py
+```
 
-Fencing prevents stale local writes. External side effects still require
-idempotency or uncertain-outcome handling because a database fence cannot
-unsend a network request already accepted by a third party.
+It contains dependency-light Protocols used by Agent Core:
 
-## 10. Outer and Inner Agent Loops
+- `TurnJournalPort`;
+- `ToolExecutionPort`;
+- `SessionCommitPort`;
+- `ControlInboxPort`;
+- `ProgressPort`.
 
-### 10.1 Outer turn state machine
+It may import standard library types and existing Agent DTOs only. It must not
+import `miniunicorn.runtime`, SQLite, Channels, or multiprocessing.
 
-The durable path is:
+### 10.2 New runtime package
+
+Create:
+
+```text
+miniunicorn/runtime/
+├── __init__.py
+├── config.py
+├── contracts.py
+├── models.py
+├── store.py
+├── task_service.py
+├── scheduler.py
+├── worker.py
+├── tool_gateway.py
+├── session_committer.py
+├── outbox.py
+├── maintenance.py
+├── events.py
+├── ipc.py
+├── supervisor.py
+├── hosts/
+│   ├── __init__.py
+│   ├── lightweight.py
+│   └── supervised.py
+└── sqlite/
+    ├── __init__.py
+    ├── connection.py
+    ├── migrations.py
+    ├── schema.py
+    └── store.py
+```
+
+File responsibilities:
+
+- `contracts.py`: Runtime Store protocols and host-neutral service protocols;
+- `models.py`: immutable enums and DTOs;
+- `store.py`: façade type and narrow view composition, no SQLite;
+- `task_service.py`: submit and control use cases;
+- `scheduler.py`: claim, lease, retry promotion, resource-lease use cases;
+- `worker.py`: durable task-to-Agent adapter;
+- `tool_gateway.py`: implementation of `ToolExecutionPort`;
+- `session_committer.py`: two-store idempotent commit coordinator;
+- `outbox.py`: Outbox Sender loop;
+- `maintenance.py`: enqueue and retention use cases;
+- `events.py`: mapping durable facts to existing telemetry/events;
+- `ipc.py`: wake hints and transient Agent event transport;
+- `supervisor.py`: process lifecycle and containment;
+- `hosts/*`: composition roots;
+- `sqlite/connection.py`: connection creation and pragmas;
+- `sqlite/migrations.py`: numbered migrations;
+- `sqlite/schema.py`: schema constants and validation;
+- `sqlite/store.py`: the only production SQL implementation.
+
+Private SQL helpers may be split further if `sqlite/store.py` exceeds roughly
+1,000 lines, but the public Runtime Store façade remains one implementation.
+
+### 10.3 No parallel legacy runtime package
+
+Do not create:
+
+- a second Agent loop;
+- a second Tool Registry;
+- a second Channel Manager;
+- a second session format;
+- a durable replacement for the entire Message Bus;
+- separate deployable Queue, Journal, Checkpoint, Lease, or Quota services.
+
+## 11. Core Port Contracts
+
+Signatures below are normative at the semantic level. Concrete Python typing
+may use dataclasses and existing project result types.
+
+### 11.1 Agent-owned ports
+
+```python
+class TurnJournalPort(Protocol):
+    async def load_restore_point(
+        self, task: TaskIdentity
+    ) -> RestorePoint | None: ...
+
+    async def record_model_started(
+        self, call: ModelAttemptStarted
+    ) -> AttemptIdentity: ...
+
+    async def record_model_completed(
+        self, attempt: AttemptIdentity, result: ModelAttemptResult
+    ) -> ModelDecision: ...
+
+    async def record_model_failed(
+        self, attempt: AttemptIdentity, error: SafeError
+    ) -> None: ...
+
+    async def save_checkpoint(
+        self, checkpoint: TurnCheckpoint
+    ) -> CheckpointIdentity: ...
+
+    async def record_progress(
+        self, progress: DurableProgress
+    ) -> None: ...
+```
+
+```python
+class ToolExecutionPort(Protocol):
+    async def execute(
+        self, request: ToolExecutionRequest
+    ) -> ToolExecutionResult: ...
+```
+
+```python
+class SessionCommitPort(Protocol):
+    async def commit_turn(
+        self, request: SessionCommitRequest
+    ) -> SessionCommitResult: ...
+```
+
+```python
+class ControlInboxPort(Protocol):
+    async def pending_controls(
+        self, cursor: int
+    ) -> ControlBatch: ...
+
+    async def acknowledge(
+        self, control_id: str, outcome: ControlOutcome
+    ) -> None: ...
+```
+
+```python
+class ProgressPort(Protocol):
+    async def emit(self, event: AgentEvent) -> None: ...
+```
+
+Agent Core tests use in-memory fakes for these ports.
+
+### 11.2 Runtime Store views
+
+```python
+class TaskIngressStore(Protocol):
+    def submit_task(self, envelope: InboundTaskEnvelope) -> SubmitResult: ...
+    def append_control(self, control: TaskControlRequest) -> ControlResult: ...
+    def read_task(self, task_id: str) -> TaskRecord | None: ...
+```
+
+```python
+class WorkerLedger(Protocol):
+    def claim_next(self, request: ClaimRequest) -> ClaimedTask | None: ...
+    def mark_running(self, claim: TaskClaim) -> TaskRecord: ...
+    def renew_lease(self, claim: TaskClaim, lease_until_ms: int) -> bool: ...
+    def checkpoint(self, claim: TaskClaim, value: CheckpointWrite) -> str: ...
+    def record_progress(self, claim: TaskClaim, value: DurableProgress) -> None: ...
+    def enter_retry_wait(self, claim: TaskClaim, retry: RetryDecision) -> None: ...
+    def enter_waiting_user(
+        self, claim: TaskClaim, wait: WaitDecision
+    ) -> WaitResult: ...
+    def fail_task(self, claim: TaskClaim, failure: TaskFailure) -> None: ...
+    def cancel_task(self, claim: TaskClaim, reason: SafeError) -> None: ...
+    def complete_with_outbox(
+        self, claim: TaskClaim, completion: CompletionWrite
+    ) -> CompletionResult: ...
+    def complete_internal(
+        self, claim: TaskClaim, completion: InternalCompletionWrite
+    ) -> CompletionResult: ...
+    def promote_due_retries(self, now_ms: int, limit: int) -> int: ...
+    def reclaim_expired(self, now_ms: int, limit: int) -> ReclaimResult: ...
+```
+
+```python
+class ExecutionJournal(Protocol):
+    def load_restore_point(self, task_id: str) -> RestorePoint | None: ...
+    def begin_model_attempt(self, claim: TaskClaim, value: ModelAttemptWrite) -> str: ...
+    def finish_model_attempt(
+        self, claim: TaskClaim, attempt_id: str, value: ModelResultWrite
+    ) -> ModelDecisionRef: ...
+    def fail_model_attempt(
+        self, claim: TaskClaim, attempt_id: str, error: SafeError
+    ) -> None: ...
+    def prepare_tool_call(
+        self, claim: TaskClaim, value: PreparedToolWrite
+    ) -> ToolCallRecord: ...
+    def begin_tool_attempt(
+        self, claim: TaskClaim, value: ToolAttemptWrite
+    ) -> ToolAttemptRecord: ...
+    def finish_tool_attempt(
+        self, claim: TaskClaim, attempt_id: str, value: ToolResultWrite
+    ) -> ToolExecutionResult: ...
+    def mark_tool_unknown(
+        self, claim: TaskClaim, attempt_id: str, error: SafeError
+    ) -> None: ...
+    def list_pending_controls(
+        self, claim: TaskClaim, after_control_seq: int
+    ) -> list[TaskControlRecord]: ...
+    def acknowledge_control(
+        self, claim: TaskClaim, control_id: str, outcome: ControlOutcome
+    ) -> None: ...
+```
+
+```python
+class SessionCommitLedger(Protocol):
+    def prepare_session_commit(
+        self, claim: TaskClaim, value: SessionCommitWrite
+    ) -> SessionCommitRecord: ...
+    def confirm_session_commit(
+        self, claim: TaskClaim, commit_id: str, revision: int
+    ) -> SessionCommitRecord: ...
+    def mark_session_conflict(
+        self, claim: TaskClaim, commit_id: str, error: SafeError
+    ) -> SessionCommitRecord: ...
+    def read_session_commit(
+        self, task_id: str, commit_kind: str
+    ) -> SessionCommitRecord | None: ...
+```
+
+```python
+class DeliveryLedger(Protocol):
+    def claim_next_delivery(
+        self, sender_id: str, now_ms: int, lease_ms: int
+    ) -> OutboxClaim | None: ...
+    def renew_delivery_lease(self, claim: OutboxClaim, until_ms: int) -> bool: ...
+    def mark_delivered(self, claim: OutboxClaim, receipt: DeliveryReceipt) -> None: ...
+    def retry_delivery(self, claim: OutboxClaim, retry: RetryDecision) -> None: ...
+    def fail_delivery(self, claim: OutboxClaim, error: SafeError) -> None: ...
+    def resolve_unknown_delivery(
+        self, outbox_id: int, resolution: DeliveryResolution
+    ) -> None: ...
+```
+
+```python
+class ResourceLedger(Protocol):
+    def acquire_resource(
+        self, request: ResourceLeaseRequest
+    ) -> ResourceLease | None: ...
+    def renew_resource(
+        self, lease: ResourceLease, until_ms: int
+    ) -> bool: ...
+    def release_resource(self, lease: ResourceLease) -> bool: ...
+```
+
+```python
+class MaintenanceLedger(Protocol):
+    def list_retention_batch(
+        self, policy: RetentionPolicy, limit: int
+    ) -> RetentionBatch: ...
+    def delete_retention_batch(self, batch: RetentionBatch) -> RetentionResult: ...
+    def list_unreferenced_blobs(self, limit: int) -> list[str]: ...
+    def delete_unreferenced_blobs(self, blob_ids: list[str]) -> int: ...
+```
+
+All mutating Worker and delivery methods reject a stale token. Rejection is a
+normal fencing outcome, not an internal exception to retry blindly.
+
+### 11.3 Task Service API
+
+```python
+class DurableTaskService(Protocol):
+    async def submit(
+        self, envelope: InboundTaskEnvelope
+    ) -> TaskHandle: ...
+    async def submit_internal(
+        self, envelope: InternalTaskEnvelope
+    ) -> TaskHandle: ...
+    async def control(
+        self, request: TaskControlRequest
+    ) -> ControlResult: ...
+    async def get_status(
+        self, scope: RequestScope, task_id: str
+    ) -> TaskSnapshot: ...
+    async def wait_terminal(
+        self, scope: RequestScope, task_id: str, timeout_s: float | None
+    ) -> TaskSnapshot: ...
+```
+
+`TaskHandle` contains opaque identity and initial durable status, not a
+reference to an `asyncio.Task`. `wait_terminal()` may use process-local
+notifications to reduce latency, but always rereads Runtime Store and remains
+correct if the notification is lost or the waiting process restarts.
+
+## 12. Identifiers, Time, and Payloads
+
+### 12.1 Identifiers
+
+- `task_id`: UUIDv7 generated at durable acceptance.
+- `turn_id`: stable user-turn UUID. Null for internal maintenance.
+- `channel_message_id`: stable Channel-supplied inbound id.
+- `session_key`: canonical globally unique session identity derived from tenant,
+  principal, Agent, workspace, Channel/account, and conversation scope; a raw
+  provider chat id alone is not sufficient.
+- `session_sequence`: monotonically increasing integer allocated per session.
+- `lease_token`: cryptographically random 128-bit value encoded as text.
+- `lease_epoch`: integer incremented on every new claim or reclaim.
+- `event_id`: UUIDv7.
+- `checkpoint_id`: UUIDv7.
+- `logical_call_id`: stable id for one logical model call.
+- `model_attempt_id`: UUIDv7 for one network attempt.
+- `tool_call_id`: stable id from the model, normalized by Runner.
+- `tool_attempt_id`: UUIDv7 for one invocation attempt.
+- `control_id`: UUIDv7.
+- `session_commit_id`: deterministic hash of task id plus commit kind, such as
+  `sha256(task_id + ":inbound")` or `sha256(task_id + ":final")`.
+- `outbox_id`: SQLite integer primary key used as durable delivery order.
+- `outbox_dedup_key`: stable hash of logical message identity.
+- `resource_lease_token`: cryptographically random token.
+
+UUIDv7 generation must be monotonic within a process when the system clock does
+not advance. Correctness must not depend on UUID ordering.
+
+### 12.2 Time
+
+- Persist UTC Unix milliseconds.
+- Compare leases using SQLite wall time from the same claim or renewal
+  transaction.
+- Use monotonic clocks for in-process elapsed durations only.
+- Never persist a monotonic timestamp.
+- Never compare monotonic values produced by different processes.
+
+### 12.3 Protected payloads
+
+Raw user content, model responses, tool arguments, tool results, and full
+checkpoints are stored as protected runtime blobs or existing artifact
+references. Queue and event rows contain only:
+
+- references;
+- hashes;
+- type and routing metadata;
+- bounded redacted summaries;
+- numeric usage;
+- safe error codes.
+
+Runtime blobs use content hashes for deduplication. A blob larger than the
+configured inline limit is stored through the existing artifact/media storage
+and represented by a reference.
+
+Inbound media or attachments must be copied to durable, scoped,
+content-addressed storage before the task row commits. A temporary Channel path
+is not an acceptable task payload reference. The copy occurs outside the
+acceptance transaction; a crash before task insertion may leave an unreferenced
+artifact that bounded retention later removes.
+
+## 13. Task and Control Contracts
+
+### 13.1 Inbound task envelope
+
+```text
+protocol_version
+task_kind
+priority
+tenant_id
+principal_id
+agent_id
+workspace_id
+session_key
+channel                  nullable for internal work
+channel_account          nullable
+channel_message_id       nullable for internal work
+dedup_key                required for internal work, optional for user work
+normalized_payload_ref
+payload_hash
+media_refs
+reply_to                 nullable
+trace_id
+received_at_ms
+```
+
+Required behavior:
+
+- user tasks require Channel identity and a stable message id;
+- direct CLI creates a stable local message id before submission;
+- internal tasks use a system-scoped session key and a deterministic dedup key;
+- duplicate `(tenant_id, channel, channel_account, channel_message_id)` returns
+  the original `task_id`;
+- duplicate task submission never allocates another session sequence.
+
+Internal dedup keys identify one logical occurrence, not a task kind forever.
+They include the relevant source revision, schedule fire time, cleanup window,
+or index revision. Repeated submission of the same occurrence deduplicates;
+later legitimate occurrences use a different key.
+
+### 13.2 Task kinds
+
+- `USER_TURN`;
+- `MEMORY_CONSOLIDATION`;
+- `MEMORY_INDEX`;
+- `REFLECTION`;
+- `DREAM`;
+- `MAINTENANCE`.
+
+There is no `TEMPORARY` or `LONG_RUNNING` task kind. Duration is observed while
+the task runs. User tasks share the same recovery semantics from the start.
+
+### 13.3 Task control requests
+
+Control kinds:
+
+- `CANCEL`;
+- `APPROVE_TOOL`;
+- `REJECT_TOOL`;
+- `RESOLVE_EFFECT`;
+- `STEER`;
+- `CONTINUE`;
+- `STOP_AFTER_CHECKPOINT`.
+
+Every control includes:
+
+```text
+control_id
+task_id
+kind
+dedup_key
+payload_ref
+requested_by
+requested_at_ms
+```
+
+Controls are written to SQLite before a wake hint is emitted. The Worker reads
+and acknowledges them at safe boundaries. `CANCEL` of an unclaimed task may be
+applied transactionally by Task Service without a Worker.
+
+`CONTINUE` resumes the same task:
+
+- `WAITING_USER -> QUEUED`;
+- increment `run_segment`;
+- clear the segment wall-clock budget;
+- retain cumulative usage and existing tool results;
+- keep the same session sequence and task id.
+
+This avoids a continuation task racing with later messages.
+
+### 13.4 Control routing
+
+A structured control response is not a new `USER_TURN` and does not allocate a
+session sequence.
+
+Task Service recognizes controls from:
+
+- WebUI or API payload containing `task_id`, `control_id`, and action;
+- Channel interactive-action metadata;
+- a reply to an Outbox approval/continuation message containing a signed,
+  opaque control token;
+- an explicit CLI command naming the task.
+
+The token binds task, expected control kind, pending object id, and expiry. It
+contains no raw tool arguments.
+
+Task Service does not use an LLM to guess whether arbitrary Prompt text means
+approval or continuation. An uncorrelated message remains a normal user turn.
+Channels without structured actions must include the opaque token or an exact
+documented control command in the reply.
+
+## 14. Task State Machine
+
+### 14.1 States
+
+- `QUEUED`;
+- `LEASED`;
+- `RUNNING`;
+- `RETRY_WAIT`;
+- `WAITING_USER`;
+- `COMPLETED`;
+- `FAILED`;
+- `CANCELLED`.
+
+Worker death is not a state.
+
+### 14.2 Allowed transitions
+
+```text
+QUEUED       -> LEASED | CANCELLED
+LEASED       -> RUNNING | QUEUED | CANCELLED
+RUNNING      -> COMPLETED | RETRY_WAIT | WAITING_USER | FAILED | CANCELLED
+RETRY_WAIT   -> QUEUED | CANCELLED | FAILED
+WAITING_USER -> QUEUED | CANCELLED | FAILED
+```
+
+No terminal state transitions to another state.
+
+### 14.3 Execution phases
+
+`checkpoint_phase` uses:
+
+- `ACCEPTED`;
+- `INBOUND_SESSION_COMMITTED`;
+- `RESTORED`;
+- `COMPACTED`;
+- `COMMAND_DONE`;
+- `CONTEXT_BUILT`;
+- `MODEL_DECISION_COMMITTED`;
+- `TOOLS_COMMITTED`;
+- `SESSION_COMMIT_PREPARED`;
+- `SESSION_COMMITTED`;
+- `REPLY_ENQUEUED`;
+- `TERMINAL`.
+
+Phase advances monotonically within one `run_segment`. A restored task may
+re-enter Agent code from the latest phase but must not delete earlier facts.
+
+### 14.4 Business state version versus lease
+
+`state_version` changes on:
+
+- state transition;
+- phase transition;
+- applied control;
+- terminal error update.
+
+Lease renewal changes only:
+
+- `lease_until_ms`;
+- `last_heartbeat_at_ms`.
+
+It does not increment `state_version`.
+
+Every Worker mutation checks:
+
+```text
+task_id matches
+lease_token matches
+lease_epoch matches
+state is compatible with the operation
+```
+
+Optimistic business-state checks may additionally compare `state_version`.
+
+## 15. Session Ordering and Claim Algorithm
+
+### 15.1 Session allocation
+
+Task acceptance uses `BEGIN IMMEDIATE`:
+
+1. insert or read `session_slots`;
+2. allocate current `next_sequence`;
+3. increment `next_sequence`;
+4. insert task;
+5. append `TASK_ACCEPTED`;
+6. commit.
+
+Deduplication is checked before sequence allocation inside the transaction.
+
+### 15.2 Claimable session head
+
+A task is eligible only when:
+
+- state is `QUEUED`;
+- `available_at_ms <= now`;
+- it is the smallest non-terminal `session_sequence` for its session;
+- `session_slots.active_task_id` is null or already points to it;
+- task-kind priority rules permit it;
+- required global capacity can be acquired.
+
+The query must select session heads before applying global priority. A later
+high-priority task in one session may not overtake an earlier task in that same
+session.
+
+Equivalent selection rule:
+
+```sql
+SELECT t.task_id
+FROM tasks AS t
+WHERE t.state = 'QUEUED'
+  AND t.available_at_ms <= :now_ms
+  AND NOT EXISTS (
+      SELECT 1
+      FROM tasks AS earlier
+      WHERE earlier.session_key = t.session_key
+        AND earlier.session_sequence < t.session_sequence
+        AND earlier.state NOT IN ('COMPLETED', 'FAILED', 'CANCELLED')
+  )
+  AND NOT EXISTS (
+      SELECT 1
+      FROM session_slots AS s
+      WHERE s.session_key = t.session_key
+        AND s.active_task_id IS NOT NULL
+        AND s.active_task_id <> t.task_id
+  )
+ORDER BY
+  CASE WHEN t.recovery_pending = 1 THEN 0 ELSE 1 END,
+  t.priority DESC,
+  t.available_at_ms ASC,
+  t.created_at_ms ASC
+LIMIT 1;
+```
+
+The production SQL may optimize this with indexes or a CTE but must preserve
+the rule.
+
+### 15.3 Claim transaction
+
+Within one `BEGIN IMMEDIATE` transaction:
+
+1. promote a bounded number of due retry rows if needed;
+2. select one eligible task;
+3. verify or set `session_slots.active_task_id`;
+4. generate a new lease token;
+5. increment `lease_epoch`;
+6. set `LEASED`, owner, lease deadline, and heartbeat;
+7. increment task attempt count only when the claim is charged as a new root
+   attempt;
+8. append `TASK_LEASED`;
+9. commit.
+
+No Agent, Provider, filesystem, or IPC call occurs inside this transaction.
+
+Root-attempt charging is deterministic:
+
+- the first claim increments `root_attempt_count`;
+- a claim with `recovery_pending=1` increments it and clears
+  `recovery_pending`;
+- promotion from task-level `RETRY_WAIT` sets `recovery_pending=1`;
+- lease reclaim sets `recovery_pending=1`;
+- resuming from approval, steering, or an approved run-segment continuation
+  does not increment it;
+- graceful release at a completed safe checkpoint does not increment it;
+- no claim is issued when the next increment would exceed
+  `max_root_attempts`; the task fails terminally instead.
+
+### 15.4 Session slot release
+
+The slot is cleared in the same transaction that:
+
+- completes;
+- fails terminally;
+- cancels terminally; or
+- returns a task to `QUEUED` or `RETRY_WAIT` after releasing its lease.
+
+`WAITING_USER` also releases the active slot, but later session tasks remain
+blocked because the waiting task is still the earliest non-terminal sequence.
+This lets the Worker run another session without violating order.
+
+## 16. SQLite Runtime Ledger
+
+### 16.1 File and connection settings
+
+Default path:
+
+```text
+<workspace>/runtime/runtime.sqlite
+```
+
+Every process creates its own connections with:
+
+```sql
+PRAGMA journal_mode=WAL;
+PRAGMA foreign_keys=ON;
+PRAGMA synchronous=FULL;
+PRAGMA busy_timeout=5000;
+PRAGMA temp_store=MEMORY;
+```
+
+Rules:
+
+- one connection is never used concurrently by multiple threads;
+- async callers use a dedicated DB executor or short synchronous calls outside
+  the event loop;
+- transactions are short and use parameterized SQL;
+- `BEGIN IMMEDIATE` is reserved for allocation, claim, reclaim, session commit
+  bookkeeping, task completion, and Outbox claim;
+- Lightweight Host or Supervisor performs migration before starting execution
+  slots or child processes;
+- migration takes an exclusive startup lock; Workers validate version but never
+  migrate;
+- a process refuses work when its schema version differs from the binary.
+
+### 16.2 Required tables
+
+The first implementation uses the following tables:
+
+1. `schema_migrations`;
+2. `tasks`;
+3. `session_slots`;
+4. `task_events`;
+5. `checkpoints`;
+6. `model_attempts`;
+7. `tool_calls`;
+8. `tool_attempts`;
+9. `task_controls`;
+10. `session_commits`;
+11. `outbox`;
+12. `resource_leases`;
+13. `runtime_blobs`.
+
+There is deliberately no durable `workers` table. Supervisor process state is
+owned by Supervised Host, and active work is fenced by task leases. This avoids
+a second liveness authority.
+
+### 16.3 `schema_migrations`
+
+```text
+version             INTEGER PRIMARY KEY
+name                TEXT NOT NULL
+checksum            TEXT NOT NULL
+applied_at_ms       INTEGER NOT NULL
+```
+
+Migration files are immutable after merge. Startup validates checksums.
+
+### 16.4 `tasks`
+
+```text
+task_id                 TEXT PRIMARY KEY
+turn_id                 TEXT UNIQUE
+protocol_version        INTEGER NOT NULL
+tenant_id               TEXT NOT NULL
+principal_id            TEXT NOT NULL
+agent_id                 TEXT NOT NULL
+workspace_id             TEXT NOT NULL
+session_key              TEXT NOT NULL
+session_sequence         INTEGER NOT NULL
+channel                  TEXT
+channel_account          TEXT
+channel_message_id       TEXT
+dedup_key                TEXT
+task_kind                TEXT NOT NULL
+priority                 INTEGER NOT NULL
+payload_blob_id          TEXT NOT NULL
+payload_hash             TEXT NOT NULL
+state                    TEXT NOT NULL
+checkpoint_phase         TEXT NOT NULL
+run_segment              INTEGER NOT NULL DEFAULT 0
+root_attempt_count       INTEGER NOT NULL DEFAULT 0
+max_root_attempts        INTEGER NOT NULL
+recovery_pending         INTEGER NOT NULL DEFAULT 0
+leased_by                TEXT
+lease_token              TEXT
+lease_epoch              INTEGER NOT NULL DEFAULT 0
+lease_until_ms           INTEGER
+last_heartbeat_at_ms     INTEGER
+last_progress_at_ms      INTEGER
+available_at_ms          INTEGER NOT NULL
+state_version            INTEGER NOT NULL DEFAULT 0
+control_cursor           INTEGER NOT NULL DEFAULT 0
+cumulative_input_tokens  INTEGER NOT NULL DEFAULT 0
+cumulative_output_tokens INTEGER NOT NULL DEFAULT 0
+error_code               TEXT
+error_summary            TEXT
+waiting_reason           TEXT
+waiting_ref              TEXT
+wait_until_ms            INTEGER
+created_at_ms            INTEGER NOT NULL
+updated_at_ms            INTEGER NOT NULL
+completed_at_ms          INTEGER
+```
+
+Constraints:
+
+- unique `(session_key, session_sequence)`;
+- unique `(tenant_id, channel, channel_account, channel_message_id)` when
+  Channel fields are non-null;
+- unique `(tenant_id, agent_id, workspace_id, task_kind, dedup_key)` when
+  `dedup_key` is non-null;
+- state and kind checked against enumerated values;
+- terminal rows have no lease;
+- a leased or running row has owner, token, epoch, and deadline;
+- counters are non-negative.
+
+Indexes:
+
+- `(state, available_at_ms, priority, created_at_ms)`;
+- `(session_key, session_sequence, state)`;
+- `(lease_until_ms)` for leased or running rows;
+- `(recovery_pending, state, priority)`;
+- `(task_kind, state)`;
+- `(state, wait_until_ms)` for waiting tasks;
+- `(tenant_id, agent_id, workspace_id, task_kind, dedup_key)`;
+- `(tenant_id, channel, channel_account, channel_message_id)`.
+
+### 16.5 `session_slots`
+
+```text
+session_key          TEXT PRIMARY KEY
+next_sequence        INTEGER NOT NULL
+active_task_id       TEXT
+state_version        INTEGER NOT NULL DEFAULT 0
+updated_at_ms        INTEGER NOT NULL
+```
+
+`active_task_id` references `tasks(task_id)`. It is a fast ownership guard, not
+the only ordering check.
+
+### 16.6 `task_events`
+
+```text
+event_seq            INTEGER PRIMARY KEY AUTOINCREMENT
+event_id             TEXT UNIQUE NOT NULL
+task_id              TEXT NOT NULL
+event_type           TEXT NOT NULL
+phase                TEXT
+safe_payload_json    TEXT
+payload_blob_id      TEXT
+lease_epoch          INTEGER
+created_at_ms        INTEGER NOT NULL
+```
+
+Rules:
+
+- immutable while retained;
+- a trigger rejects `UPDATE`;
+- normal Runtime Store APIs expose insert and read only;
+- the private retention transaction may delete events only after their parent
+  task is terminal and past retention;
+- raw content is not placed in `safe_payload_json`;
+- high-frequency Token deltas are not durable events.
+
+Required event types:
+
+- `TASK_ACCEPTED`;
+- `TASK_LEASED`;
+- `TASK_RUNNING`;
+- `CHECKPOINT_SAVED`;
+- `MODEL_STARTED`;
+- `MODEL_COMPLETED`;
+- `MODEL_FAILED`;
+- `TOOL_PREPARED`;
+- `TOOL_STARTED`;
+- `TOOL_COMPLETED`;
+- `TOOL_FAILED`;
+- `TOOL_OUTCOME_UNKNOWN`;
+- `CONTROL_RECEIVED`;
+- `CONTROL_APPLIED`;
+- `SESSION_COMMIT_PREPARED`;
+- `SESSION_COMMITTED`;
+- `OUTBOX_ENQUEUED`;
+- `TASK_RETRY_WAIT`;
+- `TASK_WAITING_USER`;
+- `TASK_COMPLETED`;
+- `TASK_FAILED`;
+- `TASK_CANCELLED`;
+- `LEASE_RECLAIMED`.
+
+### 16.7 `checkpoints`
+
+```text
+checkpoint_id        TEXT PRIMARY KEY
+task_id              TEXT NOT NULL
+format_version       INTEGER NOT NULL
+phase                TEXT NOT NULL
+run_segment          INTEGER NOT NULL
+ordinal              INTEGER NOT NULL
+payload_blob_id      TEXT NOT NULL
+payload_hash         TEXT NOT NULL
+lease_epoch          INTEGER NOT NULL
+created_at_ms        INTEGER NOT NULL
+```
+
+Constraints:
+
+- unique `(task_id, run_segment, ordinal)`;
+- immutable after insert;
+- a checkpoint is visible only after its row and event commit.
+
+Index `(task_id, run_segment DESC, ordinal DESC)` supports restore.
+
+Retention keeps the latest terminal checkpoint until the task retention window
+expires. Older non-terminal checkpoints may be compacted only after a newer
+checkpoint is verified.
+
+### 16.8 `model_attempts`
+
+One table replaces separate logical-call and attempt services.
+
+```text
+model_attempt_id     TEXT PRIMARY KEY
+task_id              TEXT NOT NULL
+logical_call_id      TEXT NOT NULL
+attempt_no           INTEGER NOT NULL
+provider_name        TEXT NOT NULL
+model_name           TEXT NOT NULL
+request_hash         TEXT NOT NULL
+state                TEXT NOT NULL
+response_blob_id     TEXT
+response_hash        TEXT
+input_tokens         INTEGER
+output_tokens        INTEGER
+finish_reason        TEXT
+error_code           TEXT
+error_summary        TEXT
+started_at_ms        INTEGER NOT NULL
+finished_at_ms       INTEGER
+```
+
+Constraints:
+
+- unique `(task_id, logical_call_id, attempt_no)`;
+- state is `STARTED`, `COMPLETED`, or `FAILED`;
+- terminal fields match state.
+
+Indexes:
+
+- `(task_id, logical_call_id, attempt_no)`;
+- `(state, started_at_ms)`.
+
+Provider calls may be repeated after an unknown crash because they do not
+perform Agent-visible external writes. Duplicate billing is observable but not
+treated as exactly-once.
+
+### 16.9 `tool_calls`
+
+```text
+task_id              TEXT NOT NULL
+tool_call_id         TEXT NOT NULL
+tool_name            TEXT NOT NULL
+arguments_blob_id    TEXT NOT NULL
+arguments_hash       TEXT NOT NULL
+effect_class         TEXT NOT NULL
+risk_class           TEXT NOT NULL
+idempotency_mode     TEXT NOT NULL
+idempotency_key      TEXT NOT NULL
+approval_policy      TEXT NOT NULL
+recovery_policy      TEXT NOT NULL
+concurrency_scope    TEXT NOT NULL
+state                TEXT NOT NULL
+attempt_count        INTEGER NOT NULL DEFAULT 0
+result_blob_id       TEXT
+result_hash          TEXT
+effect_receipt_ref   TEXT
+error_code           TEXT
+error_summary        TEXT
+created_at_ms        INTEGER NOT NULL
+updated_at_ms        INTEGER NOT NULL
+PRIMARY KEY (task_id, tool_call_id)
+```
+
+Logical states:
+
+- `PREPARED`;
+- `WAITING_APPROVAL`;
+- `RUNNING`;
+- `SUCCEEDED`;
+- `FAILED`;
+- `OUTCOME_UNKNOWN`;
+- `REJECTED`.
+
+The same logical tool call always has the same normalized arguments hash and
+idempotency key. A mismatch is `TOOL_CALL_ID_CONFLICT` and fails safely.
+
+Indexes:
+
+- `(task_id, state)`;
+- `(idempotency_key)`;
+- `(state, updated_at_ms)`.
+
+### 16.10 `tool_attempts`
+
+```text
+tool_attempt_id      TEXT PRIMARY KEY
+task_id              TEXT NOT NULL
+tool_call_id         TEXT NOT NULL
+attempt_no           INTEGER NOT NULL
+state                TEXT NOT NULL
+resource_token       TEXT
+effect_receipt_ref   TEXT
+error_code           TEXT
+error_summary        TEXT
+started_at_ms        INTEGER NOT NULL
+finished_at_ms       INTEGER
+```
+
+Constraints:
+
+- foreign key `(task_id, tool_call_id)`;
+- unique `(task_id, tool_call_id, attempt_no)`;
+- state is `STARTED`, `SUCCEEDED`, `FAILED`, or `OUTCOME_UNKNOWN`.
+
+Index `(task_id, tool_call_id, attempt_no)` supports restore.
+
+### 16.11 `task_controls`
+
+This table replaces a separate approvals subsystem.
+
+```text
+control_seq          INTEGER PRIMARY KEY AUTOINCREMENT
+control_id           TEXT UNIQUE NOT NULL
+task_id              TEXT NOT NULL
+kind                 TEXT NOT NULL
+dedup_key            TEXT NOT NULL
+payload_blob_id      TEXT
+requested_by         TEXT NOT NULL
+state                TEXT NOT NULL
+outcome_code         TEXT
+requested_at_ms      INTEGER NOT NULL
+applied_at_ms        INTEGER
+```
+
+Constraints:
+
+- unique `(task_id, dedup_key)`;
+- state is `PENDING`, `APPLIED`, `REJECTED`, or `EXPIRED`.
+
+Index `(task_id, control_seq, state)` supports ordered consumption.
+
+Approval payload identifies the exact tool call and arguments hash. Approval of
+one call never authorizes modified arguments.
+
+### 16.12 `session_commits`
+
+```text
+session_commit_id    TEXT PRIMARY KEY
+task_id              TEXT NOT NULL
+commit_kind          TEXT NOT NULL
+session_key          TEXT NOT NULL
+base_revision        INTEGER NOT NULL
+target_revision      INTEGER NOT NULL
+content_hash         TEXT NOT NULL
+state                TEXT NOT NULL
+error_code           TEXT
+created_at_ms        INTEGER NOT NULL
+committed_at_ms      INTEGER
+```
+
+States:
+
+- `PREPARED`;
+- `COMMITTED`;
+- `CONFLICT`.
+
+The transcript is not stored here. `content_hash` covers the normalized turn
+mutation supplied to Session Manager.
+
+Constraints:
+
+- unique `(task_id, commit_kind)`;
+- `commit_kind` is `INBOUND` or `FINAL`;
+- one claimed user task has exactly one committed inbound mutation before its
+  first model or tool call;
+- a successful user task has exactly one committed final mutation before
+  completion.
+
+Index `(session_key, state, created_at_ms)` supports recovery and conflict
+diagnostics.
+
+### 16.13 `outbox`
+
+```text
+outbox_id            INTEGER PRIMARY KEY AUTOINCREMENT
+task_id              TEXT NOT NULL
+channel              TEXT NOT NULL
+channel_account      TEXT NOT NULL
+target_key           TEXT NOT NULL
+message_kind         TEXT NOT NULL
+payload_blob_id      TEXT NOT NULL
+payload_hash         TEXT NOT NULL
+dedup_key            TEXT UNIQUE NOT NULL
+state                TEXT NOT NULL
+attempt_count        INTEGER NOT NULL DEFAULT 0
+max_attempts         INTEGER NOT NULL
+available_at_ms      INTEGER NOT NULL
+leased_by            TEXT
+lease_token          TEXT
+lease_epoch          INTEGER NOT NULL DEFAULT 0
+lease_until_ms       INTEGER
+provider_receipt_ref TEXT
+error_code           TEXT
+error_summary        TEXT
+created_at_ms        INTEGER NOT NULL
+delivered_at_ms      INTEGER
+```
+
+States:
+
+- `PENDING`;
+- `SENDING`;
+- `RETRY_WAIT`;
+- `OUTCOME_UNKNOWN`;
+- `DELIVERED`;
+- `FAILED`.
+
+`outbox_id` is the delivery sequence. A row is claimable only when no earlier
+non-terminal row exists for the same `(channel, channel_account, target_key)`.
+This prevents a retrying message from being overtaken by a later final reply.
+`OUTCOME_UNKNOWN` is non-terminal and blocks later messages to that target
+until an operator or user explicitly resolves it.
+
+`target_key` is an opaque canonical delivery identity that includes tenant and
+Channel conversation scope. It is safe for logs and does not expose a raw phone
+number, email address, or provider recipient id.
+
+Indexes:
+
+- `(state, available_at_ms, outbox_id)`;
+- `(channel, channel_account, target_key, outbox_id, state)`;
+- `(lease_until_ms)` for `SENDING` rows.
+
+Normative dedup-key forms:
+
+- final reply: `sha256(task_id + ":final-reply")`;
+- terminal failure reply: `sha256(task_id + ":terminal-reply")`;
+- Message Tool: `sha256(task_id + ":" + tool_call_id + ":message")`;
+- waiting prompt:
+  `sha256(task_id + ":" + waiting_reason + ":" + waiting_ref)`.
+
+Payload hash mismatch for an existing dedup key is a correctness error and
+never overwrites the original row.
+
+### 16.14 `resource_leases`
+
+```text
+resource_key         TEXT NOT NULL
+holder_kind          TEXT NOT NULL
+holder_id            TEXT NOT NULL
+units                INTEGER NOT NULL
+lease_token          TEXT NOT NULL
+lease_until_ms       INTEGER NOT NULL
+created_at_ms        INTEGER NOT NULL
+updated_at_ms        INTEGER NOT NULL
+PRIMARY KEY (resource_key, holder_kind, holder_id)
+```
+
+This one generic table replaces separate resource-lock and quota-lease tables.
+It supports:
+
+- globally exclusive tools;
+- workspace-scoped tools;
+- Provider quotas;
+- global subagent capacity;
+- bounded maintenance capacity.
+
+Expired rows are reclaimable. Every protected operation checks its lease token
+before recording success.
+
+Each configured `resource_key` has a capacity supplied by runtime
+configuration or tool policy. Acquisition uses one `BEGIN IMMEDIATE`
+transaction:
+
+1. delete or ignore expired holders for the key;
+2. sum units for unexpired holders;
+3. reject when `used + requested > capacity`;
+4. insert or replace only the requesting holder's lease with a new token;
+5. commit.
+
+Renewal and release match the exact holder and token. An exclusive resource is
+capacity one with a one-unit request. Capacity configuration is not stored as a
+second authority in SQLite.
+
+Index `(resource_key, lease_until_ms)` supports capacity and expiry scans.
+
+### 16.15 `runtime_blobs`
+
+```text
+blob_id              TEXT PRIMARY KEY
+scope_key            TEXT NOT NULL
+blob_kind            TEXT NOT NULL
+content_hash         TEXT NOT NULL
+encoding             TEXT NOT NULL
+compression          TEXT
+encryption_key_id    TEXT
+inline_content       BLOB
+external_ref         TEXT
+size_bytes           INTEGER NOT NULL
+created_at_ms        INTEGER NOT NULL
+```
+
+Constraints:
+
+- unique `(scope_key, blob_kind, content_hash)`;
+- exactly one of `inline_content` or `external_ref` is present;
+- sensitive blobs use the project's protected storage policy;
+- blob deletion verifies no non-terminal or retained row references it.
+
+Index `(created_at_ms)` supports bounded retention scans.
+
+Blob deduplication never crosses tenant/principal protection scope or encryption
+key scope. `blob_id` is opaque and is not the raw content hash.
+
+### 16.16 Foreign keys and deletion order
+
+All task-owned rows reference `tasks(task_id)` with `ON DELETE RESTRICT`.
+Blob-reference columns reference `runtime_blobs(blob_id)` with
+`ON DELETE RESTRICT`. Composite tool-attempt references use the tool-call
+primary key.
+
+`session_slots.active_task_id` uses `ON DELETE SET NULL`, but terminalization is
+still required to clear it explicitly in the same business transaction.
+
+Retention deletes in this order:
+
+1. expired model and tool attempts;
+2. expired controls, checkpoints, session commits, and task events;
+3. delivered or waived Outbox rows;
+4. terminal tasks;
+5. unreferenced blobs.
+
+Non-terminal tasks, non-terminal Outbox rows, and active resource leases are
+never retention targets. Foreign-key failure aborts the batch and emits a safe
+maintenance error.
+
+## 17. Transaction Boundaries
+
+### 17.1 Accept task
+
+One transaction:
+
+1. insert or reuse payload blob;
+2. find duplicate inbound identity;
+3. allocate session sequence only when new;
+4. insert task;
+5. append `TASK_ACCEPTED`;
+6. commit.
+
+Only after commit may ingress acknowledge acceptance or emit a Worker wake
+hint. The protected task payload is the durable source for an accepted but not
+yet executed user request.
+
+The Worker commits the triggering user message only after the task becomes the
+session head and is claimed. It does so before any model or tool call. This
+prevents a later queued message from advancing the transcript revision while
+an earlier task is still preparing its final session commit.
+
+If a user task is cancelled before its first claim, the request remains visible
+in Runtime Store and task history but is not appended to the Agent transcript.
+This deliberate behavior avoids creating a transcript entry that was never
+presented to Agent Core.
+
+### 17.2 Claim task
+
+One transaction performs the claim algorithm in section 15. No work outside
+SQLite occurs until commit returns a `TaskClaim`.
+
+### 17.3 Start running
+
+One short transaction:
+
+- validate token and epoch;
+- transition `LEASED -> RUNNING`;
+- set initial progress time;
+- append `TASK_RUNNING`.
+
+### 17.4 Save checkpoint
+
+Outside transaction:
+
+- serialize and hash the complete checkpoint;
+- store any external large blob.
+
+One transaction:
+
+- validate lease;
+- insert or reuse runtime blob;
+- insert immutable checkpoint;
+- advance compatible phase;
+- update progress;
+- append `CHECKPOINT_SAVED`.
+
+### 17.5 Model attempt
+
+Before network call, one transaction:
+
+- validate lease;
+- insert `STARTED` model attempt;
+- append `MODEL_STARTED`.
+
+Network call and Provider retries occur without a database transaction.
+
+For each attempt completion, one transaction:
+
+- validate lease;
+- store protected response;
+- mark attempt terminal;
+- update usage totals;
+- append `MODEL_COMPLETED` or `MODEL_FAILED`.
+
+Runner receives a completed model decision only after commit.
+
+### 17.6 Tool call
+
+Preparation transaction:
+
+- validate lease;
+- store normalized arguments;
+- insert or verify logical `tool_calls` row;
+- append `TOOL_PREPARED`;
+- if approval is required, set `WAITING_APPROVAL`.
+
+Attempt-start transaction:
+
+- validate task lease and resource lease;
+- insert attempt;
+- set logical call `RUNNING`;
+- append `TOOL_STARTED`.
+
+The tool runs with no SQLite transaction open.
+
+Attempt-finish transaction:
+
+- validate task lease and resource lease;
+- store protected result or safe error;
+- mark attempt and logical call terminal;
+- append terminal tool event.
+
+Runner receives a tool result only after this transaction commits.
+
+### 17.7 Session commit
+
+The session filesystem and SQLite cannot share a transaction. Use an
+idempotent prepare/apply/confirm protocol:
+
+1. build the normalized session mutation outside SQLite;
+2. derive the stable commit id from task id and commit kind;
+3. transactionally validate the task lease, insert or verify
+   `session_commits(PREPARED)`, and append `SESSION_COMMIT_PREPARED`;
+4. call `SessionManager.commit_turn()` with:
+   - `session_key`;
+   - `session_commit_id`;
+   - `commit_kind`;
+   - `base_revision`;
+   - normalized messages and metadata;
+   - content hash;
+5. transactionally revalidate the task lease, mark the commit `COMMITTED`,
+   advance the compatible task phase, and append `SESSION_COMMITTED`.
+
+Crash behavior:
+
+- before step 3: repeat from task payload or checkpoint;
+- after step 3 but before filesystem commit: repeat `commit_turn`;
+- after filesystem commit but before step 5: `commit_turn` detects the commit id
+  and returns the committed revision; then step 5 is repeated;
+- if the Worker becomes fenced after the filesystem commit, it stops; the next
+  lease holder detects the same commit id and performs step 5;
+- revision mismatch without the same commit id: never overwrite; record
+  `CONFLICT` and follow section 23.4.
+
+Commit-kind behavior:
+
+- `INBOUND` appends the sanitized triggering user message after claim and
+  before Agent Core performs a model or tool call;
+- `FINAL` appends only messages produced after that inbound message, including
+  assistant and tool transcript entries;
+- a final mutation never appends the triggering user message a second time.
+
+The `PREPARED` row immutably binds commit id, base revision, target revision,
+and content hash. A Worker that loses its lease after preparation may still
+finish the already-started atomic filesystem replace, because a filesystem and
+SQLite cannot share a fence transaction. This is safe only because:
+
+- Session Manager accepts exactly the prepared commit id and content hash;
+- a later Worker must reuse the same prepared mutation;
+- a different hash for that commit id is rejected;
+- the stale Worker cannot confirm the Runtime Store transition.
+
+No unprepared or changed session mutation from a stale Worker may be applied.
+
+### 17.8 Complete and enqueue final reply
+
+After session commit is confirmed, one transaction:
+
+1. validate task lease;
+2. when a final reply is present, insert or reuse its protected payload;
+3. insert its Outbox row with stable dedup key, or, when current Message Tool
+   semantics suppress the final reply, verify that the referenced Message Tool
+   Outbox row is already durable;
+4. set task `COMPLETED`, phase `TERMINAL`, and terminal time;
+5. clear lease and session active slot;
+6. append `OUTBOX_ENQUEUED` when a new row was inserted, then append
+   `TASK_COMPLETED`;
+7. commit.
+
+`COMPLETED` means Agent execution and durable enqueue succeeded. Delivery
+status is queried from Outbox.
+
+A user task may complete without creating a separate final-reply row only when
+its structured completion explicitly sets `suppress_final=True` and references
+at least one durable Message Tool Outbox row for that task. An empty accidental
+final response is not sufficient.
+
+### 17.9 Outbox delivery
+
+Claim transaction:
+
+- select the earliest eligible row whose target has no earlier non-terminal
+  row;
+- issue a new delivery lease;
+- set `SENDING`.
+
+Channel call occurs outside SQLite.
+
+Outbox Sender renews the delivery lease while the bounded Channel call is in
+progress. Every adapter has a finite send timeout. Loss of the delivery lease
+prevents that sender from recording a result and invokes the recovery policy in
+section 17.13.
+
+Finish transaction:
+
+- validate delivery token and epoch;
+- mark `DELIVERED` with receipt, or schedule `RETRY_WAIT`, or mark `FAILED`.
+
+### 17.10 Terminal failure or cancellation
+
+One transaction:
+
+- validate task lease when Worker-owned;
+- write safe error metadata;
+- transition terminally;
+- clear lease and session active slot;
+- append terminal event.
+
+If a final user-visible failure message is required, enqueue it in the same
+transaction.
+
+Internal tasks without a user-visible response use `complete_internal()`:
+
+- validate the task lease;
+- record the internal result reference when required;
+- set `COMPLETED`;
+- clear the lease and session active slot;
+- append `TASK_COMPLETED`;
+- do not create a fake Channel or Outbox row.
+
+### 17.11 Enter `WAITING_USER`
+
+One transaction:
+
+1. validate task lease;
+2. persist the exact pending approval, continuation, conflict, or unknown-effect
+   fact;
+3. create a signed opaque control token;
+4. insert the user-facing question into Outbox with a stable dedup key;
+5. set `waiting_reason`, `waiting_ref`, and the policy-specific
+   `wait_until_ms`;
+6. transition `RUNNING -> WAITING_USER`;
+7. clear the task lease and `session_slots.active_task_id`;
+8. append `OUTBOX_ENQUEUED` and `TASK_WAITING_USER`;
+9. commit.
+
+The task remains the earliest non-terminal session task, so later turns do not
+overtake it. Outbox delivery proceeds independently. Repeating the transaction
+after a crash reuses the same pending fact and Outbox dedup key.
+
+Timeout policy:
+
+- tool approval expiry creates an idempotent `REJECT_TOOL` control and resumes
+  the task so Runner receives a policy rejection;
+- continuation expiry cancels the task with
+  `TASK_CONTINUATION_EXPIRED`;
+- session conflicts and unknown external effects have no automatic expiry and
+  require explicit resolution;
+- every waiting task older than its operational alert threshold raises an
+  alert even when it has no automatic expiry.
+
+### 17.12 Append and apply control
+
+Task Service appends a control in one transaction:
+
+1. validate the task exists and is non-terminal;
+2. deduplicate `(task_id, dedup_key)`;
+3. for tool approval or rejection, validate the exact `tool_call_id` and
+   arguments hash;
+4. insert `task_controls(PENDING)`;
+5. append `CONTROL_RECEIVED`;
+6. when the task is `WAITING_USER`, transition it to `QUEUED` only for:
+   - `APPROVE_TOOL` or `REJECT_TOOL` matching its pending tool;
+   - `CONTINUE` matching its run-segment continuation request;
+   - an explicit resolution control for its recorded unknown effect;
+   set `available_at_ms=now` and leave `recovery_pending=0`;
+7. when the task is `QUEUED` and the control is `CANCEL`, transition directly
+   to `CANCELLED`; a `WAITING_USER` task may cancel directly only when its
+   waiting reason proves no external effect is unknown; otherwise cancellation
+   remains pending until `RESOLVE_EFFECT`;
+8. commit, then emit a wake hint.
+
+On restore, the Worker applies controls in `control_seq` order:
+
+- `APPROVE_TOOL` changes the matching logical tool call from
+  `WAITING_APPROVAL` to `PREPARED`;
+- `REJECT_TOOL` changes it to `REJECTED` and returns a durable policy result to
+  Runner;
+- `RESOLVE_EFFECT` records whether an uncertain external tool effect should be
+  treated as completed, failed, or explicitly retried;
+- `CONTINUE` increments `run_segment` exactly once, resets the segment
+  wall-clock counter, and sets the new segment phase to `RESTORED` while
+  retaining the prior checkpoint and cumulative budgets;
+- `STEER` adds a protected context reference for the next model boundary;
+- `STOP_AFTER_CHECKPOINT` sets a task-local stop flag;
+- `CANCEL` follows the cancellation safety rules.
+
+The acknowledgement transaction updates the control state, advances
+`tasks.control_cursor`, increments `state_version`, and appends
+`CONTROL_APPLIED`. Reprocessing an already acknowledged control is a no-op.
+
+### 17.13 Recover Outbox send
+
+An expired `SENDING` lease is resolved according to Channel capability:
+
+- `NATIVE_IDEMPOTENCY`: return to `RETRY_WAIT` and reuse `dedup_key`;
+- `QUERYABLE_RECEIPT`: query by stable key; mark delivered when found,
+  otherwise retry;
+- `NONE`: move to `OUTCOME_UNKNOWN` and do not automatically resend.
+
+The capability is declared by each Channel adapter and validated at startup.
+Resolving `OUTCOME_UNKNOWN` requires an explicit operational action:
+
+- `MARK_DELIVERED` with an optional provider receipt; or
+- `RETRY`, which records who accepted duplicate-delivery risk before returning
+  the row to `PENDING`.
+
+## 18. Agent Outer and Inner Loop Integration
+
+### 18.1 Outer turn state machine
+
+The existing Turn Executor remains authoritative:
 
 ```text
 RESTORE -> COMPACT -> COMMAND -> BUILD -> RUN -> SAVE -> RESPOND -> DONE
 ```
 
-Each completed state writes a checkpoint event before advancing.
+Allowed shortcuts:
+
+```text
+RESTORE -> COMMAND
+RESTORE -> BUILD
+COMMAND -> SAVE
+BUILD   -> RUN
+RUN     -> SAVE
+SAVE    -> RESPOND
+RESPOND -> DONE
+```
+
+All user-visible commands pass through `SAVE` and `RESPOND`. The existing
+`COMMAND -> DONE` shortcut must be removed because it bypasses durable session
+commit and Outbox.
+
+### 18.2 Phase responsibilities
 
 #### RESTORE
 
-- load session, user, Soul, Memory, Goal, and legacy checkpoint;
-- inspect whether the turn was partially committed;
-- record session and memory source revisions;
-- load the latest durable turn checkpoint.
-
-This state is deterministic and does not call the primary chat model.
+- load protected inbound task payload;
+- for a user task, load the fresh session revision and idempotently commit the
+  sanitized triggering user message as `INBOUND` when it is not already
+  committed;
+- ensure task phase is at least `INBOUND_SESSION_COMMITTED` without regressing a
+  later restored phase;
+- reload the revision-aware session and verify the triggering user message is
+  present exactly once;
+- load the latest valid durable checkpoint;
+- reconstruct completed model and tool decisions by reference;
+- load pending controls after `control_cursor`;
+- set task-scoped `TurnRuntime`.
 
 #### COMPACT
 
-- enforce context budgets;
-- run deterministic consolidation and repair first;
-- use existing summaries and embedding recall;
-- fall back safely when recall is unavailable.
-
-Any LLM-assisted compaction is an explicit bounded call with its own
-`llm_call_id`, timeout, budget, result, and checkpoint. Its failure falls back
-to deterministic compaction.
+- use existing Context Governor and memory semantics;
+- write a checkpoint after durable compaction output is known;
+- never replace authoritative memory behavior.
 
 #### COMMAND
 
-- recognize built-in commands;
-- produce a typed shortcut result where applicable.
-
-A shortcut must still pass through durable save and outbox steps. The durable
-transition is `COMMAND -> SAVE`, not an unrecorded jump to `DONE`.
+- execute existing command shortcuts;
+- journal any tool or external effect through the same ports;
+- continue to `SAVE`.
 
 #### BUILD
 
-- create an immutable `context_snapshot`;
-- record source revisions, selected memory IDs, tools, Provider/model, and
-  context-governor version;
-- store the protected serialized context and its hash.
-
-Recovery after `CONTEXT_BUILT` uses the same snapshot. It does not perform a new
-memory search that could produce a different prompt.
+- build model context using current session, memory, media, Planner, injection,
+  and budget logic;
+- treat the already committed inbound session message as the triggering user
+  message and do not append the protected payload a second time;
+- do not store raw context in task events;
+- checkpoint only references and hashes required for deterministic restore.
 
 #### RUN
 
-- invoke `AgentRunner` with the context snapshot;
-- pass budgets, Tool Gateway, checkpoint callback, progress callback, and
-  control-message callback.
-
-The user's main reasoning happens here, inside the inner loop.
+- invoke the existing Runner;
+- journal each Provider attempt through the Provider observer;
+- execute every Agent tool request through `ToolExecutionPort`;
+- checkpoint after a committed model decision and after each committed tool
+  batch.
 
 #### SAVE
 
-- prepare the exact user and assistant messages;
-- write them idempotently with `turn_id`;
-- persist usage and stop reason;
-- advance the session version.
+- build one normalized idempotent `FINAL` session mutation containing only
+  assistant/tool messages produced after the inbound commit;
+- call `SessionCommitPort`;
+- checkpoint `SESSION_COMMITTED`.
 
 #### RESPOND
 
-- enqueue the final response or approval prompt in outbox;
-- do not call Channel code.
+- build the final complete message;
+- call Runtime completion, which atomically enqueues Outbox;
+- realtime events remain advisory.
 
 #### DONE
 
-- mark the root task complete;
-- clear the session slot;
-- release leases;
-- schedule retention and maintenance work.
+- release task-local objects;
+- clear `TurnRuntime`;
+- stop Worker lease renewal for the task.
 
-### 10.2 Inner LLM/tool loop
+### 18.3 Inner loop recovery boundaries
 
-Each iteration performs:
+Required safe boundaries:
 
-1. check cancellation, lease, and budget;
-2. govern the current model messages;
-3. create and persist `LLM_STARTED`;
-4. call the Provider;
-5. persist the complete response as `LLM_COMPLETED`;
-6. parse final response or tool requests;
-7. if final, persist `FINAL_RESPONSE` and return;
-8. if tools, persist `TOOL_PROPOSED` records;
-9. call Tool Gateway;
-10. persist each terminal tool result;
-11. append normalized tool messages;
-12. checkpoint and continue.
+1. before a logical model call;
+2. after a model attempt result is durable;
+3. before each tool call is externally invoked;
+4. after each tool result is durable;
+5. after a tool batch is complete;
+6. before session commit;
+7. after session commit;
+8. after final reply enqueue.
 
-Partial streaming output is transient. It may be displayed, but it does not
-become a resumable model result.
+If a process dies between boundaries, recovery uses the last durable fact and
+the operation-specific policy. It never fabricates a synthetic tool error as a
+substitute for an unknown real effect.
 
-### 10.3 Planner, Reflection, Dream, and injection
+### 18.4 Checkpoint contents
 
-- Planner is an optional inner-loop strategy. It may propose steps but may not
-  bypass Tool Gateway.
-- Reflection is durable background work and never delays the final user reply.
-- Dream and Consolidator are durable low-priority maintenance tasks.
-- ordinary new user messages become later session tasks;
-- explicit steering may be injected only after it is durably recorded and only
-  at an LLM/tool boundary;
-- cancellation and approval are control events, not ordinary queued chat.
+A checkpoint contains enough information to continue without raw log replay:
 
-## 11. Checkpoint and Recovery Semantics
+- checkpoint format version;
+- task, turn, session, sequence, and run segment;
+- outer phase and inner loop iteration;
+- session base revision;
+- normalized inbound payload reference;
+- context-governor state and bounded context references;
+- Planner state;
+- budget counters;
+- logical model call cursor;
+- completed tool call ids and result references;
+- pending prepared tool call ids;
+- control cursor;
+- response draft reference when applicable;
+- memory source revision references;
+- safe deterministic flags.
 
-The runtime restores known business state, not Python execution state.
+Do not copy full artifacts into each checkpoint. Use content-addressed blob
+references.
 
-Recovery uses this matrix:
+## 19. Provider Attempt Visibility
 
-| Last durable fact | Recovery action |
-|---|---|
-| Task accepted only | Start at `RESTORE` |
-| `RESTORED` | Continue at `COMPACT` |
-| `COMPACTED` | Continue at `COMMAND` |
-| `CONTEXT_BUILT` | Reuse snapshot and enter `RUN` |
-| `LLM_STARTED` only | Retry the LLM call under Provider retry policy |
-| `LLM_COMPLETED` | Parse stored response; do not call the model again |
-| `TOOL_PROPOSED` | Re-run policy and idempotency checks |
-| `TOOL_RUNNING` | Apply tool risk recovery matrix |
-| `TOOL_SUCCEEDED` | Reuse stored result |
-| `FINAL_RESPONSE` | Skip AgentRunner and enter `SAVE` |
-| `TURN_COMMIT_PREPARED` | Inspect session by `turn_id` and finish commit |
-| `TURN_SAVED` | Enter `RESPOND` |
-| `RESPONSE_READY` | Leave delivery to outbox |
+Current Provider retry and fallback behavior may remain inside Provider
+implementations, but it must expose an observer:
 
-Checkpoints store:
-
-- outer state;
-- inner iteration;
-- next action;
-- context reference and hash;
-- persisted assistant message reference;
-- completed tool result references;
-- active plan reference;
-- cumulative usage;
-- stop reason;
-- source versions;
-- created time.
-
-Checkpoint writes are compare-and-set operations protected by the active lease.
-
-## 12. Runtime SQLite Ledger
-
-### 12.1 Location and connection settings
-
-The default file is:
-
-```text
-workspace/runtime/runtime.sqlite
+```python
+class ProviderAttemptObserver(Protocol):
+    async def started(self, value: ProviderAttemptStarted) -> str: ...
+    async def completed(
+        self, attempt_id: str, value: ProviderAttemptCompleted
+    ) -> None: ...
+    async def failed(
+        self, attempt_id: str, value: ProviderAttemptFailed
+    ) -> None: ...
 ```
 
-The directory is private runtime state and is excluded from Git.
-
-Every process uses its own connection or connection pool with:
-
-- `journal_mode=WAL`;
-- `synchronous=FULL`;
-- `foreign_keys=ON`;
-- `busy_timeout=5000`;
-- short explicit transactions;
-- bounded retry with jitter for `BUSY` errors.
-
-The file must reside on a local disk. Network shares are unsupported.
-
-### 12.2 Schema ownership
-
-Control Plane is the migration leader. It takes a single migration lock,
-applies ordered schema migrations, verifies the resulting version, and only
-then reports ready. Workers refuse to start task execution against an unknown
-schema version.
-
-### 12.3 Required tables
-
-#### `tasks`
-
-- `task_id TEXT PRIMARY KEY`
-- `turn_id TEXT UNIQUE`
-- `tenant_id TEXT NOT NULL`
-- `principal_id TEXT NOT NULL`
-- `agent_id TEXT NOT NULL`
-- `workspace_id TEXT NOT NULL`
-- `session_key TEXT NOT NULL`
-- `session_sequence INTEGER NOT NULL`
-- `channel TEXT`
-- `channel_message_id TEXT`
-- `task_kind TEXT NOT NULL`
-- `priority INTEGER NOT NULL`
-- `payload_ref TEXT NOT NULL`
-- `payload_hash TEXT NOT NULL`
-- `state TEXT NOT NULL`
-- `checkpoint_phase TEXT`
-- `attempt_count INTEGER NOT NULL`
-- `max_attempts INTEGER NOT NULL`
-- `leased_by TEXT`
-- `worker_generation INTEGER`
-- `lease_token TEXT`
-- `lease_epoch INTEGER NOT NULL`
-- `lease_until_ms INTEGER`
-- `last_progress_at_ms INTEGER`
-- `available_at_ms INTEGER NOT NULL`
-- `state_version INTEGER NOT NULL`
-- `error_code TEXT`
-- `error_summary TEXT`
-- `created_at_ms INTEGER NOT NULL`
-- `updated_at_ms INTEGER NOT NULL`
-- `completed_at_ms INTEGER`
-
-Unique constraints:
-
-- `(channel, channel_message_id)` when both values are non-null;
-- `(session_key, session_sequence)`.
-
-User turns require `turn_id`, `channel`, and `channel_message_id`. Internal
-maintenance tasks leave Channel fields null, use a system-scoped session key,
-and use `task_id` as their logical execution identifier. This avoids inventing
-fake Channel messages while keeping all tasks in one scheduler.
-
-Indexes cover:
-
-- runnable state, availability, priority, and creation time;
-- session and sequence;
-- lease expiration;
-- last progress;
-- task kind and state.
-
-#### `session_slots`
-
-- `session_key TEXT PRIMARY KEY`
-- `next_sequence INTEGER NOT NULL`
-- `active_task_id TEXT`
-- `state_version INTEGER NOT NULL`
-- `updated_at_ms INTEGER NOT NULL`
-
-#### `task_events`
-
-- `event_id TEXT PRIMARY KEY`
-- `task_id TEXT NOT NULL`
-- `event_sequence INTEGER NOT NULL`
-- `attempt_no INTEGER NOT NULL`
-- `event_type TEXT NOT NULL`
-- `step_id TEXT`
-- `worker_id TEXT`
-- `worker_generation INTEGER`
-- `lease_epoch INTEGER`
-- `summary TEXT`
-- `payload_ref TEXT`
-- `created_at_ms INTEGER NOT NULL`
-
-`(task_id, event_sequence)` is unique. Rows are append-only.
-
-#### `checkpoints`
-
-- `checkpoint_id TEXT PRIMARY KEY`
-- `task_id TEXT NOT NULL`
-- `checkpoint_sequence INTEGER NOT NULL`
-- `outer_state TEXT NOT NULL`
-- `inner_iteration INTEGER`
-- `context_ref TEXT`
-- `context_hash TEXT`
-- `assistant_message_ref TEXT`
-- `completed_tool_results_ref TEXT`
-- `next_action TEXT NOT NULL`
-- `usage_ref TEXT`
-- `source_versions_ref TEXT`
-- `created_at_ms INTEGER NOT NULL`
-
-#### `llm_calls`
-
-- `llm_call_id TEXT PRIMARY KEY`
-- `task_id TEXT NOT NULL`
-- `iteration INTEGER NOT NULL`
-- `purpose TEXT NOT NULL`
-- `provider TEXT NOT NULL`
-- `model TEXT NOT NULL`
-- `request_ref TEXT NOT NULL`
-- `request_hash TEXT NOT NULL`
-- `state TEXT NOT NULL`
-- `response_ref TEXT`
-- `response_hash TEXT`
-- `prompt_tokens INTEGER`
-- `completion_tokens INTEGER`
-- `cost_usd REAL`
-- `started_at_ms INTEGER NOT NULL`
-- `finished_at_ms INTEGER`
-- `error_code TEXT`
-
-This row represents one logical model decision. Individual network and
-fallback attempts are stored separately.
-
-#### `llm_call_attempts`
-
-- `attempt_id TEXT PRIMARY KEY`
-- `llm_call_id TEXT NOT NULL`
-- `attempt_no INTEGER NOT NULL`
-- `provider TEXT NOT NULL`
-- `model TEXT NOT NULL`
-- `state TEXT NOT NULL`
-- `provider_request_id TEXT`
-- `started_at_ms INTEGER NOT NULL`
-- `finished_at_ms INTEGER`
-- `prompt_tokens INTEGER`
-- `completion_tokens INTEGER`
-- `cost_usd REAL`
-- `error_code TEXT`
-
-`(llm_call_id, attempt_no)` is unique.
-
-#### `tool_calls`
-
-- `tool_call_id TEXT PRIMARY KEY`
-- `task_id TEXT NOT NULL`
-- `iteration INTEGER NOT NULL`
-- `tool_name TEXT NOT NULL`
-- `arguments_ref TEXT NOT NULL`
-- `arguments_hash TEXT NOT NULL`
-- `risk_class TEXT NOT NULL`
-- `idempotency_key TEXT`
-- `state TEXT NOT NULL`
-- `approval_id TEXT`
-- `resource_key TEXT`
-- `result_ref TEXT`
-- `result_hash TEXT`
-- `external_receipt TEXT`
-- `started_at_ms INTEGER`
-- `finished_at_ms INTEGER`
-- `error_code TEXT`
-- `error_summary TEXT`
-
-Non-null idempotency keys are unique.
-
-#### `tool_call_attempts`
-
-- `attempt_id TEXT PRIMARY KEY`
-- `tool_call_id TEXT NOT NULL`
-- `attempt_no INTEGER NOT NULL`
-- `state TEXT NOT NULL`
-- `idempotency_key TEXT`
-- `external_request_id TEXT`
-- `external_receipt TEXT`
-- `started_at_ms INTEGER NOT NULL`
-- `finished_at_ms INTEGER`
-- `error_code TEXT`
-- `error_summary TEXT`
-
-`(tool_call_id, attempt_no)` is unique. All attempts for one logical write use
-the same idempotency key.
-
-#### `approvals`
-
-- `approval_id TEXT PRIMARY KEY`
-- `task_id TEXT NOT NULL`
-- `tool_call_id TEXT NOT NULL`
-- `state TEXT NOT NULL`
-- `question_ref TEXT NOT NULL`
-- `requested_at_ms INTEGER NOT NULL`
-- `expires_at_ms INTEGER NOT NULL`
-- `decided_at_ms INTEGER`
-- `decided_by TEXT`
-- `decision TEXT`
-- `decision_reason TEXT`
-
-#### `outbox`
-
-- `delivery_id TEXT PRIMARY KEY`
-- `task_id TEXT NOT NULL`
-- `channel TEXT NOT NULL`
-- `target_ref TEXT NOT NULL`
-- `payload_ref TEXT NOT NULL`
-- `payload_hash TEXT NOT NULL`
-- `state TEXT NOT NULL`
-- `attempt_count INTEGER NOT NULL`
-- `available_at_ms INTEGER NOT NULL`
-- `leased_by TEXT`
-- `lease_token TEXT`
-- `lease_until_ms INTEGER`
-- `provider_message_id TEXT`
-- `last_error TEXT`
-- `created_at_ms INTEGER NOT NULL`
-- `delivered_at_ms INTEGER`
-
-Allowed outbox states:
-
-- `READY`
-- `LEASED`
-- `SENDING`
-- `RETRY_WAIT`
-- `DELIVERED`
-- `UNKNOWN`
-- `CANCELLED`
-
-The sender writes `SENDING` before the network call and `DELIVERED` only after
-a reliable Channel receipt. After a sender crash:
-
-- a Channel supporting an idempotency key receives the same `delivery_id`;
-- an explicit failure enters `RETRY_WAIT`;
-- a successful receipt already stored remains `DELIVERED`;
-- an unsupported or ambiguous send becomes `UNKNOWN` rather than being
-  blindly sent again.
-
-#### `workers`
-
-- `worker_id TEXT PRIMARY KEY`
-- `generation INTEGER NOT NULL`
-- `pid INTEGER NOT NULL`
-- `state TEXT NOT NULL`
-- `capabilities_ref TEXT`
-- `started_at_ms INTEGER NOT NULL`
-- `heartbeat_at_ms INTEGER NOT NULL`
-- `current_task_id TEXT`
-- `last_error TEXT`
-
-#### `resource_locks`
-
-- `resource_type TEXT NOT NULL`
-- `resource_key TEXT NOT NULL`
-- `holder_id TEXT NOT NULL`
-- `lease_token TEXT NOT NULL`
-- `lease_until_ms INTEGER NOT NULL`
-- `created_at_ms INTEGER NOT NULL`
-
-The primary key is `(resource_type, resource_key)`, which enforces one exclusive
-holder for a mutable resource.
-
-#### `quota_leases`
-
-- `quota_lease_id TEXT PRIMARY KEY`
-- `resource_type TEXT NOT NULL`
-- `scope_key TEXT NOT NULL`
-- `holder_id TEXT NOT NULL`
-- `lease_token TEXT NOT NULL`
-- `lease_until_ms INTEGER NOT NULL`
-- `created_at_ms INTEGER NOT NULL`
-
-Quota acquisition counts non-expired rows for `(resource_type, scope_key)` in
-one transaction and inserts only when the configured limit permits it.
-
-#### `runtime_blobs`
-
-- `blob_id TEXT PRIMARY KEY`
-- `sha256 TEXT NOT NULL`
-- `content_type TEXT NOT NULL`
-- `codec TEXT NOT NULL`
-- `data BLOB NOT NULL`
-- `size_bytes INTEGER NOT NULL`
-- `created_at_ms INTEGER NOT NULL`
-- `expires_at_ms INTEGER`
-
-Runtime blobs are protected content, not telemetry.
-
-### 12.4 Large artifact rule
-
-Bounded JSON payloads and normal context snapshots are compressed and stored in
-`runtime_blobs`. Very large file artifacts remain in the controlled workspace
-and are referenced by:
-
-- path;
-- content hash;
-- size;
-- creation time.
-
-Recovery validates the path remains in the allowed workspace, the file exists,
-and its hash matches. A mismatched artifact is a permanent recovery error, not
-permission to read an arbitrary replacement path.
-
-## 13. Transaction Boundaries
-
-### 13.1 Accept
-
-One transaction:
-
-1. detect duplicate Channel message;
-2. allocate session sequence;
-3. store protected inbound payload;
-4. insert `tasks`;
-5. append `TASK_ACCEPTED`;
-6. commit.
-
-Gateway acknowledges only after commit.
-
-### 13.2 Claim
-
-One `BEGIN IMMEDIATE` transaction:
-
-1. select the highest-priority eligible task;
-2. verify the session slot is empty or already names this task;
-3. allocate lease token and increment epoch;
-4. set `LEASED`;
-5. update the session slot;
-6. append `TASK_LEASED`;
-7. commit.
-
-### 13.3 Checkpoint
-
-One transaction:
-
-1. verify all fencing fields;
-2. store referenced blobs;
-3. insert checkpoint;
-4. append durable event;
-5. update task phase, progress, and state version;
-6. commit.
-
-### 13.4 Session commit
-
-SQLite and JSONL cannot form one transaction. Use an idempotent recoverable
-commit:
-
-1. persist `TURN_COMMIT_PREPARED` with exact messages and `turn_id`;
-2. write session history idempotently by `turn_id`;
-3. persist `TURN_SAVED`.
-
-Recovery checks whether each message role for the `turn_id` already exists and
-writes only missing parts.
-
-### 13.5 Complete and enqueue reply
-
-One transaction:
-
-1. require `TURN_SAVED`;
-2. insert outbox row;
-3. append `RESPONSE_READY` and `TASK_COMPLETED`;
-4. mark task `COMPLETED`;
-5. clear session slot;
-6. commit.
-
-Logical task completion and Channel delivery are independent.
-
-### 13.6 External tool call
-
-Before the call:
-
-1. classify and approve;
-2. persist tool state `RUNNING`;
-3. commit.
-
-After the call:
-
-1. persist receipt and result;
-2. set a terminal tool state;
-3. append event;
-4. commit.
-
-No transaction spans the external call.
-
-## 14. Tool Gateway Safety Model
-
-### 14.1 Required tool metadata
-
-Every tool declares:
-
-- risk class;
-- approval policy;
-- retry policy;
-- timeout;
-- whether parallel execution is safe;
-- whether external idempotency is supported;
-- resource-key builder;
-- sensitive argument fields;
-- progress support.
-
-Legacy tools without metadata default to conservative write behavior.
-
-### 14.2 Risk classes
-
-- `READ_ONLY`
-- `IDEMPOTENT_WRITE`
-- `NON_IDEMPOTENT_WRITE`
-- `DESTRUCTIVE`
-
-### 14.3 Policy outcomes
-
-Policy Engine returns exactly one:
-
-- `ALLOW`
-- `DENY`
-- `ASK_USER`
-
-Approval binds the exact task, tool call, argument hash, principal, and expiry.
-The default approval expiry is 30 minutes.
-
-### 14.4 Idempotency
-
-The runtime derives:
+Runner derives `logical_call_id` deterministically from:
 
 ```text
-task_id + persisted_llm_call_id + tool_call_id + normalized_argument_hash
+task_id + run_segment + inner_loop_iteration + model_call_ordinal
 ```
 
-The model does not choose the idempotency key.
+It must not generate a new logical id when replaying the same checkpoint.
 
-If the external Provider supports idempotency, the same key is forwarded on
-every retry. Local atomic file writes detect completion by path and content
-hash.
+Rules:
 
-### 14.5 Recovery matrix
+- Base retry and fallback Provider call the observer for every network attempt;
+- Provider does not write SQLite directly;
+- Runtime supplies an observer backed by `TurnJournalPort`;
+- tests and legacy mode may supply a no-op observer;
+- a completed response is returned to Runner only after the observer's
+  `completed()` succeeds;
+- if journaling fails, the response is discarded and the task enters a
+  storage-related retry path;
+- safe metrics include provider, model, latency, usage, and error code;
+- raw request and response content stay in protected blobs.
 
-| Tool state and class | Automatic action |
-|---|---|
-| Proposed, not running | Validate and execute |
-| Running read-only | Retry |
-| Running idempotent write | Retry with same key |
-| Running atomic file write | Inspect path and hash, then finish or retry |
-| Running non-idempotent write | Mark `UNKNOWN` |
-| Running destructive action | Mark `UNKNOWN` |
-| Succeeded | Reuse result |
-| Explicit retryable failure | Retry within policy |
-| Explicit permanent failure | Return failure to Agent |
+Recovery of a logical model call is deterministic:
 
-`UNKNOWN` pauses the task and offers:
+- a `COMPLETED` attempt is restored and its durable response is reused;
+- a `FAILED` attempt is included in retry/fallback accounting;
+- a `STARTED` attempt with no terminal record after lease loss is marked
+  `FAILED` with `MODEL_ATTEMPT_LOST`;
+- because a model request has no Agent-visible write effect, the next bounded
+  attempt may repeat it;
+- a repeated attempt uses the same `logical_call_id` and the next
+  `attempt_no`;
+- attempt and cumulative Token budgets are checked before repeating.
 
-- already completed;
-- retry;
-- skip.
+## 20. Tool Gateway Safety Model
 
-No Worker remains occupied while waiting for the answer.
+### 20.1 Invocation-specific metadata
 
-### 14.6 Tool concurrency
+Existing static tool metadata remains supported:
 
-- only explicitly `parallel_safe` read-only calls run concurrently;
-- writes are serial by default;
-- mutable resources use durable resource locks;
-- an unkeyed write tool is globally serial by tool name;
-- subagents use the same locks and Tool Gateway.
+- `read_only`;
+- `concurrency_safe`;
+- `exclusive`.
 
-### 14.7 Retry defaults
+Preparation adds effective invocation metadata:
 
-- LLM transient request: three total attempts with backoff;
-- read-only tool transient failure: three total attempts;
-- idempotent write: two total attempts with the same key;
-- non-idempotent unknown result: zero automatic retries;
-- stalled safe action: one recovery attempt;
-- root task: three Worker attempts before pause/failure.
+```text
+effect_class       READ | LOCAL_WRITE | EXTERNAL_WRITE
+risk_class         LOW | MEDIUM | HIGH
+idempotency_mode   REPLAY_SAFE | NATIVE_KEY | RUNTIME_RESULT | NONE
+approval_policy    NEVER | POLICY | ALWAYS
+recovery_policy    REPLAY | QUERY_THEN_RETRY | REUSE_RESULT | MANUAL
+concurrency_scope  NONE | SESSION | WORKSPACE | GLOBAL
+progress_required  bool
+timeout_s          positive integer
+```
 
-## 15. Existing Memory System
+`ToolRegistry.prepare()` or a narrow classifier hook returns one
+`PreparedToolCall` containing normalized arguments plus this effective
+metadata. Tool Gateway does not independently parse tool arguments.
 
-This design does not create another memory database.
+### 20.2 Conservative compatibility defaults
 
-The existing memory system remains:
+Until a tool has explicit metadata:
 
-- `SOUL.md`: Agent voice and style;
-- `USER.md`: stable user knowledge;
-- `memory/MEMORY.md`: durable project facts and decisions;
-- `memory/history.jsonl`: append-only consolidated history;
-- GitStore: version history;
-- `memory/memory.db`: optional `sqlite-vec` semantic-recall index.
+- `read_only=True`
+  - `effect_class=READ`;
+  - `risk_class=LOW`;
+  - `idempotency_mode=REPLAY_SAFE`;
+  - `recovery_policy=REPLAY`;
+- other tools
+  - `effect_class=EXTERNAL_WRITE`;
+  - `risk_class=HIGH`;
+  - `idempotency_mode=NONE`;
+  - `approval_policy=POLICY`;
+  - `recovery_policy=MANUAL`.
 
-`memory.db` is a derived search index, not the operational task ledger.
-`runtime.sqlite` is an operational task ledger, not a semantic-memory store.
+Rollout includes an explicit metadata audit for every built-in tool. A tool may
+not receive a less conservative classification only to preserve old tests.
 
-### 15.1 Multi-process hardening of `memory.db`
+### 20.3 Stable idempotency key
 
-The vector store must:
+Default:
 
-- use a connection per process;
-- enable WAL and a bounded busy timeout;
-- serialize its own writes;
-- use a stable source key and content hash for idempotent indexing;
-- record source kind and source revision;
-- support tombstones for deleted or superseded content;
-- reject mixed embedding-model fingerprints;
-- degrade to existing non-vector memory behavior when unavailable.
+```text
+sha256(
+  task_id + "\n" +
+  tool_call_id + "\n" +
+  tool_name + "\n" +
+  normalized_arguments_hash
+)
+```
 
-The implementation extends the existing `VectorMemoryStore`; it does not add a
-second vector subsystem.
+The same logical call reuses this key across Worker attempts and restarts.
 
-### 15.2 Context recall
+### 20.4 Policy outcomes
 
-Recall order:
+- `ALLOW`: execute immediately.
+- `WAIT_APPROVAL`: persist exact call and move task to `WAITING_USER`.
+- `DENY`: return a durable policy error to Runner.
+- `REUSE`: return an already durable terminal result.
+- `MANUAL_RECOVERY`: move task to `WAITING_USER` because effect outcome is
+  uncertain.
 
-1. current request and Goal;
-2. recent complete messages;
-3. current session summary;
-4. vector candidates filtered by principal, Agent, workspace, and memory kind;
-5. source, recency, importance, and similarity reranking;
-6. selection within the context budget.
+### 20.5 Recovery matrix
 
-`context_snapshot` records selected memory IDs, hashes, source revisions,
-scores, and strategy version.
+| Durable state at recovery | Policy | Action |
+|---|---|---|
+| `PREPARED` | any | Start first attempt when allowed |
+| `WAITING_APPROVAL` | any | Wait for exact approval or rejection |
+| `SUCCEEDED` | any | Reuse durable result |
+| `FAILED` | retry allowed | Create next bounded attempt |
+| `RUNNING` without terminal attempt | `REPLAY_SAFE` | Mark prior attempt unknown, retry |
+| `RUNNING` without terminal attempt | `NATIVE_KEY` | Query provider or retry with same key |
+| `RUNNING` without terminal attempt | `RUNTIME_RESULT` | Reuse only if receipt/result is durable |
+| `RUNNING` without terminal attempt | `NONE` | Mark unknown and wait for user |
 
-### 15.3 Consolidator and Dream
+### 20.6 Message Tool
 
-Consolidator and Dream become durable low-priority task kinds. They:
+`MessageTool` no longer calls a Channel callback directly.
 
-- record the source cursor and file revisions they read;
-- commit only if source revisions remain compatible;
-- never overwrite newer memory from a stale snapshot;
-- write GitStore history after successful memory changes;
-- enqueue idempotent vector-index updates.
+Its external effect is:
 
-Their existing memory behavior remains authoritative. This design does not add
-a parallel `memory_candidate` database as a prerequisite.
+1. validate and prepare message;
+2. enqueue one Outbox record with a stable dedup key;
+3. durably complete the tool call with `outbox_id` as its receipt;
+4. let Outbox Sender perform actual Channel delivery.
 
-## 16. Required Background Work
+Steps 2 and 3 occur in one Runtime Store transaction under the task lease.
 
-Durable task kinds include:
+This gives final replies and tool-originated messages one delivery authority and
+one ordering rule.
 
-- `USER_TURN`
-- `MEMORY_CONSOLIDATION`
-- `MEMORY_INDEX`
-- `REFLECTION`
-- `DREAM`
-- `MAINTENANCE`
+### 20.7 Shell and child processes
 
-Priority order:
+Shell risk is invocation-specific. A command classifier may raise risk but
+never lower an explicit tool policy.
 
-1. cancellation and approval;
-2. non-terminal user tasks marked for recovery;
-3. user turns;
-4. memory consolidation and indexing;
-5. reflection, Dream, and cleanup.
+Every spawned process belongs to the task's containment group:
 
-Outbox delivery has its own durable delivery queue and sender in Control Plane;
-it does not consume one of the three Agent Worker slots.
+- Windows: Job Object with kill-on-close;
+- POSIX: dedicated process group plus parent-death behavior where available;
+- containers: preserve the host PID limit and terminate the task group.
 
-Recovery normally resumes the original task ID. It is not represented as a
-second task that could race or reorder the session.
+On Worker termination, cancellation, or hard timeout, the entire child tree is
+terminated before the task lease is released. Unknown external effects still
+follow the recovery matrix.
 
-At most one low-priority maintenance task runs at once. New maintenance is not
-claimed while user work is queued. Maintenance yields at checkpoints.
+### 20.8 Tool retry ownership
 
-`TaskSupervisor` remains for disposable or reconstructable process-local
-coroutines. It is not the sole owner of required work.
-
-## 17. Realtime IPC and Durable Events
-
-### 17.1 Durable events
-
-SQLite stores:
-
-- task transitions;
-- complete LLM responses;
-- tool transitions and results;
-- checkpoints;
-- approvals;
-- final responses;
-- delivery state.
-
-### 17.2 Transient events
-
-A bounded local IPC channel carries:
-
-- Token stream;
-- reasoning-progress notifications;
-- tool progress;
-- UI animations;
-- non-critical status updates.
-
-It reuses the existing typed Agent event protocol.
-
-The first implementation uses spawn-safe bounded multiprocessing queues owned
-by Supervisor:
-
-- Worker-to-Control-Plane realtime event queue;
-- Control-Plane-to-Worker wake/control queue.
-
-Messages are typed serialized values, not live Python Agent objects. Because
-Supervisor owns the queue endpoints, Control Plane can restart without forcing
-an otherwise healthy Worker to abandon durable work. If Supervisor restarts,
-it restarts the complete child-process set and durable state resumes from
-SQLite.
-
-### 17.3 Backpressure
-
-- Token deltas may be coalesced;
-- repetitive progress may be dropped;
-- state changes and errors receive higher priority;
-- final responses never depend on IPC;
-- a slow Channel cannot block Worker execution.
-
-### 17.4 Control path
-
-Cancellation, approval, and stop commands commit to SQLite first. IPC is only a
-wakeup hint. Workers check control state:
-
-- before and after LLM calls;
-- before and after tools;
-- before the next inner iteration;
-- before final save.
-
-## 18. Liveness, Stalls, and Process Recovery
+Tool Gateway owns application-level retry count.
 
 Defaults:
 
-- Worker heartbeat: 15 seconds;
-- lease timeout: 180 seconds;
-- expired-lease scan: 15 seconds;
-- task progress timeout: 600 seconds;
-- Worker concurrency: one root task;
-- supervised Worker count: three.
+- replay-safe read: up to two retries for classified transient failures;
+- native-idempotent write: up to two retries with the same key;
+- runtime-result write: no retry after invocation unless a durable result or
+  receipt proves the outcome;
+- non-idempotent write: one attempt, then manual recovery if outcome is
+  unknown.
 
-The default realtime event queue is bounded to 1,000 envelopes. Repetitive
-Token and progress events are coalesced before enqueueing. Queue capacity is
-configuration-backed, but increasing it is not a substitute for backpressure.
+A tool implementation may perform protocol-internal retries only when they use
+the same native idempotency key or are side-effect-free. It reports the final
+classified attempt result to Tool Gateway; it does not maintain a competing
+unbounded retry loop.
 
-### 18.1 Dead Worker
+## 21. Session Persistence
 
-Supervisor restarts a visibly exited Worker immediately with a new generation.
-If death cannot be proven, the lease expires after 180 seconds. The recovery
-reaper then:
+### 21.1 Required Session Manager API
 
-1. validates current lease and task state;
-2. inspects the latest LLM and tool state;
-3. moves safe running work to `RETRY_WAIT` with immediate availability;
-4. moves unknown external effects to `WAITING_USER`;
-5. appends a recovery event.
+Add:
 
-The scheduler promotes an available `RETRY_WAIT` task to `QUEUED` before it can
-be claimed. This preserves the centralized transition table.
+```python
+class SessionSnapshot:
+    session_key: str
+    revision: int
+    messages: list[Message]
+    applied_commit_ids: BoundedCommitIndex
+```
 
-### 18.2 Live but stalled task
+```python
+async def load_fresh(session_key: str) -> SessionSnapshot: ...
 
-If Worker heartbeats continue but task progress does not change for 600
-seconds:
+async def commit_turn(
+    session_key: str,
+    commit_id: str,
+    commit_kind: Literal["INBOUND", "FINAL"],
+    base_revision: int,
+    mutation: SessionMutation,
+    content_hash: str,
+) -> SessionCommitOutcome: ...
+```
 
-1. request cooperative cancellation;
-2. wait a bounded grace period;
-3. terminate the contained operation if supported;
-4. classify possible side effects;
-5. retry one safe attempt or pause.
+Outcomes:
 
-A known long-running tool must emit progress. A heartbeat alone does not allow
-an uninstrumented tool to run forever.
+- `COMMITTED(revision)`;
+- `ALREADY_COMMITTED(revision)`;
+- `REVISION_CONFLICT(current_revision)`;
+- `IO_FAILURE(safe_error)`.
 
-### 18.3 Crash loops
+### 21.2 Cross-process correctness
 
-A Worker slot that exits five times in ten minutes becomes `QUARANTINED`.
-Other slots continue. A task that causes three Worker attempts to fail at the
-same checkpoint is paused with a stable error code rather than rotated forever.
+`commit_turn()` must:
 
-### 18.4 Control Plane failure
+1. acquire an OS-visible per-session file lock;
+2. reload the current on-disk session, bypassing process cache;
+3. return `ALREADY_COMMITTED` if the same commit id and hash exist;
+4. reject reuse of a commit id with a different hash;
+5. compare `base_revision`;
+6. apply the normalized mutation once;
+7. increment revision exactly once;
+8. write a temporary file in the destination directory;
+9. flush and `fsync` the file;
+10. atomically replace the destination;
+11. `fsync` the parent directory when supported;
+12. refresh or invalidate the process-local cache;
+13. release the lock.
 
-Workers continue durable work. Transient streaming may be lost. Final replies
-remain in outbox. Supervisor restarts Control Plane, which reacquires a
-single-instance lease and resumes Channel and outbox service.
+Plain cached `get_or_create()` data may not be the source of a supervised
+session commit.
 
-### 18.5 Supervisor and host failure
+### 21.3 Commit-id retention
 
-An outer service manager must restart Supervisor. On host restart,
-`runtime.sqlite` restores all non-terminal work. Supervisor itself is not an
-operational source of truth.
+Session files retain a bounded commit-id index sufficient for runtime task
+retention. If transcript format cannot hold the index cleanly, store an
+adjacent per-session commit sidecar managed atomically by Session Manager.
+Runtime must not create an unrelated session content store.
 
-### 18.6 Graceful shutdown
+### 21.4 Revision conflicts
 
-1. stop accepting new tasks;
-2. mark Control Plane draining;
-3. stop new claims;
-4. reach a safe checkpoint;
-5. release or complete current leases;
-6. drain outbox within a grace period;
-7. exit;
-8. leave unfinished work non-terminal for next startup.
+A revision conflict is never resolved by overwriting the newer transcript.
 
-Shutdown never converts unfinished work to `FAILED`.
+Behavior:
 
-### 18.7 Ledger unavailable or disk full
+1. reload fresh session;
+2. if the commit id is present, confirm Runtime Store and continue;
+3. if the task is still the session head and the conflict came from a known
+   legacy writer during migration, retry the entire `RESTORE -> SAVE` segment
+   using durable completed tool results;
+4. retry at most once;
+5. otherwise enter `WAITING_USER` with `SESSION_REVISION_CONFLICT` and raise an
+   operational alert.
 
-The runtime ledger is the safety boundary. When it cannot commit:
+After durable mode becomes the only writer, any conflict without the same
+commit id is treated as a correctness defect.
 
-- Gateway does not acknowledge a new task;
-- no Worker starts another LLM or external tool call;
-- a Worker holding an already returned result retries the short ledger commit
-  with bounded backoff while retaining its lease when possible;
-- readiness becomes false and a high-priority alert is emitted;
-- no component writes an uncoordinated second task journal as a fallback.
+### 21.5 Legacy metadata
 
-If an external tool has returned but its result cannot be committed, the Worker
-keeps the result in memory and stops advancing. If the Worker later dies,
-recovery sees the durable pre-call `RUNNING` record and applies the normal
-side-effect recovery matrix. A non-idempotent call may therefore become
-`UNKNOWN`; the runtime must not guess.
+For new durable tasks:
 
-Disk-full handling may remove only expired, unreferenced runtime blobs through
-the normal retention rules. It must not delete active WAL, task, approval, or
-tool rows to make room.
+- do not write `pending_user_turn`;
+- do not write `runtime_checkpoint`;
+- do not restore pending tool calls as synthetic errors.
 
-### 18.8 Corrupt ledger
+Legacy fields remain readable only during the migration window described in
+section 31.
 
-On an integrity-check failure:
+## 22. Memory and Required Background Work
 
-1. stop accepting and claiming work;
-2. preserve the corrupt database and WAL files for diagnosis;
-3. expose not-ready health;
-4. restore through the most recent verified SQLite online backup;
-5. replay only operations that are proven non-terminal and safe;
-6. require review of any tool or delivery state that was `RUNNING` at the
-   backup boundary.
+### 22.1 Memory authority
 
-The service must not automatically delete and recreate `runtime.sqlite`.
-`memory.db` remains different: because it is a derived index, it may degrade and
-be rebuilt without discarding source memory files.
+Preserve:
 
-## 19. Budgets and Global Resource Control
+- current memory extraction and recall behavior;
+- existing memory source files;
+- GitStore history;
+- Context Governor integration;
+- `memory.db` as a derived vector index.
 
-### 19.1 Stable-profile task defaults
+Do not add a parallel memory-candidate database.
 
-- maximum inner iterations: 50;
-- maximum cumulative input Tokens: 200,000;
-- maximum cumulative output Tokens: 50,000;
-- maximum tool-result injection: existing 16,000 characters;
-- maximum root-turn wall time: two hours;
+### 22.2 Vector store hardening
+
+Each process creates its own vector database connection.
+
+Add:
+
+- WAL mode and busy timeout;
+- bounded write transactions;
+- deterministic source identity and source revision;
+- unique idempotency keys for index updates;
+- tombstones or revision checks for deletes;
+- principal, tenant, Agent, and workspace scope in every lookup;
+- rebuild tooling from authoritative memory sources.
+
+### 22.3 Durable maintenance tasks
+
+Existing Cron, Dream idle trigger, consolidation trigger, auto-compaction
+trigger, and index trigger may decide that work is due. They may only call:
+
+```python
+TaskService.submit_internal(kind, scope, dedup_key, priority, payload_ref)
+```
+
+They may not own required work through `asyncio.create_task()`.
+
+`TaskSupervisor` remains for:
+
+- telemetry flush;
+- lossy realtime coalescing;
+- reconnect delays;
+- reconstructable poll loops.
+
+### 22.4 Priority
+
+Effective order:
+
+1. persisted cancel and approval controls;
+2. recoverable user tasks;
+3. new user turns;
+4. memory consolidation and index work;
+5. reflection, Dream, retention, backup, and cleanup.
+
+At most one low-priority maintenance task runs globally. Maintenance does not
+claim while an eligible user task waits and yields at checkpoints.
+
+Default numeric priorities:
+
+- user turn: 100;
+- memory consolidation and index: 50;
+- reflection and Dream: 20;
+- retention, backup, and cleanup: 10.
+
+Recovery precedence comes from `recovery_pending`, not by mutating stored
+priority. External callers may request only a validated user-priority band;
+they cannot impersonate recovery or control work.
+
+## 23. Realtime, Control, and Delivery
+
+### 23.1 Durable versus transient events
+
+Durable events exist for recovery and bounded audit. Existing Agent events
+exist for user experience.
+
+Do not duplicate the full typed Agent event stream into SQLite.
+
+Durable:
+
+- accepted;
+- leased/running;
+- model and tool boundaries;
+- checkpoint;
+- control received/applied;
+- session commit;
+- Outbox enqueue;
+- retry/wait/terminal transitions.
+
+Transient:
+
+- Token deltas;
+- reasoning deltas;
+- replaceable progress detail;
+- typing indicators;
+- debug diagnostics.
+
+### 23.2 IPC
+
+Supervised mode uses:
+
+- Control Plane-to-Worker wake hints;
+- Worker-to-Control Plane typed Agent events;
+- Supervisor lifecycle signals.
+
+IPC messages include protocol version, process instance id, task id when
+applicable, and trace id.
+
+Correctness does not depend on delivery. Workers poll SQLite with exponential
+idle backoff. Control Plane can reconstruct state from Runtime Store.
+
+Because critical state is not sent through IPC, one bounded queue need not
+pretend to prioritize critical and lossy messages. If the realtime queue is
+full:
+
+- drop or coalesce Token deltas first;
+- keep only latest progress per task;
+- increment a dropped-event metric;
+- never block task checkpoint or lease renewal.
+
+### 23.3 Control application
+
+Workers poll controls:
+
+- before a Provider call;
+- after a Provider result;
+- before a tool call;
+- after a tool result;
+- before session commit;
+- during known long-running tool progress callbacks.
+
+Cancellation rules:
+
+- queued tasks can become `CANCELLED` immediately;
+- a safe interruptible read tool may be stopped and cancelled;
+- a non-idempotent running external write is not declared cancelled until its
+  effect is known;
+- forced process termination followed by unknown effect becomes
+  `WAITING_USER`, not `CANCELLED`;
+- steering content is applied at the next model boundary and advances
+  `control_cursor`.
+
+### 23.4 Session conflict and unknown effect
+
+Both conditions enter `WAITING_USER` with:
+
+- a safe explanation;
+- the exact recovery choice required;
+- no raw secrets;
+- a durable control request path.
+
+Approval or continuation transitions the same task back to `QUEUED`.
+
+### 23.5 Channel delivery result
+
+Extend Channel delivery internally to return:
+
+```python
+class DeliveryReceipt:
+    status: DELIVERED | RETRYABLE_FAILURE | PERMANENT_FAILURE
+    provider_message_id: str | None
+    safe_error_code: str | None
+    retry_after_ms: int | None
+```
+
+Every Channel adapter also declares:
+
+```text
+delivery_recovery = NATIVE_IDEMPOTENCY | QUERYABLE_RECEIPT | NONE
+```
+
+Adapters that cannot provide a receipt return `DELIVERED` only after their send
+call completes successfully. A crash between that return and the durable
+Outbox update is still treated according to `delivery_recovery`.
+
+Channel Manager retains formatting and provider-specific retry hints. Durable
+retry count and final authority live in Outbox. For runtime delivery, one
+`ChannelManager.send_with_receipt()` call represents one bounded logical
+attempt. It may perform only transport-internal retries that are proven
+idempotent; it may not run a second independent application-level retry loop.
+
+For multipart Channel sends, the adapter must either:
+
+- provide native idempotency for the logical message or each stable part;
+- provide receipt lookup for the logical message; or
+- declare `NONE`, causing an interrupted send to become
+  `OUTCOME_UNKNOWN`.
+
+The runtime guarantees durable at-least-once intent. It guarantees automatic
+duplicate suppression only when the Channel exposes idempotency or receipt
+lookup. It never silently claims exactly-once delivery for a Channel that lacks
+both.
+
+## 24. Liveness, Recovery, and Supervision
+
+### 24.1 Heartbeat and progress
+
+- lease heartbeat proves the Worker event loop can renew;
+- durable progress proves the task crossed a meaningful boundary;
+- tool progress proves a declared long-running tool is alive.
+
+Heartbeat alone does not permit infinite execution.
+
+Streaming Provider activity may update durable progress at a rate-limited
+interval using byte/Token counts only. A non-streaming Provider request timeout
+must be below `progressTimeoutS`, or the Provider must expose a bounded
+operation deadline that stall detection understands. Raw stream content is
+never written as progress.
+
+Defaults:
+
+- heartbeat: 15 seconds;
+- task lease timeout: 180 seconds;
+- lease scan: 15 seconds;
+- progress timeout: 600 seconds.
+
+Heartbeat must be less than one third of lease timeout.
+
+### 24.2 Expired task lease
+
+Reaper transaction:
+
+1. select expired `LEASED` or `RUNNING` rows;
+2. clear session active slot if it points to that task;
+3. clear lease fields;
+4. set `recovery_pending=1`;
+5. choose:
+   - `QUEUED` when checkpoint and operation state are safe;
+   - `RETRY_WAIT` for bounded transient failure;
+   - `WAITING_USER` for unknown non-idempotent effect;
+   - `FAILED` after root attempt budget exhaustion;
+6. append `LEASE_RECLAIMED`;
+7. commit.
+
+A late Worker write fails token or epoch validation.
+
+### 24.3 Live but stalled
+
+When `last_progress_at_ms` exceeds timeout:
+
+1. request `STOP_AFTER_CHECKPOINT`;
+2. wait configured grace;
+3. if no checkpoint, Supervisor terminates the Worker tree;
+4. lease expiry recovery applies;
+5. repeated stalls count toward root attempt budget.
+
+Known long-running tools must emit progress. Tools marked
+`progress_required=True` fail configuration validation if they cannot.
+
+### 24.4 Worker crash loop
+
+Supervisor tracks process exits in memory:
+
+- exponential restart backoff;
+- bounded restarts per rolling window;
+- readiness false when minimum Worker capacity is unavailable;
+- alert with exit code and safe metadata;
+- no durable `workers` row that could become a second truth.
+
+### 24.5 Control Plane crash
+
+Supervisor restarts Control Plane independently.
+
+While it is unavailable:
+
+- Workers may finish or claim already accepted tasks;
+- new Channel intake is unavailable;
+- Outbox delivery pauses;
+- durable task results remain safe;
+- realtime events may be lost.
+
+### 24.6 Supervisor crash
+
+All children must terminate with the Supervisor:
+
+- Windows Job Object configured kill-on-close;
+- POSIX process group and parent-death mechanism;
+- container init configured to reap children.
+
+On restart, a new Supervisor:
+
+- opens and validates Runtime Store;
+- starts Control Plane and Workers;
+- reclaims expired leases;
+- resumes Outbox;
+- does not delete or recreate the ledger.
+
+### 24.7 Graceful shutdown
+
+1. stop accepting new Channel or API work;
+2. stop new claims;
+3. let active tasks reach a checkpoint;
+4. flush prepared session commits;
+5. release or shorten task leases;
+6. finish or release Outbox sends;
+7. terminate Worker child trees;
+8. checkpoint WAL when safe;
+9. close connections and Channels;
+10. exit before shutdown grace expires.
+
+Required work remains represented in SQLite if grace expires.
+
+### 24.8 Database unavailable or disk full
+
+- stop accepting work before acknowledgement;
+- stop claiming new work;
+- do not continue Agent execution when a durable boundary cannot commit;
+- retain current lease until safe grace expires;
+- expose not-ready health;
+- retry bounded transient lock errors;
+- alert on disk-full or repeated I/O failure;
+- never fall back to an in-memory authority.
+
+### 24.9 Corrupt ledger
+
+1. stop all claims and acceptance;
+2. preserve database and WAL for diagnosis;
+3. expose not-ready;
+4. restore only from verified SQLite online backup;
+5. inspect tool calls and deliveries that were running at the backup boundary;
+6. never automatically delete and recreate `runtime.sqlite`.
+
+`memory.db` may be rebuilt because it is derived.
+
+## 25. Budgets, Quotas, and Worker Recycling
+
+### 25.1 Stable task defaults
+
+- inner tool iterations: 50;
+- cumulative input Tokens: 200,000;
+- cumulative output Tokens: 50,000;
+- existing tool-result injection limit: 16,000 characters;
+- run-segment wall time: 120 minutes;
 - warning threshold: 70%;
 - root Worker attempts: three.
 
-The legacy `max_tool_iterations=200` remains parseable for compatibility, but
-the supervised stable profile recommends 50.
+At the segment wall-time limit:
 
-At the wall-time limit, save a checkpoint and ask whether to continue. An
-approved continuation becomes a new durable continuation task.
+1. checkpoint;
+2. stop further external effects;
+3. enter `WAITING_USER`;
+4. enqueue a question asking whether to continue;
+5. on approval, resume the same task with incremented `run_segment`.
 
-### 19.2 Global quotas
+Cumulative Token limits do not reset automatically. An explicit continuation
+policy may raise them through a control payload.
 
-`ResourceQuotaManager` controls across all Workers:
+### 25.2 Capacity
 
-- Provider concurrent calls;
-- requests per minute;
-- Tokens per minute;
-- active subagents;
-- local embedding calls;
-- browsers and other heavy tools;
-- per-service external API concurrency.
+Use:
 
-Quota permits are leases and expire after Worker death.
+- Worker count for root-task capacity;
+- process-local semaphores for coroutine safety;
+- `resource_leases` for cross-process quotas and exclusive resources.
 
-### 19.3 Subagents
+Default global quotas:
 
-Stable defaults:
+- root tasks: Worker count;
+- subagents: four total;
+- low-priority maintenance: one;
+- exclusive tool scope: one lease for its resource key.
 
-- two concurrent subagents per cloud-backed root task;
-- one per local-model root task;
-- four active subagents globally;
-- existing recursion depth one;
-- all subagent usage counts against the root budget.
+Subagents:
 
-### 19.4 Worker recycling
+- execute inside their owning root Worker in version one;
+- receive task/turn lineage and scoped `TurnRuntime`;
+- count against global subagent lease capacity;
+- cannot commit the root session or final Outbox directly;
+- return results to the root Agent;
+- are cancelled and drained before Worker task release.
 
-Optional configuration:
+### 25.3 Recycling
 
-- maximum Worker RSS;
+Optional thresholds:
+
+- maximum RSS;
 - maximum Worker uptime;
-- maximum tasks before recycle.
+- maximum tasks per Worker.
 
-A Worker exceeding a configured threshold drains and restarts at a checkpoint.
-Only one Worker recycles at a time.
+Recycle only between tasks. A Worker over a hard memory threshold during a task
+is asked to checkpoint, then terminated if it cannot.
 
-## 20. Error Model
+## 26. Error Model
 
-Stable machine-readable error codes include:
+Safe error codes:
 
-- `RUNTIME_DB_UNAVAILABLE`
-- `RUNTIME_DB_BUSY_EXHAUSTED`
-- `SCHEMA_VERSION_UNSUPPORTED`
-- `TASK_LEASE_LOST`
-- `TASK_STALLED`
-- `TASK_ATTEMPTS_EXHAUSTED`
-- `SESSION_VERSION_CONFLICT`
-- `CONTEXT_SNAPSHOT_MISSING`
-- `PROVIDER_TRANSIENT`
-- `PROVIDER_PERMANENT`
-- `PROVIDER_RATE_LIMITED`
-- `BUDGET_EXCEEDED`
-- `TOOL_POLICY_DENIED`
-- `TOOL_RETRY_EXHAUSTED`
-- `TOOL_OUTCOME_UNKNOWN`
-- `APPROVAL_EXPIRED`
-- `RESOURCE_QUOTA_EXHAUSTED`
-- `OUTBOX_DELIVERY_UNKNOWN`
-- `MEMORY_RECALL_DEGRADED`
-- `ARTIFACT_HASH_MISMATCH`
+- `RUNTIME_DB_BUSY`;
+- `RUNTIME_DB_IO`;
+- `RUNTIME_DB_FULL`;
+- `RUNTIME_DB_CORRUPT`;
+- `STALE_LEASE`;
+- `LEASE_EXPIRED`;
+- `TASK_ATTEMPTS_EXHAUSTED`;
+- `TASK_STALLED`;
+- `TASK_CONTINUATION_EXPIRED`;
+- `MODEL_RETRYABLE`;
+- `MODEL_PERMANENT`;
+- `MODEL_JOURNAL_FAILED`;
+- `TOOL_POLICY_DENIED`;
+- `TOOL_APPROVAL_REQUIRED`;
+- `TOOL_CALL_ID_CONFLICT`;
+- `TOOL_RETRYABLE`;
+- `TOOL_PERMANENT`;
+- `TOOL_OUTCOME_UNKNOWN`;
+- `SESSION_REVISION_CONFLICT`;
+- `SESSION_COMMIT_IO`;
+- `DELIVERY_RETRYABLE`;
+- `DELIVERY_PERMANENT`;
+- `RESOURCE_CAPACITY`;
+- `CANCELLED_BY_USER`.
 
-Each error records:
+Rules:
 
-- stable code;
-- retry class;
-- bounded safe summary;
-- causal component;
-- task and step identifiers;
-- timestamp.
+- Runtime Store errors are classified at the SQLite boundary;
+- raw SQL, credentials, prompts, arguments, results, and paths outside the
+  workspace are not placed in `error_summary`;
+- transient errors use bounded exponential backoff with jitter;
+- permanent errors do not enter infinite retry loops;
+- state transition conflicts are reread and resolved, not blindly retried;
+- stale lease is terminal for that Worker attempt;
+- user-visible errors are produced through Outbox.
 
-Raw exception messages that might contain user data remain in protected local
-diagnostics or are redacted.
+## 27. Configuration Contract
 
-## 21. Observability and Health
-
-Extend existing `TurnTelemetry`; do not replace it.
-
-### 21.1 Task metrics
-
-- queue depth and oldest age by kind and priority;
-- task state counts;
-- completion latency;
-- recovery count and duration;
-- stall count;
-- waiting-approval count.
-
-### 21.2 Worker metrics
-
-- state and heartbeat age;
-- active task;
-- restarts and quarantine;
-- CPU and RSS;
-- thread and file-handle count;
-- event-loop delay;
-- tasks completed.
-
-### 21.3 LLM and tool metrics
-
-- calls, latency, errors, Tokens, and cost;
-- fallback and 429 count;
-- iteration count;
-- tool retry, approval, unknown, lock wait, and cancellation count.
-
-### 21.4 Storage and delivery metrics
-
-- SQLite commit and lock-wait latency;
-- WAL and database size;
-- checkpoint and blob cleanup backlog;
-- outbox depth and oldest age;
-- vector-index lag and degraded recall count.
-
-### 21.5 Health endpoints
-
-- `live`: process responds;
-- `ready`: schema valid, ledger writable, required locks acquired, service can
-  accept work;
-- `healthy`: detailed Worker, Channel, outbox, Provider, and memory status.
-
-Provider or vector recall failure produces a degraded health report; it does
-not automatically make Gateway dead.
-
-### 21.6 Minimum alerts
-
-- fewer than two available Workers;
-- Worker crash loop;
-- oldest user task exceeds five minutes;
-- any dangerous `UNKNOWN` tool outcome;
-- outbox item older than two minutes;
-- ledger write failure;
-- continually growing WAL;
-- repeated task crash at one checkpoint;
-- unbounded RSS/thread/handle trend;
-- persistent vector-index backlog.
-
-## 22. Security and Privacy
-
-- runtime and memory databases use owner-only filesystem permissions where the
-  operating system supports them;
-- credentials remain in the credential provider and are referenced, not copied;
-- sensitive tool fields are redacted from events and logs;
-- full recovery payloads are stored only in protected runtime blobs;
-- workspace artifact references are path-validated and hash-validated;
-- approvals bind principal, operation, arguments, and expiry;
-- Channel identity linking is explicit;
-- vector recall filters by tenant, principal, Agent, workspace, and kind before
-  similarity ranking;
-- `unified_session` remains a single-owner convenience and must not collapse
-  unrelated users into one memory scope.
-
-At-rest encryption of all local runtime content is a future enhancement, not a
-hidden first-version requirement. The first version relies on operating-system
-permissions and secret references.
-
-## 23. Retention and Maintenance
-
-Defaults:
-
-- successful task checkpoints and large runtime blobs: seven days;
-- failed, approval, and unknown-outcome records: 30 days;
-- compact aggregate metrics: deployment log policy;
-- terminal outbox payloads: seven days unless Channel policy requires less.
-
-Cleanup:
-
-- runs as low-priority durable maintenance;
-- deletes in bounded batches;
-- verifies no non-terminal row references a blob;
-- checkpoints WAL during quiet periods;
-- performs `VACUUM` only in an explicit maintenance window;
-- uses SQLite online backup, never filesystem copy of an open WAL database.
-
-## 24. Configuration Contract
-
-Recommended configuration shape:
+Recommended shape:
 
 ```json
 {
   "runtime": {
+    "enabled": true,
     "mode": "supervised",
     "databasePath": "runtime/runtime.sqlite",
+    "backupPath": "runtime/backups",
     "workerCount": 3,
+    "lightweightExecutionSlots": 1,
     "workerConcurrency": 1,
     "heartbeatIntervalS": 15,
     "leaseTimeoutS": 180,
@@ -1603,13 +2892,20 @@ Recommended configuration shape:
     "taskMaxAttempts": 3,
     "queuePollMinMs": 250,
     "queuePollMaxMs": 2000,
+    "sqliteBusyTimeoutMs": 5000,
     "realtimeEventQueueCapacity": 1000,
     "shutdownGraceS": 60,
     "approvalTimeoutM": 30,
+    "waitingAlertM": 60,
+    "outboxLeaseTimeoutS": 120,
+    "outboxMaxAttempts": 8,
+    "channelSendTimeoutS": 60,
     "successfulRetentionD": 7,
     "failureRetentionD": 30,
     "backupIntervalH": 6,
     "backupRetentionD": 7,
+    "inlineBlobMaxBytes": 1048576,
+    "minimumFreeDiskMb": 1024,
     "maxTurnWallTimeM": 120,
     "stableMaxToolIterations": 50,
     "globalMaxSubagents": 4,
@@ -1620,381 +2916,982 @@ Recommended configuration shape:
 }
 ```
 
-Validation rules:
+Validation:
 
-- supervised `workerCount` defaults to three and must be at least two;
+- mode is `lightweight` or `supervised`;
+- supervised Worker count is at least two, default three;
 - supervised version one requires `workerConcurrency=1`;
-- heartbeat interval must be less than one third of lease timeout;
-- progress timeout must exceed heartbeat interval;
-- queue maximum poll must be less than the lease scan interval;
-- retention values must be positive;
-- lightweight mode defaults to one execution slot;
+- lightweight slots are one to three;
+- heartbeat is less than one third of lease timeout;
+- progress timeout exceeds heartbeat;
+- maximum queue poll is below lease scan interval;
+- Outbox lease timeout exceeds Channel send timeout;
+- SQLite busy timeout is positive and shorter than task lease timeout;
+- all attempts, timeouts, and retention values are positive;
+- database path resolves inside the configured runtime data root unless
+  explicitly allowed;
+- backup path differs from the live database directory and resolves inside an
+  allowed persistent data root;
+- Worker memory recommendations are checked against container limits;
 - explicit user configuration wins over launcher defaults.
 
-Service launcher defaults to supervised. CLI and development launchers default
-to lightweight.
+`runtime.enabled=false` selects the complete legacy path during rollout. It
+must not make a single task partly durable and partly legacy.
 
-## 25. Current Module Integration Map
+Initial container sizing guidance:
 
-Implementation should evolve existing files through narrow adapters:
+- lightweight, one slot: current one-CPU/one-GiB profile may be retained after
+  measured validation;
+- supervised, three Workers: start with at least two CPUs, two GiB memory, and
+  PID limit 512;
+- local models, browsers, MCP servers, and heavy tools require additional
+  measured capacity;
+- deployment must leave enough disk for active blobs, WAL growth, and one
+  online backup.
 
-### `miniunicorn/agent/turn_dispatcher.py`
+These are starting profiles, not correctness constants. Readiness reports
+resource exhaustion instead of silently reducing durable guarantees.
 
-- remain the inbound compatibility boundary;
-- submit durable tasks instead of directly owning execution in supervised mode;
-- lightweight mode may submit and await through the same service.
+## 28. Entrypoint Behavior
 
-### `miniunicorn/agent/turn_coordinator.py`
+### 28.1 CLI one-shot
 
-- retain task-local `TurnRuntime` binding;
-- retain lightweight in-process admission control;
-- stop being the authoritative cross-process session-order mechanism;
-- authoritative ordering moves to `session_slots`.
+Default:
 
-### `miniunicorn/agent/turn_executor.py`
+```text
+runtime.enabled=true
+runtime.mode=lightweight
+execution_slots=1
+```
 
-- remain the outer-state executor;
-- emit a checkpoint after each durable state;
-- route command shortcuts through reliable save/respond.
+Flow:
 
-### `miniunicorn/agent/turn_persistence.py`
+1. start Lightweight Host;
+2. submit stable local inbound envelope;
+3. await task terminal state and required Outbox delivery;
+4. stop gracefully.
 
-- expose the checkpoint port;
-- add the `runtime.sqlite` implementation outside Agent Core;
-- retain a legacy session-metadata checkpoint reader for migration;
-- do not dual-write forever.
+If interrupted, the next CLI start opens the same ledger and can resume or
+report the task.
 
-### `miniunicorn/agent/turn_runtime.py`
+### 28.2 Development Gateway and tests
 
-- add task, attempt, Worker, and lease context without reintroducing shared
-  mutable state;
-- continue to feed `TurnTelemetry`.
+Default lightweight. Tests may use an in-memory fake store for Agent unit tests
+or a temporary SQLite file for runtime tests.
 
-### `miniunicorn/agent/runner.py`
+### 28.3 Long-running Gateway
 
-- persist complete LLM decisions;
-- checkpoint at every LLM/tool boundary;
-- execute tools through Tool Gateway;
-- preserve context governance, Planner, budget, injection, and hook behavior.
+Default supervised. All Channel and API messages enter Task Service.
 
-### `miniunicorn/agent/memory.py` and `vector_memory.py`
+### 28.4 SDK and direct processing
 
-- preserve current memory semantics;
-- make required background work durable;
-- harden vector indexing for multi-process idempotency and source versions.
+Existing `process_direct` and SDK entrypoints must route through Task Service
+when runtime is enabled. A compatibility method may submit and await, but may
+not call Agent execution directly.
 
-### Channel and bus modules
+### 28.5 Cron
 
-- normalize inbound tasks;
-- consume validated Worker Agent events;
-- deliver outbox messages;
-- stop treating Worker-local streaming as the final source of truth.
+Cron submits either:
 
-### New runtime infrastructure package
+- a `USER_TURN` with a configured system Channel target; or
+- a typed internal task.
 
-A focused package under `miniunicorn/runtime/` should own:
+Cron does not create a detached Agent coroutine.
 
-- contracts and state transitions;
-- SQLite migrations and repositories;
-- durable scheduler;
-- Worker registry and lease reaper;
-- Worker host;
-- Supervisor;
-- Tool Gateway policy and journal adapters;
-- outbox;
-- global quotas;
-- health and maintenance.
+## 29. Current Module Integration Map
 
-Core Agent files may depend on protocols from this package's dependency-light
-contract layer. They may not depend on its SQLite implementation.
+### 29.1 `miniunicorn/agent/turn_dispatcher.py`
 
-## 26. Migration and Rollout
+Keep:
 
-The feature is delivered in phases. Do not perform a big-bang three-process
-rewrite.
+- inbound normalization compatibility;
+- duplicate-response futures for callers awaiting a result;
+- mapping current message types to runtime envelopes.
 
-### Phase 0: contracts and characterization
+Change:
 
-- freeze current outer and inner behavior with tests;
-- add typed runtime contracts and centralized state transitions;
-- add SQLite migrations and repository tests;
-- add no production process split.
+- replace in-memory pending-session ownership with `TaskService.submit()`;
+- replace direct `asyncio.create_task()` execution with submit-and-await;
+- read completion through task/Outbox status;
+- never publish final outbound messages directly.
 
-Exit criterion: current behavior passes through contract adapters.
+Remove as authority:
 
-### Phase 1: durable lightweight runtime
+- `_active_tasks`;
+- `_pending_by_session`;
+- process-local task ordering.
 
-- create `runtime.sqlite`;
-- route inbound turns through durable accept/claim;
-- add checkpoints and idempotent session commit;
-- retain one process.
+### 29.2 `miniunicorn/agent/turn_coordinator.py`
 
-Exit criterion: kill and restart the single process at every outer state
-without losing or duplicating a turn.
+Keep:
 
-### Phase 2: Tool Gateway and outbox
+- process-local execution semaphore;
+- local cancellation/drain helpers.
 
-- centralize tool policy and execution journal;
-- add risk metadata to existing tools;
-- add approval and unknown-outcome flow;
-- route final replies through outbox.
+Rename responsibility conceptually to local execution limiter.
 
-Exit criterion: the side-effect crash matrix passes with fake external
-services.
+Remove as authority:
 
-### Phase 3: supervised Workers
+- global task capacity;
+- cross-process session serialization.
 
-- add Supervisor and Control Plane;
-- add three one-task Worker processes;
-- add realtime IPC and durable control messages;
-- add lease reaper, generation fencing, and crash-loop quarantine.
+Do not delete it until all legacy callers are migrated.
 
-Exit criterion: random Worker termination recovers safely under concurrent
-sessions.
+### 29.3 `miniunicorn/agent/turn_executor.py`
 
-### Phase 4: durable maintenance and memory hardening
+Keep the outer state machine.
 
-- move required reflection, Dream, consolidation, indexing, and cleanup to
-  durable task kinds;
-- harden existing `memory.db`;
-- add revision-aware memory updates and fallback metrics.
+Change:
 
-Exit criterion: maintenance restarts safely and cannot overwrite newer memory.
+- inject Agent-owned ports;
+- route command results through `SAVE` and `RESPOND`;
+- check controls at specified boundaries;
+- return a structured completion to Worker Adapter instead of publishing.
 
-### Phase 5: stable-profile default
+### 29.4 `miniunicorn/agent/turn_persistence.py`
 
-- add service-launcher default;
-- add dashboards and minimum alerts;
-- complete chaos, load, upgrade, and seven-day soak;
-- document operating and recovery procedures.
+Split responsibilities without duplicating state:
 
-Exit criterion: all acceptance criteria in this design pass.
+- legacy checkpoint reader for migration;
+- durable checkpoint adapter implementing `TurnJournalPort`;
+- Session Committer adapter implementing `SessionCommitPort`.
 
-### Legacy checkpoint migration
+For runtime tasks:
 
-When a session has legacy `runtime_checkpoint` metadata and no corresponding
-ledger task:
+- do not write `runtime_checkpoint`;
+- do not write `pending_user_turn`;
+- do not convert pending calls into synthetic errors.
 
-1. create one migration task with a new task and turn ID;
-2. import the safe completed portions;
-3. treat unresolved pending external tools conservatively;
-4. complete through the new runtime;
-5. remove the legacy checkpoint only after success.
+### 29.5 `miniunicorn/agent/turn_runtime.py`
 
-New work does not dual-write both checkpoint formats.
+Keep as task-local context.
 
-### Upgrade procedure
+Add immutable identifiers:
 
-Before enabling supervised mode:
+- `task_id`;
+- `turn_id`;
+- `session_sequence`;
+- `lease_epoch`;
+- `run_segment`;
+- trace id.
 
-1. stop accepting new tasks;
-2. drain or checkpoint current in-process work;
-3. back up workspace and runtime databases;
-4. apply runtime schema migrations;
-5. start Control Plane and one Worker in canary mode;
-6. validate queue, outbox, and memory;
-7. expand to three Workers;
-8. enable stable default.
+Do not store SQLite connections or mutable global singletons in contextvars.
 
-Rollback returns to lightweight mode using the same ledger. It does not require
-converting task data.
+### 29.6 `miniunicorn/agent/runner.py`
 
-## 27. Testing Strategy
+Keep:
 
-Implementation follows test-driven development and keeps each phase
-independently reviewable.
+- inner loop;
+- context governance;
+- Planner;
+- budget tracking;
+- injection behavior;
+- hooks;
+- tool batching semantics.
 
-### 27.1 Unit tests
+Change:
 
-Cover:
+- accept `TurnJournalPort`, `ToolExecutionPort`, and `ControlInboxPort`;
+- create stable logical model-call ids;
+- consume model output only after durable observer completion;
+- replace direct `tool.execute()` with Tool Gateway port;
+- checkpoint after completed model and tool boundaries;
+- propagate safe progress.
 
-- every valid and invalid task transition;
-- inbound deduplication;
+### 29.7 Provider modules
+
+Keep retry and fallback policy.
+
+Change:
+
+- accept optional `ProviderAttemptObserver`;
+- notify every physical attempt;
+- await durable completion callback before returning response;
+- create clients after process spawn.
+
+### 29.8 `miniunicorn/agent/tools/base.py`
+
+Keep existing compatibility metadata.
+
+Add optional effective-policy hooks or declarative defaults for:
+
+- effect;
+- risk;
+- idempotency;
+- approval;
+- recovery;
+- concurrency scope;
+- progress and timeout.
+
+### 29.9 `miniunicorn/agent/tools/registry.py`
+
+Keep discovery, schema, preparation, and invocation.
+
+Change:
+
+- return `PreparedToolCall` with normalized hash and effective policy;
+- expose actual invocation only to Tool Gateway for runtime tasks;
+- preserve a test-only or legacy direct execution path while runtime is
+  disabled.
+
+### 29.10 `miniunicorn/agent/tools/message.py`
+
+Replace direct Channel callback with an injected Outbox-enqueue effect.
+
+The tool returns the durable `outbox_id`, not a guessed delivery result.
+
+### 29.11 `miniunicorn/session/manager.py`
+
+Add:
+
+- persisted revision;
+- fresh reload;
+- cross-process lock;
+- commit-id deduplication;
+- `commit_turn`;
+- cache invalidation after external revision change.
+
+Preserve current session file content and atomic replace behavior.
+
+### 29.12 `miniunicorn/channels/base.py`
+
+Extend internal send result to `DeliveryReceipt`. Public compatibility wrappers
+may continue returning `None` after a successful receipt.
+
+### 29.13 `miniunicorn/channels/manager.py`
+
+Keep:
+
+- Channel lifecycle;
+- formatting;
+- provider adapters;
+- provider retry hints;
+- streaming behavior.
+
+Change:
+
+- expose receipt-bearing send to Outbox Sender;
+- disable the current process-local application-level retry loop on the runtime
+  delivery path and return retry classification to Outbox;
+- remove process-local final-message dedup as authority;
+- do not consume Worker-local completion as final truth.
+
+### 29.14 `miniunicorn/bus/queue.py`
+
+Keep bounded queues for:
+
+- wake hints;
+- inbound adapter handoff before durable submission only when acknowledgement
+  waits for commit;
+- realtime Agent events.
+
+Do not use them as the durable inbound or outbound source of truth.
+
+### 29.15 Agent event and telemetry modules
+
+Keep strict protocol version one and current telemetry.
+
+Add:
+
+- mapping from durable state to snapshot events;
+- queue-drop counters;
+- lease/recovery/Outbox metrics.
+
+Do not create a second telemetry stack.
+
+### 29.16 Dream, consolidation, indexing, and Task Supervisor
+
+Change required triggers to enqueue durable internal tasks.
+
+Keep `TaskSupervisor` for disposable, reconstructable coroutines only.
+
+### 29.17 Gateway composition
+
+Current Gateway composition passes mutable Agent and Channel callbacks through
+one process. Replace it with Host construction:
+
+- Control Plane owns Channels;
+- Workers own Agent factories and Provider/tool clients;
+- Runtime contracts bridge them;
+- WebSocket control uses Task Service, not direct Agent mutation;
+- final replies come from Outbox;
+- realtime events come from the event bridge.
+
+## 30. Implementation Work Packages
+
+Work packages are ordered. Each package must pass its listed tests before the
+next begins. Do not implement as one big-bang change.
+
+### WP0: Characterization and dependency rules
+
+Files:
+
+- existing Agent, Session, Channel, Provider, Tool, and Gateway tests;
+- add `tests/architecture/test_runtime_dependencies.py`;
+- add crash-boundary characterization fixtures.
+
+Tasks:
+
+1. characterize current command, model, tool, session, and final response flow;
+2. freeze current Agent event protocol behavior;
+3. reproduce stale two-`SessionManager` overwrite;
+4. assert Agent modules do not import SQLite or multiprocessing;
+5. inventory every direct `process_direct`, `tool.execute`, Channel send,
+   maintenance `create_task`, and final outbound publication.
+
+Exit:
+
+- characterization tests pass;
+- inventory is represented as failing or skipped migration tests with explicit
+  target work package markers;
+- no production behavior changes.
+
+### WP1: Runtime contracts, configuration, and SQLite foundation
+
+Create:
+
+- `miniunicorn/agent/ports.py`;
+- runtime package structure from section 10;
+- enums and immutable DTOs;
+- Runtime Store protocols;
+- configuration parser and validation;
+- migration 001 with all schema tables and indexes;
+- connection factory and `SqliteRuntimeStore`.
+
+Implement first:
+
+- blob insert/read;
+- task submit/dedup;
+- control append;
 - session sequence allocation;
-- atomic claim races;
-- lease renewal and expiration;
-- stale generation, token, epoch, and version rejection;
-- checkpoint serialization and recovery matrix;
-- idempotent turn commit;
-- tool classification and retry matrix;
-- approval binding and expiry;
-- outbox claim and deduplication;
-- quota lease expiration;
-- typed IPC event validation;
-- retention reference safety;
-- configuration validation.
+- claim/renew/fence;
+- task events;
+- retry promotion and lease reclaim.
 
-### 27.2 SQLite concurrency tests
+Tests:
 
-Use separate processes and connections to prove:
+- every allowed and forbidden transition;
+- duplicate inbound races;
+- session head claim ordering;
+- priority across different sessions;
+- stale token and epoch rejection;
+- renewal without state-version change;
+- event immutability trigger and retention guard;
+- migration checksum and concurrent startup;
+- WAL/busy timeout configuration.
 
-- two Workers cannot claim one task;
-- one session cannot run two root tasks;
-- different sessions can claim concurrently;
-- stale Workers cannot write;
-- bounded `BUSY` retry works;
-- WAL checkpoints do not corrupt active work;
-- schema migration excludes Worker startup.
+Exit:
 
-### 27.3 Agent integration tests
+- store concurrency tests pass with multiple processes;
+- no Agent code uses it yet.
 
-Inject process termination:
+### WP2: Revision-aware Session Manager
 
-- before and after every outer state;
-- after `LLM_STARTED`;
-- after `LLM_COMPLETED`;
-- before and after tool execution;
-- between session write and `TURN_SAVED`;
-- between outbox insert and task completion;
-- after Channel send but before delivery receipt.
+Files:
 
-Assert:
+- `miniunicorn/session/manager.py`;
+- session model/serialization helpers;
+- new `runtime/session_committer.py`.
 
-- no accepted turn is lost;
-- no session message is duplicated;
-- persisted LLM results are reused;
-- safe tools retry correctly;
-- dangerous unknown outcomes pause;
-- final response remains deliverable.
+Tasks:
 
-### 27.4 Multi-Worker tests
+1. add session revision and commit-id index;
+2. add OS-visible per-session lock;
+3. implement `load_fresh`;
+4. implement idempotent `INBOUND` and `FINAL` `commit_turn`;
+5. preserve existing format compatibility;
+6. implement prepare/apply/confirm coordinator;
+7. invalidate process caches on revision change.
 
-Run three real processes and verify:
+Tests:
 
-- three different sessions run concurrently;
-- the fourth waits;
-- same-session tasks remain ordered;
-- killing one Worker does not stop the others;
-- a replacement Worker resumes after fencing;
-- an old Worker cannot publish late results;
-- Control Plane restart loses only transient streaming;
-- Supervisor restart reconstructs process state.
+- two independent managers cannot lose writes;
+- identical commit is applied once;
+- inbound user message is committed once after claim and before Agent
+  execution;
+- final mutation does not duplicate the inbound user message;
+- same commit id with different hash fails;
+- stale revision never overwrites;
+- crash after prepare;
+- crash after filesystem replace before SQLite confirm;
+- file and parent directory fsync behavior;
+- Windows and POSIX lock adapters where supported.
 
-### 27.5 Tool-effect tests
+Exit:
 
-Use a fake external service supporting:
+- stale-cache regression passes;
+- existing session tests remain green.
 
-- idempotency receipts;
-- success followed by lost response;
-- explicit failure;
-- delayed response;
-- rate limiting;
-- duplicate requests.
+### WP3: Durable lightweight task path
 
-Also test a fake service without idempotency support. The expected result after
-a lost response is `UNKNOWN`, not an automatic replay.
+Files:
 
-### 27.6 Memory tests
+- `runtime/task_service.py`;
+- `runtime/scheduler.py`;
+- `runtime/worker.py`;
+- `runtime/hosts/lightweight.py`;
+- adapters in dispatcher, executor, persistence, and runtime context.
 
-Verify:
+Tasks:
 
-- existing non-vector fallback remains;
-- `memory.db` uses one compatible fingerprint;
-- repeated indexing is idempotent;
-- tombstones suppress recall;
-- cross-principal recall is impossible;
-- stale Dream output cannot overwrite a newer revision;
-- vector failure does not block a user turn;
-- index rebuild does not modify source memory files.
+1. submit user turns durably;
+2. make Worker commit the inbound user message after claim and before Agent
+   execution;
+3. run one Worker coroutine through the Scheduler;
+4. restore/checkpoint Agent outer phases;
+5. commit final session mutations through Session Committer;
+6. expose submit-and-await compatibility;
+7. keep final response temporarily behind an internal fake delivery ledger
+   until WP5, without direct Channel delivery in runtime tests;
+8. remove `COMMAND -> DONE` for runtime tasks.
 
-### 27.7 Load and soak tests
+Tests:
 
-The pre-release soak runs seven days with:
+- process restart after each outer phase;
+- same-session strict ordering;
+- different-session concurrency with two lightweight slots;
+- cancellation at safe boundaries;
+- no runtime task exists only in `_active_tasks` or pending queues;
+- legacy path still works when `runtime.enabled=false`.
 
-- three Workers;
-- mixed short and long tasks;
-- multiple sessions and Channels;
-- periodic Provider timeouts and 429s;
-- random Worker termination every 5–15 minutes;
-- periodic Control Plane restart;
-- background Dream, consolidation, indexing, and cleanup;
-- Channel delivery failures;
-- repeated duplicate inbound messages.
+Exit:
 
-Measure after warmup:
+- CLI can submit, crash, restart, and finish one task in lightweight mode.
 
-- zero lost accepted tasks;
-- zero same-session ordering violations;
-- zero duplicate idempotent side effects;
-- every non-idempotent uncertain effect enters `WAITING_USER`;
-- dead-Worker recovery completes within lease timeout plus one scan interval;
-- final eight-hour average RSS remains within 15% of the first stable
-  eight-hour average unless workload size changes;
-- thread and file-handle counts remain within a fixed tested bound;
-- WAL returns below its configured maintenance threshold;
-- no required background task exists only in process memory.
+### WP4: Provider journaling and Tool Gateway
 
-CI may run an accelerated shorter chaos test. It does not replace the seven-day
-release soak.
+Files:
 
-## 28. Acceptance Criteria
+- Agent Runner;
+- Provider base/fallback implementations;
+- Tool base/registry;
+- `runtime/tool_gateway.py`;
+- Runtime Store model/tool methods.
+
+Tasks:
+
+1. add Provider observer;
+2. expose every retry and fallback attempt;
+3. checkpoint completed model decisions;
+4. add prepared invocation policy;
+5. implement logical tool call and attempt journal;
+6. implement approval controls;
+7. implement resource leases;
+8. route Runner through `ToolExecutionPort`;
+9. add task child-process containment.
+
+Tests:
+
+- Provider crash before and after durable completion;
+- fallback attempts recorded in order;
+- completed model response not consumed before journal commit;
+- read tool replay;
+- native idempotency retry;
+- result reuse;
+- non-idempotent unknown effect enters `WAITING_USER`;
+- exact approval hash required;
+- concurrent exclusive tools serialize;
+- stale Worker cannot commit tool result;
+- child process tree dies with Worker.
+
+Exit:
+
+- no runtime Agent tool bypasses Tool Gateway.
+
+### WP5: Durable Outbox and Channel integration
+
+Files:
+
+- `runtime/outbox.py`;
+- Runtime Store delivery methods;
+- Channel base and manager;
+- Message Tool;
+- bus final delivery path.
+
+Tasks:
+
+1. implement atomic complete-and-enqueue;
+2. implement target-head Outbox claim;
+3. add Channel receipts;
+4. implement retry, permanent failure, and delivery fencing;
+5. route Message Tool through Outbox;
+6. retain transient streaming on Message Bus;
+7. remove direct final Channel sends for runtime tasks.
+
+Tests:
+
+- crash before and after enqueue;
+- crash after Channel success before durable receipt;
+- native idempotency, receipt lookup, and no-capability recovery behavior;
+- retrying earlier message blocks later same-target message;
+- different targets send concurrently;
+- idempotent Channels deliver one logical final reply;
+- non-idempotent ambiguous sends become `OUTCOME_UNKNOWN` without automatic
+  resend;
+- Message Tool returns stable Outbox receipt;
+- realtime queue overflow does not lose final reply.
+
+Exit:
+
+- all user-visible runtime messages use Outbox.
+
+### WP6: Supervised Host
+
+Files:
+
+- `runtime/ipc.py`;
+- `runtime/supervisor.py`;
+- `runtime/hosts/supervised.py`;
+- Gateway launcher and shutdown integration.
+
+Tasks:
+
+1. spawn Control Plane and Worker children;
+2. initialize all process-local dependencies after spawn;
+3. let Workers claim directly from SQLite;
+4. implement wake hints and realtime event bridge;
+5. implement process restart backoff;
+6. implement Windows Job Object and POSIX process-group containment;
+7. implement graceful shutdown;
+8. expose readiness from Control Plane and Worker capacity.
+
+Tests:
+
+- spawn semantics on Windows and POSIX CI;
+- Worker killed during model, read tool, write tool, session commit, and
+  completion;
+- Control Plane restart while Worker runs;
+- Supervisor death terminates descendants;
+- stale Worker fencing;
+- no inherited SQLite, socket, Provider, or Agent object;
+- lightweight and supervised golden-flow parity.
+
+Exit:
+
+- three Workers process different sessions concurrently and one session
+  serially across repeated crashes.
+
+### WP7: Durable maintenance and memory hardening
+
+Files:
+
+- Dream trigger;
+- consolidator;
+- memory index integration;
+- Cron service;
+- vector memory store;
+- `runtime/maintenance.py`.
+
+Tasks:
+
+1. enqueue required work with deterministic dedup keys;
+2. apply maintenance priority and one-task quota;
+3. add source revision checks;
+4. add vector index idempotency, WAL, busy timeout, and scope;
+5. add retention, blob GC, backup, and WAL checkpoint tasks.
+
+Tests:
+
+- restart during every maintenance kind;
+- stale consolidation cannot overwrite newer memory;
+- duplicate index task is harmless;
+- user work preempts new maintenance claims;
+- `memory.db` rebuild reproduces searchable state;
+- required work has a durable task row.
+
+Exit:
+
+- no required background operation is owned only by Task Supervisor.
+
+### WP8: Cutover, observability, and hardening
+
+Tasks:
+
+1. route every ingress through Host and Task Service;
+2. add migration reader and cutover tooling;
+3. add metrics, health, safe alerts, online backups, and retention;
+4. update operator documentation and example configuration;
+5. update container CPU, memory, PID, and shutdown defaults;
+6. run load, fault-injection, and soak suites;
+7. remove legacy authority after the rollback window.
+
+Exit:
+
+- all acceptance criteria in section 34 pass;
+- legacy direct path is deleted or available only behind an explicitly
+  unsupported migration flag.
+
+## 31. Migration and Rollout
+
+### 31.1 No per-task dual write
+
+During rollout:
+
+- `runtime.enabled=false` uses the complete legacy path;
+- `runtime.enabled=true` uses the complete durable path;
+- one task never writes both durable checkpoints and legacy session checkpoint
+  metadata;
+- Message Bus may mirror realtime events, but mirrored events are not
+  authorities.
+
+### 31.2 Legacy checkpoint reader
+
+At first durable startup, while intake is stopped:
+
+1. scan sessions for `pending_user_turn` and `runtime_checkpoint`;
+2. if no incomplete metadata exists, record migration complete;
+3. if `pending_user_turn` has stable inbound identity and no evidence of
+   execution, convert it into one `USER_TURN` and register its existing
+   persisted user message as the committed `INBOUND` mutation without appending
+   it again;
+4. if a legacy checkpoint contains a completed final response not delivered,
+   require operator review before Outbox import;
+5. if a legacy checkpoint contains pending or running tool calls, do not replay
+   them; preserve metadata and create a `WAITING_USER` task describing the
+   uncertain effect;
+6. mark imported legacy metadata read-only;
+7. never fabricate a tool failure to continue automatically.
+
+The migration adapter is removed after the configured rollback window and a
+successful backup.
+
+### 31.3 Upgrade procedure
+
+1. announce maintenance;
+2. stop intake;
+3. drain or checkpoint legacy active tasks;
+4. back up session, memory, and configuration data;
+5. start binary with runtime disabled and validate configuration;
+6. initialize and verify Runtime Store migration;
+7. run legacy checkpoint scan;
+8. enable durable lightweight mode with one slot;
+9. run smoke tasks and verify session/outbox;
+10. enable supervised mode;
+11. monitor recovery, DB, delivery, and memory metrics;
+12. close rollback window only after verified backup and soak.
+
+### 31.4 Rollback
+
+Before durable traffic:
+
+- stop and restore configuration; no data conversion is needed.
+
+After durable traffic:
+
+- do not restart a legacy writer against sessions with non-terminal durable
+  tasks;
+- stop intake and Workers;
+- preserve Runtime Store;
+- finish or explicitly cancel durable tasks using the durable binary;
+- export committed session state;
+- restore prior binary only after the durable queue is terminal and Outbox is
+  drained or explicitly waived.
+
+Rollback is operationally controlled, never automatic.
+
+## 32. Testing Strategy
+
+### 32.1 Unit tests
+
+- all task transitions;
+- control transitions and dedup;
+- checkpoint version compatibility;
+- tool policy mapping;
+- recovery matrix;
+- retry/backoff classification;
+- Outbox target-head ordering;
+- configuration precedence and validation;
+- safe error redaction;
+- authority/dependency import rules.
+
+### 32.2 SQLite transaction tests
+
+Use temporary real SQLite databases, not mocked SQL:
+
+- simultaneous duplicate submission;
+- session sequence allocation under contention;
+- head-only claim;
+- cross-session priority;
+- stale lease write rejection;
+- renewal versus completion race;
+- reclaim versus late completion race;
+- Outbox claim and receipt race;
+- resource lease expiry and reuse;
+- session commit prepare/confirm recovery;
+- event immutability and retention enforcement;
+- migration interruption and restart;
+- WAL busy behavior.
+
+### 32.3 Agent integration tests
+
+- command path uses SAVE and Outbox;
+- simple final response;
+- multi-iteration model/tool loop;
+- context compaction;
+- Planner and injection behavior unchanged;
+- cancellation and steering;
+- Provider retry/fallback journaling;
+- checkpoint restore at every safe boundary;
+- no synthetic interrupted-tool result;
+- runtime-disabled legacy characterization.
+
+### 32.4 Crash-injection matrix
+
+Inject a hard process exit:
+
+- after inbound commit before wake;
+- after lease commit before RUNNING;
+- before model request;
+- after model network response before journal;
+- after model journal before Runner consumes;
+- after tool prepare;
+- after tool external effect before result journal;
+- after tool result journal;
+- after checkpoint blob before checkpoint row;
+- after session commit prepare;
+- after session file replace before Runtime Store confirm;
+- after Outbox enqueue before task completion response;
+- after Channel send before durable receipt.
+
+Each test asserts the exact expected state, replay decision, and user-visible
+result.
+
+### 32.5 Multiprocess tests
+
+- use spawn even on POSIX tests;
+- three Workers claim different sessions;
+- one session never overlaps;
+- Worker crash and fencing;
+- Control Plane restart;
+- Supervisor child containment;
+- separate SQLite and vector connections;
+- session revision conflict regression;
+- global tool and subagent leases;
+- process recycling between tasks.
+
+### 32.6 Tool-effect tests
+
+For every built-in tool, maintain a metadata fixture asserting:
+
+- effective effect class;
+- risk;
+- idempotency;
+- approval;
+- recovery;
+- concurrency scope;
+- timeout/progress behavior.
+
+Test each recovery branch with a fake side-effect service that records actual
+effects and idempotency keys.
+
+### 32.7 Channel and Outbox tests
+
+- receipt conversion for every Channel;
+- retryable and permanent errors;
+- per-target ordering;
+- cross-target concurrency;
+- duplicate Outbox enqueue;
+- crash-after-send ambiguity;
+- Channel reconnect;
+- streaming event loss with final delivery intact.
+
+### 32.8 Session and memory tests
+
+- two-process stale cache regression;
+- commit-id idempotency;
+- revision conflict handling;
+- concurrent vector writes;
+- source-version stale write rejection;
+- tenant/principal/workspace isolation;
+- memory index rebuild;
+- maintenance dedup and restart.
+
+### 32.9 Load and soak
+
+Pre-release:
+
+- at least 1,000 mixed tasks over at least 100 sessions;
+- bursts of duplicate inbound messages;
+- repeated Worker kills;
+- repeated Channel failures;
+- database lock pressure;
+- maintenance with user traffic;
+- child subprocess creation and cancellation;
+- 24-hour automated soak for every merge candidate;
+- seven-day soak before making supervised mode the stable service default.
+
+Track:
+
+- missing or duplicate final replies;
+- duplicate external effects;
+- session order violations;
+- stale lease commit attempts;
+- queue age;
+- memory/RSS, threads, handles, child processes;
+- SQLite WAL size and busy errors;
+- vector index lag;
+- Outbox retry age.
+
+## 33. Observability, Security, and Maintenance
+
+### 33.1 Reuse existing telemetry
+
+Extend `TurnTelemetry`; do not create a parallel telemetry system.
+
+Metrics:
+
+- task count and age by kind/state/priority;
+- claim latency and attempt count;
+- lease renew failures and reclaims;
+- task progress age;
+- model attempts, latency, usage, and fallback;
+- tool calls by policy/outcome;
+- waiting approvals and unknown effects;
+- session commit conflicts;
+- Outbox pending age, retries, and permanent failures;
+- SQLite transaction latency, busy count, WAL bytes, backup age;
+- Worker restarts, RSS, and task count;
+- realtime events dropped/coalesced;
+- maintenance age and vector index lag.
+
+### 33.2 Health
+
+Liveness:
+
+- process event loop responds;
+- Supervisor can observe required children.
+
+Readiness:
+
+- schema version matches;
+- Runtime Store accepts a short read transaction;
+- disk free space is above threshold;
+- at least one Worker is available in supervised mode;
+- lease reaper is current;
+- Outbox Sender is current;
+- Channel requirement is met for configured service;
+- backup age is within policy when backups are required.
+
+### 33.3 Safe logs
+
+Task, control, status, artifact, and Outbox APIs require the envelope tenant,
+principal, Agent, workspace, and session scope. An opaque `task_id` alone is
+not authorization. Worker-internal claims run under a trusted local runtime
+identity, while every external status or control request revalidates scope.
+
+Logs and metrics may contain:
+
+- opaque ids;
+- state, phase, kind, provider/tool name;
+- durations and counts;
+- safe error codes;
+- bounded redacted summaries.
+
+They may not contain:
+
+- prompts or responses;
+- tool arguments or results;
+- credentials;
+- raw media;
+- full external addresses;
+- unredacted session content.
+
+Control tokens are HMAC-signed with a stable runtime secret from the existing
+credential/configuration mechanism. The secret is not stored in Runtime Store
+or logs. Rotation accepts the previous key only for a bounded overlap window.
+Tokens are scoped to principal, task, action, pending object, and expiry;
+replay is stopped by `task_controls.dedup_key` and terminal control state.
+
+### 33.4 Retention
+
+Defaults:
+
+- successful task facts: 7 days;
+- failed/waiting task facts: 30 days;
+- verified backups: 7 days;
+- transient Agent events: not persisted;
+- latest necessary blobs: retain with referencing rows.
+
+Retention runs as bounded durable maintenance:
+
+1. delete terminal child rows in batches;
+2. verify no retained reference before blob deletion;
+3. checkpoint WAL during quiet periods;
+4. use `VACUUM` only in an explicit maintenance window;
+5. use SQLite online backup, never filesystem copy of an open WAL database.
+
+## 34. Acceptance Criteria
 
 The design is implemented only when all are true:
 
-1. Both deployment modes pass the same runtime contract suite.
-2. An accepted task survives forced process and host-style restart.
-3. Three root tasks run concurrently and a fourth remains durably queued.
-4. Same-session ordering is never violated.
-5. A dead Worker is detected within 180 seconds and safely recovered.
-6. A 600-second no-progress task is interrupted and receives at most one safe
-   automatic recovery.
-7. Stale Worker updates are rejected by generation, lease, epoch, and version.
-8. A complete persisted LLM response is not called again after recovery.
-9. A successful tool call is not repeated.
-10. A dangerous uncertain call pauses for explicit user direction.
-11. Final replies survive Control Plane and Channel outages.
-12. Required background work survives process restart.
-13. Existing `memory.db` recall works or degrades without blocking chat.
-14. Logs and telemetry pass content-leak tests.
-15. Seven-day soak criteria pass.
+1. Acknowledged inbound work survives immediate process termination.
+2. Duplicate inbound messages produce one task and one session sequence.
+3. The inbound user message is present exactly once before Agent Core performs
+   its first model or tool call.
+4. One session never has two concurrently running tasks.
+5. Different sessions run concurrently up to configured capacity.
+6. Stale Workers cannot checkpoint, confirm a session commit, record tool
+   completion, or complete tasks; an already prepared idempotent session
+   replace may land only with its immutable commit id and content hash.
+7. Every completed model decision is durable before Runner consumes it.
+8. Every terminal tool result is durable before Runner consumes it.
+9. A non-idempotent unknown effect enters `WAITING_USER`.
+10. Session commits are revision-aware and idempotent across processes.
+11. The demonstrated two-manager stale-cache overwrite no longer occurs.
+12. Every final reply is enqueued atomically with task completion.
+13. Outbox preserves same-target order, suppresses duplicates when the Channel
+    supports it, and surfaces non-idempotent ambiguity without automatic
+    resend.
+14. Message Tool uses Outbox rather than direct Channel callbacks.
+15. Realtime queue loss cannot lose the final complete response.
+16. Lightweight and supervised golden flows produce equivalent durable facts.
+17. Mode is selected at startup and never inferred from task duration.
+18. A Worker crash does not orphan its child process tree.
+19. Control Plane restart does not lose accepted work or completed replies.
+20. Supervisor failure terminates children and restart recovers expired work.
+21. Required Dream, consolidation, indexing, and cleanup work is durable.
+22. `memory.db` concurrent writes are safe and the index is rebuildable.
+23. Agent Core imports no SQLite or multiprocessing implementation.
+24. Runtime tasks do not dual-write legacy checkpoint authority.
+25. Database transactions never span external calls.
+26. Logs and telemetry pass content-redaction tests.
+27. Multiprocess, fault-injection, load, and soak gates pass.
 
-## 29. Implementation Guardrails
+## 35. Implementation Guardrails
 
-The implementation agent must:
+1. Do not create a second Agent loop.
+2. Do not implement a central in-memory dispatch queue.
+3. Do not make IPC correctness-critical.
+4. Do not give each table a deployable service or independent transaction
+   owner.
+5. Do not let Agent Core execute runtime tools directly.
+6. Do not let Runtime Store become a session or memory content database.
+7. Do not let Message Bus or Channel Manager decide durable completion.
+8. Do not hold SQLite transactions across external work.
+9. Do not auto-retry uncertain non-idempotent writes.
+10. Do not resolve session revision conflicts by last-writer-wins.
+11. Do not switch deployment modes while tasks are active.
+12. Do not add a second full event protocol.
+13. Do not use `asyncio.create_task()` as the only owner of required work.
+14. Do not start supervised children with inherited mutable runtime objects.
+15. Do not delete or recreate a corrupt ledger automatically.
+16. Do not permanently maintain both legacy and durable authorities.
 
-- preserve unrelated user work and untracked files;
-- implement in phases and commits;
-- add focused tests before each behavior change;
-- keep SQLite infrastructure out of Agent Core;
-- avoid a second vector-memory database;
-- avoid external queue dependencies;
-- avoid changing Channel payloads without protocol versioning;
-- avoid hidden automatic retry of uncertain external writes;
-- avoid storing final delivery only in transient IPC;
-- avoid broad rewrites of `runner.py` or `loop.py` without characterization
-  tests;
-- return a changed-file list, migration notes, test evidence, and residual
-  risks for each phase.
+## 36. Final Decision
 
-Recommended review checkpoints:
+MiniUnicorn adopts a **thin durable runtime kernel**.
 
-1. contracts and schema;
-2. single-process durable recovery;
-3. Tool Gateway and outbox;
-4. supervised process topology;
-5. memory/background durability;
-6. chaos and soak results.
+The implementation keeps the existing Agent Core and adds:
 
-## 30. Final Design Decision
+- one SQLite Runtime Store façade with narrow consumer ports;
+- one durable Task Service;
+- one stateless Scheduler used by every Worker;
+- one Agent Task Worker adapter;
+- one Tool Gateway around the existing Tool Registry;
+- one revision-aware Session Committer around Session Manager;
+- one durable Outbox Sender around Channel Manager;
+- two Hosts that differ only in process assembly.
 
-MiniUnicorn keeps its current cognitive core:
-
-- the outer loop prepares, restores, saves, and responds;
-- the inner loop asks the LLM, executes tools, and reasons again.
-
-The enhancement surrounds that core with a replaceable-execution harness:
-
-- durable queue;
-- fine-grained checkpoints;
-- three isolated Workers;
-- lease and fencing;
-- safe tool effects;
-- reliable delivery;
-- durable maintenance;
-- bounded resources;
-- operational evidence.
-
-This provides most of the practical reliability benefits associated with
-checkpointed graph runtimes, event-driven Agent systems, permission-oriented
-workers, and supervised execution without replacing MiniUnicorn with a full
-event-sourced graph engine.
+This is not a second MiniUnicorn runtime. It is the minimum durable control
+layer required to make the existing MiniUnicorn safe for unattended,
+long-running operation while preserving a simple, decoupled architecture.
