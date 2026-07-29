@@ -39,6 +39,9 @@ from miniunicorn.agent.tools.context import (
 from miniunicorn.agent.tools.file_state import FileStateStore, bind_file_states, reset_file_states
 from miniunicorn.agent.tools.message import MessageTool
 from miniunicorn.agent.tools.registry import ToolRegistry
+from miniunicorn.agent.turn_runtime import (
+    AgentLoopRunResult,
+)
 from miniunicorn.bus.events import InboundMessage, OutboundMessage, make_session_key
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.command import CommandContext, CommandRouter, register_builtin_commands
@@ -813,12 +816,14 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                 await on_stream_end(resuming=False)
         elif result.stop_reason == "error":
             logger.error("LLM returned error: {}", (result.final_content or "")[:200])
-        return (
-            result.final_content,
-            result.tools_used,
-            result.messages,
-            result.stop_reason,
-            result.had_injections,
+        return AgentLoopRunResult(
+            final_content=result.final_content,
+            tools_used=result.tools_used,
+            messages=result.messages,
+            stop_reason=result.stop_reason,
+            had_injections=result.had_injections,
+            usage=dict(result.usage),
+            last_call_usage=dict(result.last_call_usage),
         )
 
     async def run(self) -> None:
@@ -1147,7 +1152,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             vector_recall=self._vector_recall,
         )
         t_wall = time.time()
-        final_content, _, all_msgs, stop_reason, _ = await self._run_agent_loop(
+        result = await self._run_agent_loop(
             messages,
             session=session,
             channel=channel,
@@ -1159,7 +1164,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         )
         wall_done = time.time()
         latency_ms = max(0, int((wall_done - t_wall) * 1000))
-        self._save_turn(session, all_msgs, 1 + len(history), turn_latency_ms=latency_ms)
+        self._save_turn(session, result.messages, 1 + len(history), turn_latency_ms=latency_ms)
         if channel == "websocket":
             self._pending_turn_latency_ms[key] = latency_ms
         session.enforce_file_cap(on_archive=self.context.memory.raw_archive)
@@ -1171,7 +1176,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                 replay_max_messages=self._max_messages,
             )
         )
-        content = final_content or "Background task completed."
+        content = result.final_content or "Background task completed."
         outbound_metadata: dict[str, Any] = {}
         if origin_message_id := msg.metadata.get("origin_message_id"):
             outbound_metadata["origin_message_id"] = origin_message_id

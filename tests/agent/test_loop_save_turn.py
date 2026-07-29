@@ -6,6 +6,7 @@ import pytest
 
 from miniunicorn.agent.context import ContextBuilder
 from miniunicorn.agent.loop import AgentLoop
+from miniunicorn.agent.turn_runtime import AgentLoopRunResult
 from miniunicorn.bus.events import InboundMessage
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.providers.base import LLMResponse
@@ -542,16 +543,16 @@ async def test_process_message_does_not_duplicate_early_persisted_user_message(
     loop = _make_full_loop(tmp_path)
     loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
     loop._run_agent_loop = AsyncMock(
-        return_value=(
-            "done",
-            None,
-            [
+        return_value=AgentLoopRunResult(
+            final_content="done",
+            tools_used=None,
+            messages=[
                 {"role": "system", "content": "system"},
                 {"role": "user", "content": "hello"},
                 {"role": "assistant", "content": "done"},
             ],
-            "stop",
-            False,
+            stop_reason="stop",
+            had_injections=False,
         )
     )  # type: ignore[method-assign]
 
@@ -580,16 +581,16 @@ async def test_process_message_uses_context_chat_id_for_runtime_prompt(tmp_path:
         ]
     )
     loop._run_agent_loop = AsyncMock(
-        return_value=(  # type: ignore[method-assign]
-            "done",
-            [],
-            [
+        return_value=AgentLoopRunResult(  # type: ignore[method-assign]
+            final_content="done",
+            tools_used=[],
+            messages=[
                 {"role": "system", "content": "system"},
                 {"role": "user", "content": "runtime + hello"},
                 {"role": "assistant", "content": "done"},
             ],
-            "stop",
-            False,
+            stop_reason="stop",
+            had_injections=False,
         )
     )
 
@@ -633,16 +634,16 @@ async def test_process_message_uses_explicit_session_metadata_for_goal_context(
         ]
     )
     loop._run_agent_loop = AsyncMock(
-        return_value=(  # type: ignore[method-assign]
-            "ok",
-            [],
-            [
+        return_value=AgentLoopRunResult(  # type: ignore[method-assign]
+            final_content="ok",
+            tools_used=[],
+            messages=[
                 {"role": "system", "content": "system"},
                 {"role": "user", "content": "runtime + system"},
                 {"role": "assistant", "content": "ok"},
             ],
-            "stop",
-            False,
+            stop_reason="stop",
+            had_injections=False,
         )
     )
 
@@ -696,10 +697,10 @@ async def test_next_turn_after_crash_closes_pending_user_turn_before_new_input(
     loop.sessions.save(session)
 
     loop._run_agent_loop = AsyncMock(
-        return_value=(
-            "new answer",
-            None,
-            [
+        return_value=AgentLoopRunResult(
+            final_content="new answer",
+            tools_used=None,
+            messages=[
                 {"role": "system", "content": "system"},
                 {"role": "user", "content": "old question"},
                 {
@@ -709,8 +710,8 @@ async def test_next_turn_after_crash_closes_pending_user_turn_before_new_input(
                 {"role": "user", "content": "new question"},
                 {"role": "assistant", "content": "new answer"},
             ],
-            "stop",
-            False,
+            stop_reason="stop",
+            had_injections=False,
         )
     )  # type: ignore[method-assign]
 
@@ -808,12 +809,12 @@ async def test_stop_preserves_runtime_checkpoint_for_next_turn(tmp_path: Path) -
     assert interrupted.metadata.get(AgentLoop._RUNTIME_CHECKPOINT_KEY) is not None
 
     async def resumed_run_agent_loop(initial_messages, **_kwargs):
-        return (
-            "next answer",
-            None,
-            [*initial_messages, {"role": "assistant", "content": "next answer"}],
-            "stop",
-            False,
+        return AgentLoopRunResult(
+            final_content="next answer",
+            tools_used=None,
+            messages=[*initial_messages, {"role": "assistant", "content": "next answer"}],
+            stop_reason="stop",
+            had_injections=False,
         )
 
     loop._run_agent_loop = resumed_run_agent_loop  # type: ignore[method-assign]
@@ -859,12 +860,12 @@ async def test_system_subagent_followup_is_persisted_before_prompt_assembly(tmp_
 
     async def fake_run_agent_loop(initial_messages, **_kwargs):
         seen["initial_messages"] = initial_messages
-        return (
-            "done",
-            [],
-            [*initial_messages, {"role": "assistant", "content": "done"}],
-            "stop",
-            False,
+        return AgentLoopRunResult(
+            final_content="done",
+            tools_used=[],
+            messages=[*initial_messages, {"role": "assistant", "content": "done"}],
+            stop_reason="stop",
+            had_injections=False,
         )
 
     loop._run_agent_loop = fake_run_agent_loop  # type: ignore[method-assign]
@@ -921,12 +922,12 @@ async def test_multiple_subagent_followups_all_persist_as_standalone_history(
     loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
 
     async def fake_run_agent_loop(initial_messages, **_kwargs):
-        return (
-            "ack",
-            [],
-            [*initial_messages, {"role": "assistant", "content": "ack"}],
-            "stop",
-            False,
+        return AgentLoopRunResult(
+            final_content="ack",
+            tools_used=[],
+            messages=[*initial_messages, {"role": "assistant", "content": "ack"}],
+            stop_reason="stop",
+            had_injections=False,
         )
 
     loop._run_agent_loop = fake_run_agent_loop  # type: ignore[method-assign]
@@ -1049,12 +1050,12 @@ async def test_system_subagent_followup_uses_thread_session_and_slack_metadata(
 
     async def fake_run_agent_loop(initial_messages, **_kwargs):
         seen["initial_messages"] = initial_messages
-        return (
-            "done",
-            [],
-            [*initial_messages, {"role": "assistant", "content": "done"}],
-            "stop",
-            False,
+        return AgentLoopRunResult(
+            final_content="done",
+            tools_used=[],
+            messages=[*initial_messages, {"role": "assistant", "content": "done"}],
+            stop_reason="stop",
+            had_injections=False,
         )
 
     loop._run_agent_loop = fake_run_agent_loop  # type: ignore[method-assign]
@@ -1082,3 +1083,47 @@ async def test_system_subagent_followup_uses_thread_session_and_slack_metadata(
     loop.sessions.invalidate("slack:C123:1700.42")
     persisted = loop.sessions.get_or_create("slack:C123:1700.42")
     assert any(m.get("subagent_task_id") == "sub-1" for m in persisted.messages)
+
+
+@pytest.mark.asyncio
+async def test_state_save_writes_usage_to_session_metadata(tmp_path: Path) -> None:
+    """_state_save() must persist ctx.usage and ctx.last_call_usage to session.metadata."""
+    from miniunicorn.agent._state_machine import TurnContext, TurnState
+    from miniunicorn.agent.turn_runtime import SESSION_LAST_CALL_USAGE_KEY, SESSION_LAST_USAGE_KEY
+    from miniunicorn.bus.events import InboundMessage
+
+    loop = _make_full_loop(tmp_path)
+    loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
+    def _noop_schedule(_coro):
+        _coro.close()
+
+    loop._schedule_background = _noop_schedule  # type: ignore[method-assign]
+
+    session = loop.sessions.get_or_create("cli:save-usage")
+    msg = InboundMessage(channel="cli", sender_id="u1", chat_id="save-usage", content="hi")
+    ctx = TurnContext(
+        msg=msg,
+        session_key="cli:save-usage",
+        state=TurnState.SAVE,
+        turn_id="test-save",
+        session=session,
+    )
+    ctx.final_content = "done"
+    ctx.all_messages = [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "done"},
+    ]
+    ctx.usage = {"prompt_tokens": 101, "completion_tokens": 11}
+    ctx.last_call_usage = {"prompt_tokens": 77, "completion_tokens": 11}
+    ctx.history = []
+
+    await loop._state_save(ctx)
+
+    assert session.metadata[SESSION_LAST_USAGE_KEY] == {
+        "prompt_tokens": 101,
+        "completion_tokens": 11,
+    }
+    assert session.metadata[SESSION_LAST_CALL_USAGE_KEY] == {
+        "prompt_tokens": 77,
+        "completion_tokens": 11,
+    }

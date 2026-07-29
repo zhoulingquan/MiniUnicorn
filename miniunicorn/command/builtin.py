@@ -10,6 +10,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 
 from miniunicorn import __version__
+from miniunicorn.agent.turn_runtime import SESSION_LAST_USAGE_KEY
 from miniunicorn.bus.events import OutboundMessage
 from miniunicorn.command.router import CommandContext, CommandRouter
 from miniunicorn.utils.helpers import build_status_content
@@ -156,11 +157,12 @@ async def cmd_status(ctx: CommandContext) -> OutboundMessage:
     """Build an outbound status message for a session."""
     loop = ctx.loop
     session = ctx.session or loop.sessions.get_or_create(ctx.key)
+    last_usage = dict(session.metadata.get(SESSION_LAST_USAGE_KEY) or {})
     ctx_est = 0
     with suppress(Exception):
         ctx_est, _ = loop.consolidator.estimate_session_prompt_tokens(session)
     if ctx_est <= 0:
-        ctx_est = loop._last_usage.get("prompt_tokens", 0)
+        ctx_est = last_usage.get("prompt_tokens", 0)
 
     active_tasks = loop._active_tasks.get(ctx.key, [])
     task_count = sum(1 for t in active_tasks if not t.done())
@@ -173,7 +175,7 @@ async def cmd_status(ctx: CommandContext) -> OutboundMessage:
             version=__version__,
             model=loop.model,
             start_time=loop._start_time,
-            last_usage=loop._last_usage,
+            last_usage=last_usage,
             # 优先使用后端解析值(resolved_context_window_tokens),回退到 context_window_tokens
             context_window_tokens=getattr(loop, "resolved_context_window_tokens", None)
             or loop.context_window_tokens,

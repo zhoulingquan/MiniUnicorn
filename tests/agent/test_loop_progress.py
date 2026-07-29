@@ -52,9 +52,9 @@ class TestToolEventProgress:
         ) -> None:
             progress.append((content, tool_hint, tool_events))
 
-        final_content, _, _, _, _ = await loop._run_agent_loop([], on_progress=on_progress)
+        result = await loop._run_agent_loop([], on_progress=on_progress)
 
-        assert final_content == "Done"
+        assert result.final_content == "Done"
         assert progress == [
             ("Visible", False, None),
             (
@@ -132,9 +132,9 @@ class TestToolEventProgress:
             if file_edit_events:
                 file_events.extend(file_edit_events)
 
-        final_content, _, _, _, _ = await loop._run_agent_loop([], on_progress=on_progress)
+        result = await loop._run_agent_loop([], on_progress=on_progress)
 
-        assert final_content == "Done"
+        assert result.final_content == "Done"
         assert [event["phase"] for event in file_events] == ["start", "end"]
         assert file_events[0] == {
             "version": 1,
@@ -194,9 +194,9 @@ class TestToolEventProgress:
         ) -> None:
             pass
 
-        final_content, _, _, _, _ = await loop._run_agent_loop([], on_progress=on_progress)
+        result = await loop._run_agent_loop([], on_progress=on_progress)
 
-        assert final_content == "Done"
+        assert result.final_content == "Done"
         assert target.read_text(encoding="utf-8") == "new\n"
         prepare_tracker.assert_not_called()
 
@@ -574,13 +574,13 @@ class TestToolEventProgress:
         ) -> None:
             progress.append((content, tool_hint, tool_events))
 
-        final_content, _, _, _, _ = await loop._run_agent_loop(
+        result = await loop._run_agent_loop(
             [],
             on_progress=on_progress,
             on_stream=on_stream,
         )
 
-        assert final_content == "Done"
+        assert result.final_content == "Done"
         assert streamed == ["I will", " inspect it."]
         assert progress[0][0] == 'custom_tool("foo.txt")'
         assert all(item[0] != "I will inspect it." for item in progress)

@@ -17,6 +17,19 @@ SESSION_LAST_CALL_USAGE_KEY = "last_call_usage"
 
 
 @dataclass(slots=True)
+class AgentLoopRunResult:
+    """Typed internal result replacing the five-value tuple from _run_agent_loop()."""
+
+    final_content: str | None
+    tools_used: list[str]
+    messages: list[dict[str, Any]]
+    stop_reason: str
+    had_injections: bool
+    usage: dict[str, int] = field(default_factory=dict)
+    last_call_usage: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
 class TurnRuntime:
     turn_id: str
     session_key: str

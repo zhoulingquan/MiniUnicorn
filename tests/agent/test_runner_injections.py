@@ -414,15 +414,15 @@ async def test_loop_injected_followup_preserves_image_media(tmp_path):
         )
     )
 
-    final_content, _, _, _, had_injections = await loop._run_agent_loop(
+    result = await loop._run_agent_loop(
         [{"role": "user", "content": "hello"}],
         channel="cli",
         chat_id="c",
         pending_queue=pending_queue,
     )
 
-    assert final_content == "second answer"
-    assert had_injections is True
+    assert result.final_content == "second answer"
+    assert result.had_injections is True
     assert call_count["n"] == 2
     injected_user_messages = [
         message
@@ -699,15 +699,15 @@ async def test_pending_queue_preserves_overflow_for_next_injection_cycle(tmp_pat
             )
         )
 
-    final_content, _, _, _, had_injections = await loop._run_agent_loop(
+    result = await loop._run_agent_loop(
         [{"role": "user", "content": "hello"}],
         channel="cli",
         chat_id="c",
         pending_queue=pending_queue,
     )
 
-    assert final_content == "answer-3"
-    assert had_injections is True
+    assert result.final_content == "answer-3"
+    assert result.had_injections is True
     assert call_count["n"] == 3
     flattened_user_content = "\n".join(
         message["content"]

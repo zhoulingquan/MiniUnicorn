@@ -44,9 +44,9 @@ async def test_loop_max_iterations_message_stays_stable(tmp_path):
     loop.tools.execute = AsyncMock(return_value="ok")
     loop.max_iterations = 2
 
-    final_content, _, _, _, _ = await loop._run_agent_loop([])
+    result = await loop._run_agent_loop([])
 
-    assert final_content == (
+    assert result.final_content == (
         "I reached the maximum number of tool call iterations (2) "
         "without completing the task. You can try breaking the task into smaller steps."
     )
@@ -71,13 +71,13 @@ async def test_loop_stream_filter_handles_think_only_prefix_without_crashing(tmp
     async def on_stream_end(*, resuming: bool = False) -> None:
         endings.append(resuming)
 
-    final_content, _, _, _, _ = await loop._run_agent_loop(
+    result = await loop._run_agent_loop(
         [],
         on_stream=on_stream,
         on_stream_end=on_stream_end,
     )
 
-    assert final_content == "Hello"
+    assert result.final_content == "Hello"
     assert deltas == ["Hello"]
     assert endings == [False]
 
@@ -97,9 +97,9 @@ async def test_loop_stream_filter_hides_partial_trailing_think_prefix(tmp_path):
     async def on_stream(delta: str) -> None:
         deltas.append(delta)
 
-    final_content, _, _, _, _ = await loop._run_agent_loop([], on_stream=on_stream)
+    result = await loop._run_agent_loop([], on_stream=on_stream)
 
-    assert final_content == "Hello World"
+    assert result.final_content == "Hello World"
     assert deltas == ["Hello", " World"]
 
 
@@ -118,9 +118,9 @@ async def test_loop_stream_filter_hides_complete_trailing_think_tag(tmp_path):
     async def on_stream(delta: str) -> None:
         deltas.append(delta)
 
-    final_content, _, _, _, _ = await loop._run_agent_loop([], on_stream=on_stream)
+    result = await loop._run_agent_loop([], on_stream=on_stream)
 
-    assert final_content == "Hello World"
+    assert result.final_content == "Hello World"
     assert deltas == ["Hello", " World"]
 
 
@@ -137,9 +137,9 @@ async def test_loop_retries_think_only_final_response(tmp_path):
 
     loop.provider.chat_with_retry = chat_with_retry
 
-    final_content, _, _, _, _ = await loop._run_agent_loop([])
+    result = await loop._run_agent_loop([])
 
-    assert final_content == "Recovered answer"
+    assert result.final_content == "Recovered answer"
     assert call_count["n"] == 2
 
 
@@ -324,3 +324,40 @@ async def test_subagent_max_iterations_announces_existing_fallback(tmp_path, mon
     args = mgr._announce_result.await_args.args
     assert args[3] == "Task completed but no final response was generated."
     assert args[5] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_state_run_copies_usage_into_turn_context(tmp_path):
+    """_state_run() must copy usage and last_call_usage from the runner result."""
+    from miniunicorn.agent._state_machine import TurnContext, TurnState
+    from miniunicorn.agent.turn_runtime import AgentLoopRunResult
+    from miniunicorn.bus.events import InboundMessage
+
+    loop = _make_loop(tmp_path)
+    loop._webui_turns.publish_run_status = AsyncMock()
+    loop._run_agent_loop = AsyncMock(  # type: ignore[method-assign]
+        return_value=AgentLoopRunResult(
+            final_content="done",
+            tools_used=["exec"],
+            messages=[{"role": "assistant", "content": "done"}],
+            stop_reason="stop",
+            had_injections=False,
+            usage={"prompt_tokens": 101, "completion_tokens": 11},
+            last_call_usage={"prompt_tokens": 77, "completion_tokens": 11},
+        )
+    )
+
+    msg = InboundMessage(channel="cli", sender_id="u1", chat_id="c1", content="hello")
+    ctx = TurnContext(
+        msg=msg,
+        session_key="cli:c1",
+        state=TurnState.RUN,
+        turn_id="test-turn",
+        session=loop.sessions.get_or_create("cli:c1"),
+    )
+    await loop._state_run(ctx)
+
+    assert ctx.usage == {"prompt_tokens": 101, "completion_tokens": 11}
+    assert ctx.last_call_usage == {"prompt_tokens": 77, "completion_tokens": 11}
+    assert ctx.final_content == "done"
+    assert ctx.stop_reason == "stop"

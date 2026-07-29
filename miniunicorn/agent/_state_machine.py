@@ -23,6 +23,7 @@ from loguru import logger
 
 from miniunicorn.agent.subagent_registry import SubagentDefinition
 from miniunicorn.agent.tools.message import MessageTool
+from miniunicorn.agent.turn_runtime import SESSION_LAST_CALL_USAGE_KEY, SESSION_LAST_USAGE_KEY
 from miniunicorn.bus.events import InboundMessage, OutboundMessage
 from miniunicorn.command import CommandContext
 from miniunicorn.session.webui_turns import mark_webui_session
@@ -236,12 +237,13 @@ class StateMixin:
             agent_override=ctx.agent_override,
             turn_hooks=ctx.turn_hooks,
         )
-        final_content, tools_used, all_msgs, stop_reason, had_injections = result
-        ctx.final_content = final_content
-        ctx.tools_used = tools_used
-        ctx.all_messages = all_msgs
-        ctx.stop_reason = stop_reason
-        ctx.had_injections = had_injections
+        ctx.final_content = result.final_content
+        ctx.tools_used = result.tools_used
+        ctx.all_messages = result.messages
+        ctx.stop_reason = result.stop_reason
+        ctx.had_injections = result.had_injections
+        ctx.usage = dict(result.usage)
+        ctx.last_call_usage = dict(result.last_call_usage)
         return "ok"
 
     async def _state_save(self: "AgentLoop", ctx: TurnContext) -> str:
@@ -251,6 +253,8 @@ class StateMixin:
         ctx.save_skip = 1 + len(ctx.history) + (1 if ctx.user_persisted_early else 0)
 
         ctx.turn_latency_ms = max(0, int((time.time() - ctx.turn_wall_started_at) * 1000))
+        ctx.session.metadata[SESSION_LAST_USAGE_KEY] = dict(ctx.usage)
+        ctx.session.metadata[SESSION_LAST_CALL_USAGE_KEY] = dict(ctx.last_call_usage)
         self._save_turn(
             ctx.session,
             ctx.all_messages,

@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from miniunicorn.agent.loop import AgentLoop
+from miniunicorn.agent.turn_runtime import AgentLoopRunResult
 from miniunicorn.bus.events import InboundMessage
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.command import CommandContext
@@ -169,7 +170,15 @@ class TestAgentLoopTTLParam:
         session = loop.sessions.get_or_create("cli:direct")
         session.get_history = MagicMock(return_value=[])
         loop.context.build_messages = MagicMock(return_value=[])
-        loop._run_agent_loop = AsyncMock(return_value=("ok", [], [], "stop", False))
+        loop._run_agent_loop = AsyncMock(
+            return_value=AgentLoopRunResult(
+                final_content="ok",
+                tools_used=[],
+                messages=[],
+                stop_reason="stop",
+                had_injections=False,
+            )
+        )
         loop._save_turn = MagicMock()
 
         msg = InboundMessage(
