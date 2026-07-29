@@ -44,6 +44,34 @@ The runtime is bound inside the coordinator's `scope()` and is
 automatically reset when the scope exits, even if the turn is cancelled or
 raises an exception.
 
+### Turn Telemetry
+
+After each turn, `AgentLoop` builds one `TurnTelemetry` record from the
+bound `TurnRuntime` and forwards it to a `TelemetrySink`. The record
+captures turn-level timing, per-state duration breakdown, per-call LLM and
+tool metrics, cumulative usage, and stop reason. Telemetry is emitted in
+the success, cancellation, and exception paths; sink failures are logged
+and suppressed so they can never break an outbound turn.
+
+See [Telemetry](telemetry.md) for the full field reference and privacy
+boundaries.
+
+### Background Task Supervision
+
+Fire-and-forget background jobs (session consolidation, idle archival,
+periodic reflections) are tracked by `TaskSupervisor` instances owned by
+`AgentLoop` and `AgentRunner` respectively. The supervisor:
+
+- Holds strong references to every spawned task so the garbage collector
+  cannot reclaim a running task before it completes.
+- Logs any unhandled exception exactly once via a done-callback.
+- Drains or cancels all outstanding tasks on shutdown via `close()`.
+
+`AgentLoop.close_mcp()` drains the loop's background supervisor (30-second
+timeout) and then calls `AgentRunner.aclose()` to drain the reflection
+supervisor (10-second timeout). Stuck tasks are force-cancelled after the
+timeout expires.
+
 ### Self-Tool Compatibility
 
 The `/my` tool's `_current_iteration` and `_last_usage` keys are read-only
