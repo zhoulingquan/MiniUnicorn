@@ -17,6 +17,7 @@ import hashlib
 import sqlite3
 import time
 from dataclasses import dataclass
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Migration 001: initial schema (design §16.2 — 13 tables)
@@ -432,7 +433,7 @@ def _now_ms(conn: sqlite3.Connection) -> int:
     return int(row[0])
 
 
-def _acquire_migration_lock(conn: sqlite3.Connection, *, retries: int = 100, delay_s: float = 0.05) -> None:
+def _acquire_migration_lock(conn: sqlite3.Connection, *, retries: int = 200, delay_s: float = 0.02) -> None:
     """Acquire ``BEGIN IMMEDIATE`` with BUSY retry for concurrent startup.
 
     SQLite's ``BEGIN IMMEDIATE`` takes a write lock immediately. Under
@@ -454,26 +455,93 @@ def _acquire_migration_lock(conn: sqlite3.Connection, *, retries: int = 100, del
     raise sqlite3.OperationalError("migration lock acquisition timed out")
 
 
-def _executescript_with_retry(conn: sqlite3.Connection, sql: str, *, retries: int = 100, delay_s: float = 0.05) -> None:
-    """Run ``executescript`` with BUSY retry for concurrent startup.
+def _exec_with_lock_retry(
+    conn: sqlite3.Connection,
+    sql: str,
+    params: tuple = (),
+    *,
+    retries: int = 200,
+    delay_s: float = 0.02,
+) -> Any:
+    """Execute a SQL statement with BUSY/LOCKED retry (design §16.1).
 
-    ``executescript`` implicitly commits any pending transaction before
-    running, so it cannot be wrapped in ``BEGIN IMMEDIATE``. Instead we
-    retry on ``SQLITE_BUSY``/``database is locked`` until the other
-    migrator finishes (design §16.1). The SQL is idempotent (``IF NOT
-    EXISTS``), so concurrent execution is safe.
+    Used for autocommit-mode statements that run outside the explicit
+    ``BEGIN IMMEDIATE`` transaction (e.g., the bootstrap ``CREATE TABLE``
+    and the initial ``SELECT``). ``PRAGMA busy_timeout`` should handle
+    most contention, but on some platforms it is not reliably respected
+    for DDL, so we add an explicit retry loop.
     """
     for _ in range(retries):
         try:
-            conn.executescript(sql)
-            return
+            return conn.execute(sql, params)
         except sqlite3.OperationalError as exc:
             msg = str(exc).lower()
             if "locked" in msg or "busy" in msg:
                 time.sleep(delay_s)
                 continue
             raise
-    raise sqlite3.OperationalError("migration executescript timed out")
+    raise sqlite3.OperationalError(f"statement timed out after {retries} retries: {sql[:80]}")
+
+
+def _split_sql_statements(sql: str) -> list[str]:
+    """Split a migration script into individual statements (design §16.1).
+
+    Handles ``BEGIN ... END`` compound statement blocks (used by SQLite
+    trigger definitions) so that semicolons inside the block body are
+    not treated as statement terminators.
+
+    Comment-only lines (``-- ...``) are stripped before splitting.
+    """
+    statements: list[str] = []
+    current: list[str] = []
+    begin_depth = 0
+
+    for line in sql.splitlines():
+        stripped = line.strip()
+        # Skip comment-only lines (design §16.1 — comments are not statements).
+        if stripped.startswith("--"):
+            continue
+
+        upper = stripped.upper()
+
+        # Track BEGIN ... END nesting for trigger bodies.
+        # ``BEGIN`` as a standalone keyword (not ``BEGIN TRANSACTION`` etc.)
+        # opens a compound statement block.
+        if upper == "BEGIN":
+            begin_depth += 1
+
+        current.append(line)
+
+        # ``END`` closes a compound statement block.
+        if upper.startswith("END") and begin_depth > 0:
+            begin_depth -= 1
+
+        # A semicolon at depth 0 terminates a statement.
+        if begin_depth == 0 and stripped.endswith(";"):
+            stmt = "\n".join(current).strip()
+            if stmt:
+                statements.append(stmt)
+            current = []
+
+    if current:
+        stmt = "\n".join(current).strip()
+        if stmt:
+            statements.append(stmt)
+
+    return statements
+
+
+def _execute_migration_sql(conn: sqlite3.Connection, sql: str) -> None:
+    """Execute migration SQL statement-by-statement inside the current transaction.
+
+    Unlike :meth:`executescript` (which implicitly commits any pending
+    transaction before running), this method executes each statement
+    individually via :meth:`execute`, preserving the caller's
+    ``BEGIN IMMEDIATE`` lock (design §16.1). This ensures the entire
+    migration runs within a single exclusive transaction.
+    """
+    for stmt in _split_sql_statements(sql):
+        conn.execute(stmt)
 
 
 def run_migrations(conn: sqlite3.Connection) -> int:
@@ -488,8 +556,10 @@ def run_migrations(conn: sqlite3.Connection) -> int:
     # Ensure schema_migrations exists even before migration 1 runs, so we
     # can record the migration itself. The CREATE IF NOT EXISTS in
     # _MIGRATION_001_SQL handles this, but we also need a bootstrap for
-    # the very first run. This bootstrap runs in autocommit.
-    conn.execute(
+    # the very first run. This bootstrap runs in autocommit with retry
+    # for concurrent-startup safety (design §16.1).
+    _exec_with_lock_retry(
+        conn,
         """
         CREATE TABLE IF NOT EXISTS schema_migrations (
             version         INTEGER PRIMARY KEY,
@@ -497,13 +567,14 @@ def run_migrations(conn: sqlite3.Connection) -> int:
             checksum        TEXT NOT NULL,
             applied_at_ms   INTEGER NOT NULL
         )
-        """
+        """,
     )
 
     applied = {
         int(row[0]): str(row[1])
-        for row in conn.execute(
-            "SELECT version, checksum FROM schema_migrations"
+        for row in _exec_with_lock_retry(
+            conn,
+            "SELECT version, checksum FROM schema_migrations",
         ).fetchall()
     }
 
@@ -521,10 +592,10 @@ def run_migrations(conn: sqlite3.Connection) -> int:
     if not pending:
         return CURRENT_SCHEMA_VERSION
 
-    # Serialize concurrent migrators. We use BEGIN IMMEDIATE as a cross-process
-    # lock for the schema_migrations INSERT, then run the idempotent migration
-    # SQL via executescript (which commits the lock). The INSERT OR IGNORE is
-    # then safe under concurrent startup (design §16.1, §16.3).
+    # Serialize concurrent migrators. The entire migration (DDL + record
+    # insert) runs inside a single ``BEGIN IMMEDIATE`` transaction so the
+    # write lock is held throughout. Concurrent migrators wait via
+    # ``busy_timeout`` + retry in ``_acquire_migration_lock`` (design §16.1).
     for migration in pending:
         # Acquire write lock with retry (design §16.1).
         _acquire_migration_lock(conn)
@@ -546,21 +617,20 @@ def run_migrations(conn: sqlite3.Connection) -> int:
                 conn.execute("COMMIT")
                 continue
 
-            # Migration SQL is idempotent (CREATE ... IF NOT EXISTS), so
-            # concurrent execution is safe. executescript implicitly commits
-            # our BEGIN IMMEDIATE before running the script (design §16.1).
-            _executescript_with_retry(conn, migration.sql)
+            # Execute migration SQL statement-by-statement within the
+            # transaction (NOT executescript, which would auto-commit and
+            # release the lock). The SQL is idempotent (CREATE ... IF NOT
+            # EXISTS) so re-runs after a partial failure are safe
+            # (design §16.1, §16.3).
+            _execute_migration_sql(conn, migration.sql)
 
-            # Record the migration. Use INSERT OR IGNORE for concurrent-startup
-            # safety: two processes may both reach this point; only one INSERT
-            # wins, the other is a no-op. Both have the same checksum (same
-            # binary) so the result is identical (design §16.3).
+            # Record the migration inside the same transaction.
             conn.execute(
                 "INSERT OR IGNORE INTO schema_migrations (version, name, checksum, applied_at_ms) "
                 "VALUES (?, ?, ?, ?)",
                 (migration.version, migration.name, migration.checksum, _now_ms(conn)),
             )
-            conn.commit()
+            conn.execute("COMMIT")
         except Exception:
             try:
                 conn.execute("ROLLBACK")

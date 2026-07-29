@@ -46,6 +46,11 @@ from miniunicorn.runtime.contracts import (
     WaitResult,
     WorkerLedger,
 )
+from miniunicorn.runtime.session_committer import (
+    SessionCommitter,
+    clear_active_claim,
+    set_active_claim,
+)
 from miniunicorn.runtime.models import (
     BLOB_ENCODING,
     BLOB_KIND,
@@ -95,6 +100,10 @@ __all__ = [
     "RuntimeConfig",
     "RuntimeMode",
     "parse_runtime_config",
+    # Session Committer
+    "SessionCommitter",
+    "clear_active_claim",
+    "set_active_claim",
     # Contracts
     "ClaimRequest",
     "ClaimedTask",

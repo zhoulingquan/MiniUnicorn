@@ -1,15 +1,19 @@
-"""WP0 — Reproduce the stale two-``SessionManager`` overwrite bug.
+"""WP0/WP2 — Stale two-``SessionManager`` overwrite bug characterization.
 
 Design §2.1 lists "two ``SessionManager`` instances can overwrite each other
 from stale caches" as a failure mode the durable runtime must correct
-(acceptance #11). This test reproduces the bug against the current
-in-process cache so WP2 can prove it is fixed.
+(acceptance #11). This file characterizes the legacy ``save()`` bug and
+verifies that WP2's ``commit_turn()`` fixes it.
 
-The bug: each ``SessionManager`` owns its own ``_cache`` and per-instance
-``_save_locks``. Two managers pointing at the same sessions directory can
-each hold a stale snapshot of the same session key. When both write, the
-later write silently overwrites the earlier one — losing messages without
-raising any error.
+The legacy bug: each ``SessionManager`` owns its own ``_cache`` and
+per-instance ``_save_locks``. Two managers pointing at the same sessions
+directory can each hold a stale snapshot of the same session key. When
+both call ``save()``, the later write silently overwrites the earlier one.
+
+WP2 fix: ``commit_turn()`` acquires an OS-visible per-session file lock,
+reloads from disk, checks ``base_revision``, and applies the mutation
+atomically. A stale writer gets ``REVISION_CONFLICT`` instead of silently
+overwriting.
 """
 
 from __future__ import annotations
@@ -20,13 +24,12 @@ from miniunicorn.session.manager import SessionManager
 
 
 def test_two_managers_with_separate_caches_lose_writes(tmp_path: Path) -> None:
-    """Characterizes the stale-cache overwrite bug (design §2.1, acceptance #11).
+    """Legacy ``save()`` still has the stale-cache overwrite bug (design §2.1).
 
-    Today the bug is present: A's earlier write is silently lost when B
-    saves from a stale cache, so this test PASSES. When WP2 adds a
-    revision-aware ``commit_turn()`` that rejects the overwrite, A's write
-    survives and this test FAILS — at which point it must be updated to
-    assert the new contract.
+    The legacy ``save()`` path uses per-instance ``threading.Lock`` and does
+    not check revisions. Two managers can overwrite each other. This is
+    intentional during the migration window — only ``commit_turn()`` is
+    safe for durable runtime tasks.
     """
     workspace = tmp_path / "ws"
     workspace.mkdir()
@@ -34,48 +37,85 @@ def test_two_managers_with_separate_caches_lose_writes(tmp_path: Path) -> None:
     manager_b = SessionManager(workspace)
     key = "websocket:test:1"
 
-    # Both managers independently load the same (empty) session into their
-    # own caches. Neither knows the other exists.
     session_a = manager_a.get_or_create(key)
     session_b = manager_b.get_or_create(key)
 
     assert session_a is not session_b, "managers must hold distinct Session instances"
-    assert session_a.messages == [], "session A starts empty"
-    assert session_b.messages == [], "session B starts empty"
 
-    # Manager A appends a user message and saves. Disk now contains [from-A].
     session_a.add_message("user", "message-from-A")
     manager_a.save(session_a)
 
-    # Manager B's cache is still the stale empty snapshot. It appends a
-    # different message and saves, blissfully unaware of A's write.
     session_b.add_message("user", "message-from-B")
     manager_b.save(session_b)
 
-    # Reload from disk through a third manager to see what actually persisted.
+    # Reload via a third manager, bypassing cache.
     manager_c = SessionManager(workspace)
-    # Bypass the cache to force a fresh disk read.
     manager_c._cache.pop(key, None)  # noqa: SLF001 — characterization hook
     session_c = manager_c.get_or_create(key)
 
     persisted_contents = [m.get("content") for m in session_c.messages]
-
-    # Bug characterization: B's later save overwrote A's earlier write
-    # because B never reloaded the revision A had written.
     assert "message-from-B" in persisted_contents, "B's write must be on disk"
     assert "message-from-A" not in persisted_contents, (
-        "A's earlier write survived the stale-cache overwrite — the bug has "
-        "been fixed (WP2 progress). Update this characterization to assert "
-        "the new revision-aware contract."
+        "Legacy save() still loses writes — this is expected until the "
+        "runtime switches all durable writes to commit_turn()."
     )
+
+
+def test_commit_turn_prevents_stale_cache_overwrite(tmp_path: Path) -> None:
+    """``commit_turn()`` rejects stale writes via revision conflict (WP2).
+
+    Design §21.2, acceptance #11. Manager A commits an INBOUND message.
+    Manager B (holding a stale base_revision=0) tries to commit and gets
+    ``REVISION_CONFLICT``. A's write survives.
+    """
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    manager_a = SessionManager(workspace)
+    manager_b = SessionManager(workspace)
+    key = "websocket:test:commit:1"
+
+    # Both start from revision 0 (empty session).
+    outcome_a = manager_a.commit_turn(
+        session_key=key,
+        commit_id="commit-a-inbound",
+        commit_kind="INBOUND",
+        base_revision=0,
+        mutation_messages=[{"role": "user", "content": "message-from-A"}],
+        mutation_metadata_updates={},
+        content_hash="hash-a",
+    )
+    assert outcome_a.state == "COMMITTED", f"A should succeed: {outcome_a}"
+    assert outcome_a.revision == 1
+
+    # B tries to commit with stale base_revision=0. Disk is now at revision 1.
+    outcome_b = manager_b.commit_turn(
+        session_key=key,
+        commit_id="commit-b-inbound",
+        commit_kind="INBOUND",
+        base_revision=0,
+        mutation_messages=[{"role": "user", "content": "message-from-B"}],
+        mutation_metadata_updates={},
+        content_hash="hash-b",
+    )
+    assert outcome_b.state == "REVISION_CONFLICT", (
+        f"B should get REVISION_CONFLICT, got {outcome_b}"
+    )
+    assert outcome_b.revision == 1, "B should see the current disk revision"
+
+    # A's write survives.
+    snapshot = manager_a.load_fresh(key)
+    assert snapshot.revision == 1
+    assert any(m.get("content") == "message-from-A" for m in snapshot.messages)
+    assert not any(m.get("content") == "message-from-B" for m in snapshot.messages)
 
 
 def test_two_managers_have_independent_per_session_locks(tmp_path: Path) -> None:
     """Per-instance ``_save_locks`` cannot serialize cross-process writes.
 
-    Documents why a per-instance threading.Lock is insufficient for the
+    Documents why a per-instance ``threading.Lock`` is insufficient for the
     durable runtime: two managers create distinct lock objects for the same
-    session key, so they cannot mutually exclude each other.
+    session key, so they cannot mutually exclude each other. WP2 adds
+    ``_OSFileLock`` for the ``commit_turn()`` path.
     """
     workspace = tmp_path / "ws"
     workspace.mkdir()
@@ -91,20 +131,19 @@ def test_two_managers_have_independent_per_session_locks(tmp_path: Path) -> None
 
     assert lock_a is not lock_b, (
         "Per-instance save locks are not shared across SessionManager "
-        "instances. WP2 must add an OS-visible per-session file lock."
+        "instances. commit_turn() uses _OSFileLock for cross-process safety."
     )
 
 
-def test_session_has_no_revision_field_today() -> None:
-    """``Session`` currently has no persisted revision counter.
+def test_session_has_revision_field() -> None:
+    """``Session`` has a persisted revision counter (WP2, design §21.1).
 
-    WP2 adds a revision field (design §21.1). This test pins the absence
-    so the WP2 migration is detectable.
+    The revision field enables optimistic concurrency control in
+    ``commit_turn()``. Legacy files without this field load as revision=0.
     """
     from miniunicorn.session.manager import Session
 
     fields = {f.name for f in Session.__dataclass_fields__.values()}  # type: ignore[attr-defined]
-    assert "revision" not in fields, (
-        "Session now has a 'revision' field — WP2 has landed; update this "
-        "characterization test to assert the new contract."
+    assert "revision" in fields, (
+        "Session must have a 'revision' field for WP2 optimistic concurrency"
     )

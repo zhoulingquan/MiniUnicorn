@@ -23,11 +23,40 @@ Rules (design §16.1):
 from __future__ import annotations
 
 import sqlite3
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from miniunicorn.runtime.config import RuntimeConfig
+
+
+def _exec_pragma_with_retry(
+    conn: sqlite3.Connection,
+    sql: str,
+    *,
+    retries: int = 200,
+    delay_s: float = 0.02,
+) -> None:
+    """Execute a PRAGMA with BUSY/LOCKED retry (design §16.1).
+
+    Some pragmas (notably ``journal_mode=WAL``) require a write lock and
+    can fail with ``SQLITE_BUSY`` when two connections open concurrently.
+    ``PRAGMA busy_timeout`` is set *after* the first pragmas, so it may
+    not yet be active for the very first statements. This retry loop
+    covers that window.
+    """
+    for _ in range(retries):
+        try:
+            conn.execute(sql)
+            return
+        except sqlite3.OperationalError as exc:
+            msg = str(exc).lower()
+            if "locked" in msg or "busy" in msg:
+                time.sleep(delay_s)
+                continue
+            raise
+    raise sqlite3.OperationalError(f"PRAGMA timed out after {retries} retries: {sql}")
 
 
 def open_connection(
@@ -62,14 +91,19 @@ def open_connection(
     # raw connections (used in tests and migration helpers) consistent.
     conn.row_factory = sqlite3.Row
 
+    # Set busy_timeout FIRST so subsequent pragmas benefit from it.
+    _exec_pragma_with_retry(conn, f"PRAGMA busy_timeout={int(busy_timeout_ms)}")
+
     # Apply required pragmas (design §16.1).
     # WAL mode cannot be set on a read-only connection, so skip it.
+    # WAL mode is persistent: once set, it stays set for the database file.
+    # Setting it again is harmless but requires a write lock, so we retry
+    # for concurrent-startup safety (design §16.1).
     if not readonly:
-        conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA synchronous=FULL")
-    conn.execute(f"PRAGMA busy_timeout={int(busy_timeout_ms)}")
-    conn.execute("PRAGMA temp_store=MEMORY")
+        _exec_pragma_with_retry(conn, "PRAGMA journal_mode=WAL")
+    _exec_pragma_with_retry(conn, "PRAGMA foreign_keys=ON")
+    _exec_pragma_with_retry(conn, "PRAGMA synchronous=FULL")
+    _exec_pragma_with_retry(conn, "PRAGMA temp_store=MEMORY")
 
     return conn
 

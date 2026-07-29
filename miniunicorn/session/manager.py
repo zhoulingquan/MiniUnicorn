@@ -4,15 +4,28 @@ import hashlib
 import json
 import os
 import re
+import sys
 import threading
+import time
 from collections import OrderedDict
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator, Literal
 
 from loguru import logger
+
+# Platform-specific OS-visible file locking (design §21.2 step 1).
+# POSIX uses ``fcntl.flock``; Windows uses ``msvcrt.locking``.
+if sys.platform == "win32":  # pragma: no cover - platform branch
+    import msvcrt
+
+    _HAS_FCNTL = False
+else:  # pragma: no cover - platform branch
+    import fcntl
+
+    _HAS_FCNTL = True
 
 from miniunicorn.config.paths import get_legacy_sessions_dir
 from miniunicorn.utils.helpers import (
@@ -91,6 +104,10 @@ class Session:
     # SessionManager 维护每个 key 的当前 generation;delete_session 时递增,
     # save 时校验 session.generation == manager 当前 generation,不匹配则跳过保存。
     generation: int = 0
+    # revision 是单调递增的会话版本号,用于跨进程乐观并发控制 (design §17.7, §21.1)。
+    # 每次 commit_turn 成功后递增;legacy 文件无此字段时按 0 加载。
+    # save() 不会自动递增 revision,只有 commit_turn() 会。
+    revision: int = 0
 
     @staticmethod
     def _annotate_message_time(message: dict[str, Any], content: Any) -> Any:
@@ -346,6 +363,98 @@ class Session:
         )
 
 
+# ---------------------------------------------------------------------------
+# WP2 — Revision-aware commit types (design §21.1)
+# ---------------------------------------------------------------------------
+
+# Maximum number of commit-id entries retained in the per-session sidecar
+# (design §21.3). FIFO eviction when exceeded.
+_COMMIT_INDEX_MAX = 200
+
+
+@dataclass(slots=True, frozen=True)
+class SessionSnapshot:
+    """Read-only snapshot returned by :meth:`SessionManager.load_fresh`.
+
+    Design §21.1. ``applied_commit_ids`` maps ``commit_id -> content_hash``
+    for recent commits, bounded by ``_COMMIT_INDEX_MAX``.
+    """
+
+    session_key: str
+    revision: int
+    messages: list[dict[str, Any]]
+    applied_commit_ids: dict[str, str]
+
+
+@dataclass(slots=True, frozen=True)
+class SessionCommitOutcome:
+    """Outcome of :meth:`SessionManager.commit_turn` (design §21.1).
+
+    Outcomes:
+    - ``COMMITTED`` — mutation applied, revision incremented;
+    - ``ALREADY_COMMITTED`` — same commit_id + content_hash already on disk;
+    - ``REVISION_CONFLICT`` — ``base_revision`` does not match disk;
+    - ``IO_FAILURE`` — filesystem error or commit_id hash mismatch.
+    """
+
+    state: Literal["COMMITTED", "ALREADY_COMMITTED", "REVISION_CONFLICT", "IO_FAILURE"]
+    revision: int
+    error: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# OS-visible per-session file lock (design §21.2 step 1)
+# ---------------------------------------------------------------------------
+
+
+class _OSFileLock:
+    """Cross-process exclusive file lock using OS primitives.
+
+    On POSIX this uses ``fcntl.flock(LOCK_EX)``; on Windows it uses
+    ``msvcrt.locking(LK_LOCK)`` on byte 0. The lock file is a sidecar
+    ``<session_path>.lock`` created in the sessions directory.
+
+    The lock is held for the lifetime of the context manager. Acquisition
+    blocks until the lock is available (or the OS times out on Windows).
+    """
+
+    __slots__ = ("_path", "_fd")
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._fd: int | None = None
+
+    def __enter__(self) -> "_OSFileLock":
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        # Open read/write, create if missing. Binary mode for msvcrt compat.
+        self._fd = os.open(str(self._path), os.O_RDWR | os.O_CREAT, 0o644)
+        if _HAS_FCNTL:
+            # POSIX: blocking exclusive lock.
+            fcntl.flock(self._fd, fcntl.LOCK_EX)
+        else:  # pragma: no cover - Windows branch
+            # Windows: lock byte 0 with blocking retry. LK_LOCK blocks for
+            # ~10 s then raises OSError if still unavailable.
+            os.lseek(self._fd, 0, os.SEEK_SET)
+            msvcrt.locking(self._fd, msvcrt.LK_LOCK, 1)
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        if self._fd is None:
+            return
+        try:
+            if _HAS_FCNTL:
+                fcntl.flock(self._fd, fcntl.LOCK_UN)
+            else:  # pragma: no cover - Windows branch
+                os.lseek(self._fd, 0, os.SEEK_SET)
+                try:
+                    msvcrt.locking(self._fd, msvcrt.LK_UNLCK, 1)
+                except OSError:
+                    pass
+        finally:
+            os.close(self._fd)
+            self._fd = None
+
+
 class SessionManager:
     """
     Manages conversation sessions.
@@ -531,6 +640,7 @@ class SessionManager:
             created_at = None
             updated_at = None
             last_consolidated = 0
+            revision = 0  # legacy 文件无此字段,按 0 读取 (design §21.1)。
 
             with open(path, encoding="utf-8") as f:
                 for line in f:
@@ -553,6 +663,7 @@ class SessionManager:
                             else None
                         )
                         last_consolidated = data.get("last_consolidated", 0)
+                        revision = data.get("revision", 0)
                     else:
                         messages.append(data)
 
@@ -571,6 +682,7 @@ class SessionManager:
                 metadata=metadata,
                 last_consolidated=last_consolidated,
                 generation=gen,
+                revision=revision,
             )
         except Exception as e:
             logger.warning("Failed to load session {}: {}", key, e)
@@ -630,6 +742,7 @@ class SessionManager:
             created_at: datetime | None = None
             updated_at: datetime | None = None
             last_consolidated = 0
+            revision = 0  # legacy 文件无此字段,按 0 读取 (design §21.1)。
             skipped = 0
             stored_key: str | None = None
 
@@ -654,6 +767,7 @@ class SessionManager:
                                 updated_at = datetime.fromisoformat(data["updated_at"])
                         last_consolidated = data.get("last_consolidated", 0)
                         stored_key = data.get("key")
+                        revision = data.get("revision", 0)
                     else:
                         messages.append(data)
 
@@ -671,6 +785,7 @@ class SessionManager:
                 updated_at=updated_at or datetime.now(),
                 metadata=metadata,
                 last_consolidated=last_consolidated,
+                revision=revision,
             )
         except Exception as e:
             logger.warning("Repair failed for session {}: {}", resolved_key, e)
@@ -763,6 +878,9 @@ class SessionManager:
                     "updated_at": session.updated_at.isoformat(),
                     "metadata": session.metadata,
                     "last_consolidated": session.last_consolidated,
+                    # revision 持久化以支持跨进程乐观并发控制 (design §21.1)。
+                    # legacy 文件无此字段,_load 按 0 读取。
+                    "revision": session.revision,
                 }
                 f.write(json.dumps(metadata_line, ensure_ascii=False) + "\n")
                 for msg in session.messages:
@@ -820,6 +938,215 @@ class SessionManager:
         with self._cache_lock:
             self._cache.pop(key, None)
 
+    # ------------------------------------------------------------------
+    # WP2 — Revision-aware commit API (design §21.1, §21.2)
+    # ------------------------------------------------------------------
+
+    def _get_lock_path(self, key: str) -> Path:
+        """OS-visible per-session lock sidecar path (design §21.2 step 1)."""
+        return self._get_session_path(key).with_suffix(".jsonl.lock")
+
+    def _get_commits_path(self, key: str) -> Path:
+        """Per-session commit-id index sidecar path (design §21.3)."""
+        return self._get_session_path(key).with_suffix(".jsonl.commits")
+
+    def _read_commit_index(self, key: str) -> "OrderedDict[str, dict[str, Any]]":
+        """Read the bounded commit-id index sidecar.
+
+        Returns an ``OrderedDict`` mapping ``commit_id -> entry`` where each
+        entry has ``content_hash``, ``revision``, ``commit_kind``, and
+        ``committed_at_ms``. Insertion order reflects commit order. Returns
+        an empty dict when the sidecar does not exist or is corrupt.
+        """
+        path = self._get_commits_path(key)
+        if not path.exists():
+            return OrderedDict()
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            entries = data.get("commits", [])
+            result: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
+            for entry in entries:
+                cid = entry.get("commit_id")
+                if isinstance(cid, str):
+                    result[cid] = entry
+            return result
+        except (OSError, json.JSONDecodeError, TypeError) as exc:
+            logger.warning("Failed to read commit index for {}: {}", key, exc)
+            return OrderedDict()
+
+    def _write_commit_index(
+        self, key: str, index: "OrderedDict[str, dict[str, Any]]"
+    ) -> None:
+        """Atomically write the commit-id index sidecar (design §21.3).
+
+        The sidecar is bounded to ``_COMMIT_INDEX_MAX`` entries (FIFO
+        eviction). Written with ``fsync`` + atomic ``os.replace``.
+        """
+        path = self._get_commits_path(key)
+        tmp_path = self._tmp_path(path)
+        # Bound the index (FIFO eviction of oldest entries).
+        while len(index) > _COMMIT_INDEX_MAX:
+            index.popitem(last=False)
+        entries = list(index.values())
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump({"commits": entries}, f, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, path)
+            # fsync parent directory when supported (design §21.2 step 11).
+            with suppress(PermissionError):
+                fd = os.open(str(path.parent), os.O_RDONLY)
+                try:
+                    os.fsync(fd)
+                finally:
+                    os.close(fd)
+        except BaseException:
+            tmp_path.unlink(missing_ok=True)
+            raise
+
+    def load_fresh(self, session_key: str) -> SessionSnapshot:
+        """Load session from disk, bypassing the process cache (design §21.1).
+
+        Returns a :class:`SessionSnapshot` with the current revision,
+        messages, and applied commit ids. If the session does not exist on
+        disk, returns a snapshot with ``revision=0`` and empty messages.
+
+        This is the read path used by the Session Committer before applying
+        a mutation. It never returns cached data.
+        """
+        # Bypass cache: read directly from disk.
+        session = self._load(session_key)
+        if session is None:
+            return SessionSnapshot(
+                session_key=session_key,
+                revision=0,
+                messages=[],
+                applied_commit_ids={},
+            )
+        commit_index = self._read_commit_index(session_key)
+        applied = {
+            cid: entry.get("content_hash", "")
+            for cid, entry in commit_index.items()
+        }
+        return SessionSnapshot(
+            session_key=session_key,
+            revision=session.revision,
+            messages=list(session.messages),
+            applied_commit_ids=applied,
+        )
+
+    def commit_turn(
+        self,
+        session_key: str,
+        commit_id: str,
+        commit_kind: str,
+        base_revision: int,
+        mutation_messages: list[dict[str, Any]],
+        mutation_metadata_updates: dict[str, Any] | None,
+        content_hash: str,
+    ) -> SessionCommitOutcome:
+        """Idempotent, revision-aware session commit (design §21.1, §21.2).
+
+        Implements the 13-step protocol from design §21.2:
+
+        1. acquire OS-visible per-session file lock;
+        2. reload current on-disk session, bypassing process cache;
+        3. return ``ALREADY_COMMITTED`` if the same commit id and hash exist;
+        4. reject reuse of a commit id with a different hash;
+        5. compare ``base_revision`` against the reloaded session;
+        6. apply the normalized mutation once;
+        7. increment revision exactly once;
+        8. write a temporary file in the destination directory;
+        9. flush and ``fsync`` the file;
+        10. atomically replace the destination;
+        11. ``fsync`` the parent directory when supported;
+        12. refresh or invalidate the process-local cache;
+        13. release the lock.
+
+        ``commit_kind`` is ``"INBOUND"`` or ``"FINAL"`` (design §17.7).
+        """
+        mutation_metadata_updates = mutation_metadata_updates or {}
+        lock_path = self._get_lock_path(session_key)
+
+        try:
+            with _OSFileLock(lock_path):
+                # Step 2: reload from disk, bypassing cache.
+                session = self._load(session_key)
+                if session is None:
+                    session = Session(key=session_key)
+
+                # Steps 3-4: check commit-id idempotency.
+                commit_index = self._read_commit_index(session_key)
+                existing = commit_index.get(commit_id)
+                if existing is not None:
+                    existing_hash = existing.get("content_hash", "")
+                    if existing_hash == content_hash:
+                        # Step 3: same commit_id + hash → already committed.
+                        return SessionCommitOutcome(
+                            state="ALREADY_COMMITTED",
+                            revision=session.revision,
+                        )
+                    # Step 4: commit_id reused with a different hash → reject.
+                    return SessionCommitOutcome(
+                        state="IO_FAILURE",
+                        revision=session.revision,
+                        error=(
+                            f"commit_id {commit_id} already applied with a "
+                            f"different content_hash"
+                        ),
+                    )
+
+                # Step 5: compare base_revision (optimistic concurrency).
+                if session.revision != base_revision:
+                    return SessionCommitOutcome(
+                        state="REVISION_CONFLICT",
+                        revision=session.revision,
+                    )
+
+                # Step 6: apply the normalized mutation once.
+                for msg in mutation_messages:
+                    session.messages.append(msg)
+                session.metadata.update(mutation_metadata_updates)
+                session.updated_at = datetime.now()
+
+                # Step 7: increment revision exactly once.
+                session.revision += 1
+
+                # Steps 8-11: atomic save with fsync (reuse _save_impl).
+                self._save_impl(session, fsync=True)
+
+                # Step 12: refresh process-local cache.
+                with self._cache_lock:
+                    self._cache[session_key] = session
+                    self._touch(session_key)
+                    self._enforce_max()
+
+                # Update the commit-id index sidecar.
+                commit_index[commit_id] = {
+                    "commit_id": commit_id,
+                    "content_hash": content_hash,
+                    "revision": session.revision,
+                    "commit_kind": commit_kind,
+                    "committed_at_ms": int(time.time() * 1000),
+                }
+                self._write_commit_index(session_key, commit_index)
+
+                return SessionCommitOutcome(
+                    state="COMMITTED",
+                    revision=session.revision,
+                )
+        except OSError as exc:
+            logger.warning(
+                "commit_turn IO failure for session {}: {}", session_key, exc
+            )
+            return SessionCommitOutcome(
+                state="IO_FAILURE",
+                revision=base_revision,
+                error=str(exc),
+            )
+
     def delete_session(self, key: str) -> bool:
         """Remove a session from disk and the in-memory cache.
 
@@ -845,7 +1172,16 @@ class SessionManager:
         self._generations[key] = new_gen
         self._tombstones[key] = new_gen
         removed_any = False
-        for candidate in (path, legacy_workspace_path, legacy_global_path):
+        # Also clean up WP2 sidecars (lock + commit-id index).
+        lock_path = self._get_lock_path(key)
+        commits_path = self._get_commits_path(key)
+        for candidate in (
+            path,
+            legacy_workspace_path,
+            legacy_global_path,
+            lock_path,
+            commits_path,
+        ):
             if not candidate.exists():
                 continue
             try:

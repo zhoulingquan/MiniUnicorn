@@ -57,6 +57,8 @@ from miniunicorn.runtime.models import (
     InternalCompletionWrite,
     RequestScope,
     RetryDecision,
+    SessionCommitRecord,
+    SessionCommitWrite,
     TaskControlRecord,
     TaskControlRequest,
     TaskFailure,
@@ -1566,6 +1568,200 @@ class SqliteRuntimeStore:
                 now_ms=now_ms,
             )
         return len(rows)
+
+    # ------------------------------------------------------------------
+    # SessionCommitLedger (design §11.2, §17.7) — WP2
+    # ------------------------------------------------------------------
+
+    def _row_to_session_commit(self, row: sqlite3.Row) -> SessionCommitRecord:
+        return SessionCommitRecord(
+            session_commit_id=row["session_commit_id"],
+            task_id=row["task_id"],
+            commit_kind=row["commit_kind"],
+            session_key=row["session_key"],
+            base_revision=row["base_revision"],
+            target_revision=row["target_revision"],
+            content_hash=row["content_hash"],
+            state=row["state"],
+            error_code=row["error_code"],
+            created_at_ms=row["created_at_ms"],
+            committed_at_ms=row["committed_at_ms"],
+        )
+
+    def prepare_session_commit(
+        self, claim: TaskClaim, value: SessionCommitWrite
+    ) -> SessionCommitRecord:
+        """Insert or verify a ``PREPARED`` session commit (design §17.7 step 3).
+
+        Validates the task lease, then either:
+        - inserts a new ``session_commits(PREPARED)`` row, or
+        - returns the existing row if the same ``(task_id, commit_kind)`` is
+          already prepared (idempotent retry).
+
+        Appends ``SESSION_COMMIT_PREPARED``. Must be called inside an
+        ``BEGIN IMMEDIATE`` transaction (opened by this method).
+        """
+        now_ms = value.created_at_ms or _now_ms()
+        commit_id = value.session_commit_id or _new_uuid()
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            self._validate_lease(claim)
+
+            # Check for an existing prepared/committed row (idempotent retry).
+            existing = self._conn.execute(
+                "SELECT * FROM session_commits WHERE task_id=? AND commit_kind=?",
+                (claim.task_id, value.commit_kind),
+            ).fetchone()
+            if existing is not None:
+                self._conn.execute("COMMIT")
+                return self._row_to_session_commit(existing)
+
+            self._conn.execute(
+                """
+                INSERT INTO session_commits (
+                    session_commit_id, task_id, commit_kind, session_key,
+                    base_revision, target_revision, content_hash, state,
+                    error_code, created_at_ms, committed_at_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PREPARED', NULL, ?, NULL)
+                """,
+                (
+                    commit_id,
+                    claim.task_id,
+                    value.commit_kind,
+                    value.session_key,
+                    value.base_revision,
+                    value.target_revision,
+                    value.content_hash,
+                    now_ms,
+                ),
+            )
+            self._append_event(
+                task_id=claim.task_id,
+                event_type="SESSION_COMMIT_PREPARED",
+                phase=None,
+                lease_epoch=claim.lease_epoch,
+                safe_payload=json.dumps(
+                    {
+                        "session_commit_id": commit_id,
+                        "commit_kind": value.commit_kind,
+                        "session_key": value.session_key,
+                        "base_revision": value.base_revision,
+                        "target_revision": value.target_revision,
+                    }
+                ),
+                now_ms=now_ms,
+            )
+            self._conn.execute("COMMIT")
+        except Exception:
+            self._conn.execute("ROLLBACK")
+            raise
+
+        row = self._conn.execute(
+            "SELECT * FROM session_commits WHERE session_commit_id=?",
+            (commit_id,),
+        ).fetchone()
+        assert row is not None
+        return self._row_to_session_commit(row)
+
+    def confirm_session_commit(
+        self, claim: TaskClaim, commit_id: str, revision: int, committed_at_ms: int
+    ) -> SessionCommitRecord:
+        """Mark a session commit ``COMMITTED`` (design §17.7 step 5).
+
+        Revalidates the task lease, transitions the commit to ``COMMITTED``
+        with the filesystem revision and timestamp, and appends
+        ``SESSION_COMMITTED``.
+        """
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            self._validate_lease(claim)
+            row = self._conn.execute(
+                "SELECT * FROM session_commits WHERE session_commit_id=?",
+                (commit_id,),
+            ).fetchone()
+            if row is None:
+                raise RuntimeError(f"session commit not found: {commit_id}")
+            if row["state"] == "COMMITTED":
+                # Idempotent: already confirmed.
+                self._conn.execute("COMMIT")
+                return self._row_to_session_commit(row)
+
+            self._conn.execute(
+                """
+                UPDATE session_commits
+                SET state='COMMITTED', committed_at_ms=?
+                WHERE session_commit_id=? AND state='PREPARED'
+                """,
+                (committed_at_ms, commit_id),
+            )
+            self._append_event(
+                task_id=claim.task_id,
+                event_type="SESSION_COMMITTED",
+                phase=None,
+                lease_epoch=claim.lease_epoch,
+                safe_payload=json.dumps(
+                    {
+                        "session_commit_id": commit_id,
+                        "revision": revision,
+                    }
+                ),
+                now_ms=committed_at_ms,
+            )
+            self._conn.execute("COMMIT")
+        except Exception:
+            self._conn.execute("ROLLBACK")
+            raise
+
+        row = self._conn.execute(
+            "SELECT * FROM session_commits WHERE session_commit_id=?",
+            (commit_id,),
+        ).fetchone()
+        assert row is not None
+        return self._row_to_session_commit(row)
+
+    def mark_session_conflict(
+        self, claim: TaskClaim, commit_id: str, error: SafeError
+    ) -> SessionCommitRecord:
+        """Mark a session commit ``CONFLICT`` (design §17.7, §21.4).
+
+        Records the conflict for operational alerting. The task lease is
+        not required to be valid (the Worker may have been fenced), so we
+        do not validate the lease here.
+        """
+        now_ms = _now_ms()
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            self._conn.execute(
+                """
+                UPDATE session_commits
+                SET state='CONFLICT', error_code=?, committed_at_ms=?
+                WHERE session_commit_id=? AND state='PREPARED'
+                """,
+                (error.error_code, now_ms, commit_id),
+            )
+            self._conn.execute("COMMIT")
+        except Exception:
+            self._conn.execute("ROLLBACK")
+            raise
+
+        row = self._conn.execute(
+            "SELECT * FROM session_commits WHERE session_commit_id=?",
+            (commit_id,),
+        ).fetchone()
+        assert row is not None
+        return self._row_to_session_commit(row)
+
+    def read_session_commit(
+        self, task_id: str, commit_kind: str
+    ) -> SessionCommitRecord | None:
+        """Read the session commit row for ``(task_id, commit_kind)``."""
+        row = self._conn.execute(
+            "SELECT * FROM session_commits WHERE task_id=? AND commit_kind=?",
+            (task_id, commit_kind),
+        ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_session_commit(row)
 
 
 __all__ = ["SqliteRuntimeStore"]
