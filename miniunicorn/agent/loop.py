@@ -130,10 +130,8 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
     def _build_turn_budget(self):
         """Construct a fresh TurnBudget for one turn, or None to disable.
 
-        Returns None (legacy unbounded behavior) unless either
-        max_input_tokens_per_turn or max_cost_per_turn_usd is set in config.
-        When set, only the configured dimensions are capped; unset dimensions
-        default to None (unlimited) inside TurnBudget.
+        Returns None unless either max_input_tokens_per_turn or
+        max_cost_per_turn_usd is set; unset dimensions default to None.
         """
         if self._max_input_tokens_per_turn is None and self._max_cost_per_turn_usd is None:
             return None
@@ -210,10 +208,8 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         self.max_iterations = (
             max_iterations if max_iterations is not None else defaults.max_tool_iterations
         )
-        # Runtime contract: require a resolved positive integer. No network
-        # lookup, no cache, no default guess. Configuration-time resolution
-        # (HF/ModelScope discovery) must have persisted a concrete value via
-        # the model-save handlers before the agent starts.
+        # Runtime contract: require a resolved positive integer (no network
+        # lookup/default guess); config-time resolution must persist a value.
         from miniunicorn.config.context_window import require_context_window
 
         self.context_window_tokens = require_context_window(
@@ -267,12 +263,9 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             schedule_background=lambda coro: self._schedule_background(coro),
         )
         self.tools = ToolRegistry()
-        # One file-read/write tracker per logical session. The tool registry is
-        # shared by this loop, so tools resolve the active state via contextvars.
+        # One file-read/write tracker per logical session; tools resolve state via contextvars.
         self._file_state_store = FileStateStore()
-        # TurnPersistence owns checkpoint, pending-turn and history-write
-        # algorithms. The loop retains thin delegates so existing
-        # monkeypatches on _save_turn etc. continue to intercept calls.
+        # TurnPersistence owns checkpoint/pending-turn/history-write algorithms.
         self._turn_persistence = TurnPersistence(self)
         self.runner = AgentRunner(provider)
         self.subagents = SubagentManager(
@@ -308,25 +301,18 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         # MINIUNICORN_MAX_CONCURRENT_REQUESTS: <=0 means unlimited; default 3.
         _max = int(os.environ.get("MINIUNICORN_MAX_CONCURRENT_REQUESTS", "3"))
         # TurnCoordinator owns per-session locks (weakly held) and the global
-        # concurrency semaphore. Lock acquisition precedes semaphore
-        # acquisition so a task waiting on its session lock cannot consume a
-        # global permit. Every turn entry point (_dispatch and process_direct)
-        # routes through coordinator.scope to bind a TurnRuntime for the turn.
+        # concurrency semaphore. Lock precedes semaphore so a waiting task
+        # cannot consume a global permit. Every turn entry point routes
+        # through coordinator.scope to bind a TurnRuntime for the turn.
         self._turn_coordinator = TurnCoordinator(max_concurrent_requests=_max)
-        # Read-only compatibility alias for code that inspects session locks
-        # (e.g. /stop introspection). Mutations of this dict still flow
-        # through the coordinator.
+        # Read-only compatibility alias for code that inspects session locks.
         self._session_locks = self._turn_coordinator.session_locks
-        # TurnExecutor owns the single-turn state-machine driver. It sees the
-        # host through a narrow protocol and never imports AgentLoop at runtime.
+        # TurnExecutor owns the single-turn state-machine driver.
         self._turn_executor = TurnExecutor(self)
-        # AgentRunAdapter is the single thick adapter between the loop and
-        # AgentRunner. The loop delegates _run_agent_loop here so the runner
-        # invocation logic can stay out of the facade body.
+        # AgentRunAdapter is the single thick adapter between the loop and AgentRunner.
         self._agent_run_adapter = AgentRunAdapter(self)
-        # Telemetry sink: one structured record per turn. Defaults to
-        # LogTelemetrySink (Loguru ``turn_completed`` event). Sink exceptions
-        # are logged and suppressed so telemetry can never break a turn.
+        # Telemetry sink: one structured record per turn. Defaults to LogTelemetrySink.
+        # Sink exceptions are logged and suppressed so telemetry can never break a turn.
         self.telemetry_sink: TelemetrySink = telemetry_sink or LogTelemetrySink()
         self.consolidator = Consolidator(
             store=self.context.memory,
@@ -352,9 +338,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             max_iterations=defaults.dream.max_iterations,
             annotate_line_ages=defaults.dream.annotate_line_ages,
         )
-        # Dream 空闲触发器：用户停用时后台触发 Dream，不依赖 cron 定时。
-        # 解决"用户不 24h 运行 gateway，凌晨 cron 点大概率关机"的问题。
-        # gateway 启动时由 _gateway_runner 从 DreamConfig 同步配置。
+        # Dream idle trigger: fires Dream when user is idle, independent of cron.
         from miniunicorn.agent.dream_trigger import DreamIdleTrigger
 
         self.dream_idle_trigger = DreamIdleTrigger(
@@ -366,8 +350,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         )
         # Attach vector store to memory if enabled (optional sqlite-vec dependency).
         # Vector memory uses a dedicated local CPU embedding provider
-        # (FastEmbed/BGE) that is independent of the chat LLM provider.
-        # Runtime chat-provider switching never touches ``_embedding_provider``.
+        # (FastEmbed/BGE), independent of the chat LLM provider.
         self._vector_recall = vector_recall
         self._embedding_model = embedding_model
         self._embedding_provider = None
@@ -382,9 +365,8 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                 model_id=embedding_provider.model_name,
             )
             self.context.memory.attach_vector_store(vector_store)
-            # MemoryStore.index_text and the recall tool read the provider
-            # back via MemoryStore._embed_provider, so hand them the same
-            # local instance rather than the chat provider.
+            # MemoryStore.index_text and recall tool read the provider via
+            # MemoryStore._embed_provider; hand them the same local instance.
             self.context.memory.set_embed_provider(embedding_provider, model=embedding_model)
             self._embedding_provider = embedding_provider
         self.model_presets: dict[str, ModelPresetConfig] = model_presets or {}
@@ -395,11 +377,10 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         self._runtime_vars: dict[str, Any] = {}
         self.commands = CommandRouter()
         register_builtin_commands(self.commands)
-        # TurnDispatcher owns the bus-consume loop, per-session dispatch,
-        # the _process_message compatibility bridge, process_direct, and
-        # task cancellation. Task registries (_active_tasks, _pending_queues)
-        # live on the dispatcher and are exposed below as read-only
-        # compatibility properties.
+        # TurnDispatcher owns the bus-consume loop, dispatch, the
+        # _process_message compatibility bridge, process_direct, and task
+        # cancellation. Task registries live on the dispatcher and are
+        # exposed below as read-only compatibility properties.
         self._turn_dispatcher = TurnDispatcher(self, self._turn_coordinator)
 
     @property
@@ -421,11 +402,8 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
     ) -> AgentLoop:
         """Create an AgentLoop from config with the common parameter set.
 
-        Extra keyword arguments are forwarded to ``AgentLoop.__init__``,
-        allowing callers to override or extend the standard config-derived
-        parameters (e.g. ``cron_service``, ``session_manager``).
-
-        内部委托给 ``AgentLoopBuilder.from_config`` 以保持单一的参数解析路径。
+        Extra keyword arguments are forwarded to ``AgentLoop.__init__``.
+        Delegates to ``AgentLoopBuilder.from_config``.
         """
         from miniunicorn.agent.loop_builder import AgentLoopBuilder
 
@@ -498,10 +476,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         session: Session,
         **kwargs: Any,
     ) -> bool:
-        """Persist the triggering user message before the turn starts.
-
-        Delegates to :class:`TurnPersistence`.
-        """
+        """Persist the triggering user message before the turn starts."""
         return self._turn_persistence.persist_user_message_early(msg, session, **kwargs)
 
     async def _compute_query_embedding(self, text: str) -> list[float] | None:
@@ -570,10 +545,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             logger.warning("Command '{}' matched but dispatch returned None", raw)
 
     async def _cancel_active_tasks(self, key: str) -> int:
-        """Cancel and await all active tasks and subagents for *key*.
-
-        Delegates to :class:`TurnDispatcher`.
-        """
+        """Cancel and await all active tasks and subagents for *key*."""
         return await self._turn_dispatcher.cancel_active_tasks(key)
 
     def _effective_session_key(self, msg: InboundMessage) -> str:
@@ -648,12 +620,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         agent_override: SubagentDefinition | None = None,
         turn_hooks: list[AgentHook] | None = None,
     ) -> AgentLoopRunResult:
-        """Run the agent iteration loop.
-
-        Delegates to :class:`AgentRunAdapter`. Existing monkeypatches of this
-        method continue to intercept calls because state handlers and
-        ``TurnExecutor`` call ``self._run_agent_loop`` through the host.
-        """
+        """Run the agent iteration loop. Delegates to :class:`AgentRunAdapter`."""
         return await self._agent_run_adapter.run(
             initial_messages,
             on_progress=on_progress,
@@ -672,17 +639,11 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         )
 
     async def run(self) -> None:
-        """Run the agent loop, dispatching messages as tasks to stay responsive to /stop.
-
-        Delegates to :class:`TurnDispatcher`.
-        """
+        """Run the agent loop. Delegates to :class:`TurnDispatcher`."""
         await self._turn_dispatcher.run()
 
     async def _dispatch(self, msg: InboundMessage) -> None:
-        """Process a message: per-session serial, cross-session concurrent.
-
-        Delegates to :class:`TurnDispatcher`.
-        """
+        """Process a message: per-session serial, cross-session concurrent."""
         await self._turn_dispatcher.dispatch(msg)
 
     def _schedule_background(self, coro, *, name: str = "agent-background") -> None:
@@ -759,11 +720,6 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
 
         Delegates to :class:`TurnDispatcher`, which calls
         ``_execute_message`` and completes the bound ``TurnRuntime``.
-
-        Existing callers that only need the response message can keep using
-        this thin wrapper. New internal callers should use ``_execute_message``
-        directly so they can copy cumulative metrics into the bound
-        ``TurnRuntime`` via :func:`complete_turn_runtime`.
         """
         return await self._turn_dispatcher.process_message(
             msg,
@@ -786,10 +742,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         *,
         turn_latency_ms: int | None = None,
     ) -> OutboundMessage | None:
-        """Assemble the final outbound message from turn results.
-
-        Delegates to :class:`TurnPersistence`.
-        """
+        """Assemble the final outbound message from turn results."""
         return self._turn_persistence.assemble_outbound(
             msg,
             final_content,
@@ -807,10 +760,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         should_truncate_text: bool = False,
         drop_runtime: bool = False,
     ) -> list[dict[str, Any]]:
-        """Strip volatile multimodal payloads before writing session history.
-
-        Delegates to :class:`TurnPersistence`.
-        """
+        """Strip volatile multimodal payloads before writing session history."""
         return self._turn_persistence.sanitize_persisted_blocks(
             content,
             should_truncate_text=should_truncate_text,
@@ -825,10 +775,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         *,
         turn_latency_ms: int | None = None,
     ) -> None:
-        """Save new-turn messages into session, truncating large tool results.
-
-        Delegates to :class:`TurnPersistence`.
-        """
+        """Save new-turn messages into session, truncating large tool results."""
         self._turn_persistence.save_turn(
             session,
             messages,
@@ -837,17 +784,11 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         )
 
     def _persist_subagent_followup(self, session: Session, msg: InboundMessage) -> bool:
-        """Persist subagent follow-ups before prompt assembly so history stays durable.
-
-        Delegates to :class:`TurnPersistence`.
-        """
+        """Persist subagent follow-ups before prompt assembly so history stays durable."""
         return self._turn_persistence.persist_subagent_followup(session, msg)
 
     def _set_runtime_checkpoint(self, session: Session, payload: dict[str, Any]) -> None:
-        """Persist the latest in-flight turn state into session metadata.
-
-        Delegates to :class:`TurnPersistence`.
-        """
+        """Persist the latest in-flight turn state into session metadata."""
         self._turn_persistence.set_runtime_checkpoint(session, payload)
 
     def _mark_pending_user_turn(self, session: Session) -> None:
@@ -868,17 +809,11 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         return TurnPersistence.checkpoint_message_key(message)
 
     def _restore_runtime_checkpoint(self, session: Session) -> bool:
-        """Materialize an unfinished turn into session history before a new request.
-
-        Delegates to :class:`TurnPersistence`.
-        """
+        """Materialize an unfinished turn into session history before a new request."""
         return self._turn_persistence.restore_runtime_checkpoint(session)
 
     def _restore_pending_user_turn(self, session: Session) -> bool:
-        """Close a turn that only persisted the user message before crashing.
-
-        Delegates to :class:`TurnPersistence`.
-        """
+        """Close a turn that only persisted the user message before crashing."""
         return self._turn_persistence.restore_pending_user_turn(session)
 
     async def process_direct(
@@ -895,20 +830,9 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
     ) -> OutboundMessage | None:
         """Process a message directly and return the outbound payload.
 
-        *hooks*: per-call lifecycle hooks bound to this single turn only.
-        The SDK uses this instead of mutating the loop's shared
-        ``_extra_hooks`` list, so concurrent ``process_direct`` calls with
-        different hooks no longer cross-contaminate each other's results.
-
-        Direct calls share the same :class:`TurnCoordinator` as bus
-        dispatches: same-session ``process_direct`` calls serialize against
-        each other and against any concurrent ``_dispatch`` for the same
-        effective session key, but they are never transformed into bus
-        messages. The coordinator also binds a per-turn
-        :class:`~miniunicorn.agent.turn_runtime.TurnRuntime` for the duration
-        of this call so concurrent direct turns cannot share mutable state.
-
-        Delegates to :class:`TurnDispatcher`.
+        Delegates to :class:`TurnDispatcher`. ``hooks`` are per-call only;
+        direct calls share the same :class:`TurnCoordinator` as bus
+        dispatches so same-session calls serialize.
         """
         return await self._turn_dispatcher.process_direct(
             content,
