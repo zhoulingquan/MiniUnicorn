@@ -6,10 +6,9 @@ import asyncio
 import dataclasses
 import os
 import time
-from contextlib import AsyncExitStack, nullcontext, suppress
+from contextlib import AsyncExitStack, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
-from weakref import WeakValueDictionary
 
 from loguru import logger
 
@@ -39,8 +38,12 @@ from miniunicorn.agent.tools.context import (
 from miniunicorn.agent.tools.file_state import FileStateStore, bind_file_states, reset_file_states
 from miniunicorn.agent.tools.message import MessageTool
 from miniunicorn.agent.tools.registry import ToolRegistry
+from miniunicorn.agent.turn_coordinator import TurnCoordinator
 from miniunicorn.agent.turn_runtime import (
     AgentLoopRunResult,
+    ProcessedTurn,
+    complete_turn_runtime,
+    current_turn_runtime,
 )
 from miniunicorn.bus.events import InboundMessage, OutboundMessage, make_session_key
 from miniunicorn.bus.queue import MessageBus
@@ -288,16 +291,22 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         self._mcp_connecting = False
         self._active_tasks: dict[str, list[asyncio.Task]] = {}  # session_key -> tasks
         self._background_tasks: set[asyncio.Task] = set()
-        self._session_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
         # Per-session pending queues for mid-turn message injection.
         # When a session has an active task, new messages for that session
         # are routed here instead of creating a new task.
         self._pending_queues: dict[str, asyncio.Queue] = {}
         # MINIUNICORN_MAX_CONCURRENT_REQUESTS: <=0 means unlimited; default 3.
         _max = int(os.environ.get("MINIUNICORN_MAX_CONCURRENT_REQUESTS", "3"))
-        self._concurrency_gate: asyncio.Semaphore | None = (
-            asyncio.Semaphore(_max) if _max > 0 else None
-        )
+        # TurnCoordinator owns per-session locks (weakly held) and the global
+        # concurrency semaphore. Lock acquisition precedes semaphore
+        # acquisition so a task waiting on its session lock cannot consume a
+        # global permit. Every turn entry point (_dispatch and process_direct)
+        # routes through coordinator.scope to bind a TurnRuntime for the turn.
+        self._turn_coordinator = TurnCoordinator(max_concurrent_requests=_max)
+        # Read-only compatibility alias for code that inspects session locks
+        # (e.g. /stop introspection). Mutations of this dict still flow
+        # through the coordinator.
+        self._session_locks = self._turn_coordinator.session_locks
         self.consolidator = Consolidator(
             store=self.context.memory,
             provider=provider,
@@ -922,19 +931,15 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         session_key = self._effective_session_key(msg)
         if session_key != msg.session_key:
             msg = dataclasses.replace(msg, session_key_override=session_key)
-        # WeakValueDictionary: when a session goes idle and all in-flight
-        # tasks drop their strong refs to the lock, the entry is GC'd
-        # automatically — prevents unbounded growth of session locks for
-        # short-lived chats.
-        lock = self._session_locks.get(session_key)
-        if lock is None:
-            lock = asyncio.Lock()
-            self._session_locks[session_key] = lock
-        gate = self._concurrency_gate or nullcontext()
-
+        # TurnCoordinator owns the per-session lock (weakly held so idle
+        # sessions are GC'd) and the global concurrency semaphore. Lock
+        # acquisition precedes semaphore acquisition inside ``scope`` so a
+        # task waiting on its session lock cannot consume a global permit.
+        # The same coordinator is shared with ``process_direct`` so bus and
+        # direct entry points serialize against the same per-session lock.
         pending: asyncio.Queue | None = None
         try:
-            async with lock, gate:
+            async with self._turn_coordinator.scope(session_key) as turn_runtime:
                 # Only the task that owns the session lock may publish the
                 # active mid-turn injection queue for this session.
                 pending = asyncio.Queue(maxsize=20)
@@ -978,12 +983,17 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                             )
                             stream_segment += 1
 
-                    response = await self._process_message(
+                    result = await self._execute_message(
                         msg,
                         on_stream=on_stream,
                         on_stream_end=on_stream_end,
                         pending_queue=pending,
                     )
+                    # Copy cumulative usage/latency from the completed turn
+                    # context into the bound TurnRuntime so telemetry and
+                    # turn-end reads see this turn's metrics only.
+                    complete_turn_runtime(turn_runtime, result.context)
+                    response = result.outbound
                     if response is not None:
                         await self.bus.publish_outbound(response)
                     elif msg.channel == "cli":
@@ -1193,7 +1203,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             metadata=outbound_metadata,
         )
 
-    async def _process_message(
+    async def _execute_message(
         self,
         msg: InboundMessage,
         session_key: str | None = None,
@@ -1202,12 +1212,19 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
         pending_queue: asyncio.Queue | None = None,
         turn_hooks: list[AgentHook] | None = None,
-    ) -> OutboundMessage | None:
-        """Process a single inbound message and return the response."""
+    ) -> ProcessedTurn:
+        """Execute a single inbound message and return the outbound + context.
+
+        Returns a :class:`ProcessedTurn` carrying the optional outbound
+        payload and the completed :class:`TurnContext` (when one was built).
+        System-message shortcuts return ``ProcessedTurn(outbound, None)``
+        because they bypass the state machine and have no TurnContext to
+        copy cumulative metrics from.
+        """
         self._refresh_provider_snapshot()
 
         if msg.channel == "system":
-            return await self._process_system_message(
+            system_outbound = await self._process_system_message(
                 msg,
                 session_key=session_key,
                 on_progress=on_progress,
@@ -1215,14 +1232,22 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                 on_stream_end=on_stream_end,
                 pending_queue=pending_queue,
             )
+            return ProcessedTurn(outbound=system_outbound, context=None)
 
         key = session_key or msg.session_key
+        # Pull the turn ID from the bound TurnRuntime so the state trace,
+        # telemetry, and coordinator all share one identifier. The runtime
+        # is bound by ``TurnCoordinator.scope`` before this method runs.
+        # Fall back to a generated ID for legacy callers (e.g. tests) that
+        # invoke _process_message without entering a coordinator scope.
+        runtime = current_turn_runtime()
+        turn_id = runtime.turn_id if runtime is not None else f"{key}:{time.time_ns()}"
         ctx = TurnContext(
             msg=msg,
             session=None,
             session_key=key,
             state=TurnState.RESTORE,
-            turn_id=f"{key}:{time.time_ns()}",
+            turn_id=turn_id,
             on_progress=on_progress,
             on_stream=on_stream,
             on_stream_end=on_stream_end,
@@ -1282,7 +1307,35 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             ctx.turn_id,
             len(ctx.trace),
         )
-        return ctx.outbound
+        return ProcessedTurn(outbound=ctx.outbound, context=ctx)
+
+    async def _process_message(
+        self,
+        msg: InboundMessage,
+        session_key: str | None = None,
+        on_progress: Callable[..., Awaitable[None]] | None = None,
+        on_stream: Callable[[str], Awaitable[None]] | None = None,
+        on_stream_end: Callable[..., Awaitable[None]] | None = None,
+        pending_queue: asyncio.Queue | None = None,
+        turn_hooks: list[AgentHook] | None = None,
+    ) -> OutboundMessage | None:
+        """Compatibility wrapper returning only the outbound payload.
+
+        Existing callers that only need the response message can keep using
+        this thin wrapper. New internal callers should use ``_execute_message``
+        directly so they can copy cumulative metrics into the bound
+        ``TurnRuntime`` via :func:`complete_turn_runtime`.
+        """
+        result = await self._execute_message(
+            msg,
+            session_key=session_key,
+            on_progress=on_progress,
+            on_stream=on_stream,
+            on_stream_end=on_stream_end,
+            pending_queue=pending_queue,
+            turn_hooks=turn_hooks,
+        )
+        return result.outbound
 
     def _assemble_outbound(
         self,
@@ -1547,6 +1600,14 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         The SDK uses this instead of mutating the loop's shared
         ``_extra_hooks`` list, so concurrent ``process_direct`` calls with
         different hooks no longer cross-contaminate each other's results.
+
+        Direct calls share the same :class:`TurnCoordinator` as bus
+        dispatches: same-session ``process_direct`` calls serialize against
+        each other and against any concurrent ``_dispatch`` for the same
+        effective session key, but they are never transformed into bus
+        messages. The coordinator also binds a per-turn
+        :class:`~miniunicorn.agent.turn_runtime.TurnRuntime` for the duration
+        of this call so concurrent direct turns cannot share mutable state.
         """
         await self._connect_mcp()
         msg = InboundMessage(
@@ -1556,20 +1617,29 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             content=content,
             media=media or [],
         )
-        try:
-            return await self._process_message(
-                msg,
-                session_key=session_key,
-                on_progress=on_progress,
-                on_stream=on_stream,
-                on_stream_end=on_stream_end,
-                turn_hooks=hooks,
-            )
-        finally:
-            if channel == "websocket":
-                await self._webui_turns.publish_run_status(msg, "idle")
-                self._pending_turn_latency_ms.pop(session_key, None)
-                self._webui_turns.discard(session_key)
+        effective_key = session_key
+        async with self._turn_coordinator.scope(effective_key) as turn_runtime:
+            try:
+                result = await self._execute_message(
+                    msg,
+                    session_key=effective_key,
+                    on_progress=on_progress,
+                    on_stream=on_stream,
+                    on_stream_end=on_stream_end,
+                    turn_hooks=hooks,
+                )
+                complete_turn_runtime(turn_runtime, result.context)
+                return result.outbound
+            finally:
+                # WebUI run-status cleanup mirrors _dispatch: publish the
+                # terminal "idle" status and drop cached title context so a
+                # later direct call for the same session starts fresh.
+                # Legacy latency bookkeeping is also popped here; Task 6
+                # removes the session-keyed map entirely.
+                if channel == "websocket":
+                    await self._webui_turns.publish_run_status(msg, "idle")
+                    self._pending_turn_latency_ms.pop(effective_key, None)
+                    self._webui_turns.discard(effective_key)
 
 
 # Re-export for backwards compatibility (tests/extensions may import from loop)

@@ -154,7 +154,7 @@ async def test_dispatch_cancellation_restores_checkpoint():
     async def _cancel(*_args, **_kwargs):
         raise asyncio.CancelledError()
 
-    loop._process_message = _cancel
+    loop._execute_message = _cancel  # type: ignore[method-assign]
 
     msg = InboundMessage(channel="test", sender_id="u1", chat_id="c1", content="work")
 

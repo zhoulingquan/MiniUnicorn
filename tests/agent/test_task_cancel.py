@@ -114,12 +114,16 @@ class TestDispatch:
 
     @pytest.mark.asyncio
     async def test_dispatch_processes_and_publishes(self):
+        from miniunicorn.agent.turn_runtime import ProcessedTurn
         from miniunicorn.bus.events import InboundMessage, OutboundMessage
 
         loop, bus = _make_loop()
         msg = InboundMessage(channel="test", sender_id="u1", chat_id="c1", content="hello")
-        loop._process_message = AsyncMock(
-            return_value=OutboundMessage(channel="test", chat_id="c1", content="hi")
+        loop._execute_message = AsyncMock(
+            return_value=ProcessedTurn(
+                outbound=OutboundMessage(channel="test", chat_id="c1", content="hi"),
+                context=None,
+            )
         )
         await loop._dispatch(msg)
         out = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
@@ -127,6 +131,7 @@ class TestDispatch:
 
     @pytest.mark.asyncio
     async def test_dispatch_streaming_preserves_message_metadata(self):
+        from miniunicorn.agent.turn_runtime import ProcessedTurn
         from miniunicorn.bus.events import InboundMessage
 
         loop, bus = _make_loop()
@@ -142,14 +147,14 @@ class TestDispatch:
             },
         )
 
-        async def fake_process(_msg, *, on_stream=None, on_stream_end=None, **kwargs):
+        async def fake_execute(_msg, *, on_stream=None, on_stream_end=None, **kwargs):
             assert on_stream is not None
             assert on_stream_end is not None
             await on_stream("hi")
             await on_stream_end(resuming=False)
-            return None
+            return ProcessedTurn(outbound=None, context=None)
 
-        loop._process_message = fake_process
+        loop._execute_message = fake_execute
 
         await loop._dispatch(msg)
         first = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
@@ -164,18 +169,22 @@ class TestDispatch:
 
     @pytest.mark.asyncio
     async def test_processing_lock_serializes(self):
+        from miniunicorn.agent.turn_runtime import ProcessedTurn
         from miniunicorn.bus.events import InboundMessage, OutboundMessage
 
         loop, bus = _make_loop()
         order = []
 
-        async def mock_process(m, **kwargs):
+        async def mock_execute(m, **kwargs):
             order.append(f"start-{m.content}")
             await asyncio.sleep(0.05)
             order.append(f"end-{m.content}")
-            return OutboundMessage(channel="test", chat_id="c1", content=m.content)
+            return ProcessedTurn(
+                outbound=OutboundMessage(channel="test", chat_id="c1", content=m.content),
+                context=None,
+            )
 
-        loop._process_message = mock_process
+        loop._execute_message = mock_execute
         msg1 = InboundMessage(channel="test", sender_id="u1", chat_id="c1", content="a")
         msg2 = InboundMessage(channel="test", sender_id="u1", chat_id="c1", content="b")
 

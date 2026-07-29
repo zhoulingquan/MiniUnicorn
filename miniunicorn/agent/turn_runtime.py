@@ -10,7 +10,11 @@ from __future__ import annotations
 
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from miniunicorn.agent._state_machine import TurnContext
+    from miniunicorn.bus.events import OutboundMessage
 
 SESSION_LAST_USAGE_KEY = "last_usage"
 SESSION_LAST_CALL_USAGE_KEY = "last_call_usage"
@@ -67,3 +71,36 @@ def require_turn_runtime() -> TurnRuntime:
     if runtime is None:
         raise RuntimeError("No turn runtime is bound to the current task")
     return runtime
+
+
+@dataclass(slots=True)
+class ProcessedTurn:
+    """Internal result of ``_execute_message``.
+
+    Carries the optional outbound payload and the completed ``TurnContext``
+    (if any) so the caller can copy cumulative metrics into the bound
+    ``TurnRuntime`` before publishing the response.
+    """
+
+    outbound: OutboundMessage | None
+    context: TurnContext | None = None
+
+
+def complete_turn_runtime(
+    runtime: TurnRuntime,
+    context: TurnContext | None,
+) -> None:
+    """Copy cumulative turn metrics from ``TurnContext`` into the bound runtime.
+
+    Safe-by-default: a ``None`` context (e.g. system-message shortcuts) leaves
+    the runtime untouched. Called inside the coordinator scope before the
+    outbound response is published so telemetry/turn-end reads see the
+    finalized usage/latency for this turn only.
+    """
+
+    if context is None:
+        return
+    runtime.usage = dict(context.usage)
+    runtime.last_call_usage = dict(context.last_call_usage)
+    runtime.latency_ms = context.turn_latency_ms
+    runtime.stop_reason = context.stop_reason

@@ -76,15 +76,17 @@ class TestUnifiedSessionDispatch:
     @pytest.mark.asyncio
     async def test_unified_session_rewrites_key_to_unified_default(self, tmp_path: Path):
         """When unified_session=True, all messages use 'unified:default' as session key."""
+        from miniunicorn.agent.turn_runtime import ProcessedTurn
+
         loop = _make_loop(tmp_path, unified_session=True)
 
         captured: list[str] = []
 
-        async def fake_process(msg, **kwargs):
+        async def fake_execute(msg, **kwargs):
             captured.append(msg.session_key)
-            return None
+            return ProcessedTurn(outbound=None, context=None)
 
-        loop._process_message = fake_process  # type: ignore[method-assign]
+        loop._execute_message = fake_execute  # type: ignore[method-assign]
 
         msg = _make_msg(channel="telegram", chat_id="111")
         await loop._dispatch(msg)
@@ -94,15 +96,17 @@ class TestUnifiedSessionDispatch:
     @pytest.mark.asyncio
     async def test_unified_session_different_channels_share_same_key(self, tmp_path: Path):
         """Messages from different channels all resolve to the same session key."""
+        from miniunicorn.agent.turn_runtime import ProcessedTurn
+
         loop = _make_loop(tmp_path, unified_session=True)
 
         captured: list[str] = []
 
-        async def fake_process(msg, **kwargs):
+        async def fake_execute(msg, **kwargs):
             captured.append(msg.session_key)
-            return None
+            return ProcessedTurn(outbound=None, context=None)
 
-        loop._process_message = fake_process  # type: ignore[method-assign]
+        loop._execute_message = fake_execute  # type: ignore[method-assign]
 
         await loop._dispatch(_make_msg(channel="telegram", chat_id="111"))
         await loop._dispatch(_make_msg(channel="discord", chat_id="222"))
@@ -113,15 +117,17 @@ class TestUnifiedSessionDispatch:
     @pytest.mark.asyncio
     async def test_unified_session_disabled_preserves_original_key(self, tmp_path: Path):
         """When unified_session=False (default), session key is channel:chat_id as usual."""
+        from miniunicorn.agent.turn_runtime import ProcessedTurn
+
         loop = _make_loop(tmp_path, unified_session=False)
 
         captured: list[str] = []
 
-        async def fake_process(msg, **kwargs):
+        async def fake_execute(msg, **kwargs):
             captured.append(msg.session_key)
-            return None
+            return ProcessedTurn(outbound=None, context=None)
 
-        loop._process_message = fake_process  # type: ignore[method-assign]
+        loop._execute_message = fake_execute  # type: ignore[method-assign]
 
         msg = _make_msg(channel="telegram", chat_id="999")
         await loop._dispatch(msg)
@@ -131,15 +137,17 @@ class TestUnifiedSessionDispatch:
     @pytest.mark.asyncio
     async def test_unified_session_respects_existing_override(self, tmp_path: Path):
         """If session_key_override is already set (e.g. Telegram thread), it is NOT overwritten."""
+        from miniunicorn.agent.turn_runtime import ProcessedTurn
+
         loop = _make_loop(tmp_path, unified_session=True)
 
         captured: list[str] = []
 
-        async def fake_process(msg, **kwargs):
+        async def fake_execute(msg, **kwargs):
             captured.append(msg.session_key)
-            return None
+            return ProcessedTurn(outbound=None, context=None)
 
-        loop._process_message = fake_process  # type: ignore[method-assign]
+        loop._execute_message = fake_execute  # type: ignore[method-assign]
 
         msg = _make_msg(
             channel="telegram", chat_id="111", session_key_override="telegram:thread:42"

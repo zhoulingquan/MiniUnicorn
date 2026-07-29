@@ -404,22 +404,23 @@ async def test_empty_response_falls_back(aiohttp_client) -> None:
 
 @pytest.mark.asyncio
 async def test_process_direct_accepts_media() -> None:
-    """process_direct should forward media paths to _process_message."""
+    """process_direct should forward media paths to _execute_message."""
     from miniunicorn.agent.loop import AgentLoop
+    from miniunicorn.agent.turn_coordinator import TurnCoordinator
+    from miniunicorn.agent.turn_runtime import ProcessedTurn
 
     loop = AgentLoop.__new__(AgentLoop)
     loop._connect_mcp = AsyncMock()
+    loop._turn_coordinator = TurnCoordinator(max_concurrent_requests=None)
 
     captured_msg = None
 
-    async def fake_process(
-        msg, *, session_key="", on_progress=None, on_stream=None, on_stream_end=None
-    ):
+    async def fake_execute(msg, **kwargs):
         nonlocal captured_msg
         captured_msg = msg
-        return None
+        return ProcessedTurn(outbound=None, context=None)
 
-    loop._process_message = fake_process
+    loop._execute_message = fake_execute
 
     await loop.process_direct(
         content="analyze this",
