@@ -102,6 +102,29 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         return self._current_iteration
 
     @property
+    def _current_iteration(self) -> int:
+        """Read-only iteration count from the bound TurnRuntime."""
+        runtime = current_turn_runtime()
+        return runtime.iteration if runtime is not None else 0
+
+    @property
+    def _last_usage(self) -> dict[str, int]:
+        """Read-only cumulative usage from the bound TurnRuntime."""
+        runtime = current_turn_runtime()
+        return dict(runtime.usage) if runtime is not None else {}
+
+    @staticmethod
+    def _record_turn_iteration(iteration: int) -> None:
+        """Record the current iteration on the bound TurnRuntime.
+
+        Called by the runner's progress hook after each iteration so
+        self-inspection during a running turn sees the live value.
+        """
+        runtime = current_turn_runtime()
+        if runtime is not None:
+            runtime.iteration = iteration
+
+    @property
     def tool_names(self) -> list[str]:
         return self.tools.tool_names
 
@@ -246,9 +269,6 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             default_restrict_to_workspace=restrict_to_workspace,
         )
         self._start_time = time.time()
-        self._last_usage: dict[str, int] = {}
-        self._last_call_usage: dict[str, int] = {}
-        self._pending_turn_latency_ms: dict[str, int] = {}
         self._extra_hooks: list[AgentHook] = hooks or []
 
         self.context = ContextBuilder(workspace, timezone=timezone, disabled_skills=disabled_skills)
@@ -372,7 +392,6 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             self.set_model_preset(model_preset, publish_update=False)
         self._register_default_tools()
         self._runtime_vars: dict[str, Any] = {}
-        self._current_iteration: int = 0
         self.commands = CommandRouter()
         register_builtin_commands(self.commands)
 
@@ -663,7 +682,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             session_key=session_key,
             tool_hint_max_length=self.tool_hint_max_length,
             set_tool_context=self._set_tool_context,
-            on_iteration=lambda iteration: setattr(self, "_current_iteration", iteration),
+            on_iteration=self._record_turn_iteration,
         )
         # Per-turn hooks take precedence over loop-level _extra_hooks so the
         # SDK can pass distinct hooks for concurrent runs without serializing
@@ -814,8 +833,13 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             reset_workspace_scope(workspace_token)
             reset_request_context(request_token)
             reset_file_states(file_state_token)
-        self._last_usage = result.usage
-        self._last_call_usage = result.last_call_usage
+        # Copy final usage into the bound TurnRuntime so self-inspection
+        # and turn-end reads see the finalized values. The runner also
+        # updates the runtime mid-turn; this covers the final exit path.
+        runtime = current_turn_runtime()
+        if runtime is not None:
+            runtime.usage = dict(result.usage)
+            runtime.last_call_usage = dict(result.last_call_usage)
         if result.stop_reason == "max_iterations":
             logger.warning("Max iterations ({}) reached", self.max_iterations)
             # Push final content through stream so streaming channels (e.g. Feishu)
@@ -1006,12 +1030,11 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                             )
                         )
                     if msg.channel == "websocket":
-                        turn_lat = self._pending_turn_latency_ms.pop(session_key, None)
                         await self._webui_turns.handle_turn_end(
                             msg,
                             session_key=session_key,
-                            latency_ms=turn_lat,
-                            context_usage=self._last_call_usage,
+                            latency_ms=turn_runtime.latency_ms,
+                            context_usage=turn_runtime.last_call_usage,
                         )
                 except asyncio.CancelledError:
                     logger.info("Task cancelled for session {}", session_key)
@@ -1075,12 +1098,10 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                                 session_key,
                             )
                     await self._webui_turns.publish_run_status(msg, "idle")
-                    self._pending_turn_latency_ms.pop(session_key, None)
                     self._webui_turns.discard(session_key)
         finally:
             if pending is None:
                 await self._webui_turns.publish_run_status(msg, "idle")
-                self._pending_turn_latency_ms.pop(session_key, None)
                 self._webui_turns.discard(session_key)
 
     def _schedule_background(self, coro) -> None:
@@ -1175,8 +1196,6 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         wall_done = time.time()
         latency_ms = max(0, int((wall_done - t_wall) * 1000))
         self._save_turn(session, result.messages, 1 + len(history), turn_latency_ms=latency_ms)
-        if channel == "websocket":
-            self._pending_turn_latency_ms[key] = latency_ms
         session.enforce_file_cap(on_archive=self.context.memory.raw_archive)
         self._clear_runtime_checkpoint(session)
         self.sessions.save(session)
@@ -1634,11 +1653,8 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                 # WebUI run-status cleanup mirrors _dispatch: publish the
                 # terminal "idle" status and drop cached title context so a
                 # later direct call for the same session starts fresh.
-                # Legacy latency bookkeeping is also popped here; Task 6
-                # removes the session-keyed map entirely.
                 if channel == "websocket":
                     await self._webui_turns.publish_run_status(msg, "idle")
-                    self._pending_turn_latency_ms.pop(effective_key, None)
                     self._webui_turns.discard(effective_key)
 
 

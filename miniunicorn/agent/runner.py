@@ -14,6 +14,7 @@ from loguru import logger
 
 from miniunicorn.agent.hook import AgentHook, AgentHookContext
 from miniunicorn.agent.tools.registry import ToolRegistry
+from miniunicorn.agent.turn_runtime import current_turn_runtime
 from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from miniunicorn.utils.file_edit_events import (
     StreamingFileEditTracker,
@@ -471,6 +472,14 @@ class AgentRunner:
             self._accumulate_usage(usage, raw_usage)
             if raw_usage:
                 last_call_usage = dict(raw_usage)
+            # Mirror cumulative usage into the bound TurnRuntime so
+            # self-inspection and turn-end reads during a running turn
+            # see this turn's own values, not a shared loop-global field.
+            _runtime = current_turn_runtime()
+            if _runtime is not None:
+                _runtime.usage = dict(usage)
+                if raw_usage:
+                    _runtime.last_call_usage = dict(raw_usage)
             # Budget check: stop early if cumulative usage exceeds limits.
             _fc, _sr, _err = self._handle_budget_exceeded(
                 budget,
@@ -718,6 +727,12 @@ class AgentRunner:
                 context.tool_calls = list(response.tool_calls)
                 if retry_usage:
                     last_call_usage = dict(retry_usage)
+                # Mirror updated usage into the bound TurnRuntime (retry path).
+                _runtime = current_turn_runtime()
+                if _runtime is not None:
+                    _runtime.usage = dict(usage)
+                    if retry_usage:
+                        _runtime.last_call_usage = dict(retry_usage)
                 clean = hook.finalize_content(context, response.content)
 
             if response.finish_reason == "length" and not is_blank_text(clean):

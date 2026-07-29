@@ -93,6 +93,7 @@ class MyTool(Tool, ContextAware):
         {
             "subagents",  # observable but replacing it would break the system
             "_current_iteration",  # updated by runner only
+            "_last_usage",  # cumulative usage from the bound TurnRuntime
             "exec_config",  # inspect allowed (e.g. check sandbox), modify blocked
             "workspace_sandbox",  # read-only view of workspace enforcement level
         }

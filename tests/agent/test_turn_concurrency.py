@@ -288,3 +288,48 @@ async def test_cancelled_turn_releases_session_lock_and_permit(tmp_path: Path) -
     await asyncio.wait_for(second, timeout=2)
     assert second.done()
     assert not second.cancelled()
+
+
+# ---------------------------------------------------------------------------
+# Self-inspection regression: concurrent turns must read their own
+# iteration/usage from the bound TurnRuntime, not a shared loop field.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_concurrent_turns_read_own_iteration_and_usage(tmp_path: Path) -> None:
+    """Two concurrent direct calls must each see their own iteration and usage
+    when reading ``_current_iteration`` / ``_last_usage`` via the loop's
+    compatibility properties."""
+
+    loop = _make_loop(tmp_path, max_concurrent=2)
+
+    seen: list[tuple[str, int, dict]] = []
+
+    async def _tracking_execute(msg, **kwargs):
+        runtime = current_turn_runtime()
+        if runtime is not None:
+            if msg.content == "a":
+                runtime.iteration = 3
+                runtime.usage = {"prompt_tokens": 101}
+                runtime.last_call_usage = {"prompt_tokens": 101}
+                seen.append(("a", runtime.iteration, dict(runtime.usage)))
+            else:
+                runtime.iteration = 7
+                runtime.usage = {"prompt_tokens": 202}
+                runtime.last_call_usage = {"prompt_tokens": 202}
+                seen.append(("b", runtime.iteration, dict(runtime.usage)))
+        await asyncio.sleep(0)
+        return ProcessedTurn(outbound=None, context=None)
+
+    loop._execute_message = AsyncMock(side_effect=_tracking_execute)  # type: ignore[method-assign]
+
+    await asyncio.gather(
+        loop.process_direct("a", session_key="sdk:a"),
+        loop.process_direct("b", session_key="sdk:b"),
+    )
+
+    assert len(seen) == 2
+    by_label = {label: (it, usage) for label, it, usage in seen}
+    assert by_label["a"] == (3, {"prompt_tokens": 101})
+    assert by_label["b"] == (7, {"prompt_tokens": 202})

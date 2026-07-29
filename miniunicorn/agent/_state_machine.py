@@ -261,8 +261,6 @@ class StateMixin:
             ctx.save_skip,
             turn_latency_ms=ctx.turn_latency_ms,
         )
-        if ctx.msg.channel == "websocket":
-            self._pending_turn_latency_ms[ctx.session_key] = ctx.turn_latency_ms
         ctx.session.enforce_file_cap(on_archive=self.context.memory.raw_archive)
         self._clear_pending_user_turn(ctx.session)
         self._clear_runtime_checkpoint(ctx.session)
