@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import asyncio
-import dataclasses
 import os
 import time
-from contextlib import AsyncExitStack, suppress
+from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from loguru import logger
 
-from miniunicorn.agent import context as agent_context
 from miniunicorn.agent import model_presets as preset_helpers
 from miniunicorn.agent._mcp_lifecycle import McpLifecycleMixin
 from miniunicorn.agent._provider_switching import ProviderSwitchingMixin
@@ -39,6 +37,7 @@ from miniunicorn.agent.tools.context import RequestContext
 from miniunicorn.agent.tools.file_state import FileStateStore
 from miniunicorn.agent.tools.registry import ToolRegistry
 from miniunicorn.agent.turn_coordinator import TurnCoordinator
+from miniunicorn.agent.turn_dispatcher import TurnDispatcher
 from miniunicorn.agent.turn_executor import TURN_TRANSITIONS, TurnExecutor
 from miniunicorn.agent.turn_persistence import (
     PENDING_USER_TURN_KEY,
@@ -48,7 +47,6 @@ from miniunicorn.agent.turn_persistence import (
 from miniunicorn.agent.turn_runtime import (
     AgentLoopRunResult,
     ProcessedTurn,
-    complete_turn_runtime,
     current_turn_runtime,
 )
 from miniunicorn.bus.events import InboundMessage, OutboundMessage, make_session_key
@@ -303,15 +301,10 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         self._mcp_stacks: dict[str, AsyncExitStack] = {}
         self._mcp_connected = False
         self._mcp_connecting = False
-        self._active_tasks: dict[str, list[asyncio.Task]] = {}  # session_key -> tasks
         # Supervised fire-and-forget background jobs (archives, consolidation,
         # etc.). The supervisor owns strong references and surfaces unhandled
         # exceptions via a done-callback so nothing fails silently.
         self._background_supervisor: TaskSupervisor = TaskSupervisor()
-        # Per-session pending queues for mid-turn message injection.
-        # When a session has an active task, new messages for that session
-        # are routed here instead of creating a new task.
-        self._pending_queues: dict[str, asyncio.Queue] = {}
         # MINIUNICORN_MAX_CONCURRENT_REQUESTS: <=0 means unlimited; default 3.
         _max = int(os.environ.get("MINIUNICORN_MAX_CONCURRENT_REQUESTS", "3"))
         # TurnCoordinator owns per-session locks (weakly held) and the global
@@ -402,6 +395,22 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         self._runtime_vars: dict[str, Any] = {}
         self.commands = CommandRouter()
         register_builtin_commands(self.commands)
+        # TurnDispatcher owns the bus-consume loop, per-session dispatch,
+        # the _process_message compatibility bridge, process_direct, and
+        # task cancellation. Task registries (_active_tasks, _pending_queues)
+        # live on the dispatcher and are exposed below as read-only
+        # compatibility properties.
+        self._turn_dispatcher = TurnDispatcher(self, self._turn_coordinator)
+
+    @property
+    def _active_tasks(self) -> dict[str, list[asyncio.Task[Any]]]:
+        """Read-only compatibility alias for the dispatcher's task registry."""
+        return self._turn_dispatcher.active_tasks
+
+    @property
+    def _pending_queues(self) -> dict[str, asyncio.Queue[InboundMessage]]:
+        """Read-only compatibility alias for the dispatcher's pending queues."""
+        return self._turn_dispatcher.pending_queues
 
     @classmethod
     def from_config(
@@ -563,22 +572,9 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
     async def _cancel_active_tasks(self, key: str) -> int:
         """Cancel and await all active tasks and subagents for *key*.
 
-        Returns the total number of cancelled tasks + subagents.
+        Delegates to :class:`TurnDispatcher`.
         """
-        tasks = self._active_tasks.pop(key, [])
-        cancelled = sum(1 for t in tasks if not t.done() and t.cancel())
-        # 为每个任务等待设置超时，避免 /stop 因单个任务卡死而长时间阻塞
-        for t in tasks:
-            with suppress(asyncio.CancelledError, Exception):
-                await asyncio.wait_for(t, timeout=10.0)
-        # subagents 取消也加超时保护，超时则返回已取消的部分
-        try:
-            sub_cancelled = await asyncio.wait_for(
-                self.subagents.cancel_by_session(key), timeout=10.0
-            )
-        except asyncio.TimeoutError:
-            sub_cancelled = 0
-        return cancelled + sub_cancelled
+        return await self._turn_dispatcher.cancel_active_tasks(key)
 
     def _effective_session_key(self, msg: InboundMessage) -> str:
         """Return the session key used for task routing and mid-turn injections."""
@@ -676,257 +672,18 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         )
 
     async def run(self) -> None:
-        """Run the agent loop, dispatching messages as tasks to stay responsive to /stop."""
-        self._running = True
-        await self._connect_mcp()
-        logger.info("Agent loop started")
+        """Run the agent loop, dispatching messages as tasks to stay responsive to /stop.
 
-        while self._running:
-            try:
-                msg = await asyncio.wait_for(self.bus.consume_inbound(), timeout=1.0)
-            except asyncio.TimeoutError:
-                self.auto_compact.check_expired(
-                    self._schedule_background,
-                    active_session_keys=self._pending_queues.keys(),
-                )
-                # Dream 空闲触发：无活跃会话且有积压数据时后台触发 Dream
-                await self.dream_idle_trigger.maybe_trigger(
-                    active_session_keys=self._pending_queues.keys(),
-                )
-                continue
-            except asyncio.CancelledError:
-                # Preserve real task cancellation so shutdown can complete cleanly.
-                # Only ignore non-task CancelledError signals that may leak from integrations.
-                # 兼容写法：低版本 Python 没有 Task.cancelling()
-                _task = asyncio.current_task()
-                _cancelling = getattr(_task, "cancelling", lambda: 0)() if _task else 0
-                if not self._running or _cancelling:
-                    raise
-                continue
-            except Exception as e:
-                logger.warning("Error consuming inbound message: {}, continuing...", e)
-                continue
-
-            raw = msg.content.strip()
-            # 标记用户有新活动，重置 Dream 空闲触发器的空闲计时器
-            self.dream_idle_trigger.notify_user_activity()
-            effective_key = self._effective_session_key(msg)
-            if await agent_context.handle_runtime_control(self, msg, self.tools):
-                continue
-            if self.commands.is_priority(raw):
-                await self._dispatch_command_inline(
-                    msg,
-                    effective_key,
-                    raw,
-                    self.commands.dispatch_priority,
-                )
-                continue
-            # If this session already has an active pending queue (i.e. a task
-            # is processing this session), route the message there for mid-turn
-            # injection instead of creating a competing task.
-            if effective_key in self._pending_queues:
-                # Non-priority commands must not be queued for injection;
-                # dispatch them directly (same pattern as priority commands).
-                if self.commands.is_dispatchable_command(raw):
-                    await self._dispatch_command_inline(
-                        msg,
-                        effective_key,
-                        raw,
-                        self.commands.dispatch,
-                    )
-                    continue
-                pending_msg = msg
-                if effective_key != msg.session_key:
-                    pending_msg = dataclasses.replace(
-                        msg,
-                        session_key_override=effective_key,
-                    )
-                try:
-                    self._pending_queues[effective_key].put_nowait(pending_msg)
-                except asyncio.QueueFull:
-                    logger.warning(
-                        "Pending queue full for session {}, falling back to queued task",
-                        effective_key,
-                    )
-                else:
-                    logger.info(
-                        "Routed follow-up message to pending queue for session {}",
-                        effective_key,
-                    )
-                    continue
-            # Compute the effective session key before dispatching
-            # This ensures /stop command can find tasks correctly when unified session is enabled
-            task = asyncio.create_task(self._dispatch(msg))
-            self._active_tasks.setdefault(effective_key, []).append(task)
-            task.add_done_callback(
-                lambda t, k=effective_key: (
-                    self._active_tasks.get(k, []) and self._active_tasks[k].remove(t)
-                    if t in self._active_tasks.get(k, [])
-                    else None
-                )
-            )
+        Delegates to :class:`TurnDispatcher`.
+        """
+        await self._turn_dispatcher.run()
 
     async def _dispatch(self, msg: InboundMessage) -> None:
-        """Process a message: per-session serial, cross-session concurrent."""
-        session_key = self._effective_session_key(msg)
-        if session_key != msg.session_key:
-            msg = dataclasses.replace(msg, session_key_override=session_key)
-        # TurnCoordinator owns the per-session lock (weakly held so idle
-        # sessions are GC'd) and the global concurrency semaphore. Lock
-        # acquisition precedes semaphore acquisition inside ``scope`` so a
-        # task waiting on its session lock cannot consume a global permit.
-        # The same coordinator is shared with ``process_direct`` so bus and
-        # direct entry points serialize against the same per-session lock.
-        pending: asyncio.Queue | None = None
-        try:
-            async with self._turn_coordinator.scope(session_key) as turn_runtime:
-                # Only the task that owns the session lock may publish the
-                # active mid-turn injection queue for this session.
-                pending = asyncio.Queue(maxsize=20)
-                self._pending_queues[session_key] = pending
-                try:
-                    on_stream = on_stream_end = None
-                    if msg.metadata.get("_wants_stream"):
-                        # Split one answer into distinct stream segments.
-                        stream_base_id = f"{msg.session_key}:{time.time_ns()}"
-                        stream_segment = 0
+        """Process a message: per-session serial, cross-session concurrent.
 
-                        def _current_stream_id() -> str:
-                            return f"{stream_base_id}:{stream_segment}"
-
-                        async def on_stream(delta: str) -> None:
-                            meta = dict(msg.metadata or {})
-                            meta["_stream_delta"] = True
-                            meta["_stream_id"] = _current_stream_id()
-                            await self.bus.publish_outbound(
-                                OutboundMessage(
-                                    channel=msg.channel,
-                                    chat_id=msg.chat_id,
-                                    content=delta,
-                                    metadata=meta,
-                                )
-                            )
-
-                        async def on_stream_end(*, resuming: bool = False) -> None:
-                            nonlocal stream_segment
-                            meta = dict(msg.metadata or {})
-                            meta["_stream_end"] = True
-                            meta["_resuming"] = resuming
-                            meta["_stream_id"] = _current_stream_id()
-                            await self.bus.publish_outbound(
-                                OutboundMessage(
-                                    channel=msg.channel,
-                                    chat_id=msg.chat_id,
-                                    content="",
-                                    metadata=meta,
-                                )
-                            )
-                            stream_segment += 1
-
-                    result = await self._execute_message(
-                        msg,
-                        on_stream=on_stream,
-                        on_stream_end=on_stream_end,
-                        pending_queue=pending,
-                    )
-                    # Copy cumulative usage/latency from the completed turn
-                    # context into the bound TurnRuntime so telemetry and
-                    # turn-end reads see this turn's metrics only.
-                    complete_turn_runtime(turn_runtime, result.context)
-                    response = result.outbound
-                    if response is not None:
-                        await self.bus.publish_outbound(response)
-                    elif msg.channel == "cli":
-                        await self.bus.publish_outbound(
-                            OutboundMessage(
-                                channel=msg.channel,
-                                chat_id=msg.chat_id,
-                                content="",
-                                metadata=msg.metadata or {},
-                            )
-                        )
-                    if msg.channel == "websocket":
-                        await self._webui_turns.handle_turn_end(
-                            msg,
-                            session_key=session_key,
-                            latency_ms=turn_runtime.latency_ms,
-                            context_usage=turn_runtime.last_call_usage,
-                        )
-                    await self._emit_telemetry(turn_runtime)
-                except asyncio.CancelledError:
-                    logger.info("Task cancelled for session {}", session_key)
-                    # Preserve partial context from the interrupted turn so
-                    # the user does not lose tool results and assistant
-                    # messages accumulated before /stop.  The checkpoint was
-                    # already persisted to session metadata by
-                    # _emit_checkpoint during tool execution; materializing
-                    # it into session history now makes it visible in the
-                    # next conversation turn.
-                    try:
-                        key = self._effective_session_key(msg)
-                        session = self.sessions.get_or_create(key)
-                        if self._restore_runtime_checkpoint(session):
-                            self._clear_pending_user_turn(session)
-                            self.sessions.save(session)
-                            logger.info(
-                                "Restored partial context for cancelled session {}",
-                                key,
-                            )
-                    except Exception:
-                        logger.debug(
-                            "Could not restore checkpoint for cancelled session {}",
-                            session_key,
-                            exc_info=True,
-                        )
-                    # Emit a telemetry record with stop_reason="cancelled"
-                    # before re-raising so the turn is still observable.
-                    turn_runtime.stop_reason = "cancelled"
-                    await self._emit_telemetry(turn_runtime)
-                    raise
-                except Exception:
-                    logger.exception("Error processing message for session {}", session_key)
-                    await self.bus.publish_outbound(
-                        OutboundMessage(
-                            channel=msg.channel,
-                            chat_id=msg.chat_id,
-                            content="Sorry, I encountered an error.",
-                        )
-                    )
-                    if not turn_runtime.stop_reason:
-                        turn_runtime.stop_reason = "error"
-                    await self._emit_telemetry(turn_runtime)
-                finally:
-                    # Drain any messages still in the pending queue and re-publish
-                    # them to the bus so they are processed as fresh inbound messages
-                    # rather than silently lost.  Only remove our own queue; a
-                    # later task waiting on the lock must not be able to steal
-                    # cleanup ownership.
-                    queue = None
-                    if self._pending_queues.get(session_key) is pending:
-                        queue = self._pending_queues.pop(session_key, None)
-                    else:
-                        queue = pending
-                    if queue is not None:
-                        leftover = 0
-                        while True:
-                            try:
-                                item = queue.get_nowait()
-                            except asyncio.QueueEmpty:
-                                break
-                            await self.bus.publish_inbound(item)
-                            leftover += 1
-                        if leftover:
-                            logger.info(
-                                "Re-published {} leftover message(s) to bus for session {}",
-                                leftover,
-                                session_key,
-                            )
-                    await self._webui_turns.publish_run_status(msg, "idle")
-                    self._webui_turns.discard(session_key)
-        finally:
-            if pending is None:
-                await self._webui_turns.publish_run_status(msg, "idle")
-                self._webui_turns.discard(session_key)
+        Delegates to :class:`TurnDispatcher`.
+        """
+        await self._turn_dispatcher.dispatch(msg)
 
     def _schedule_background(self, coro, *, name: str = "agent-background") -> None:
         """Schedule a coroutine as a tracked background task (drained on shutdown)."""
@@ -1000,12 +757,15 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
     ) -> OutboundMessage | None:
         """Compatibility wrapper returning only the outbound payload.
 
+        Delegates to :class:`TurnDispatcher`, which calls
+        ``_execute_message`` and completes the bound ``TurnRuntime``.
+
         Existing callers that only need the response message can keep using
         this thin wrapper. New internal callers should use ``_execute_message``
         directly so they can copy cumulative metrics into the bound
         ``TurnRuntime`` via :func:`complete_turn_runtime`.
         """
-        result = await self._execute_message(
+        return await self._turn_dispatcher.process_message(
             msg,
             session_key=session_key,
             on_progress=on_progress,
@@ -1014,7 +774,6 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             pending_queue=pending_queue,
             turn_hooks=turn_hooks,
         )
-        return result.outbound
 
     def _assemble_outbound(
         self,
@@ -1148,45 +907,20 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         messages. The coordinator also binds a per-turn
         :class:`~miniunicorn.agent.turn_runtime.TurnRuntime` for the duration
         of this call so concurrent direct turns cannot share mutable state.
+
+        Delegates to :class:`TurnDispatcher`.
         """
-        await self._connect_mcp()
-        msg = InboundMessage(
+        return await self._turn_dispatcher.process_direct(
+            content,
+            session_key=session_key,
             channel=channel,
-            sender_id="user",
             chat_id=chat_id,
-            content=content,
-            media=media or [],
+            media=media,
+            on_progress=on_progress,
+            on_stream=on_stream,
+            on_stream_end=on_stream_end,
+            hooks=hooks,
         )
-        effective_key = session_key
-        async with self._turn_coordinator.scope(effective_key) as turn_runtime:
-            try:
-                result = await self._execute_message(
-                    msg,
-                    session_key=effective_key,
-                    on_progress=on_progress,
-                    on_stream=on_stream,
-                    on_stream_end=on_stream_end,
-                    turn_hooks=hooks,
-                )
-                complete_turn_runtime(turn_runtime, result.context)
-                await self._emit_telemetry(turn_runtime)
-                return result.outbound
-            except asyncio.CancelledError:
-                turn_runtime.stop_reason = "cancelled"
-                await self._emit_telemetry(turn_runtime)
-                raise
-            except Exception:
-                if not turn_runtime.stop_reason:
-                    turn_runtime.stop_reason = "error"
-                await self._emit_telemetry(turn_runtime)
-                raise
-            finally:
-                # WebUI run-status cleanup mirrors _dispatch: publish the
-                # terminal "idle" status and drop cached title context so a
-                # later direct call for the same session starts fresh.
-                if channel == "websocket":
-                    await self._webui_turns.publish_run_status(msg, "idle")
-                    self._webui_turns.discard(effective_key)
 
 
 # Re-export for backwards compatibility (tests/extensions may import from loop)

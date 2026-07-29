@@ -255,10 +255,16 @@ def test_turn_transitions_table_matches_expected_states() -> None:
 def _make_minimal_loop_with_executor(processed_turn: ProcessedTurn) -> Any:
     """Build an AgentLoop shell whose executor is a mock returning ``processed_turn``."""
     from miniunicorn.agent.loop import AgentLoop
+    from miniunicorn.agent.turn_coordinator import TurnCoordinator
+    from miniunicorn.agent.turn_dispatcher import TurnDispatcher
 
     loop = object.__new__(AgentLoop)
     loop._turn_executor = AsyncMock()
     loop._turn_executor.execute = AsyncMock(return_value=processed_turn)
+    # _process_message delegates to TurnDispatcher, which routes through
+    # _execute_message and binds a TurnRuntime via the coordinator scope.
+    loop._turn_coordinator = TurnCoordinator(max_concurrent_requests=None)
+    loop._turn_dispatcher = TurnDispatcher(loop, loop._turn_coordinator)
     return loop
 
 
