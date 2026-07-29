@@ -77,6 +77,7 @@ class ExecToolConfig(Base):
     )  # Hard timeout (s); 0 = no limit. Not capped by the per-call max.
     path_append: str = ""
     sandbox: str = ""
+    allow_unsandboxed_fallback: bool = False
     # 沙箱是否启用网络隔离(--unshare-net)。默认 False,因为多数命令需要联网;
     # 仅在确需网络隔离的工作流中显式开启。
     unshare_net: bool = False
@@ -179,6 +180,7 @@ class ExecTool(Tool):
             allow_patterns=cfg.allow_patterns,
             deny_patterns=cfg.deny_patterns,
             unshare_net=cfg.unshare_net,
+            allow_unsandboxed_fallback=cfg.allow_unsandboxed_fallback,
         )
 
     def __init__(
@@ -195,11 +197,13 @@ class ExecTool(Tool):
         allowed_env_keys: list[str] | None = None,
         session_manager: Any | None = None,
         unshare_net: bool = False,
+        allow_unsandboxed_fallback: bool = False,
     ):
         self.timeout = timeout
         self.working_dir = working_dir
         self.sandbox = sandbox
         self.unshare_net = unshare_net
+        self.allow_unsandboxed_fallback = allow_unsandboxed_fallback
         self.deny_patterns = (
             (deny_patterns or [])
             + [
@@ -452,8 +456,14 @@ class ExecTool(Tool):
 
         if self.sandbox:
             if _IS_WINDOWS:
+                if not self.allow_unsandboxed_fallback:
+                    return (
+                        f"Error: sandbox '{self.sandbox}' is not supported on Windows; "
+                        "refusing to run unsandboxed. Set "
+                        "tools.exec.allow_unsandboxed_fallback=true only if this risk is accepted."
+                    )
                 logger.warning(
-                    "Sandbox '{}' is not supported on Windows; running unsandboxed",
+                    "Sandbox '{}' is not supported on Windows; explicit unsandboxed fallback enabled",
                     self.sandbox,
                 )
             else:
