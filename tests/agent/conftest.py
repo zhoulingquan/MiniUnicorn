@@ -28,7 +28,9 @@ def make_provider(
         temperature=0.1,
         reasoning_effort=None,
     )
-    provider.estimate_prompt_tokens.return_value = (10_000, "test")
+    # ``estimate_prompt_tokens`` is a free function in ``miniunicorn.utils.helpers``
+    # and is accessed via ``getattr`` on the provider; it is not part of the
+    # ``LLMProvider`` spec, so do not set it on a spec-limited mock.
     return provider
 
 
