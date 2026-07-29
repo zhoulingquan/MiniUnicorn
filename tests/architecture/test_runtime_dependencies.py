@@ -126,33 +126,28 @@ class TestAgentCoreDependencyPurity:
 
 
 # ---------------------------------------------------------------------------
-# Future-state inventory (xfail until WP1 lands)
+# Runtime package existence (WP1 landed)
 # ---------------------------------------------------------------------------
 
 
-class TestRuntimePackageNotYetCreated:
-    """Documents the not-yet-existing runtime package.
+class TestRuntimePackageCreated:
+    """Asserts the runtime package and Agent-owned ports exist (design §10).
 
-    These tests are expected to fail until WP1 creates the runtime package.
-    They exist so the inventory is machine-checkable: once WP1 lands, the
-    xfails flip to passing tests that prevent the package from being removed.
+    These were xfails before WP1; they are now hard assertions so the
+    package cannot be silently removed.
     """
 
-    @pytest.mark.xfail(
-        reason="WP1: create miniunicorn/runtime/ package per design §10.2",
-        strict=True,
-        raises=AssertionError,
-    )
     def test_runtime_package_exists(self) -> None:
         assert _RUNTIME_PKG.exists() and _RUNTIME_PKG.is_dir()
 
-    @pytest.mark.xfail(
-        reason="WP1: create miniunicorn/agent/ports.py per design §10.1",
-        strict=True,
-        raises=AssertionError,
-    )
     def test_agent_ports_module_exists(self) -> None:
         assert _AGENT_PORTS.exists() and _AGENT_PORTS.is_file()
+
+    def test_runtime_contracts_module_exists(self) -> None:
+        assert (_RUNTIME_PKG / "contracts.py").exists()
+
+    def test_runtime_models_module_exists(self) -> None:
+        assert (_RUNTIME_PKG / "models.py").exists()
 
 
 # ---------------------------------------------------------------------------

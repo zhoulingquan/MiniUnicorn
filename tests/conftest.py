@@ -25,6 +25,7 @@ CORE_PREFIXES = (
     "tests/providers/",
     "tests/config/",
     "tests/security/",
+    "tests/runtime/",
 )
 
 
