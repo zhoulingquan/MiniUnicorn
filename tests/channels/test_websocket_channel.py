@@ -736,8 +736,6 @@ async def test_send_progress_includes_structured_tool_events() -> None:
             "call_id": "call-1",
             "name": "read_file",
             "arguments": {"query": "hermes", "count": 8},
-            "result": None,
-            "error": None,
             "files": [],
             "embeds": [],
         }
@@ -777,6 +775,7 @@ async def test_send_file_edit_progress_uses_file_edit_event() -> None:
 
     payload = json.loads(mock_ws.send.await_args.args[0])
     assert payload == {
+        "protocol_version": 1,
         "event": "file_edit",
         "chat_id": "chat-1",
         "edits": [
@@ -954,7 +953,12 @@ async def test_send_reasoning_end_emits_close_frame() -> None:
     await channel.send_reasoning_end("chat-1", {"_reasoning_end": True, "_stream_id": "r1"})
 
     payload = json.loads(mock_ws.send.await_args.args[0])
-    assert payload == {"event": "reasoning_end", "chat_id": "chat-1", "stream_id": "r1"}
+    assert payload == {
+        "protocol_version": 1,
+        "event": "reasoning_end",
+        "chat_id": "chat-1",
+        "stream_id": "r1",
+    }
 
 
 @pytest.mark.asyncio
@@ -1024,7 +1028,7 @@ async def test_send_turn_end_emits_turn_end_event() -> None:
 
     mock_ws.send.assert_awaited_once()
     body = json.loads(mock_ws.send.await_args.args[0])
-    assert body == {"event": "turn_end", "chat_id": "chat-1"}
+    assert body == {"protocol_version": 1, "event": "turn_end", "chat_id": "chat-1"}
 
 
 @pytest.mark.asyncio
@@ -1045,7 +1049,12 @@ async def test_send_turn_end_includes_latency_ms_when_present() -> None:
 
     mock_ws.send.assert_awaited_once()
     body = json.loads(mock_ws.send.await_args.args[0])
-    assert body == {"event": "turn_end", "chat_id": "chat-1", "latency_ms": 1500}
+    assert body == {
+        "protocol_version": 1,
+        "event": "turn_end",
+        "chat_id": "chat-1",
+        "latency_ms": 1500,
+    }
 
 
 @pytest.mark.asyncio
@@ -1067,7 +1076,12 @@ async def test_send_turn_end_includes_goal_state_when_present() -> None:
 
     mock_ws.send.assert_awaited_once()
     body = json.loads(mock_ws.send.await_args.args[0])
-    assert body == {"event": "turn_end", "chat_id": "chat-1", "goal_state": blob}
+    assert body == {
+        "protocol_version": 1,
+        "event": "turn_end",
+        "chat_id": "chat-1",
+        "goal_state": blob,
+    }
 
 
 @pytest.mark.asyncio
@@ -1093,6 +1107,7 @@ async def test_send_goal_status_running_emits_event_with_started_at() -> None:
     mock_ws.send.assert_awaited_once()
     body = json.loads(mock_ws.send.await_args.args[0])
     assert body == {
+        "protocol_version": 1,
         "event": "goal_status",
         "chat_id": "chat-1",
         "status": "running",
@@ -1122,7 +1137,12 @@ async def test_send_goal_status_idle_omits_started_at() -> None:
 
     mock_ws.send.assert_awaited_once()
     body = json.loads(mock_ws.send.await_args.args[0])
-    assert body == {"event": "goal_status", "chat_id": "chat-1", "status": "idle"}
+    assert body == {
+        "protocol_version": 1,
+        "event": "goal_status",
+        "chat_id": "chat-1",
+        "status": "idle",
+    }
 
 
 @pytest.mark.asyncio
@@ -1150,6 +1170,7 @@ async def test_send_goal_state_emits_blob_per_chat() -> None:
     mock_b.send.assert_not_called()
     body = json.loads(mock_a.send.await_args.args[0])
     assert body == {
+        "protocol_version": 1,
         "event": "goal_state",
         "chat_id": "chat-a",
         "goal_state": {"active": True, "ui_summary": "A"},
@@ -1239,6 +1260,7 @@ async def test_maybe_push_turn_run_wall_clock_replays_running() -> None:
     mock_ws.send.assert_awaited_once()
     body = json.loads(mock_ws.send.await_args.args[0])
     assert body == {
+        "protocol_version": 1,
         "event": "goal_status",
         "chat_id": "chat-1",
         "status": "running",
@@ -1264,7 +1286,11 @@ async def test_send_session_updated_emits_session_updated_event() -> None:
 
     mock_ws.send.assert_awaited_once()
     body = json.loads(mock_ws.send.await_args.args[0])
-    assert body == {"event": "session_updated", "chat_id": "chat-1"}
+    assert body == {
+        "protocol_version": 1,
+        "event": "session_updated",
+        "chat_id": "chat-1",
+    }
 
 
 @pytest.mark.asyncio
@@ -1285,7 +1311,12 @@ async def test_send_session_updated_includes_scope_when_present() -> None:
 
     mock_ws.send.assert_awaited_once()
     body = json.loads(mock_ws.send.await_args.args[0])
-    assert body == {"event": "session_updated", "chat_id": "chat-1", "scope": "metadata"}
+    assert body == {
+        "protocol_version": 1,
+        "event": "session_updated",
+        "chat_id": "chat-1",
+        "scope": "metadata",
+    }
 
 
 @pytest.mark.asyncio
@@ -1929,7 +1960,11 @@ async def test_end_to_end_server_pushes_streaming_deltas_to_client(bus: MagicMoc
             )
 
             turn_end = json.loads(await client.recv())
-            assert turn_end == {"event": "turn_end", "chat_id": chat_id}
+            assert turn_end == {
+                "protocol_version": 1,
+                "event": "turn_end",
+                "chat_id": chat_id,
+            }
     finally:
         await channel.stop()
         await server_task
