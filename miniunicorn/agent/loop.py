@@ -37,10 +37,14 @@ from miniunicorn.agent.telemetry import (
 )
 from miniunicorn.agent.tools.context import RequestContext
 from miniunicorn.agent.tools.file_state import FileStateStore
-from miniunicorn.agent.tools.message import MessageTool
 from miniunicorn.agent.tools.registry import ToolRegistry
 from miniunicorn.agent.turn_coordinator import TurnCoordinator
 from miniunicorn.agent.turn_executor import TURN_TRANSITIONS, TurnExecutor
+from miniunicorn.agent.turn_persistence import (
+    PENDING_USER_TURN_KEY,
+    RUNTIME_CHECKPOINT_KEY,
+    TurnPersistence,
+)
 from miniunicorn.agent.turn_runtime import (
     AgentLoopRunResult,
     ProcessedTurn,
@@ -63,8 +67,6 @@ from miniunicorn.session.webui_turns import (
     build_bus_progress_callback,
 )
 from miniunicorn.utils.document import extract_documents  # re-export for tests/extensions
-from miniunicorn.utils.helpers import image_placeholder_text
-from miniunicorn.utils.helpers import truncate_text as truncate_text_fn
 from miniunicorn.utils.llm_runtime import LLMRuntime
 from miniunicorn.utils.task_supervisor import TaskSupervisor
 
@@ -145,8 +147,8 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             max_cost_usd=self._max_cost_per_turn_usd,
         )
 
-    _RUNTIME_CHECKPOINT_KEY = "runtime_checkpoint"
-    _PENDING_USER_TURN_KEY = "pending_user_turn"
+    _RUNTIME_CHECKPOINT_KEY = RUNTIME_CHECKPOINT_KEY
+    _PENDING_USER_TURN_KEY = PENDING_USER_TURN_KEY
 
     # Event-driven state transition table.
     # The canonical table lives in ``turn_executor.TURN_TRANSITIONS``; this
@@ -270,6 +272,10 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         # One file-read/write tracker per logical session. The tool registry is
         # shared by this loop, so tools resolve the active state via contextvars.
         self._file_state_store = FileStateStore()
+        # TurnPersistence owns checkpoint, pending-turn and history-write
+        # algorithms. The loop retains thin delegates so existing
+        # monkeypatches on _save_turn etc. continue to intercept calls.
+        self._turn_persistence = TurnPersistence(self)
         self.runner = AgentRunner(provider)
         self.subagents = SubagentManager(
             provider=provider,
@@ -485,21 +491,9 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
     ) -> bool:
         """Persist the triggering user message before the turn starts.
 
-        Returns True if the message was persisted.
+        Delegates to :class:`TurnPersistence`.
         """
-        media_paths = [p for p in (msg.media or []) if isinstance(p, str) and p]
-        has_text = isinstance(msg.content, str) and msg.content.strip()
-        if has_text or media_paths:
-            extra: dict[str, Any] = (
-                {"media": list(media_paths)} if media_paths else {}
-            ) | agent_context.session_extra(msg.metadata)
-            extra.update(kwargs)
-            text = msg.content if isinstance(msg.content, str) else ""
-            session.add_message("user", text, **extra)
-            self._mark_pending_user_turn(session)
-            self.sessions.save(session)
-            return True
-        return False
+        return self._turn_persistence.persist_user_message_early(msg, session, **kwargs)
 
     async def _compute_query_embedding(self, text: str) -> list[float] | None:
         """Compute embedding for *text* when vector recall is enabled.
@@ -1033,26 +1027,18 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         *,
         turn_latency_ms: int | None = None,
     ) -> OutboundMessage | None:
-        """Assemble the final outbound message from turn results."""
-        # MessageTool suppression
-        if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
-            if not had_injections or stop_reason == "empty_final_response":
-                return None
+        """Assemble the final outbound message from turn results.
 
-        preview = final_content[:120] + "..." if len(final_content) > 120 else final_content
-        logger.info("Response to {}:{}: {}", msg.channel, msg.sender_id, preview)
-
-        meta = dict(msg.metadata or {})
-        if on_stream is not None and stop_reason not in {"error", "tool_error"}:
-            meta["_streamed"] = True
-        if turn_latency_ms is not None:
-            meta["latency_ms"] = int(turn_latency_ms)
-
-        return OutboundMessage(
-            channel=msg.channel,
-            chat_id=msg.chat_id,
-            content=final_content,
-            metadata=meta,
+        Delegates to :class:`TurnPersistence`.
+        """
+        return self._turn_persistence.assemble_outbound(
+            msg,
+            final_content,
+            all_msgs,
+            stop_reason,
+            had_injections,
+            on_stream,
+            turn_latency_ms=turn_latency_ms,
         )
 
     def _sanitize_persisted_blocks(
@@ -1062,38 +1048,15 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         should_truncate_text: bool = False,
         drop_runtime: bool = False,
     ) -> list[dict[str, Any]]:
-        """Strip volatile multimodal payloads before writing session history."""
-        filtered: list[dict[str, Any]] = []
-        for block in content:
-            if not isinstance(block, dict):
-                filtered.append(block)
-                continue
+        """Strip volatile multimodal payloads before writing session history.
 
-            if (
-                drop_runtime
-                and block.get("type") == "text"
-                and isinstance(block.get("text"), str)
-                and block["text"].startswith(ContextBuilder._RUNTIME_CONTEXT_TAG)
-            ):
-                continue
-
-            if block.get("type") == "image_url" and block.get("image_url", {}).get(
-                "url", ""
-            ).startswith("data:image/"):
-                path = (block.get("_meta") or {}).get("path", "")
-                filtered.append({"type": "text", "text": image_placeholder_text(path)})
-                continue
-
-            if block.get("type") == "text" and isinstance(block.get("text"), str):
-                text = block["text"]
-                if should_truncate_text and len(text) > self.max_tool_result_chars:
-                    text = truncate_text_fn(text, self.max_tool_result_chars)
-                filtered.append({**block, "text": text})
-                continue
-
-            filtered.append(block)
-
-        return filtered
+        Delegates to :class:`TurnPersistence`.
+        """
+        return self._turn_persistence.sanitize_persisted_blocks(
+            content,
+            should_truncate_text=should_truncate_text,
+            drop_runtime=drop_runtime,
+        )
 
     def _save_turn(
         self,
@@ -1103,169 +1066,61 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         *,
         turn_latency_ms: int | None = None,
     ) -> None:
-        """Save new-turn messages into session, truncating large tool results."""
-        from datetime import datetime
+        """Save new-turn messages into session, truncating large tool results.
 
-        last_assistant_idx: int | None = None
-        for m in messages[skip:]:
-            entry = dict(m)
-            role, content = entry.get("role"), entry.get("content")
-            if role == "assistant" and not content and not entry.get("tool_calls"):
-                continue  # skip empty assistant messages — they poison session context
-            if role == "tool":
-                if isinstance(content, str) and len(content) > self.max_tool_result_chars:
-                    entry["content"] = truncate_text_fn(content, self.max_tool_result_chars)
-                elif isinstance(content, list):
-                    filtered = self._sanitize_persisted_blocks(content, should_truncate_text=True)
-                    if not filtered:
-                        continue
-                    entry["content"] = filtered
-            elif role == "user":
-                if isinstance(content, str) and ContextBuilder._RUNTIME_CONTEXT_TAG in content:
-                    # Strip the runtime-context block appended at the end.
-                    tag_pos = content.find(ContextBuilder._RUNTIME_CONTEXT_TAG)
-                    before = content[:tag_pos].rstrip("\n ")
-                    if before:
-                        entry["content"] = before
-                    else:
-                        continue
-                if isinstance(content, list):
-                    filtered = self._sanitize_persisted_blocks(content, drop_runtime=True)
-                    if not filtered:
-                        continue
-                    entry["content"] = filtered
-            entry.setdefault("timestamp", datetime.now().isoformat())
-            session.messages.append(entry)
-            if role == "assistant":
-                last_assistant_idx = len(session.messages) - 1
-        if turn_latency_ms is not None and last_assistant_idx is not None:
-            session.messages[last_assistant_idx]["latency_ms"] = int(turn_latency_ms)
-        session.updated_at = datetime.now()
+        Delegates to :class:`TurnPersistence`.
+        """
+        self._turn_persistence.save_turn(
+            session,
+            messages,
+            skip,
+            turn_latency_ms=turn_latency_ms,
+        )
 
     def _persist_subagent_followup(self, session: Session, msg: InboundMessage) -> bool:
         """Persist subagent follow-ups before prompt assembly so history stays durable.
 
-        Returns True if a new entry was appended; False if the follow-up was
-        deduped (same ``subagent_task_id`` already in session) or carries no
-        content worth persisting.
+        Delegates to :class:`TurnPersistence`.
         """
-        if not msg.content:
-            return False
-        task_id = msg.metadata.get("subagent_task_id") if isinstance(msg.metadata, dict) else None
-        if task_id and any(
-            m.get("injected_event") == "subagent_result" and m.get("subagent_task_id") == task_id
-            for m in session.messages
-        ):
-            return False
-        session.add_message(
-            "assistant",
-            msg.content,
-            sender_id=msg.sender_id,
-            injected_event="subagent_result",
-            subagent_task_id=task_id,
-        )
-        return True
+        return self._turn_persistence.persist_subagent_followup(session, msg)
 
     def _set_runtime_checkpoint(self, session: Session, payload: dict[str, Any]) -> None:
-        """Persist the latest in-flight turn state into session metadata."""
-        session.metadata[self._RUNTIME_CHECKPOINT_KEY] = payload
-        self.sessions.save(session)
+        """Persist the latest in-flight turn state into session metadata.
+
+        Delegates to :class:`TurnPersistence`.
+        """
+        self._turn_persistence.set_runtime_checkpoint(session, payload)
 
     def _mark_pending_user_turn(self, session: Session) -> None:
-        session.metadata[self._PENDING_USER_TURN_KEY] = True
+        """Delegates to :class:`TurnPersistence`."""
+        self._turn_persistence.mark_pending_user_turn(session)
 
     def _clear_pending_user_turn(self, session: Session) -> None:
-        session.metadata.pop(self._PENDING_USER_TURN_KEY, None)
+        """Delegates to :class:`TurnPersistence`."""
+        self._turn_persistence.clear_pending_user_turn(session)
 
     def _clear_runtime_checkpoint(self, session: Session) -> None:
-        if self._RUNTIME_CHECKPOINT_KEY in session.metadata:
-            session.metadata.pop(self._RUNTIME_CHECKPOINT_KEY, None)
+        """Delegates to :class:`TurnPersistence`."""
+        self._turn_persistence.clear_runtime_checkpoint(session)
 
     @staticmethod
     def _checkpoint_message_key(message: dict[str, Any]) -> tuple[Any, ...]:
-        return (
-            message.get("role"),
-            message.get("content"),
-            message.get("tool_call_id"),
-            message.get("name"),
-            message.get("tool_calls"),
-            message.get("reasoning_content"),
-            message.get("thinking_blocks"),
-        )
+        """Delegates to :class:`TurnPersistence`."""
+        return TurnPersistence.checkpoint_message_key(message)
 
     def _restore_runtime_checkpoint(self, session: Session) -> bool:
-        """Materialize an unfinished turn into session history before a new request."""
-        from datetime import datetime
+        """Materialize an unfinished turn into session history before a new request.
 
-        checkpoint = session.metadata.get(self._RUNTIME_CHECKPOINT_KEY)
-        if not isinstance(checkpoint, dict):
-            return False
-
-        assistant_message = checkpoint.get("assistant_message")
-        completed_tool_results = checkpoint.get("completed_tool_results") or []
-        pending_tool_calls = checkpoint.get("pending_tool_calls") or []
-
-        restored_messages: list[dict[str, Any]] = []
-        if isinstance(assistant_message, dict):
-            restored = dict(assistant_message)
-            restored.setdefault("timestamp", datetime.now().isoformat())
-            restored_messages.append(restored)
-        for message in completed_tool_results:
-            if isinstance(message, dict):
-                restored = dict(message)
-                restored.setdefault("timestamp", datetime.now().isoformat())
-                restored_messages.append(restored)
-        for tool_call in pending_tool_calls:
-            if not isinstance(tool_call, dict):
-                continue
-            tool_id = tool_call.get("id")
-            name = ((tool_call.get("function") or {}).get("name")) or "tool"
-            restored_messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_id,
-                    "name": name,
-                    "content": "Error: Task interrupted before this tool finished.",
-                    "timestamp": datetime.now().isoformat(),
-                }
-            )
-
-        overlap = 0
-        max_overlap = min(len(session.messages), len(restored_messages))
-        for size in range(max_overlap, 0, -1):
-            existing = session.messages[-size:]
-            restored = restored_messages[:size]
-            if all(
-                self._checkpoint_message_key(left) == self._checkpoint_message_key(right)
-                for left, right in zip(existing, restored)
-            ):
-                overlap = size
-                break
-        session.messages.extend(restored_messages[overlap:])
-
-        self._clear_pending_user_turn(session)
-        self._clear_runtime_checkpoint(session)
-        return True
+        Delegates to :class:`TurnPersistence`.
+        """
+        return self._turn_persistence.restore_runtime_checkpoint(session)
 
     def _restore_pending_user_turn(self, session: Session) -> bool:
-        """Close a turn that only persisted the user message before crashing."""
-        from datetime import datetime
+        """Close a turn that only persisted the user message before crashing.
 
-        if not session.metadata.get(self._PENDING_USER_TURN_KEY):
-            return False
-
-        if session.messages and session.messages[-1].get("role") == "user":
-            session.messages.append(
-                {
-                    "role": "assistant",
-                    "content": "Error: Task interrupted before a response was generated.",
-                    "timestamp": datetime.now().isoformat(),
-                }
-            )
-            session.updated_at = datetime.now()
-
-        self._clear_pending_user_turn(session)
-        return True
+        Delegates to :class:`TurnPersistence`.
+        """
+        return self._turn_persistence.restore_pending_user_turn(session)
 
     async def process_direct(
         self,

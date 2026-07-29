@@ -28,6 +28,12 @@ def _mk_loop() -> AgentLoop:
     from miniunicorn.config.schema import AgentDefaults
 
     loop.max_tool_result_chars = AgentDefaults().max_tool_result_chars
+    # ``_save_turn`` / ``_restore_runtime_checkpoint`` and friends now delegate
+    # to ``TurnPersistence``. The minimal loop bypasses ``__init__``, so the
+    # collaborator must be wired up by hand for these focused tests.
+    from miniunicorn.agent.turn_persistence import TurnPersistence
+
+    loop._turn_persistence = TurnPersistence(loop)  # type: ignore[attr-defined]
     return loop
 
 
@@ -1094,6 +1100,7 @@ async def test_state_save_writes_usage_to_session_metadata(tmp_path: Path) -> No
 
     loop = _make_full_loop(tmp_path)
     loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
+
     def _noop_schedule(_coro):
         _coro.close()
 
