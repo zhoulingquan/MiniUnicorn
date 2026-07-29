@@ -230,9 +230,14 @@ def set_active_claim(task_id: str, claim: "TaskClaim") -> None:
     _claim_context[task_id] = claim
 
 
-def clear_active_claim(task_id: str) -> None:
-    """Remove the active claim for ``task_id`` after the Worker finishes."""
-    _claim_context.pop(task_id, None)
+def clear_active_claim(task_id: str | None = None) -> None:
+    """Remove the active claim for ``task_id`` after the Worker finishes.
+
+    If ``task_id`` is ``None``, this is a no-op safety net — the Worker
+    should always pass the explicit ``task_id`` from its claimed task.
+    """
+    if task_id is not None:
+        _claim_context.pop(task_id, None)
 
 
 def _get_claim_for_task(task_id: str) -> "TaskClaim | None":

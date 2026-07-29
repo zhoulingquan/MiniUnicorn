@@ -47,6 +47,15 @@ class TurnRuntime:
     state_durations_ms: dict[str, float] = field(default_factory=dict)
     llm_calls: list[LlmCallMetric] = field(default_factory=list)
     tool_calls: list[ToolCallMetric] = field(default_factory=list)
+    # Durable runtime immutable identifiers (design §29.5).
+    # Populated by the Worker Adapter when running under the durable
+    # runtime; remain None/0 for legacy (non-durable) turns so existing
+    # callers and tests are unaffected.
+    task_id: str | None = None
+    session_sequence: int = 0
+    lease_epoch: int = 0
+    run_segment: int = 0
+    trace_id: str | None = None
 
 
 _CURRENT_TURN: ContextVar[TurnRuntime | None] = ContextVar(

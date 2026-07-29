@@ -4,6 +4,23 @@ Owns session history writes, multimodal sanitization, runtime checkpoints,
 pending user-turn recovery, and subagent follow-up dedup. The algorithms
 were moved here mechanically from :class:`AgentLoop`; the loop retains thin
 delegates so existing monkeypatches continue to intercept calls.
+
+Design §29.4 splits this module's responsibilities without duplicating state:
+
+- **Legacy checkpoint reader** — ``restore_runtime_checkpoint`` /
+  ``restore_pending_user_turn`` remain for migration (design §31.2) and for
+  the legacy non-durable path. They are no-ops for runtime tasks.
+- **Durable checkpoint adapter** — implemented separately in
+  :mod:`miniunicorn.runtime.durable_journal` (design §29.4). Used by the
+  Worker Adapter when ``runtime.enabled=true``.
+- **SessionCommitter adapter** — implemented separately in
+  :mod:`miniunicorn.runtime.session_committer` (design §17.7).
+
+For runtime tasks (design §29.4):
+
+- do not write ``runtime_checkpoint`` session metadata;
+- do not write ``pending_user_turn`` session metadata;
+- do not convert pending calls into synthetic errors.
 """
 
 from __future__ import annotations
@@ -354,3 +371,4 @@ class TurnPersistence:
 
         self.clear_pending_user_turn(session)
         return True
+

@@ -14,12 +14,31 @@ import uuid
 import weakref
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 
 from miniunicorn.agent.turn_runtime import (
     TurnRuntime,
     bind_turn_runtime,
     reset_turn_runtime,
 )
+
+
+@dataclass(slots=True, frozen=True)
+class DurableIdentifiers:
+    """Immutable durable task identifiers passed into a coordinator scope.
+
+    Design §29.5: when the Worker Adapter binds a ``TurnRuntime`` for a
+    durable task, it populates these identifiers so the state trace,
+    telemetry, and logs share one durable identity. ``None``/``0`` fields
+    are allowed for internal tasks that do not have a session sequence or
+    lease epoch yet.
+    """
+
+    task_id: str
+    session_sequence: int = 0
+    lease_epoch: int = 0
+    run_segment: int = 0
+    trace_id: str | None = None
 
 
 class TurnCoordinator:
@@ -52,6 +71,8 @@ class TurnCoordinator:
         self,
         session_key: str,
         turn_id: str | None = None,
+        *,
+        durable_identifiers: "DurableIdentifiers | None" = None,
     ) -> AsyncIterator[TurnRuntime]:
         wait_started = time.monotonic()
         lock = self._lock_for(session_key)
@@ -63,6 +84,13 @@ class TurnCoordinator:
                 session_key=session_key,
                 queue_wait_ms=int((time.monotonic() - wait_started) * 1000),
             )
+            if durable_identifiers is not None:
+                # Populate durable immutable identifiers (design §29.5).
+                runtime.task_id = durable_identifiers.task_id
+                runtime.session_sequence = durable_identifiers.session_sequence
+                runtime.lease_epoch = durable_identifiers.lease_epoch
+                runtime.run_segment = durable_identifiers.run_segment
+                runtime.trace_id = durable_identifiers.trace_id
             token = bind_turn_runtime(runtime)
             try:
                 yield runtime

@@ -279,6 +279,11 @@ class InboundTaskEnvelope:
     received_at_ms: int = 0
     turn_id: str | None = None
     available_at_ms: int | None = None
+    # WP3: inline payload content. When present, the Task Service stores
+    # the content directly in the protected blob (inline_content) instead
+    # of just recording the external_ref. This lets the Worker decode the
+    # payload without a separate artifact store (design §13.1, §16.15).
+    payload_content: bytes | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -384,12 +389,13 @@ class TaskSnapshot:
     root_attempt_count: int
     max_root_attempts: int
     recovery_pending: int
-    waiting_reason: str | None
-    waiting_ref: str | None
-    error: SafeError | None
-    created_at_ms: int
-    updated_at_ms: int
-    completed_at_ms: int | None
+    session_sequence: int = 0
+    waiting_reason: str | None = None
+    waiting_ref: str | None = None
+    error: SafeError | None = None
+    created_at_ms: int = 0
+    updated_at_ms: int = 0
+    completed_at_ms: int | None = None
 
 
 @dataclass(slots=True, frozen=True)

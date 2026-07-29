@@ -51,6 +51,16 @@ from miniunicorn.runtime.session_committer import (
     clear_active_claim,
     set_active_claim,
 )
+from miniunicorn.runtime.scheduler import Scheduler, ClaimOutcome
+from miniunicorn.runtime.task_service import TaskService
+from miniunicorn.runtime.worker import (
+    AgentTaskWorker,
+    WorkerTaskPayload,
+    WorkerExecutionResult,
+    ExecutionCallback,
+)
+from miniunicorn.runtime.hosts import LightweightHost
+from miniunicorn.runtime.agent_adapter import AgentExecutionCallback
 from miniunicorn.runtime.models import (
     BLOB_ENCODING,
     BLOB_KIND,
@@ -104,6 +114,19 @@ __all__ = [
     "SessionCommitter",
     "clear_active_claim",
     "set_active_claim",
+    # Task Service & Scheduler
+    "TaskService",
+    "Scheduler",
+    "ClaimOutcome",
+    # Worker
+    "AgentTaskWorker",
+    "WorkerTaskPayload",
+    "WorkerExecutionResult",
+    "ExecutionCallback",
+    # Hosts
+    "LightweightHost",
+    # Agent adapter
+    "AgentExecutionCallback",
     # Contracts
     "ClaimRequest",
     "ClaimedTask",

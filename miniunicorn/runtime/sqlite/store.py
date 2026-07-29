@@ -223,6 +223,7 @@ def _task_snapshot(record: TaskRecord) -> TaskSnapshot:
         root_attempt_count=record.root_attempt_count,
         max_root_attempts=record.max_root_attempts,
         recovery_pending=record.recovery_pending,
+        session_sequence=record.session_sequence,
         waiting_reason=record.waiting_reason,
         waiting_ref=record.waiting_ref,
         error=error,
@@ -364,17 +365,33 @@ class SqliteRuntimeStore:
         # Write the payload blob first (outside the task transaction is fine
         # because blob write is idempotent and self-contained).
         scope_key = f"{envelope.scope.tenant_id}/{envelope.scope.principal_id}"
-        blob = self.write_blob(
-            BlobWrite(
-                scope_key=scope_key,
-                blob_kind="TASK_PAYLOAD",
-                content_hash=envelope.payload_hash,
-                encoding="RAW_BYTES",
-                external_ref=envelope.normalized_payload_ref,
-                size_bytes=0,
-                created_at_ms=now_ms,
+        # WP3: when the envelope carries inline payload_content, store it
+        # directly in the blob so the Worker can decode it without an
+        # external artifact store (design §13.1, §16.15).
+        if envelope.payload_content is not None:
+            blob = self.write_blob(
+                BlobWrite(
+                    scope_key=scope_key,
+                    blob_kind="TASK_PAYLOAD",
+                    content_hash=envelope.payload_hash,
+                    encoding="RAW_BYTES",
+                    inline_content=envelope.payload_content,
+                    size_bytes=len(envelope.payload_content),
+                    created_at_ms=now_ms,
+                )
             )
-        )
+        else:
+            blob = self.write_blob(
+                BlobWrite(
+                    scope_key=scope_key,
+                    blob_kind="TASK_PAYLOAD",
+                    content_hash=envelope.payload_hash,
+                    encoding="RAW_BYTES",
+                    external_ref=envelope.normalized_payload_ref,
+                    size_bytes=0,
+                    created_at_ms=now_ms,
+                )
+            )
 
         self._conn.execute("BEGIN IMMEDIATE")
         try:

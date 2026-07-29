@@ -49,6 +49,15 @@ TURN_TRANSITIONS: Final[Mapping[tuple[TurnState, str], TurnState]] = {
     (TurnState.RESPOND, "ok"): TurnState.DONE,
 }
 
+# Runtime transition table (design §18.1, §29.3, WP3 task 8).
+# Removes ``COMMAND -> DONE`` shortcut so all user-visible commands pass
+# through SAVE and RESPOND (durable session commit + Outbox enqueue).
+# Shortcut commands now flow ``COMMAND -> SAVE -> RESPOND -> DONE``.
+RUNTIME_TURN_TRANSITIONS: Final[Mapping[tuple[TurnState, str], TurnState]] = {
+    **TURN_TRANSITIONS,
+    (TurnState.COMMAND, "shortcut"): TurnState.SAVE,
+}
+
 
 class TurnExecutionHost(Protocol):
     """Host capabilities required by :class:`TurnExecutor`."""
@@ -88,6 +97,8 @@ class TurnExecutor:
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
         pending_queue: asyncio.Queue | None = None,
         turn_hooks: list["AgentHook"] | None = None,
+        *,
+        runtime_mode: bool = False,
     ) -> ProcessedTurn:
         """Execute a single inbound message and return the outbound + context.
 
@@ -96,6 +107,15 @@ class TurnExecutor:
         System-message shortcuts return ``ProcessedTurn(outbound, None)``
         because they bypass the state machine and have no TurnContext to
         copy cumulative metrics from.
+
+        When ``runtime_mode=True`` (design §18.1, §29.3, WP3 task 8):
+
+        - uses :data:`RUNTIME_TURN_TRANSITIONS` which removes the
+          ``COMMAND -> DONE`` shortcut so all user-visible commands flow
+          through SAVE and RESPOND (durable commit + Outbox);
+        - when COMMAND returns ``"shortcut"``, the command's outbound
+          content is copied into ``ctx.final_content`` so SAVE/RESPOND
+          handle it like a normal turn output.
         """
         self._host._refresh_provider_snapshot()
 
@@ -132,6 +152,8 @@ class TurnExecutor:
             turn_hooks=list(turn_hooks or []),
         )
 
+        transitions = RUNTIME_TURN_TRANSITIONS if runtime_mode else TURN_TRANSITIONS
+
         while ctx.state is not TurnState.DONE:
             handler_name = f"_state_{ctx.state.name.lower()}"
             handler = getattr(self._host, handler_name, None)
@@ -154,6 +176,18 @@ class TurnExecutor:
                 )
                 raise
 
+            # Runtime mode: COMMAND shortcut flows to SAVE (design §18.1).
+            # Copy the command's outbound content into final_content so
+            # SAVE/RESPOND handle it as the turn output.
+            if (
+                runtime_mode
+                and ctx.state is TurnState.COMMAND
+                and event == "shortcut"
+                and ctx.outbound is not None
+                and ctx.final_content is None
+            ):
+                ctx.final_content = ctx.outbound.content
+
             duration = (time.perf_counter() - t0) * 1000
             ctx.trace.append(
                 StateTraceEntry(
@@ -171,7 +205,7 @@ class TurnExecutor:
                 event,
             )
 
-            next_state = TURN_TRANSITIONS.get((ctx.state, event))
+            next_state = transitions.get((ctx.state, event))
             if next_state is None:
                 raise RuntimeError(
                     f"[turn {ctx.turn_id}] No transition from {ctx.state} on event {event!r}"
