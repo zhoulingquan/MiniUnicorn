@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from miniunicorn.agent._state_machine import TurnContext
+    from miniunicorn.agent.telemetry import LlmCallMetric, ToolCallMetric
     from miniunicorn.bus.events import OutboundMessage
 
 SESSION_LAST_USAGE_KEY = "last_usage"
@@ -44,8 +45,8 @@ class TurnRuntime:
     queue_wait_ms: int = 0
     stop_reason: str = ""
     state_durations_ms: dict[str, float] = field(default_factory=dict)
-    llm_calls: list[dict[str, Any]] = field(default_factory=list)
-    tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    llm_calls: list[LlmCallMetric] = field(default_factory=list)
+    tool_calls: list[ToolCallMetric] = field(default_factory=list)
 
 
 _CURRENT_TURN: ContextVar[TurnRuntime | None] = ContextVar(
@@ -104,3 +105,14 @@ def complete_turn_runtime(
     runtime.last_call_usage = dict(context.last_call_usage)
     runtime.latency_ms = context.turn_latency_ms
     runtime.stop_reason = context.stop_reason
+    # Aggregate per-state wall-clock durations from the state-machine trace
+    # so the telemetry record carries a breakdown of where the turn spent time.
+    # Lazy import avoids a circular dependency with _state_machine.
+    from miniunicorn.agent._state_machine import TurnState
+
+    runtime.state_durations_ms = {
+        state.name.lower(): sum(
+            entry.duration_ms for entry in context.trace if entry.state is state
+        )
+        for state in TurnState
+    }

@@ -30,6 +30,11 @@ from miniunicorn.agent.progress_hook import AgentProgressHook
 from miniunicorn.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRunSpec
 from miniunicorn.agent.subagent import SubagentManager
 from miniunicorn.agent.subagent_registry import SubagentDefinition, SubagentRegistry
+from miniunicorn.agent.telemetry import (
+    LogTelemetrySink,
+    TelemetrySink,
+    build_turn_telemetry,
+)
 from miniunicorn.agent.tools.context import (
     RequestContext,
     bind_request_context,
@@ -73,6 +78,7 @@ from miniunicorn.utils.llm_runtime import LLMRuntime
 from miniunicorn.utils.runtime import (
     SUSTAINED_GOAL_CONTINUE_PROMPT,
 )
+from miniunicorn.utils.task_supervisor import TaskSupervisor
 
 if TYPE_CHECKING:
     from miniunicorn.config.schema import (
@@ -202,6 +208,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         model_preset: str | None = None,
         preset_snapshot_loader: preset_helpers.PresetSnapshotLoader | None = None,
         runtime_model_publisher: Callable[[str, str | None], None] | None = None,
+        telemetry_sink: TelemetrySink | None = None,
     ):
         from miniunicorn.config.schema import ToolsConfig
 
@@ -310,7 +317,10 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         self._mcp_connected = False
         self._mcp_connecting = False
         self._active_tasks: dict[str, list[asyncio.Task]] = {}  # session_key -> tasks
-        self._background_tasks: set[asyncio.Task] = set()
+        # Supervised fire-and-forget background jobs (archives, consolidation,
+        # etc.). The supervisor owns strong references and surfaces unhandled
+        # exceptions via a done-callback so nothing fails silently.
+        self._background_supervisor: TaskSupervisor = TaskSupervisor()
         # Per-session pending queues for mid-turn message injection.
         # When a session has an active task, new messages for that session
         # are routed here instead of creating a new task.
@@ -327,6 +337,10 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         # (e.g. /stop introspection). Mutations of this dict still flow
         # through the coordinator.
         self._session_locks = self._turn_coordinator.session_locks
+        # Telemetry sink: one structured record per turn. Defaults to
+        # LogTelemetrySink (Loguru ``turn_completed`` event). Sink exceptions
+        # are logged and suppressed so telemetry can never break a turn.
+        self.telemetry_sink: TelemetrySink = telemetry_sink or LogTelemetrySink()
         self.consolidator = Consolidator(
             store=self.context.memory,
             provider=provider,
@@ -1036,6 +1050,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                             latency_ms=turn_runtime.latency_ms,
                             context_usage=turn_runtime.last_call_usage,
                         )
+                    await self._emit_telemetry(turn_runtime)
                 except asyncio.CancelledError:
                     logger.info("Task cancelled for session {}", session_key)
                     # Preserve partial context from the interrupted turn so
@@ -1061,6 +1076,10 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                             session_key,
                             exc_info=True,
                         )
+                    # Emit a telemetry record with stop_reason="cancelled"
+                    # before re-raising so the turn is still observable.
+                    turn_runtime.stop_reason = "cancelled"
+                    await self._emit_telemetry(turn_runtime)
                     raise
                 except Exception:
                     logger.exception("Error processing message for session {}", session_key)
@@ -1071,6 +1090,9 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                             content="Sorry, I encountered an error.",
                         )
                     )
+                    if not turn_runtime.stop_reason:
+                        turn_runtime.stop_reason = "error"
+                    await self._emit_telemetry(turn_runtime)
                 finally:
                     # Drain any messages still in the pending queue and re-publish
                     # them to the bus so they are processed as fresh inbound messages
@@ -1104,12 +1126,22 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                 await self._webui_turns.publish_run_status(msg, "idle")
                 self._webui_turns.discard(session_key)
 
-    def _schedule_background(self, coro) -> None:
+    def _schedule_background(self, coro, *, name: str = "agent-background") -> None:
         """Schedule a coroutine as a tracked background task (drained on shutdown)."""
-        task = asyncio.create_task(coro)
-        # 使用 set 而非 list，回调用 discard 避免 remove 时 KeyError
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
+        self._background_supervisor.create(coro, name=name)
+
+    async def _emit_telemetry(self, turn_runtime) -> None:
+        """Emit one structured telemetry record for a completed turn.
+
+        Sink exceptions are logged and suppressed so a telemetry failure
+        can never break an outbound turn.
+        """
+        try:
+            await self.telemetry_sink.emit_turn(build_turn_telemetry(turn_runtime))
+        except Exception:
+            logger.exception(
+                "Telemetry sink failed for turn {}", turn_runtime.turn_id
+            )
 
     def stop(self) -> None:
         """Stop the agent loop."""
@@ -1203,7 +1235,8 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             self.consolidator.maybe_consolidate_by_tokens(
                 session,
                 replay_max_messages=self._max_messages,
-            )
+            ),
+            name=f"consolidate:{session.key}",
         )
         content = result.final_content or "Background task completed."
         outbound_metadata: dict[str, Any] = {}
@@ -1648,7 +1681,17 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                     turn_hooks=hooks,
                 )
                 complete_turn_runtime(turn_runtime, result.context)
+                await self._emit_telemetry(turn_runtime)
                 return result.outbound
+            except asyncio.CancelledError:
+                turn_runtime.stop_reason = "cancelled"
+                await self._emit_telemetry(turn_runtime)
+                raise
+            except Exception:
+                if not turn_runtime.stop_reason:
+                    turn_runtime.stop_reason = "error"
+                await self._emit_telemetry(turn_runtime)
+                raise
             finally:
                 # WebUI run-status cleanup mirrors _dispatch: publish the
                 # terminal "idle" status and drop cached title context so a

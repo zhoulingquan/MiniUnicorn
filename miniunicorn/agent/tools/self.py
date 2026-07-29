@@ -79,7 +79,7 @@ class MyTool(Tool, ContextAware):
             "_pending_queues",
             "_session_locks",
             "_active_tasks",
-            "_background_tasks",
+            "_background_supervisor",
             # Security boundaries (inspect + modify both blocked)
             "restrict_to_workspace",
             "channels_config",

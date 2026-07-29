@@ -510,9 +510,9 @@ class TestModifyOpen:
 
     @pytest.mark.asyncio
     async def test_modify_background_tasks_blocked(self):
-        """_background_tasks tracks background tasks — must be blocked."""
+        """_background_supervisor tracks background tasks — must be blocked."""
         tool = _make_tool()
-        result = await tool.execute(action="set", key="_background_tasks", value=[])
+        result = await tool.execute(action="set", key="_background_supervisor", value=[])
         assert "protected" in result
 
     @pytest.mark.asyncio

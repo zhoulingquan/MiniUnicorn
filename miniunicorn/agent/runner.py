@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import os
+import time
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -13,6 +14,7 @@ from typing import Any, Callable
 from loguru import logger
 
 from miniunicorn.agent.hook import AgentHook, AgentHookContext
+from miniunicorn.agent.telemetry import LlmCallMetric, ToolCallMetric
 from miniunicorn.agent.tools.registry import ToolRegistry
 from miniunicorn.agent.turn_runtime import current_turn_runtime
 from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
@@ -53,6 +55,7 @@ from miniunicorn.utils.runtime import (
     repeated_external_lookup_error,
     repeated_workspace_violation_error,
 )
+from miniunicorn.utils.task_supervisor import TaskSupervisor
 
 _DEFAULT_ERROR_MESSAGE = "Sorry, I encountered an error calling the AI model."
 _ARREARAGE_ERROR_MESSAGE = (
@@ -65,6 +68,27 @@ _MAX_LENGTH_RECOVERIES = 3
 _MAX_INJECTIONS_PER_TURN = 3
 _MAX_INJECTION_CYCLES = 5
 _SNIP_SAFETY_BUFFER = 1024
+
+
+def _append_tool_metric(
+    tool_name: str,
+    start: float,
+    status: str,
+    error: str | None = None,
+) -> None:
+    """Append a ``ToolCallMetric`` to the bound ``TurnRuntime`` if one exists."""
+
+    runtime = current_turn_runtime()
+    if runtime is not None:
+        runtime.tool_calls.append(
+            ToolCallMetric(
+                name=tool_name,
+                duration_ms=max(0.0, (time.monotonic() - start) * 1000),
+                status=status,
+                error=error,
+            )
+        )
+
 
 # Backward-compatible module attribute for tests/extensions that monkeypatch
 # the former single-file tracker hook. Runtime uses prepare_file_edit_trackers.
@@ -150,8 +174,10 @@ class AgentRunner:
         # Lazily-constructed default ContextGovernor; built on first use so
         # that entry-point plugins are loaded at most once per runner.
         self._default_governor: Any | None = None
-        # 跟踪 reflection 后台任务，避免被 GC 回收
-        self._reflection_tasks: set[asyncio.Task] = set()
+        # Supervised fire-and-forget reflection tasks. The supervisor owns
+        # strong references and surfaces unhandled exceptions via a
+        # done-callback so a failed reflection never disappears silently.
+        self._reflection_supervisor: TaskSupervisor = TaskSupervisor()
 
     def _get_governor(self, spec: AgentRunSpec) -> Any:
         """Resolve the context governor: spec-provided override or default.
@@ -168,6 +194,17 @@ class AgentRunner:
 
             self._default_governor = ContextGovernor()
         return self._default_governor
+
+    async def aclose(self) -> None:
+        """Drain supervised reflection tasks with a bounded timeout.
+
+        Called by :meth:`AgentLoop.close_mcp` during shutdown so pending
+        reflections get a chance to flush to ``reflections.jsonl`` before
+        the process exits. Stuck reflections are force-cancelled after
+        ``timeout_s=10``.
+        """
+
+        await self._reflection_supervisor.close(cancel=False, timeout_s=10)
 
     def _build_tools_summary(self, tools: ToolRegistry) -> str:
         """Build a compact summary of available tools for the planner."""
@@ -658,18 +695,18 @@ class AgentRunner:
                     reflection is not None
                     and (iteration + 1) % getattr(spec, "reflection_interval", 5) == 0
                 ):
-                    # 跟踪 reflection 任务避免被 GC 回收，完成后从集合移除
-                    task = asyncio.create_task(
+                    # Supervised fire-and-forget: the supervisor owns the
+                    # strong reference and logs any unhandled exception.
+                    self._reflection_supervisor.create(
                         reflection.reflect(
                             trigger="periodic",
                             iteration=iteration,
                             context_summary=f"Periodic reflection at iteration {iteration}",
                             messages=messages,
                             session_key=spec.session_key,
-                        )
+                        ),
+                        name=f"reflection:{spec.session_key or 'default'}:{iteration}",
                     )
-                    self._reflection_tasks.add(task)
-                    task.add_done_callback(self._reflection_tasks.discard)
                 continue
 
             if response.has_tool_calls:
@@ -1074,6 +1111,8 @@ class AgentRunner:
         # LLM timeout here, or healthy long reasoning streams can be killed just
         # because total elapsed time exceeded MINIUNICORN_LLM_TIMEOUT_S.
         outer_timeout_s = None if (wants_streaming or wants_progress_streaming) else timeout_s
+        _llm_call_start = time.monotonic()
+        _llm_error: str | None = None
         try:
             response = (
                 await coro
@@ -1093,16 +1132,32 @@ class AgentRunner:
             if live_file_edits is not None:
                 with suppress(Exception):
                     await live_file_edits.error_unmatched([], "LLM timed out")
+            _llm_error = "timeout"
             if outer_timeout_s is None:
-                return LLMResponse(
+                response = LLMResponse(
                     content="Error calling LLM: stream stalled",
                     finish_reason="error",
                     error_kind="timeout",
                 )
-            return LLMResponse(
-                content=f"Error calling LLM: timed out after {outer_timeout_s:g}s",
-                finish_reason="error",
-                error_kind="timeout",
+            else:
+                response = LLMResponse(
+                    content=f"Error calling LLM: timed out after {outer_timeout_s:g}s",
+                    finish_reason="error",
+                    error_kind="timeout",
+                )
+        # Record one LlmCallMetric on the bound TurnRuntime. Safe-by-default:
+        # no runtime means no metric (e.g. unit tests calling _request_model
+        # directly without a coordinator scope).
+        _runtime = current_turn_runtime()
+        if _runtime is not None:
+            _runtime.llm_calls.append(
+                LlmCallMetric(
+                    iteration=context.iteration,
+                    duration_ms=max(0.0, (time.monotonic() - _llm_call_start) * 1000),
+                    usage=self._usage_dict(getattr(response, "usage", None)),
+                    finish_reason=getattr(response, "finish_reason", None),
+                    error=_llm_error,
+                )
             )
         if progress_state and progress_state.get("reasoning_open"):
             await hook.emit_reasoning_end()
@@ -1303,12 +1358,14 @@ class AgentRunner:
                     for file_edit_tracker in file_edit_trackers
                 ],
             )
+        _tool_start = time.monotonic()
         try:
             if tool is not None:
                 result = await tool.execute(**params)
             else:
                 result = await spec.tools.execute(tool_call.name, params)
         except asyncio.CancelledError:
+            _append_tool_metric(tool_call.name, _tool_start, "cancelled")
             raise
         # 使用 Exception 而非 BaseException，避免吞掉 KeyboardInterrupt 等系统级中断
         except Exception as exc:
@@ -1335,9 +1392,12 @@ class AgentRunner:
                 workspace_violation_counts=workspace_violation_counts,
             )
             if handled is not None:
+                _append_tool_metric(tool_call.name, _tool_start, "error", type(exc).__name__)
                 return handled
             if spec.fail_on_tool_error:
+                _append_tool_metric(tool_call.name, _tool_start, "error", type(exc).__name__)
                 return payload, event, exc
+            _append_tool_metric(tool_call.name, _tool_start, "error", type(exc).__name__)
             return payload, event, None
 
         if isinstance(result, str) and result.startswith("Error"):
@@ -1362,9 +1422,12 @@ class AgentRunner:
                 workspace_violation_counts=workspace_violation_counts,
             )
             if handled is not None:
+                _append_tool_metric(tool_call.name, _tool_start, "error", "error_result")
                 return handled
             if spec.fail_on_tool_error:
+                _append_tool_metric(tool_call.name, _tool_start, "error", "error_result")
                 return result + hint, event, RuntimeError(result)
+            _append_tool_metric(tool_call.name, _tool_start, "error", "error_result")
             return result + hint, event, None
 
         if file_edit_trackers and progress_callback is not None:
@@ -1385,6 +1448,7 @@ class AgentRunner:
             detail = "(empty)"
         elif len(detail) > 120:
             detail = detail[:120] + "..."
+        _append_tool_metric(tool_call.name, _tool_start, "ok")
         return result, {"name": tool_call.name, "status": "ok", "detail": detail}, None
 
     # SSRF is a hard security block at the tool boundary, but the agent turn
