@@ -1,0 +1,1224 @@
+{
+  "$defs": {
+    "AttachedEvent": {
+      "additionalProperties": false,
+      "description": "Ack for ``new_chat`` / ``attach`` envelopes.",
+      "properties": {
+        "chat_id": {
+          "title": "Chat Id",
+          "type": "string"
+        },
+        "event": {
+          "const": "attached",
+          "default": "attached",
+          "title": "Event",
+          "type": "string"
+        },
+        "protocol_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Protocol Version",
+          "type": "integer"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Request Id"
+        }
+      },
+      "required": [
+        "chat_id"
+      ],
+      "title": "AttachedEvent",
+      "type": "object"
+    },
+    "ContextUsagePayload": {
+      "additionalProperties": false,
+      "description": "Token-usage snapshot for a completed turn.",
+      "properties": {
+        "cached_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Cached Tokens",
+          "type": "integer"
+        },
+        "completion_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Completion Tokens",
+          "type": "integer"
+        },
+        "prompt_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Prompt Tokens",
+          "type": "integer"
+        },
+        "total_tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Total Tokens",
+          "type": "integer"
+        }
+      },
+      "title": "ContextUsagePayload",
+      "type": "object"
+    },
+    "DeltaEvent": {
+      "additionalProperties": false,
+      "description": "One streaming text chunk for the active assistant bubble.",
+      "properties": {
+        "chat_id": {
+          "title": "Chat Id",
+          "type": "string"
+        },
+        "event": {
+          "const": "delta",
+          "default": "delta",
+          "title": "Event",
+          "type": "string"
+        },
+        "protocol_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Protocol Version",
+          "type": "integer"
+        },
+        "stream_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stream Id"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "chat_id",
+        "text"
+      ],
+      "title": "DeltaEvent",
+      "type": "object"
+    },
+    "ErrorEvent": {
+      "additionalProperties": false,
+      "description": "Channel-level error frame (invalid envelope, media rejection, \u2026).",
+      "properties": {
+        "chat_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chat Id"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        },
+        "event": {
+          "const": "error",
+          "default": "error",
+          "title": "Event",
+          "type": "string"
+        },
+        "protocol_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Protocol Version",
+          "type": "integer"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        }
+      },
+      "title": "ErrorEvent",
+      "type": "object"
+    },
+    "FileEditEvent": {
+      "additionalProperties": false,
+      "description": "Batched file-edit notification (one or more edits).",
+      "properties": {
+        "chat_id": {
+          "title": "Chat Id",
+          "type": "string"
+        },
+        "edits": {
+          "items": {
+            "$ref": "#/$defs/FileEditPayload"
+          },
+          "title": "Edits",
+          "type": "array"
+        },
+        "event": {
+          "const": "file_edit",
+          "default": "file_edit",
+          "title": "Event",
+          "type": "string"
+        },
+        "protocol_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Protocol Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "chat_id",
+        "edits"
+      ],
+      "title": "FileEditEvent",
+      "type": "object"
+    },
+    "FileEditPayload": {
+      "additionalProperties": false,
+      "description": "One file-edit event emitted by editing tools.",
+      "properties": {
+        "absolute_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Absolute Path"
+        },
+        "added": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Added",
+          "type": "integer"
+        },
+        "approximate": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approximate"
+        },
+        "binary": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Binary"
+        },
+        "call_id": {
+          "title": "Call Id",
+          "type": "string"
+        },
+        "deleted": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Deleted",
+          "type": "integer"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "operation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "pending": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pending"
+        },
+        "phase": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Phase"
+        },
+        "status": {
+          "enum": [
+            "editing",
+            "done",
+            "error"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "call_id",
+        "tool",
+        "path",
+        "status"
+      ],
+      "title": "FileEditPayload",
+      "type": "object"
+    },
+    "GoalStateEvent": {
+      "additionalProperties": false,
+      "description": "Persisted goal-state snapshot pushed to freshly subscribed clients.",
+      "properties": {
+        "chat_id": {
+          "title": "Chat Id",
+          "type": "string"
+        },
+        "event": {
+          "const": "goal_state",
+          "default": "goal_state",
+          "title": "Event",
+          "type": "string"
+        },
+        "goal_state": {
+          "$ref": "#/$defs/GoalStatePayload"
+        },
+        "protocol_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Protocol Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "chat_id",
+        "goal_state"
+      ],
+      "title": "GoalStateEvent",
+      "type": "object"
+    },
+    "GoalStatePayload": {
+      "additionalProperties": false,
+      "description": "Persisted sustained-goal snapshot replayed on reconnect.",
+      "properties": {
+        "active": {
+          "title": "Active",
+          "type": "boolean"
+        },
+        "objective": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Objective"
+        },
+        "ui_summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ui Summary"
+        }
+      },
+      "required": [
+        "active"
+      ],
+      "title": "GoalStatePayload",
+      "type": "object"
+    },
+    "GoalStatusEvent": {
+      "additionalProperties": false,
+      "description": "Wall-clock hint that a turn started or finished.",
+      "properties": {
+        "chat_id": {
+          "title": "Chat Id",
+          "type": "string"
+        },
+        "event": {
+          "const": "goal_status",
+          "default": "goal_status",
+          "title": "Event",
+          "type": "string"
+        },
+        "protocol_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Protocol Version",
+          "type": "integer"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Started At"
+        },
+        "status": {
+          "enum": [
+            "running",
+            "idle"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "chat_id",
+        "status"
+      ],
+      "title": "GoalStatusEvent",
+      "type": "object"
+    },
+    "MessageEvent": {
+      "additionalProperties": false,
+      "description": "Conversational assistant message (final or intermediate breadcrumb).\n\n``kind`` disambiguates intermediate breadcrumbs (``tool_hint`` /\n``progress`` / ``reasoning``) from final replies, which omit the field.",
+      "properties": {
+        "agent_ui": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Ui"
+        },
+        "chat_id": {
+          "title": "Chat Id",
+          "type": "string"
+        },
+        "event": {
+          "const": "message",
+          "default": "message",
+          "title": "Event",
+          "type": "string"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "tool_hint",
+                "progress",
+                "reasoning"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kind"
+        },
+        "latency_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latency Ms"
+        },
+        "media": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Media"
+        },
+        "media_urls": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Media Urls"
+        },
+        "protocol_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Protocol Version",
+          "type": "integer"
+        },
+        "reply_to": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reply To"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "tool_events": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ToolProgressEvent"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Events"
+        }
+      },
+      "required": [
+        "chat_id",
+        "text"
+      ],
+      "title": "MessageEvent",
+      "type": "object"
+    },
+    "ReadyEvent": {
+      "additionalProperties": false,
+      "description": "Initial frame sent right after the WebSocket handshake completes.",
+      "properties": {
+        "chat_id": {
+          "title": "Chat Id",
+          "type": "string"
+        },
+        "client_id": {
+          "title": "Client Id",
+          "type": "string"
+        },
+        "event": {
+          "const": "ready",
+          "default": "ready",
+          "title": "Event",
+          "type": "string"
+        },
+        "protocol_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Protocol Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "chat_id",
+        "client_id"
+      ],
+      "title": "ReadyEvent",
+      "type": "object"
+    },
+    "ReasoningDeltaEvent": {
+      "additionalProperties": false,
+      "description": "One streaming chunk of model reasoning.",
+      "properties": {
+        "chat_id": {
+          "title": "Chat Id",
+          "type": "string"
+        },
+        "event": {
+          "const": "reasoning_delta",
+          "default": "reasoning_delta",
+          "title": "Event",
+          "type": "string"
+        },
+        "protocol_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Protocol Version",
+          "type": "integer"
+        },
+        "stream_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stream Id"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "chat_id",
+        "text"
+      ],
+      "title": "ReasoningDeltaEvent",
+      "type": "object"
+    },
+    "ReasoningEndEvent": {
+      "additionalProperties": false,
+      "description": "Close of the current reasoning stream segment.",
+      "properties": {
+        "chat_id": {
+          "title": "Chat Id",
+          "type": "string"
+        },
+        "event": {
+          "const": "reasoning_end",
+          "default": "reasoning_end",
+          "title": "Event",
+          "type": "string"
+        },
+        "protocol_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Protocol Version",
+          "type": "integer"
+        },
+        "stream_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stream Id"
+        }
+      },
+      "required": [
+        "chat_id"
+      ],
+      "title": "ReasoningEndEvent",
+      "type": "object"
+    },
+    "RuntimeModelUpdatedEvent": {
+      "additionalProperties": false,
+      "description": "Broadcast that the active model/preset changed at runtime.",
+      "properties": {
+        "event": {
+          "const": "runtime_model_updated",
+          "default": "runtime_model_updated",
+          "title": "Event",
+          "type": "string"
+        },
+        "model_name": {
+          "title": "Model Name",
+          "type": "string"
+        },
+        "model_preset": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Preset"
+        },
+        "protocol_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Protocol Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "model_name"
+      ],
+      "title": "RuntimeModelUpdatedEvent",
+      "type": "object"
+    },
+    "SandboxStatusPayload": {
+      "additionalProperties": false,
+      "description": "Sandbox enforcement snapshot attached to workspace scope events.",
+      "properties": {
+        "enforced": {
+          "title": "Enforced",
+          "type": "boolean"
+        },
+        "level": {
+          "title": "Level",
+          "type": "string"
+        },
+        "provider": {
+          "title": "Provider",
+          "type": "string"
+        },
+        "provider_label": {
+          "title": "Provider Label",
+          "type": "string"
+        },
+        "restrict_to_workspace": {
+          "title": "Restrict To Workspace",
+          "type": "boolean"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "workspace_root": {
+          "title": "Workspace Root",
+          "type": "string"
+        }
+      },
+      "required": [
+        "restrict_to_workspace",
+        "workspace_root",
+        "level",
+        "enforced",
+        "provider",
+        "provider_label",
+        "summary"
+      ],
+      "title": "SandboxStatusPayload",
+      "type": "object"
+    },
+    "SessionUpdatedEvent": {
+      "additionalProperties": false,
+      "description": "Notify clients that session metadata changed outside the main turn.",
+      "properties": {
+        "chat_id": {
+          "title": "Chat Id",
+          "type": "string"
+        },
+        "event": {
+          "const": "session_updated",
+          "default": "session_updated",
+          "title": "Event",
+          "type": "string"
+        },
+        "protocol_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Protocol Version",
+          "type": "integer"
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scope"
+        },
+        "workspace_scope": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkspaceScopePayload"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "chat_id"
+      ],
+      "title": "SessionUpdatedEvent",
+      "type": "object"
+    },
+    "StreamEndEvent": {
+      "additionalProperties": false,
+      "description": "Close of a streaming text segment (final rewritten text optional).",
+      "properties": {
+        "chat_id": {
+          "title": "Chat Id",
+          "type": "string"
+        },
+        "event": {
+          "const": "stream_end",
+          "default": "stream_end",
+          "title": "Event",
+          "type": "string"
+        },
+        "protocol_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Protocol Version",
+          "type": "integer"
+        },
+        "stream_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stream Id"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        }
+      },
+      "required": [
+        "chat_id"
+      ],
+      "title": "StreamEndEvent",
+      "type": "object"
+    },
+    "SubagentActivityEvent": {
+      "additionalProperties": false,
+      "description": "Subagent breadcrumb (tool call, reasoning, completion).",
+      "properties": {
+        "chat_id": {
+          "title": "Chat Id",
+          "type": "string"
+        },
+        "content": {
+          "title": "Content",
+          "type": "string"
+        },
+        "event": {
+          "const": "subagent_activity",
+          "default": "subagent_activity",
+          "title": "Event",
+          "type": "string"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "protocol_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Protocol Version",
+          "type": "integer"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        }
+      },
+      "required": [
+        "chat_id",
+        "content"
+      ],
+      "title": "SubagentActivityEvent",
+      "type": "object"
+    },
+    "ToolProgressEvent": {
+      "additionalProperties": false,
+      "description": "One tool-call lifecycle breadcrumb.\n\nThis is both a standalone event payload (embedded in ``MessageEvent``)\nand the shape persisted in the WebUI transcript for tool-call traces.\n``version`` is fixed at ``1`` for this protocol generation.",
+      "properties": {
+        "arguments": {
+          "additionalProperties": true,
+          "title": "Arguments",
+          "type": "object"
+        },
+        "call_id": {
+          "title": "Call Id",
+          "type": "string"
+        },
+        "embeds": {
+          "items": {},
+          "title": "Embeds",
+          "type": "array"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "files": {
+          "items": {},
+          "title": "Files",
+          "type": "array"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "phase": {
+          "enum": [
+            "start",
+            "end",
+            "error"
+          ],
+          "title": "Phase",
+          "type": "string"
+        },
+        "result": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Result"
+        },
+        "version": {
+          "const": 1,
+          "default": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "phase",
+        "call_id",
+        "name"
+      ],
+      "title": "ToolProgressEvent",
+      "type": "object"
+    },
+    "TurnEndEvent": {
+      "additionalProperties": false,
+      "description": "Signal that the agent fully finished processing the current turn.",
+      "properties": {
+        "chat_id": {
+          "title": "Chat Id",
+          "type": "string"
+        },
+        "context_usage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ContextUsagePayload"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "event": {
+          "const": "turn_end",
+          "default": "turn_end",
+          "title": "Event",
+          "type": "string"
+        },
+        "goal_state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GoalStatePayload"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "latency_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latency Ms"
+        },
+        "protocol_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Protocol Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "chat_id"
+      ],
+      "title": "TurnEndEvent",
+      "type": "object"
+    },
+    "WorkspaceScopePayload": {
+      "additionalProperties": false,
+      "description": "Workspace scope attached to ``session_updated`` and ``attached`` events.",
+      "properties": {
+        "access_mode": {
+          "enum": [
+            "restricted",
+            "full"
+          ],
+          "title": "Access Mode",
+          "type": "string"
+        },
+        "project_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Name"
+        },
+        "project_path": {
+          "title": "Project Path",
+          "type": "string"
+        },
+        "restrict_to_workspace": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Restrict To Workspace"
+        },
+        "sandbox_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SandboxStatusPayload"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "project_path",
+        "access_mode"
+      ],
+      "title": "WorkspaceScopePayload",
+      "type": "object"
+    }
+  },
+  "discriminator": {
+    "mapping": {
+      "attached": "#/$defs/AttachedEvent",
+      "delta": "#/$defs/DeltaEvent",
+      "error": "#/$defs/ErrorEvent",
+      "file_edit": "#/$defs/FileEditEvent",
+      "goal_state": "#/$defs/GoalStateEvent",
+      "goal_status": "#/$defs/GoalStatusEvent",
+      "message": "#/$defs/MessageEvent",
+      "ready": "#/$defs/ReadyEvent",
+      "reasoning_delta": "#/$defs/ReasoningDeltaEvent",
+      "reasoning_end": "#/$defs/ReasoningEndEvent",
+      "runtime_model_updated": "#/$defs/RuntimeModelUpdatedEvent",
+      "session_updated": "#/$defs/SessionUpdatedEvent",
+      "stream_end": "#/$defs/StreamEndEvent",
+      "subagent_activity": "#/$defs/SubagentActivityEvent",
+      "turn_end": "#/$defs/TurnEndEvent"
+    },
+    "propertyName": "event"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ReadyEvent"
+    },
+    {
+      "$ref": "#/$defs/AttachedEvent"
+    },
+    {
+      "$ref": "#/$defs/MessageEvent"
+    },
+    {
+      "$ref": "#/$defs/FileEditEvent"
+    },
+    {
+      "$ref": "#/$defs/DeltaEvent"
+    },
+    {
+      "$ref": "#/$defs/StreamEndEvent"
+    },
+    {
+      "$ref": "#/$defs/ReasoningDeltaEvent"
+    },
+    {
+      "$ref": "#/$defs/ReasoningEndEvent"
+    },
+    {
+      "$ref": "#/$defs/RuntimeModelUpdatedEvent"
+    },
+    {
+      "$ref": "#/$defs/TurnEndEvent"
+    },
+    {
+      "$ref": "#/$defs/GoalStatusEvent"
+    },
+    {
+      "$ref": "#/$defs/GoalStateEvent"
+    },
+    {
+      "$ref": "#/$defs/SessionUpdatedEvent"
+    },
+    {
+      "$ref": "#/$defs/SubagentActivityEvent"
+    },
+    {
+      "$ref": "#/$defs/ErrorEvent"
+    }
+  ],
+  "title": "InboundEvent"
+}

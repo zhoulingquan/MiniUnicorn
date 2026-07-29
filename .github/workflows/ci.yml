@@ -27,6 +27,8 @@ jobs:
         uses: astral-sh/setup-uv@v4
       - name: Install dependencies
         run: uv sync --all-extras
+      - name: Check agent event JSON schema
+        run: uv run python scripts/export_agent_event_schema.py --check
       # Full ruff check (all rules enabled in pyproject.toml), not just pyflakes (F).
       - name: Lint with ruff (full check)
         run: uv run ruff check miniunicorn
@@ -92,6 +94,8 @@ jobs:
           bun-version: latest
       - name: Install dependencies
         run: bun install --frozen-lockfile
+      - name: Check generated event types
+        run: bun run check:protocol
       - name: Lint
         run: bun run lint
       - name: Test
