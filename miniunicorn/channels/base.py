@@ -280,3 +280,19 @@ class BaseChannel(ABC):
     def is_running(self) -> bool:
         """Check if the channel is running."""
         return self._running
+
+    @property
+    def delivery_recovery(self) -> str:
+        """Delivery recovery capability (design §23.5, §17.13).
+
+        - ``NATIVE_IDEMPOTENCY``: Channel supports idempotent sends via
+          a stable key. An interrupted send can be safely retried.
+        - ``QUERYABLE_RECEIPT``: Channel can query delivery status by
+          a stable key to determine whether a send succeeded.
+        - ``NONE``: No idempotency or receipt lookup. An interrupted
+          send becomes ``OUTCOME_UNKNOWN``.
+
+        Adapters should override this to declare their actual capability.
+        The default is the safest (``NONE``).
+        """
+        return "NONE"

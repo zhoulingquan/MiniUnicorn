@@ -81,7 +81,16 @@ class AgentExecutionCallback:
         and the assistant/tool messages produced after the inbound commit.
         The Worker uses these to build the FINAL session commit and the
         Outbox completion.
+
+        Transient streaming (Token deltas, reasoning deltas) is published
+        to the Message Bus for realtime UX (design §23.1, WP5 task 6).
+        The final reply is NOT published to the bus — it goes through the
+        Outbox via the Worker's ``_complete_task`` (WP5 task 7).
         """
+        import time as _time
+
+        from miniunicorn.bus.events import OutboundMessage
+
         # Build the InboundMessage from the decoded payload.
         msg = InboundMessage(
             channel=payload.channel or "cli",
@@ -114,16 +123,54 @@ class AgentExecutionCallback:
                 # attempts through TurnJournalPort (design §11.1, §19, §20).
                 turn_runtime.tool_execution_port = self._tool_execution_port
                 turn_runtime.turn_journal = self._turn_journal
-                # Use process_message with runtime_mode. The dispatcher's
-                # process_message calls _execute_message which calls
-                # TurnExecutor.execute. We need to pass runtime_mode=True.
-                # For WP3, we call the host's _process_message directly
-                # with runtime_mode. The dispatcher's process_message
-                # doesn't expose runtime_mode, so we use _execute_message.
                 host = self._dispatcher.host
+
+                # Build transient streaming callbacks that publish Token
+                # deltas to the Message Bus (design §23.1, WP5 task 6).
+                # The final reply is delivered via the Outbox, not the bus.
+                on_stream = on_stream_end = None
+                if msg.metadata.get("_wants_stream"):
+                    stream_base_id = f"{payload.session_key}:{_time.time_ns()}"
+                    stream_segment = 0
+
+                    def _current_stream_id() -> str:
+                        return f"{stream_base_id}:{stream_segment}"
+
+                    async def on_stream(delta: str) -> None:
+                        meta = dict(msg.metadata or {})
+                        meta["_stream_delta"] = True
+                        meta["_stream_id"] = _current_stream_id()
+                        await host.bus.publish_outbound(
+                            OutboundMessage(
+                                channel=msg.channel,
+                                chat_id=msg.chat_id,
+                                content=delta,
+                                metadata=meta,
+                            )
+                        )
+
+                    async def on_stream_end(*, resuming: bool = False) -> None:
+                        nonlocal stream_segment
+                        meta = dict(msg.metadata or {})
+                        meta["_stream_end"] = True
+                        meta["_resuming"] = resuming
+                        meta["_stream_id"] = _current_stream_id()
+                        await host.bus.publish_outbound(
+                            OutboundMessage(
+                                channel=msg.channel,
+                                chat_id=msg.chat_id,
+                                content="",
+                                metadata=meta,
+                            )
+                        )
+                        stream_segment += 1
+
                 result = await host._execute_message(
                     msg,
                     session_key=payload.session_key,
+                    on_stream=on_stream,
+                    on_stream_end=on_stream_end,
+                    runtime_mode=True,
                 )
                 # Copy cumulative metrics into the bound runtime.
                 from miniunicorn.agent.turn_runtime import complete_turn_runtime

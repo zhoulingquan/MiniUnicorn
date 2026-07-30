@@ -74,6 +74,7 @@ from miniunicorn.runtime.durable_journal import (
     DurableTurnJournalAdapter,
     JournalProviderObserver,
 )
+from miniunicorn.runtime.outbox import OutboxSender
 from miniunicorn.runtime.models import (
     BLOB_ENCODING,
     BLOB_KIND,
@@ -151,6 +152,8 @@ __all__ = [
     "bind_containment_scope",
     "current_containment_scope",
     "reset_containment_scope",
+    # Durable Outbox Sender (WP5)
+    "OutboxSender",
     # Contracts
     "ClaimRequest",
     "ClaimedTask",

@@ -334,11 +334,25 @@ class ToolGateway:
     # ------------------------------------------------------------------
 
     async def _invoke_tool(self, request: ToolExecutionRequest) -> Any:
-        """Invoke the tool through the registry."""
+        """Invoke the tool through the registry.
+
+        Binds the current ``tool_call_id`` to the task context so tools
+        that need it (e.g. MessageTool for its Outbox dedup key) can
+        retrieve it without a hard runtime dependency (design §20.6, WP5).
+        """
+        from miniunicorn.runtime.session_committer import (
+            set_active_tool_call_id,
+            clear_active_tool_call_id,
+        )
+
         tool = self._registry.get(request.tool_name)
         if tool is None:
             raise RuntimeError(f"Tool not found: {request.tool_name}")
-        return await tool.execute(**request.normalized_arguments)
+        set_active_tool_call_id(request.task_id, request.tool_call_id)
+        try:
+            return await tool.execute(**request.normalized_arguments)
+        finally:
+            clear_active_tool_call_id(request.task_id)
 
     def _build_result(
         self,

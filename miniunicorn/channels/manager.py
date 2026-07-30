@@ -574,3 +574,65 @@ class ChannelManager:
     def enabled_channels(self) -> list[str]:
         """Get list of enabled channel names."""
         return list(self.channels.keys())
+
+    async def send_with_receipt(
+        self, channel_name: str, msg: OutboundMessage
+    ) -> "DeliveryReceipt":
+        """Send one message and return a delivery receipt (design §23.5, WP5).
+
+        This is one bounded logical attempt. It calls ``channel.send()``
+        exactly once and maps the outcome to a :class:`DeliveryReceipt`.
+        Transport-internal retries (proven idempotent) may happen inside
+        the adapter, but no second application-level retry loop runs here
+        — that is the Outbox Sender's responsibility.
+        """
+        from miniunicorn.runtime.models import DeliveryReceipt
+
+        channel = self.channels.get(channel_name)
+        if channel is None:
+            return DeliveryReceipt(
+                status="PERMANENT_FAILURE",
+                safe_error_code="CHANNEL_NOT_FOUND",
+            )
+        try:
+            await channel.send(msg)
+            return DeliveryReceipt(
+                status="DELIVERED",
+                receipt_ref=getattr(msg, "metadata", {}).get("message_id"),
+            )
+        except asyncio.CancelledError:
+            raise
+        except ConnectionError as exc:
+            return DeliveryReceipt(
+                status="RETRYABLE_FAILURE",
+                safe_error_code="DELIVERY_RETRYABLE",
+                retry_after_ms=1000,
+            )
+        except TimeoutError:
+            return DeliveryReceipt(
+                status="RETRYABLE_FAILURE",
+                safe_error_code="DELIVERY_TIMEOUT",
+                retry_after_ms=2000,
+            )
+        except Exception as exc:  # noqa: BLE001
+            error_str = str(exc).lower()
+            if any(
+                kw in error_str
+                for kw in ("rate limit", "429", "503", "temporarily", "retry")
+            ):
+                return DeliveryReceipt(
+                    status="RETRYABLE_FAILURE",
+                    safe_error_code="DELIVERY_RETRYABLE",
+                    retry_after_ms=2000,
+                )
+            return DeliveryReceipt(
+                status="PERMANENT_FAILURE",
+                safe_error_code="DELIVERY_PERMANENT",
+            )
+
+    def get_channel_recovery(self, channel_name: str) -> str:
+        """Return the delivery recovery capability for a channel (design §23.5)."""
+        channel = self.channels.get(channel_name)
+        if channel is None:
+            return "NONE"
+        return channel.delivery_recovery

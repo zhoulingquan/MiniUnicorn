@@ -694,8 +694,16 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
         pending_queue: asyncio.Queue | None = None,
         turn_hooks: list[AgentHook] | None = None,
+        *,
+        runtime_mode: bool = False,
     ) -> ProcessedTurn:
-        """Execute a single inbound message and return the outbound + context."""
+        """Execute a single inbound message and return the outbound + context.
+
+        When ``runtime_mode=True`` (design §18.1, §29.3), uses
+        :data:`RUNTIME_TURN_TRANSITIONS` which removes the
+        ``COMMAND -> DONE`` shortcut so all user-visible commands flow
+        through SAVE and RESPOND (durable commit + Outbox).
+        """
         return await self._turn_executor.execute(
             msg,
             session_key=session_key,
@@ -704,6 +712,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             on_stream_end=on_stream_end,
             pending_queue=pending_queue,
             turn_hooks=turn_hooks,
+            runtime_mode=runtime_mode,
         )
 
     async def _process_message(

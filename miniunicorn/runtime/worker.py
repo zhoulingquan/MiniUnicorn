@@ -58,6 +58,8 @@ from miniunicorn.runtime.session_committer import (
     SessionCommitter,
     set_active_claim,
     clear_active_claim,
+    set_active_delivery_ledger,
+    clear_active_delivery_ledger,
 )
 
 # ---------------------------------------------------------------------------
@@ -229,6 +231,11 @@ class AgentTaskWorker:
         # Set the active claim for SessionCommitter (design §17.7).
         set_active_claim(task_id, claim)
 
+        # Bind the delivery ledger so MessageTool can enqueue Outbox rows
+        # (design §20.6, WP5 task 5). The WorkerLedger and DeliveryLedger
+        # are implemented by the same SqliteRuntimeStore object.
+        set_active_delivery_ledger(task_id, self._ledger)
+
         # Create and bind the task's child-process containment scope
         # (design §20.7, WP4 task 9). On Worker termination, cancellation,
         # or hard timeout, the entire child tree is terminated before the
@@ -303,6 +310,7 @@ class AgentTaskWorker:
                 logger.warning("worker {}: containment close failed for {}", self._worker_id, task_id)
             reset_containment_scope(containment_token)
             clear_active_claim(task_id)
+            clear_active_delivery_ledger(task_id)
 
     # ------------------------------------------------------------------
     # Session commits

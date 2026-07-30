@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import hashlib
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from miniunicorn.agent.ports import (
     CommitKind,
@@ -245,8 +245,67 @@ def _get_claim_for_task(task_id: str) -> "TaskClaim | None":
     return _claim_context.get(task_id)
 
 
+# ---------------------------------------------------------------------------
+# Delivery ledger context — how the Worker passes the DeliveryLedger to
+# tools that need to enqueue Outbox rows (design §20.6, WP5 task 5).
+# ---------------------------------------------------------------------------
+
+# The MessageTool enqueues to the Outbox instead of calling the Channel
+# callback directly when running under the durable runtime. The Worker
+# binds the DeliveryLedger (Runtime Store view) so the MessageTool can
+# call ``enqueue_message_tool_outbox`` and ``write_blob`` without a hard
+# dependency on the runtime package.
+
+_delivery_ledger_context: dict[str, Any] = {}
+_tool_call_id_context: dict[str, str] = {}
+
+
+def set_active_delivery_ledger(task_id: str, ledger: Any) -> None:
+    """Bind a ``DeliveryLedger`` as the active store for ``task_id``.
+
+    Called by the Worker adapter before invoking Agent Core methods that
+    may call ``MessageTool`` (design §20.6, WP5 task 5).
+    """
+    _delivery_ledger_context[task_id] = ledger
+
+
+def clear_active_delivery_ledger(task_id: str | None = None) -> None:
+    """Remove the active delivery ledger for ``task_id`` after the Worker finishes."""
+    if task_id is not None:
+        _delivery_ledger_context.pop(task_id, None)
+
+
+def _get_delivery_ledger_for_task(task_id: str) -> Any | None:
+    """Retrieve the active delivery ledger for ``task_id``, or ``None``."""
+    return _delivery_ledger_context.get(task_id)
+
+
+def set_active_tool_call_id(task_id: str, tool_call_id: str) -> None:
+    """Bind the current ``tool_call_id`` for ``task_id`` (design §20.6).
+
+    Called by the ToolGateway before invoking a tool so the MessageTool
+    can compute the stable dedup key ``sha256(task_id:tool_call_id:message)``.
+    """
+    _tool_call_id_context[task_id] = tool_call_id
+
+
+def clear_active_tool_call_id(task_id: str | None = None) -> None:
+    """Remove the active tool_call_id for ``task_id`` after the tool call."""
+    if task_id is not None:
+        _tool_call_id_context.pop(task_id, None)
+
+
+def _get_active_tool_call_id(task_id: str) -> str | None:
+    """Retrieve the active tool_call_id for ``task_id``, or ``None``."""
+    return _tool_call_id_context.get(task_id)
+
+
 __all__ = [
     "SessionCommitter",
     "set_active_claim",
     "clear_active_claim",
+    "set_active_delivery_ledger",
+    "clear_active_delivery_ledger",
+    "set_active_tool_call_id",
+    "clear_active_tool_call_id",
 ]
