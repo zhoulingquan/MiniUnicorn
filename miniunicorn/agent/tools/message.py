@@ -165,7 +165,7 @@ class MessageTool(Tool, ContextAware):
                 resolved.append(str(resolve_workspace_path(p, workspace, access.allowed_root)))
         return resolved
 
-    def _try_durable_enqueue(
+    async def _try_durable_enqueue(
         self,
         *,
         content: str,
@@ -175,81 +175,28 @@ class MessageTool(Tool, ContextAware):
         same_target: bool,
         message_id: str | None,
     ) -> str | None:
-        """Enqueue to the Outbox when running under the durable runtime.
+        """Enqueue to the Outbox via the bound ``OutboundPort``.
 
         Returns the tool result string (with ``outbox_id`` receipt) when
-        the durable delivery ledger and active claim are bound, or
-        ``None`` when the legacy direct-Channel path should be used
-        (design §20.6, WP5 task 5).
+        an ``OutboundPort`` is bound to the current turn, or ``None`` when
+        the legacy direct-Channel path should be used (design §20.6).
         """
-        import hashlib
-
-        # Lazy import avoids a hard runtime dependency in the tools layer.
-        try:
-            from miniunicorn.runtime.session_committer import (
-                _get_claim_for_task,
-                _get_delivery_ledger_for_task,
-                _get_active_tool_call_id,
-            )
-            from miniunicorn.agent.turn_runtime import current_turn_runtime
-        except ImportError:
-            return None
+        from miniunicorn.agent.ports import OutboundRequest
+        from miniunicorn.agent.turn_runtime import current_turn_runtime
 
         runtime = current_turn_runtime()
-        if runtime is None or runtime.task_id is None:
+        if runtime is None or runtime.outbound_port is None:
             return None
 
-        task_id = runtime.task_id
-        claim = _get_claim_for_task(task_id)
-        if claim is None:
-            return None
-
-        store = _get_delivery_ledger_for_task(task_id)
-        if store is None:
-            return None
-
-        tool_call_id = _get_active_tool_call_id(task_id) or ""
-
-        # Build the payload blob (design §20.6 step 2).
-        payload_bytes = content.encode("utf-8")
-        payload_hash = hashlib.sha256(payload_bytes).hexdigest()
-        try:
-            from miniunicorn.runtime.models import BlobWrite
-
-            blob = store.write_blob(
-                BlobWrite(
-                    scope_key=f"task/{task_id}",
-                    blob_kind="OUTBOX_PAYLOAD",
-                    content_hash=payload_hash,
-                    encoding="RAW_BYTES",
-                    inline_content=payload_bytes,
-                    size_bytes=len(payload_bytes),
-                )
-            )
-            payload_blob_id = blob.blob_id
-        except Exception:
-            # If blob write fails, fall back to legacy path rather than
-            # losing the message entirely.
-            return None
-
-        # Stable dedup key (design §16.6): sha256(task_id:tool_call_id:message)
-        dedup_key = hashlib.sha256(
-            f"{task_id}:{tool_call_id}:message".encode("utf-8")
-        ).hexdigest()
-
-        # Enqueue under the task lease (design §20.6 steps 2+3).
-        try:
-            outbox_id = store.enqueue_message_tool_outbox(
-                claim,
+        receipt = await runtime.outbound_port.enqueue(
+            OutboundRequest(
+                content=content,
                 channel=channel,
-                channel_account="",
                 target_key=chat_id,
-                payload_blob_id=payload_blob_id,
-                payload_hash=payload_hash,
-                dedup_key=dedup_key,
+                media=tuple(media or ()),
+                same_target=same_target,
             )
-        except Exception:
-            return None
+        )
 
         # Mark as sent in turn so the Worker can suppress the final reply
         # when the MessageTool targeted the current chat (design §17.8).
@@ -264,7 +211,7 @@ class MessageTool(Tool, ContextAware):
         media_info = f" with {len(media)} attachments" if media else ""
         return (
             f"Message queued for delivery to {channel}:{chat_id}{media_info} "
-            f"(outbox_id={outbox_id})"
+            f"(outbox_id={receipt.outbox_id})"
         )
 
     async def execute(
@@ -326,11 +273,11 @@ class MessageTool(Tool, ContextAware):
                 return f"Error: media path is not allowed: {str(e)}"
 
         # Durable runtime: route through Outbox instead of direct Channel
-        # callback (design §20.6, WP5 task 5). When an active delivery
-        # ledger and claim are bound, enqueue one Outbox row with a stable
-        # dedup key and return the outbox_id as the tool receipt. The
-        # OutboxSender performs actual Channel delivery.
-        durable_result = self._try_durable_enqueue(
+        # callback (design §20.6, WP5 task 5). When an OutboundPort is
+        # bound, enqueue one Outbox row with a stable dedup key and return
+        # the outbox_id as the tool receipt. The OutboxSender performs
+        # actual Channel delivery.
+        durable_result = await self._try_durable_enqueue(
             content=content,
             channel=channel,
             chat_id=chat_id,

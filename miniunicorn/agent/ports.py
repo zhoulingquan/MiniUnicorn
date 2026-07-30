@@ -17,8 +17,12 @@ Core the owner of the contract; the runtime imports from this module.
 
 from __future__ import annotations
 
+import hashlib
+import json
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Callable, Literal, Protocol, runtime_checkable
 
 # Existing Agent DTO. Importing this does not pull in SQLite or
 # multiprocessing; it is a pure Pydantic discriminated union.
@@ -585,6 +589,150 @@ class NullProviderAttemptObserver:
         return None
 
 
+# ---------------------------------------------------------------------------
+# Provider attempt observer binding (ContextVar, design §19)
+# ---------------------------------------------------------------------------
+
+_provider_attempt_observer: ContextVar[ProviderAttemptObserver | None] = ContextVar(
+    "miniunicorn_provider_attempt_observer", default=None
+)
+
+
+@contextmanager
+def bind_provider_attempt_observer(observer: ProviderAttemptObserver | None):
+    """Bind a Provider attempt observer for the duration of a turn."""
+    token = _provider_attempt_observer.set(observer)
+    try:
+        yield
+    finally:
+        _provider_attempt_observer.reset(token)
+
+
+def current_provider_attempt_observer() -> ProviderAttemptObserver | None:
+    """Return the observer bound to the current async context, or None."""
+    return _provider_attempt_observer.get()
+
+
+# ---------------------------------------------------------------------------
+# Outbound message port (design §10.1 — Agent-owned)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(slots=True, frozen=True)
+class OutboundRequest:
+    """A user-visible outbound message to be delivered through the Outbox."""
+
+    content: str
+    channel: str
+    target_key: str
+    media: tuple[str, ...] = ()
+    same_target: bool = False
+
+
+@dataclass(slots=True, frozen=True)
+class OutboundReceipt:
+    """Receipt proving the message was durably enqueued in the Outbox."""
+
+    outbox_id: int
+    dedup_key: str
+
+
+@runtime_checkable
+class OutboundPort(Protocol):
+    """Agent Core's only path to enqueue a user-visible message."""
+
+    async def enqueue(self, request: OutboundRequest) -> OutboundReceipt:
+        ...
+
+
+# ---------------------------------------------------------------------------
+# Containment port (design §20.7 — Agent-owned)
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class ContainmentPort(Protocol):
+    """Registers child PIDs for task-scoped process-tree containment."""
+
+    def register(self, pid: int, *, pgid: int | None = None) -> None:
+        ...
+
+
+# ---------------------------------------------------------------------------
+# Vector memory port (design §22.2 — Agent-owned)
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class VectorMemoryPort(Protocol):
+    """Agent Core's interface to the derived vector memory index."""
+
+    def index(self, entry: Any) -> None:
+        ...
+
+    def search(self, query: Any, *, top_k: int = 5) -> list[Any]:
+        ...
+
+    def count(self) -> int:
+        ...
+
+    def close(self) -> None:
+        ...
+
+
+#: Agent-owned factory callable type. Production wiring injects
+#: :func:`miniunicorn.runtime.sqlite.vector_memory_store.create_vector_store`;
+#: unit tests inject a callable returning a ``NoOpVectorStore`` or fake.
+#:
+#: The factory is typed as ``Callable[..., Any]`` because the Agent
+#: memory store consumes the returned object via duck typing (it uses
+#: ``index``, ``search``, ``count``, ``enabled``, plus maintenance-only
+#: methods like ``decay_importance`` and ``rebuild`` that the Agent
+#: never calls directly). Tightening this to a strict Protocol would
+#: force the Agent package to mirror every method the SQLite
+#: implementation exposes.
+VectorMemoryFactory = Callable[..., Any]
+
+
+# ---------------------------------------------------------------------------
+# Tool execution request builder (Agent-owned, design §20.3)
+# ---------------------------------------------------------------------------
+
+
+def build_tool_execution_request(
+    *,
+    task_id: str,
+    tool_call_id: str,
+    tool_name: str,
+    arguments: dict[str, Any],
+    policy: EffectiveToolPolicy,
+) -> ToolExecutionRequest:
+    """Build a :class:`ToolExecutionRequest` from raw tool call arguments.
+
+    Computes the canonical arguments hash and idempotency key so the
+    Runner does not depend on ``miniunicorn.runtime``.
+    """
+    encoded = json.dumps(
+        arguments,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    arguments_hash = hashlib.sha256(encoded).hexdigest()
+    idempotency_key = hashlib.sha256(
+        f"{task_id}:{tool_call_id}:{arguments_hash}".encode("utf-8")
+    ).hexdigest()
+    return ToolExecutionRequest(
+        task_id=task_id,
+        tool_call_id=tool_call_id,
+        tool_name=tool_name,
+        normalized_arguments=arguments,
+        arguments_hash=arguments_hash,
+        policy=policy,
+        idempotency_key=idempotency_key,
+    )
+
+
 __all__ = [
     # Ports
     "TurnJournalPort",
@@ -593,6 +741,9 @@ __all__ = [
     "ControlInboxPort",
     "ProgressPort",
     "ProviderAttemptObserver",
+    "OutboundPort",
+    "ContainmentPort",
+    "VectorMemoryPort",
     # Enums / Literals
     "TaskKind",
     "TaskState",
@@ -635,4 +786,13 @@ __all__ = [
     "ProviderAttemptCompleted",
     "ProviderAttemptFailed",
     "NullProviderAttemptObserver",
+    # Outbound / containment / vector
+    "OutboundRequest",
+    "OutboundReceipt",
+    "VectorMemoryFactory",
+    # Observer binding
+    "bind_provider_attempt_observer",
+    "current_provider_attempt_observer",
+    # Builder
+    "build_tool_execution_request",
 ]

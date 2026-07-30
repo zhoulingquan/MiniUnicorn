@@ -14,6 +14,12 @@ from typing import Any, Callable
 from loguru import logger
 
 from miniunicorn.agent.hook import AgentHook, AgentHookContext
+from miniunicorn.agent.ports import (
+    _provider_attempt_observer,
+    bind_provider_attempt_observer,
+    build_tool_execution_request,
+    current_provider_attempt_observer,
+)
 from miniunicorn.agent.telemetry import LlmCallMetric, ToolCallMetric
 from miniunicorn.agent.tools.registry import ToolRegistry
 from miniunicorn.agent.turn_runtime import current_turn_runtime
@@ -152,6 +158,7 @@ class AgentRunSpec:
     # avoid a circular import with miniunicorn.agent.ports.
     tool_execution_port: Any | None = None
     turn_journal: Any | None = None
+    provider_attempt_observer: Any | None = None
 
 
 @dataclass(slots=True)
@@ -403,17 +410,14 @@ class AgentRunner:
         stop_reason = "completed"
         tool_events: list[dict[str, str]] = []
         external_lookup_counts: dict[str, int] = {}
-        # Durable Provider attempt observer (design §19). When the runtime
-        # supplies a TurnJournal, build a JournalProviderObserver and bind it
-        # to the provider so every retry/fallback attempt is journaled.
-        # Always (re)assign so a prior durable run's observer cannot leak
-        # into a later non-durable run.
-        provider_observer: Any | None = None
-        if spec.turn_journal is not None:
-            from miniunicorn.runtime.durable_journal import JournalProviderObserver
-
-            provider_observer = JournalProviderObserver(spec.turn_journal)
-        self.provider.attempt_observer = provider_observer
+        # Provider attempt observer is bound via ContextVar for the duration
+        # of this run (design §19). The runtime supplies the observer through
+        # spec.provider_attempt_observer; the Provider reads it via
+        # current_provider_attempt_observer() so concurrent turns never share
+        # mutable Provider state.
+        _observer_token = _provider_attempt_observer.set(
+            spec.provider_attempt_observer
+        )
         # Per-turn throttle for repeated attempts against the same outside target.
         workspace_violation_counts: dict[str, int] = {}
         empty_content_retries = 0
@@ -519,8 +523,9 @@ class AgentRunner:
                 messages_for_model = self._inject_step_guidance(messages_for_model, guidance)
             context = AgentHookContext(iteration=iteration, messages=messages)
             await hook.before_iteration(context)
-            if provider_observer is not None:
-                provider_observer.begin_logical_call()
+            _observer = current_provider_attempt_observer()
+            if _observer is not None:
+                _observer.begin_logical_call()
             response = await self._request_model(spec, messages_for_model, hook, context)
             raw_usage = self._usage_dict(response.usage)
             context.response = response
@@ -985,6 +990,7 @@ class AgentRunner:
             if drained_after_max_iterations:
                 had_injections = True
 
+        _provider_attempt_observer.reset(_observer_token)
         return AgentRunResult(
             final_content=final_content,
             messages=messages,
@@ -1502,10 +1508,6 @@ class AgentRunner:
         conversational error string is returned so the turn recovers without
         aborting (matching the legacy direct-execution error contract).
         """
-        from miniunicorn.runtime.tool_gateway import (
-            build_tool_execution_request,
-        )
-
         port = spec.tool_execution_port
         assert port is not None  # guarded by caller
         task_id = self._current_task_id()

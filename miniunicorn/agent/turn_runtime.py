@@ -12,6 +12,15 @@ from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from miniunicorn.agent.ports import (
+    ContainmentPort,
+    OutboundPort,
+    ProgressPort,
+    ProviderAttemptObserver,
+    ToolExecutionPort,
+    TurnJournalPort,
+)
+
 if TYPE_CHECKING:
     from miniunicorn.agent._state_machine import TurnContext
     from miniunicorn.agent.telemetry import LlmCallMetric, ToolCallMetric
@@ -60,8 +69,12 @@ class TurnRuntime:
     # Worker Adapter for durable tasks so the Agent Core routes tools
     # through ToolExecutionPort and journals Provider attempts through
     # TurnJournalPort. None for legacy (non-durable) turns.
-    tool_execution_port: Any = None
-    turn_journal: Any = None
+    tool_execution_port: ToolExecutionPort | None = None
+    turn_journal: TurnJournalPort | None = None
+    provider_attempt_observer: ProviderAttemptObserver | None = None
+    progress_port: ProgressPort | None = None
+    outbound_port: OutboundPort | None = None
+    containment_port: ContainmentPort | None = None
 
 
 _CURRENT_TURN: ContextVar[TurnRuntime | None] = ContextVar(

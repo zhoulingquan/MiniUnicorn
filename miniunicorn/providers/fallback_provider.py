@@ -109,17 +109,6 @@ class FallbackProvider(LLMProvider):
         """透传 primary provider 的 is_local 属性。"""
         return getattr(self._primary, "is_local", False)
 
-    @property
-    def attempt_observer(self) -> Any:
-        return getattr(self._primary, "attempt_observer", None)
-
-    @attempt_observer.setter
-    def attempt_observer(self, value: Any) -> None:
-        # Propagate to the wrapped primary so its _invoke_with_observer sees
-        # it (design §19). Fallback providers created on-the-fly receive the
-        # observer at creation time in _try_with_fallback.
-        self._primary.attempt_observer = value
-
     def _primary_available(self) -> bool:
         """Return True if the primary provider is not currently tripped."""
         if self._primary_tripped_at is None:
@@ -223,10 +212,6 @@ class FallbackProvider(LLMProvider):
                     "Failed to create provider for fallback '{}': {}", fallback_model, exc
                 )
                 continue
-
-            # Propagate the attempt observer so every fallback network attempt
-            # is journaled through the same TurnJournalPort (design §19).
-            fallback_provider.attempt_observer = self.attempt_observer
 
             original_values = {
                 name: kwargs.get(name, _MISSING)

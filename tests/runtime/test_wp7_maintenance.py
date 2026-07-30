@@ -658,7 +658,7 @@ class TestVectorMemoryStoreHardening:
     def vector_store(self, tmp_path):
         """Create a real VectorMemoryStore (requires sqlite-vec)."""
         pytest.importorskip("sqlite_vec")
-        from miniunicorn.agent.vector_memory import VectorMemoryStore
+        from miniunicorn.runtime.sqlite.vector_memory_store import VectorMemoryStore
 
         store = VectorMemoryStore(
             tmp_path / "test_memory.db",

@@ -32,13 +32,7 @@ _FORBIDDEN_AGENT_IMPORTS = {
 # forbidden module today and are scheduled for hardening by a later WP.
 # Each entry maps the file name (relative to ``miniunicorn/agent/``) to the
 # WP that will remove the violation. When that WP lands, remove the entry.
-_KNOWN_VIOLATIONS: dict[str, str] = {
-    # vector_memory.py owns the derived ``memory.db`` vector index (design §6.3,
-    # §22.2). WP7 hardens it (WAL, busy timeout, scope, idempotency). It is
-    # the memory index, not runtime.sqlite — but it still imports sqlite3
-    # directly, which the design wants routed behind a port.
-    "vector_memory.py": "WP7: harden vector store behind a port (design §22.2)",
-}
+_KNOWN_VIOLATIONS: dict[str, str] = {}
 
 
 def _iter_agent_py_files() -> list[Path]:

@@ -188,6 +188,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         preset_snapshot_loader: preset_helpers.PresetSnapshotLoader | None = None,
         runtime_model_publisher: Callable[[str, str | None], None] | None = None,
         telemetry_sink: TelemetrySink | None = None,
+        vector_memory_factory: Callable[..., Any] | None = None,
     ):
         from miniunicorn.config.schema import ToolsConfig
 
@@ -351,15 +352,27 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         # Attach vector store to memory if enabled (optional sqlite-vec dependency).
         # Vector memory uses a dedicated local CPU embedding provider
         # (FastEmbed/BGE), independent of the chat LLM provider.
+        #
+        # The concrete SQLite implementation is injected via
+        # ``vector_memory_factory`` (design §22.2). Production lightweight
+        # and Worker bootstrap inject
+        # :func:`miniunicorn.runtime.sqlite.vector_memory_store.create_vector_store`;
+        # unit tests inject a fake or ``NoOpVectorStore``. Agent Core never
+        # imports the SQLite store directly (design §6.17, acceptance #23).
         self._vector_recall = vector_recall
         self._embedding_model = embedding_model
         self._embedding_provider = None
         if vector_recall:
-            from miniunicorn.agent.vector_memory import create_vector_store
             from miniunicorn.providers.local_embedding import LocalEmbeddingProvider
 
+            if vector_memory_factory is None:
+                raise RuntimeError(
+                    "vector_recall=True requires a vector_memory_factory; "
+                    "production wiring injects "
+                    "miniunicorn.runtime.sqlite.vector_memory_store.create_vector_store"
+                )
             embedding_provider = LocalEmbeddingProvider(model_name=embedding_model)
-            vector_store = create_vector_store(
+            vector_store = vector_memory_factory(
                 self.workspace / "memory" / "memory.db",
                 embedding_dim=embedding_provider.dimension,
                 model_id=embedding_provider.model_name,

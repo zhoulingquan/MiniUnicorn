@@ -581,6 +581,7 @@ class TestMessageToolDurableEnqueue:
         """MessageTool enqueues to Outbox when delivery ledger and claim are bound."""
         from miniunicorn.agent.tools.message import MessageTool
         from miniunicorn.agent.turn_runtime import TurnRuntime, bind_turn_runtime, reset_turn_runtime
+        from miniunicorn.runtime.message_delivery import DurableMessageDelivery
         from miniunicorn.runtime.session_committer import (
             set_active_delivery_ledger,
             clear_active_delivery_ledger,
@@ -593,11 +594,13 @@ class TestMessageToolDurableEnqueue:
         set_active_delivery_ledger(record.task_id, store)
         set_active_tool_call_id(record.task_id, "test-tool-call-1")
 
-        # Bind a TurnRuntime so MessageTool can find the task_id.
+        # Bind a TurnRuntime so MessageTool can find the task_id and
+        # OutboundPort (design §20.6).
         rt = TurnRuntime(
             turn_id="test-turn",
             session_key="test-session",
             task_id=record.task_id,
+            outbound_port=DurableMessageDelivery(record.task_id),
         )
         token = bind_turn_runtime(rt)
 
@@ -657,6 +660,7 @@ class TestMessageToolDurableEnqueue:
         """Durable enqueue sets _sent_in_turn for same-target sends (design §17.8)."""
         from miniunicorn.agent.tools.message import MessageTool
         from miniunicorn.agent.turn_runtime import TurnRuntime, bind_turn_runtime, reset_turn_runtime
+        from miniunicorn.runtime.message_delivery import DurableMessageDelivery
         from miniunicorn.runtime.session_committer import (
             set_active_delivery_ledger,
             clear_active_delivery_ledger,
@@ -673,6 +677,7 @@ class TestMessageToolDurableEnqueue:
             turn_id="test-turn",
             session_key="test-session",
             task_id=record.task_id,
+            outbound_port=DurableMessageDelivery(record.task_id),
         )
         token = bind_turn_runtime(rt)
 
@@ -713,6 +718,7 @@ class TestMessageToolDurableEnqueue:
         import hashlib
         from miniunicorn.agent.tools.message import MessageTool
         from miniunicorn.agent.turn_runtime import TurnRuntime, bind_turn_runtime, reset_turn_runtime
+        from miniunicorn.runtime.message_delivery import DurableMessageDelivery
         from miniunicorn.runtime.session_committer import (
             set_active_delivery_ledger,
             clear_active_delivery_ledger,
@@ -729,6 +735,7 @@ class TestMessageToolDurableEnqueue:
             turn_id="test-turn",
             session_key="test-session",
             task_id=record.task_id,
+            outbound_port=DurableMessageDelivery(record.task_id),
         )
         token = bind_turn_runtime(rt)
 

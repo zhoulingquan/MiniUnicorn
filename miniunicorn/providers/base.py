@@ -98,11 +98,6 @@ class LLMProvider(ABC):
 
     supports_progress_deltas = False
 
-    # Provider attempt observer (design §19). Defaults to None (legacy mode
-    # with no per-attempt journaling). The durable runtime sets this to an
-    # observer backed by TurnJournalPort before invoking the Runner.
-    attempt_observer: Any = None
-
     _CHAT_RETRY_DELAYS = (1, 2, 4)
     _PERSISTENT_MAX_DELAY = 60
     _PERSISTENT_IDENTICAL_ERROR_LIMIT = 10
@@ -875,10 +870,12 @@ class LLMProvider(ABC):
     ) -> LLMResponse:
         """Invoke one network attempt, journaling it via the observer (design §19).
 
-        When ``attempt_observer`` is None (legacy mode), this is a plain
-        passthrough to ``call(**kw)`` with no journaling overhead.
+        When no observer is bound in the current ContextVar (legacy mode),
+        this is a plain passthrough to ``call(**kw)`` with no journaling.
         """
-        observer = self.attempt_observer
+        from miniunicorn.agent.ports import current_provider_attempt_observer
+
+        observer = current_provider_attempt_observer()
         if observer is None:
             return await call(**kw)
 

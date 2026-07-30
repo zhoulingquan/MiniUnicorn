@@ -520,9 +520,11 @@ class ExecTool(Tool):
 
         The spawned PID is registered with the task's containment scope
         (design §20.7) so the entire child tree is terminated on Worker
-        termination, cancellation, or hard timeout.
+        termination, cancellation, or hard timeout. Registration goes
+        through the Agent-owned ``ContainmentPort`` bound to the current
+        ``TurnRuntime``; the runtime supplies the concrete scope.
         """
-        from miniunicorn.runtime.containment import current_containment_scope
+        from miniunicorn.agent.turn_runtime import current_turn_runtime
 
         if _IS_WINDOWS:
             creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
@@ -565,10 +567,15 @@ class ExecTool(Tool):
                 env=env,
                 start_new_session=True,
             )
-        # Register the spawned PID with the task's containment scope.
-        scope = current_containment_scope()
-        if scope is not None:
-            scope.register(proc.pid)
+        # Register the spawned PID with the task's containment scope via
+        # the Agent-owned ContainmentPort bound to the current TurnRuntime.
+        runtime = current_turn_runtime()
+        containment = runtime.containment_port if runtime is not None else None
+        if containment is not None:
+            containment.register(
+                proc.pid,
+                pgid=(proc.pid if not _IS_WINDOWS else None),
+            )
         return proc
 
     @staticmethod
