@@ -415,8 +415,11 @@ class TestSupervisorSpawnSemantics:
             ready_timeout_s=2.0,
         )
         try:
-            sup.start()
-            # Control Plane never signalled ready.
+            # Task 7 Step 5: a Control Plane startup timeout terminates the
+            # partial child tree and raises — Workers must not race
+            # first-run migrations.
+            with pytest.raises(TimeoutError):
+                sup.start()
             assert sup.is_ready() is False
         finally:
             sup.shutdown(grace_s=3)
@@ -566,11 +569,15 @@ def _assert_no_inherited_objects_entrypoint(
     ipc_channel: ProcessIpcChannel,
     ready_signal: Any,
 ) -> int:
-    """Child stub: assert no inherited runtime globals, then exit 0.
+    """Child stub: assert no inherited runtime globals, then block until shutdown.
 
     Design §24.6, WP6 task 2: a spawned child must not see any inherited
     SQLite connection, Provider, Agent, or bus object. Because spawn
     re-imports the package graph, module-level singletons are fresh.
+
+    The stub blocks until ``KIND_SHUTDOWN`` (like the other stubs) so the
+    Control Plane stays alive while Workers report ready under the
+    Task 7 Control-Plane-first startup ordering.
     """
     import sys
 
@@ -580,7 +587,14 @@ def _assert_no_inherited_objects_entrypoint(
     # The child's process name should not be the parent's.
     assert sys.argv[0] != ""
     ready_signal(role)
-    return 0
+    try:
+        while True:
+            if ipc_channel.child_poll(timeout_s=0.5):
+                env = ipc_channel.child_recv()
+                if env is not None and env.kind == KIND_SHUTDOWN:
+                    return 0
+    except (EOFError, OSError):
+        return 0
 
 
 @pytest.mark.slow

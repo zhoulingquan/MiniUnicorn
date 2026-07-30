@@ -242,8 +242,118 @@ def build_lightweight_runtime(
     )
 
 
+# ---------------------------------------------------------------------------
+# Control Plane composition (design Task 7 Step 6)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(slots=True)
+class ControlPlaneResources:
+    """Lifecycle-managed Control Plane runtime (design Task 7 Step 6).
+
+    Owns ingress (TaskService), Outbox, Channels (Task 9), API/WebUI
+    (Task 9), Cron triggers (Task 9), and the realtime hub. It creates
+    NO Agent and NO Worker coroutine — Workers live in their own
+    processes and claim directly from the shared Store.
+    """
+
+    application: RuntimeApplication
+    task_service: Any
+    outbox_sender: OutboxSender
+    store: Any
+    connection: Closeable
+    realtime: RealtimeSubscriptionHub
+    config: RuntimeConfig
+    shutdown_grace_s: float = 60.0
+    _started: bool = False
+
+    async def start(self) -> None:
+        """Start the Outbox and begin accepting ingress."""
+        await self.outbox_sender.start()
+        self.application.start_accepting()
+        self._started = True
+        logger.info("control plane resources started")
+
+    async def stop(self) -> None:
+        """Stop in reverse dependency order (idempotent)."""
+        if not self._started:
+            return
+        self._started = False
+        first_exc: BaseException | None = None
+        self.application.stop_accepting()
+        try:
+            await self.outbox_sender.drain(timeout_s=self.shutdown_grace_s)
+        except BaseException as exc:  # noqa: BLE001
+            first_exc = exc if first_exc is None else first_exc
+        try:
+            await self.outbox_sender.stop()
+        except BaseException as exc:  # noqa: BLE001
+            first_exc = exc if first_exc is None else first_exc
+        try:
+            self.connection.close()
+        except BaseException as exc:  # noqa: BLE001
+            first_exc = exc if first_exc is None else first_exc
+        logger.info("control plane resources stopped")
+        if first_exc is not None:
+            raise first_exc
+
+
+def build_control_plane_runtime(
+    config: Any,
+    connection: Any,
+    *,
+    surface: dict[str, Any] | None = None,
+) -> ControlPlaneResources:
+    """Construct the Control Plane runtime from a root ``Config``.
+
+    Unlike :func:`build_lightweight_runtime`, this owns ingress, Outbox,
+    Channels, Cron, API/WebUI, and the realtime hub but creates no Agent
+    and no Worker coroutine (design Task 7 Step 6). Migrations MUST be
+    run on ``connection`` by the caller before this is called.
+    """
+    from miniunicorn.runtime.sqlite import SqliteRuntimeStore
+    from miniunicorn.runtime.task_service import TaskService
+
+    resolved = resolve_runtime_paths(config.runtime, config.workspace_path)
+    store = SqliteRuntimeStore(connection)
+
+    realtime = RealtimeSubscriptionHub(
+        capacity=resolved.realtime_event_queue_capacity
+    )
+    task_service = TaskService(store)
+
+    # Channels/API/WebUI arrive in Task 9; until then the Control Plane
+    # uses a LocalResultSender so the Outbox can drain CLI/API receipts.
+    sender = LocalResultSender()
+    outbox_sender = OutboxSender(
+        store,
+        sender,
+        lease_ms=resolved.outbox_lease_timeout_s * 1000,
+        send_timeout_s=resolved.channel_send_timeout_s,
+    )
+
+    application = RuntimeApplication(
+        task_service=task_service,
+        result_store=store,
+        realtime=realtime,
+    )
+
+    return ControlPlaneResources(
+        application=application,
+        task_service=task_service,
+        outbox_sender=outbox_sender,
+        store=store,
+        connection=connection,
+        realtime=realtime,
+        config=resolved,
+        shutdown_grace_s=float(resolved.shutdown_grace_s),
+    )
+
+
 __all__ = [
     "RuntimeResources",
+    "ControlPlaneResources",
     "Closeable",
     "build_lightweight_runtime",
+    "build_control_plane_runtime",
 ]

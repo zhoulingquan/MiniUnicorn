@@ -29,20 +29,10 @@ full Agent Core.
 from __future__ import annotations
 
 import asyncio
-import time
 from typing import Any, Callable
 
 from loguru import logger
 
-from miniunicorn.runtime.ipc import (
-    KIND_AGENT_EVENT,
-    KIND_SHUTDOWN,
-    KIND_TASK_PROGRESS,
-    KIND_WAKE_HINT,
-    KIND_WORKER_EXITING,
-    IpcEnvelope,
-    ProcessIpcChannel,
-)
 from miniunicorn.runtime.supervisor import (
     ChildEntrypoint,
     RestartPolicy,
@@ -56,19 +46,18 @@ from miniunicorn.runtime.supervisor import (
 
 
 class RealtimeEventBridge:
-    """Background poller that forwards Worker IPC events to the host bus.
+    """Thin façade over the Supervisor's Worker→Control Plane relay.
 
-    Runs inside the SupervisedHost process. Periodically drains every
-    child's parent IPC end and:
+    Design Task 7 Step 3: the Supervisor is the only parent-side pipe
+    reader. It owns a bounded relay queue and a lifecycle-owned relay
+    thread that forwards Worker ``agent_event`` / ``task_progress``
+    envelopes unchanged to the Control Plane child, which publishes them
+    to its in-process :class:`RealtimeSubscriptionHub`.
 
-    - forwards ``agent_event`` / ``task_progress`` payloads to the host
-      :class:`MessageBus` (design §23.1, §23.2, WP6 task 4);
-    - logs ``worker_exiting`` markers;
-    - drops or coalesces Token deltas when the bus is slow (lossy
-      realtime — design §23.2).
-
-    Critical state is never sent through IPC; the bridge only carries
-    transient realtime UX events.
+    This class no longer polls IPC pipes — that would make it a second
+    caller of ``ProcessIpcChannel.parent_recv()``. It exists only to
+    preserve the SupervisedHost lifecycle/snapshot API and to surface the
+    Supervisor's ``relay_dropped_events`` counter.
     """
 
     def __init__(
@@ -80,112 +69,20 @@ class RealtimeEventBridge:
     ) -> None:
         self._supervisor = supervisor
         self._bus = bus
-        self._poll_interval_s = poll_interval_s
-        self._task: asyncio.Task[None] | None = None
         self._running = False
-        self._dropped_events = 0
 
     @property
     def dropped_events(self) -> int:
-        return self._dropped_events
+        """Delegate to the Supervisor's relay drop counter (Task 7 Step 3)."""
+        return self._supervisor.relay_dropped_events
 
     def start(self) -> None:
-        if self._running:
-            return
+        # The relay thread is owned and started by the Supervisor after the
+        # Control Plane becomes ready; nothing to do here.
         self._running = True
-        self._task = asyncio.create_task(self._run(), name="realtime-event-bridge")
 
     async def stop(self) -> None:
-        if not self._running:
-            return
         self._running = False
-        if self._task is not None:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-            self._task = None
-
-    async def _run(self) -> None:
-        while self._running:
-            try:
-                self._drain_all()
-            except asyncio.CancelledError:
-                raise
-            except Exception:  # noqa: BLE001
-                logger.exception("realtime event bridge error")
-            await asyncio.sleep(self._poll_interval_s)
-
-    def _drain_all(self) -> None:
-        """Drain pending IPC events from every alive child."""
-        # Reach into the supervisor's child records. We only read parent
-        # ends; we never block on a child.
-        for record in getattr(self._supervisor, "_children", {}).values():
-            proc = record.process
-            if proc is None or not proc.is_alive():
-                continue
-            channel: ProcessIpcChannel = record.channel
-            try:
-                while channel.parent_poll(timeout_s=0.0):
-                    env = channel.parent_recv()
-                    if env is None:
-                        break
-                    self._dispatch(env)
-            except (OSError, ValueError):
-                continue
-
-    def _dispatch(self, env: IpcEnvelope) -> None:
-        if env.kind in (KIND_AGENT_EVENT, KIND_TASK_PROGRESS):
-            self._publish_to_bus(env)
-        elif env.kind == KIND_WORKER_EXITING:
-            logger.info(
-                "realtime bridge: worker {} exiting (reason={})",
-                env.payload.get("worker_id"),
-                env.payload.get("reason"),
-            )
-        # wake_hint / shutdown / child_ready are not realtime events.
-
-    def _publish_to_bus(self, env: IpcEnvelope) -> None:
-        if self._bus is None:
-            return
-        try:
-            event = env.payload.get("event") if env.kind == KIND_AGENT_EVENT else {
-                "kind": "task_progress",
-                "task_id": env.task_id,
-                "detail": env.payload.get("detail"),
-                "phase": env.payload.get("phase"),
-            }
-            # The bus publish API varies by host; we use the typed event
-            # hook if present, else fall back to publish_outbound with a
-            # metadata-tagged empty message.
-            publisher = getattr(self._bus, "publish_agent_event", None)
-            if callable(publisher):
-                publisher(event, task_id=env.task_id, trace_id=env.trace_id)
-                return
-            # Fallback: best-effort outbound publish with metadata flag.
-            from miniunicorn.bus.events import OutboundMessage
-
-            outbound = OutboundMessage(
-                channel="",
-                chat_id="",
-                content="",
-                metadata={
-                    "_agent_event": True,
-                    "_event": event,
-                    "_task_id": env.task_id,
-                    "_trace_id": env.trace_id,
-                },
-            )
-            try:
-                asyncio.get_running_loop().create_task(
-                    self._bus.publish_outbound(outbound)
-                )
-            except RuntimeError:
-                # No running loop — drop the event (lossy realtime).
-                self._dropped_events += 1
-        except Exception:  # noqa: BLE001
-            self._dropped_events += 1
 
 
 # ---------------------------------------------------------------------------

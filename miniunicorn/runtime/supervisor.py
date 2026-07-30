@@ -28,7 +28,9 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import os
+import queue as _queue_mod
 import sys
+import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -45,9 +47,12 @@ from miniunicorn.runtime.ipc import (
     IPC_PROTOCOL_VERSION,
     IpcEnvelope,
     ProcessIpcChannel,
+    KIND_AGENT_EVENT,
     KIND_CHILD_READY,
-    KIND_WORKER_READY,
     KIND_SHUTDOWN,
+    KIND_TASK_PROGRESS,
+    KIND_WAKE_HINT,
+    KIND_WORKER_READY,
     child_ready,
     shutdown_signal,
 )
@@ -197,6 +202,16 @@ class Supervisor:
         self._started = False
         self._shutting_down = False
         self._instance_counter = 0
+        # Control-relay queue: Worker → Supervisor → Control Plane (Task 7 Step 3).
+        # Bounded so a saturated transient relay never blocks readiness, restart,
+        # or wake-hint handling. The relay thread is the only writer to the
+        # Control Plane child's parent pipe end.
+        self._control_relay_queue: _queue_mod.Queue[IpcEnvelope | None] = (
+            _queue_mod.Queue(maxsize=1024)
+        )
+        self._relay_thread: threading.Thread | None = None
+        self._relay_dropped_events = 0
+        self._relay_running = threading.Event()
 
     # ------------------------------------------------------------------
     # Properties
@@ -217,6 +232,11 @@ class Supervisor:
     @property
     def min_workers(self) -> int:
         return self._min_workers
+
+    @property
+    def relay_dropped_events(self) -> int:
+        """Transient realtime events dropped because the Control Plane relay was full."""
+        return self._relay_dropped_events
 
     def is_ready(self) -> bool:
         """Combined readiness (design §24.4, §24.5, WP6 task 8)."""
@@ -246,6 +266,7 @@ class Supervisor:
             "shutting_down": self._shutting_down,
             "ready": self.is_ready(),
             "protocol_version": IPC_PROTOCOL_VERSION,
+            "relay_dropped_events": self._relay_dropped_events,
             "children": [
                 {
                     "role": r.role,
@@ -266,7 +287,12 @@ class Supervisor:
     # ------------------------------------------------------------------
 
     def start(self) -> None:
-        """Spawn the Control Plane and Workers and wait for readiness."""
+        """Spawn the Control Plane, wait for its ready signal, then spawn Workers.
+
+        Design Task 7 Step 5: the Control Plane runs migrations before
+        readiness. Workers must not race first-run migrations, so they are
+        spawned only after the Control Plane reports ready.
+        """
         if self._started:
             return
         self._started = True
@@ -275,13 +301,54 @@ class Supervisor:
             self._worker_count,
             self._min_workers,
         )
-        # Spawn Control Plane first.
+        # Spawn Control Plane first and wait for its ready signal.
         self._spawn_child("control", "control")
-        # Spawn Workers.
+        self._await_control_ready()
+        # Start the relay thread now that the Control Plane exists.
+        self._start_relay_thread()
+        # Spawn Workers only after the Control Plane is ready.
         for i in range(self._worker_count):
             self._spawn_child("worker", f"worker-{i}")
-        # Wait for readiness.
+        # Wait for combined readiness.
         self._await_readiness()
+
+    def _await_control_ready(self) -> None:
+        """Wait up to ``ready_timeout_s`` for the Control Plane to report ready.
+
+        A Control Plane startup timeout terminates the partial child tree
+        and raises (design Task 7 Step 5).
+        """
+        deadline = time.monotonic() + self._ready_timeout_s
+        control = self._children.get("control")
+        while time.monotonic() < deadline:
+            self._drain_ipc(timeout_s=0.1)
+            control = self._children.get("control")
+            if control is not None and control.ready and _is_alive(control):
+                return
+            self.reap_once(restart=False)
+            time.sleep(0.05)
+        # Control Plane did not become ready — tear down partial tree.
+        logger.error("Supervisor Control Plane readiness wait expired")
+        self._shutting_down = True
+        self._close_containment()
+        for record in self._children.values():
+            proc = record.process
+            if proc is not None and proc.is_alive():
+                try:
+                    proc.kill()
+                except Exception:  # noqa: BLE001
+                    pass
+            try:
+                record.channel.parent_close()
+            except Exception:  # noqa: BLE001
+                pass
+        self._children.clear()
+        self._started = False
+        self._shutting_down = False
+        raise TimeoutError(
+            "Control Plane did not report ready within "
+            f"{self._ready_timeout_s}s — aborting supervised start"
+        )
 
     def _spawn_child(self, role: str, child_id: str) -> _ChildRecord:
         """Spawn (or respawn) one child process."""
@@ -375,8 +442,81 @@ class Supervisor:
                     record.child_id,
                     record.instance_id,
                 )
-        # Other kinds (agent_event, task_progress) are forwarded by the
-        # Control Plane / host, not the Supervisor.
+            return
+        # Worker → Control Plane realtime relay (design Task 7 Step 3).
+        # The Supervisor is the only parent-side pipe reader; it enqueues
+        # the envelope for the relay thread, which forwards it unchanged to
+        # the Control Plane child. Direct _handle_ipc never blocks on a full
+        # pipe — a full relay drops the transient event.
+        if record.role == "worker" and env.kind in (KIND_AGENT_EVENT, KIND_TASK_PROGRESS):
+            self._enqueue_control_relay(env)
+            return
+        # Control Plane → Workers wake-hint relay (design Task 7 Step 3).
+        if record.role == "control" and env.kind == KIND_WAKE_HINT:
+            self.fan_out_wake(
+                reason=env.payload.get("reason", "submit"),
+                task_id=env.task_id,
+            )
+            return
+
+    def _enqueue_control_relay(self, env: IpcEnvelope) -> None:
+        """Enqueue a Worker event for relay to the Control Plane (Task 7 Step 3).
+
+        Uses ``put_nowait()`` on a bounded process-local queue. When full,
+        the transient event is dropped and ``relay_dropped_events`` is
+        incremented — readiness, restart, and wake-hint handling continue
+        unaffected.
+        """
+        try:
+            self._control_relay_queue.put_nowait(env)
+        except _queue_mod.Full:
+            self._relay_dropped_events += 1
+
+    def _start_relay_thread(self) -> None:
+        """Start the lifecycle-owned relay thread (Task 7 Step 3).
+
+        One thread reads the bounded relay queue and performs the blocking
+        ``parent_send()`` to the Control Plane child. Closing the IPC handle
+        unblocks the thread during shutdown.
+        """
+        if self._relay_thread is not None:
+            return
+        self._relay_running.set()
+        self._relay_thread = threading.Thread(
+            target=self._relay_loop, name="supervisor-control-relay", daemon=True
+        )
+        self._relay_thread.start()
+
+    def _relay_loop(self) -> None:
+        """Drain the relay queue and forward envelopes to the Control Plane."""
+        while self._relay_running.is_set():
+            try:
+                env = self._control_relay_queue.get(timeout=0.2)
+            except _queue_mod.Empty:
+                continue
+            if env is None:
+                return
+            control = self._children.get("control")
+            if control is None or control.process is None or not control.process.is_alive():
+                self._relay_dropped_events += 1
+                continue
+            try:
+                control.channel.parent_send(env)
+            except Exception:  # noqa: BLE001
+                # IPC closed or broken — drop the transient event.
+                self._relay_dropped_events += 1
+
+    def _stop_relay_thread(self) -> None:
+        """Signal the relay thread to drain and exit."""
+        self._relay_running.clear()
+        try:
+            self._control_relay_queue.put_nowait(None)
+        except _queue_mod.Full:
+            pass
+        thread = self._relay_thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=2.0)
+        self._relay_thread = None
 
     # ------------------------------------------------------------------
     # Reap / restart
@@ -531,7 +671,9 @@ class Supervisor:
                     except Exception:  # noqa: BLE001
                         pass
 
-        # 5. Close IPC pipes and containment.
+        # 5. Stop the relay thread before closing pipes (Task 7 Step 3).
+        self._stop_relay_thread()
+        # 6. Close IPC pipes and containment.
         for record in self._children.values():
             try:
                 record.channel.parent_close()
@@ -547,6 +689,7 @@ class Supervisor:
         """Immediate containment close (crash-mode exit)."""
         logger.warning("Supervisor immediate terminate")
         self._shutting_down = True
+        self._stop_relay_thread()
         self._close_containment()
         for record in self._children.values():
             proc = record.process
