@@ -12,6 +12,8 @@ import pytest
 from miniunicorn.config.schema import AgentDefaults
 from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 
+from tests.agent.conftest import FakeToolExecutionPort
+
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
 
@@ -49,6 +51,7 @@ async def test_runner_preserves_reasoning_fields_and_tool_results():
                 {"role": "user", "content": "do task"},
             ],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=3,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -93,6 +96,7 @@ async def test_runner_returns_max_iterations_fallback():
         AgentRunSpec(
             initial_messages=[],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=2,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -127,6 +131,7 @@ async def test_runner_times_out_hung_llm_request():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "hello"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=1,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -171,6 +176,7 @@ async def test_runner_does_not_apply_outer_wall_timeout_to_streaming_requests():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "think for a while"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=1,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -214,6 +220,7 @@ async def test_runner_replaces_empty_tool_result_with_marker():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "do task"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=2,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -256,6 +263,7 @@ async def test_runner_retries_empty_final_response_with_summary_prompt():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "do task"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=3,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -292,6 +300,7 @@ async def test_runner_uses_specific_message_after_empty_finalization_retry():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "do task"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=3,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -360,6 +369,7 @@ async def test_runner_empty_response_does_not_break_tool_chain():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "read both files"}],
             tools=tool_registry,
+            tool_execution_port=FakeToolExecutionPort(tool_registry),
             model="test-model",
             max_iterations=10,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -407,6 +417,7 @@ async def test_runner_accumulates_usage_and_preserves_cached_tokens():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "do task"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=3,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -451,6 +462,7 @@ async def test_runner_binds_on_retry_wait_to_retry_callback_not_progress():
                 {"role": "user", "content": "hi"},
             ],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=1,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -489,6 +501,7 @@ async def test_runner_passes_temperature_to_provider():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "hi"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=1,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -520,6 +533,7 @@ async def test_runner_passes_max_tokens_to_provider():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "hi"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=1,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -551,6 +565,7 @@ async def test_runner_passes_reasoning_effort_to_provider():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "hi"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=1,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,

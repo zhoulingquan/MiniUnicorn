@@ -10,15 +10,10 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
 
-from miniunicorn.agent.turn_persistence import (
-    PENDING_USER_TURN_KEY,
-    RUNTIME_CHECKPOINT_KEY,
-    TurnPersistence,
-)
+from miniunicorn.agent.turn_persistence import TurnPersistence
 from miniunicorn.bus.events import InboundMessage
 from miniunicorn.session.manager import Session, SessionManager
 
@@ -73,16 +68,3 @@ def persistence_host(crash_session_manager: SessionManager) -> SimpleNamespace:
 def crash_persistence(persistence_host: SimpleNamespace) -> TurnPersistence:
     """TurnPersistence instance bound to the crash workspace."""
     return TurnPersistence(persistence_host)
-
-
-@pytest.fixture
-def checkpoint_payload() -> dict[str, Any]:
-    """A representative runtime checkpoint payload used by characterization."""
-    return {
-        "phase": "RUN",
-        "inner_iteration": 3,
-        "model_call_ordinal": 1,
-        "completed_tool_call_ids": ["call_1", "call_2"],
-        "pending_tool_call_ids": ["call_3"],
-        "budget": {"input_tokens": 1200, "output_tokens": 300},
-    }

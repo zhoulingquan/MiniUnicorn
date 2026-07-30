@@ -9,8 +9,42 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from miniunicorn.agent.loop import AgentLoop
+from miniunicorn.agent.ports import ToolExecutionResult
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.providers.base import LLMProvider
+
+
+class FakeToolExecutionPort:
+    """Test-only port that delegates to the tool registry for direct execution.
+
+    For real ToolRegistry instances, resolves the tool by name and calls
+    ``tool.execute(**arguments)``. For MagicMock registries (common in unit
+    tests), falls back to ``tools.execute(name, arguments)`` so existing
+    mock-based assertions (await_count, side_effect, etc.) keep working.
+
+    Exceptions are re-raised so the Runner's gateway exception handler can
+    apply violation classification and soft-error semantics.
+    """
+
+    def __init__(self, tools):
+        self._tools = tools
+
+    async def execute(self, request):
+        from miniunicorn.agent.tools.registry import ToolRegistry
+
+        if isinstance(self._tools, ToolRegistry):
+            tool = self._tools.get(request.tool_name)
+            if tool is not None:
+                result = await tool.execute(**request.normalized_arguments)
+            else:
+                result = await self._tools.execute(
+                    request.tool_name, request.normalized_arguments
+                )
+        else:
+            result = await self._tools.execute(
+                request.tool_name, request.normalized_arguments
+            )
+        return ToolExecutionResult(state="SUCCEEDED", content=result)
 
 
 def make_provider(

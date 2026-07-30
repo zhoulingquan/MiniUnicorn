@@ -21,6 +21,8 @@ from miniunicorn.config.schema import AgentDefaults
 from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from miniunicorn.utils.task_supervisor import TaskSupervisor
 
+from tests.agent.conftest import FakeToolExecutionPort
+
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
 
@@ -110,6 +112,7 @@ async def test_failing_periodic_reflection_is_logged(tmp_path, monkeypatch, capl
                         {"role": "user", "content": "do task"},
                     ],
                     tools=tools,
+                    tool_execution_port=FakeToolExecutionPort(tools),
                     model="test-model",
                     max_iterations=3,
                     max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -148,6 +151,7 @@ async def test_aclose_drains_pending_reflection(tmp_path, monkeypatch):
                 {"role": "user", "content": "do task"},
             ],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=3,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,

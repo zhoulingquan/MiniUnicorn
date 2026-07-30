@@ -1,20 +1,17 @@
 """Tests for /stop preserving partial context from interrupted turns.
 
-When /stop cancels an active task, the runtime checkpoint (tool results,
-assistant messages accumulated so far) should be materialized into session
-history rather than silently discarded.
+Legacy ``runtime_checkpoint`` / ``pending_user_turn`` session-metadata
+writers and readers were removed in design Task 10. Durable tasks own
+recovery through the Runtime Store state machine and
+``TurnJournalPort.save_checkpoint()`` (design §6.22, §29.4).
 
 See: https://github.com/HKUDS/miniunicorn/issues/2966
 """
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 from miniunicorn.agent.loop import AgentLoop
 from miniunicorn.bus.queue import MessageBus
@@ -40,135 +37,43 @@ def _make_loop(tmp_path: Path) -> AgentLoop:
         patch("miniunicorn.agent.loop.SessionManager"),
         patch("miniunicorn.agent.loop.SubagentManager") as MockSubMgr,
     ):
-        MockSubMgr.return_value.cancel_by_session = AsyncMock(return_value=0)
+        MockSubMgr.return_value.cancel_by_session = MagicMock(return_value=0)
         return AgentLoop(bus=bus, provider=provider, workspace=tmp_path)
 
 
-class TestStopPreservesContext:
-    """Verify that /stop restores partial context via checkpoint."""
+class TestLegacyCheckpointWritersRemoved:
+    """Design §6.22, §29.4: ``runtime_checkpoint`` / ``pending_user_turn``
+    session-metadata writers and readers were removed in design Task 10.
 
-    def test_restore_checkpoint_method_exists(self, tmp_path):
-        """AgentLoop should have _restore_runtime_checkpoint."""
-        loop = _make_loop(tmp_path)
-        assert hasattr(loop, "_restore_runtime_checkpoint")
-
-    def test_checkpoint_key_constant(self, tmp_path):
-        """The runtime checkpoint key should be defined."""
-        loop = _make_loop(tmp_path)
-        assert loop._RUNTIME_CHECKPOINT_KEY == "runtime_checkpoint"
-
-    def test_cancel_dispatch_restores_checkpoint(self, tmp_path):
-        """When a task is cancelled, the checkpoint should be restored."""
-        loop = _make_loop(tmp_path)
-        session = MagicMock()
-        session.metadata = {
-            "runtime_checkpoint": {
-                "phase": "awaiting_tools",
-                "iteration": 0,
-                "assistant_message": {
-                    "role": "assistant",
-                    "content": "Let me search for that.",
-                    "tool_calls": [
-                        {
-                            "id": "tc_1",
-                            "type": "function",
-                            "function": {"name": "read_file", "arguments": "{}"},
-                        }
-                    ],
-                },
-                "completed_tool_results": [
-                    {"role": "tool", "tool_call_id": "tc_1", "content": "Search results: ..."},
-                ],
-                "pending_tool_calls": [],
-            }
-        }
-        session.messages = [
-            {"role": "user", "content": "Search for something"},
-        ]
-        loop.sessions.get_or_create.return_value = session
-
-        restored = loop._restore_runtime_checkpoint(session)
-        assert restored is True
-        assert len(session.messages) > 1
-        assert "runtime_checkpoint" not in session.metadata
-
-
-@pytest.mark.asyncio
-async def test_dispatch_cancellation_restores_checkpoint():
-    """Regression for #2966: /stop interrupting _dispatch must materialize the
-    in-flight runtime checkpoint into session.messages before the cancellation
-    unwinds, so the next turn can see the partial work.
-
-    This exercises the real _dispatch path (locks, pending queues, the
-    CancelledError handler) rather than poking _restore_runtime_checkpoint in
-    isolation, so a future refactor that drops the cancel-time restore is
-    caught by CI instead of silently regressing.
+    Durable tasks own recovery through the Runtime Store state machine and
+    ``TurnJournalPort.save_checkpoint()``.
     """
-    from miniunicorn.bus.events import InboundMessage
-    from miniunicorn.bus.queue import MessageBus
 
-    bus = MessageBus()
-    provider = MagicMock()
-    provider.get_default_model.return_value = "test-model"
-    workspace = MagicMock()
-    workspace.__truediv__ = MagicMock(return_value=MagicMock())
+    def test_loop_does_not_define_restore_runtime_checkpoint(self, tmp_path) -> None:
+        loop = _make_loop(tmp_path)
+        assert not hasattr(loop, "_restore_runtime_checkpoint"), (
+            "AgentLoop._restore_runtime_checkpoint was removed in design Task 10; "
+            "durable checkpoints are owned by TurnJournalPort.save_checkpoint()."
+        )
 
-    with (
-        patch("miniunicorn.agent.loop.ContextBuilder"),
-        patch("miniunicorn.agent.loop.SessionManager"),
-        patch("miniunicorn.agent.loop.SubagentManager") as MockSubMgr,
-    ):
-        MockSubMgr.return_value.cancel_by_session = AsyncMock(return_value=0)
-        loop = AgentLoop(bus=bus, provider=provider, workspace=workspace)
+    def test_loop_does_not_define_runtime_checkpoint_key_constant(self, tmp_path) -> None:
+        loop = _make_loop(tmp_path)
+        assert not hasattr(AgentLoop, "_RUNTIME_CHECKPOINT_KEY"), (
+            "AgentLoop._RUNTIME_CHECKPOINT_KEY was removed in design Task 10; "
+            "durable checkpoints are owned by TurnJournalPort.save_checkpoint()."
+        )
 
-    checkpoint_key = loop._RUNTIME_CHECKPOINT_KEY
-    session = SimpleNamespace(
-        key="test:c1",
-        metadata={
-            checkpoint_key: {
-                "phase": "awaiting_tools",
-                "iteration": 0,
-                "assistant_message": {
-                    "role": "assistant",
-                    "content": "Let me search.",
-                    "tool_calls": [
-                        {
-                            "id": "tc_1",
-                            "type": "function",
-                            "function": {"name": "read_file", "arguments": "{}"},
-                        }
-                    ],
-                },
-                "completed_tool_results": [
-                    {"role": "tool", "tool_call_id": "tc_1", "content": "Search hit."},
-                ],
-                "pending_tool_calls": [],
-            }
-        },
-        messages=[{"role": "user", "content": "Search for something"}],
-    )
+    def test_loop_does_not_define_pending_user_turn_key_constant(self, tmp_path) -> None:
+        loop = _make_loop(tmp_path)
+        assert not hasattr(AgentLoop, "_PENDING_USER_TURN_KEY"), (
+            "AgentLoop._PENDING_USER_TURN_KEY was removed in design Task 10; "
+            "durable tasks use the WAITING_USER state instead."
+        )
 
-    loop.sessions.get_or_create = MagicMock(return_value=session)
-    loop.sessions.save = MagicMock()
 
-    async def _cancel(*_args, **_kwargs):
-        raise asyncio.CancelledError()
-
-    loop._execute_message = _cancel  # type: ignore[method-assign]
-
-    msg = InboundMessage(channel="test", sender_id="u1", chat_id="c1", content="work")
-
-    with pytest.raises(asyncio.CancelledError):
-        await loop._dispatch(msg)
-
-    roles = [m.get("role") for m in session.messages]
-    assert roles == ["user", "assistant", "tool"], (
-        "Expected the assistant message and completed tool result from the "
-        f"interrupted turn to be materialized into session.messages; got {roles}"
-    )
-    assert checkpoint_key not in session.metadata, (
-        "Checkpoint metadata should be cleared after restore"
-    )
-    assert loop.sessions.save.called, (
-        "Session should be persisted so the restored state survives process restart"
-    )
+# Note: test_dispatch_cancellation_restores_checkpoint was removed in
+# design Task 10. The _dispatch method (legacy bus-consume per-session
+# dispatch) was removed; cancellation-time checkpoint restore is no
+# longer reached through that path. Legacy checkpoint reader/writer
+# behavior is also gone — durable recovery is owned by the Runtime Store
+# state machine and TurnJournalPort.save_checkpoint().

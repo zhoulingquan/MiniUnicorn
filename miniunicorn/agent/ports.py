@@ -645,6 +645,34 @@ class OutboundPort(Protocol):
         ...
 
 
+class DirectOutboundPort:
+    """Legacy/test fallback that publishes directly to the MessageBus.
+
+    Used when no durable Outbox is bound (legacy/test mode). Mirrors the
+    former ``send_callback`` path: constructs an :class:`OutboundMessage`
+    from the request and calls ``bus.publish_outbound``. The receipt
+    carries a synthetic outbox_id of 0 so callers can distinguish it from
+    real Outbox receipts (which are always positive integers).
+    """
+
+    def __init__(self, bus: Any) -> None:
+        self._bus = bus
+
+    async def enqueue(self, request: OutboundRequest) -> OutboundReceipt:
+        from miniunicorn.bus.events import OutboundMessage
+
+        msg = OutboundMessage(
+            channel=request.channel,
+            chat_id=request.target_key,
+            content=request.content,
+            media=list(request.media),
+            metadata={},
+            buttons=[],
+        )
+        await self._bus.publish_outbound(msg)
+        return OutboundReceipt(outbox_id=0, dedup_key="")
+
+
 # ---------------------------------------------------------------------------
 # Containment port (design §20.7 — Agent-owned)
 # ---------------------------------------------------------------------------

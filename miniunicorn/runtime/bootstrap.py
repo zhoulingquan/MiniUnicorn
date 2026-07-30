@@ -200,6 +200,114 @@ def _build_channel_manager(
 
 
 # ---------------------------------------------------------------------------
+# Maintenance callback wiring (design §22.3, WP7 hard cutover)
+# ---------------------------------------------------------------------------
+
+
+def _wire_maintenance_callbacks(
+    *,
+    config: Any,
+    task_service: Any,
+    cron_service: Any,
+    agent: Any = None,
+) -> None:
+    """Wire Dream/Cron enqueue callbacks to submit through TaskService (§22.3).
+
+    Wires:
+    - ``CronService.system_enqueue_callback``: ``system_event`` jobs enqueue
+      a durable maintenance task instead of calling ``on_job`` directly.
+    - ``CronService.on_job``: ``agent_turn`` jobs enqueue a durable
+      ``USER_TURN`` task so cron-triggered turns survive restarts.
+    - ``DreamIdleTrigger._enqueue_callback``: the idle trigger enqueues a
+      durable ``DREAM`` task instead of ``asyncio.create_task``.
+
+    The DreamIdleTrigger is only wired when ``agent`` is provided (the
+    Control Plane has no Agent).
+    """
+    import time as _time
+
+    from miniunicorn.runtime.application import RuntimeInboundRequest
+    from miniunicorn.runtime.ingress import (
+        build_inbound_envelope,
+        local_request_scope,
+    )
+    from miniunicorn.runtime.maintenance import (
+        PRIORITY_REFLECTION_DREAM,
+        PRIORITY_RETENTION_CLEANUP,
+        dedup_key_for_dream,
+        enqueue_maintenance,
+    )
+
+    scope = local_request_scope(config)
+
+    # --- CronService callbacks ---
+    if cron_service is not None:
+        async def _system_enqueue_callback(job: Any) -> str | None:
+            """Enqueue a durable maintenance task for a system_event cron job."""
+            name_lower = (job.name or "").lower()
+            if "dream" in name_lower:
+                task_kind = "DREAM"
+                priority = PRIORITY_REFLECTION_DREAM
+            else:
+                task_kind = "MAINTENANCE"
+                priority = PRIORITY_RETENTION_CLEANUP
+            dedup_key = f"cron:{job.id}:{job.state.last_run_at_ms or 0}"
+            return await enqueue_maintenance(
+                task_service,
+                task_kind=task_kind,
+                scope=scope,
+                dedup_key=dedup_key,
+                priority=priority,
+                payload={"job_id": job.id, "job_name": job.name},
+            )
+
+        cron_service.system_enqueue_callback = _system_enqueue_callback
+
+        async def _on_job(job: Any) -> str | None:
+            """Enqueue a durable USER_TURN task for an agent_turn cron job."""
+            payload = job.payload
+            session_key = payload.session_key or f"cron:{job.id}"
+            channel = payload.channel or "cli"
+            chat_id = payload.to or "cron"
+            request = RuntimeInboundRequest(
+                content=payload.message,
+                media=(),
+                metadata={
+                    "cron_job_id": job.id,
+                    "cron_job_name": job.name,
+                    "deliver": payload.deliver,
+                    "channel_meta": payload.channel_meta,
+                },
+                session_key=session_key,
+                channel=channel,
+                channel_account=chat_id,
+                channel_message_id=None,
+                scope=scope,
+            )
+            envelope = build_inbound_envelope(
+                request, now_ms=int(_time.time() * 1000)
+            )
+            handle = await task_service.submit(envelope)
+            return handle.task_id
+
+        cron_service.on_job = _on_job
+
+    # --- DreamIdleTrigger enqueue_callback ---
+    if agent is not None and hasattr(agent, "dream_idle_trigger"):
+        async def _dream_enqueue_callback(source_revision: str) -> str | None:
+            """Enqueue a durable DREAM task (design §22.3)."""
+            return await enqueue_maintenance(
+                task_service,
+                task_kind="DREAM",
+                scope=scope,
+                dedup_key=dedup_key_for_dream(source_revision=source_revision),
+                priority=PRIORITY_REFLECTION_DREAM,
+            )
+
+        agent.dream_idle_trigger._enqueue_callback = _dream_enqueue_callback
+
+
+# ---------------------------------------------------------------------------
 # build_lightweight_runtime (Task 5 Step 4)
 # ---------------------------------------------------------------------------
 
@@ -318,6 +426,17 @@ def build_lightweight_runtime(
 
         cron_store_path = config.workspace_path / "cron" / "jobs.json"
         cron_service = CronService(cron_store_path)
+
+    # Wire Dream/Cron enqueue callbacks to submit through TaskService
+    # (design §22.3, WP7 hard cutover). In lightweight mode the Agent
+    # owns the DreamIdleTrigger; the Control Plane has no Agent.
+    if cron_service is not None:
+        _wire_maintenance_callbacks(
+            config=config,
+            task_service=host.task_service,
+            cron_service=cron_service,
+            agent=agent,
+        )
 
     return RuntimeResources(
         application=application,
@@ -463,6 +582,16 @@ def build_control_plane_runtime(
 
     cron_store_path = config.workspace_path / "cron" / "jobs.json"
     cron_service = CronService(cron_store_path)
+
+    # Wire Dream/Cron enqueue callbacks to submit through TaskService
+    # (design §22.3, WP7 hard cutover). The Control Plane has no Agent,
+    # so the DreamIdleTrigger is not wired here.
+    _wire_maintenance_callbacks(
+        config=config,
+        task_service=task_service,
+        cron_service=cron_service,
+        agent=None,
+    )
 
     return ControlPlaneResources(
         application=application,

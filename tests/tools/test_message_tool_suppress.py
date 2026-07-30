@@ -40,15 +40,18 @@ class TestMessageToolSuppressLogic:
         loop.provider.chat_with_retry = AsyncMock(side_effect=lambda *a, **kw: next(calls))
         loop.tools.get_definitions = MagicMock(return_value=[])
 
-        sent: list[OutboundMessage] = []
-        mt = loop.tools.get("message")
-        if isinstance(mt, MessageTool):
-            mt.set_send_callback(AsyncMock(side_effect=lambda m: sent.append(m)))
-
         msg = InboundMessage(channel="feishu", sender_id="user1", chat_id="chat123", content="Send")
         result = await loop._process_message(msg)
 
-        assert len(sent) == 1
+        # Message tool output went to the bus via DirectOutboundPort.
+        # Filter out progress messages (metadata["_progress"]).
+        outbound = []
+        while loop.bus.outbound_size > 0:
+            ob = await loop.bus.consume_outbound()
+            if not ob.metadata.get("_progress"):
+                outbound.append(ob)
+        assert len(outbound) == 1
+        assert outbound[0].content == "Hello"
         assert result is None  # suppressed
 
     @pytest.mark.asyncio
@@ -72,18 +75,20 @@ class TestMessageToolSuppressLogic:
         loop.provider.chat_with_retry = AsyncMock(side_effect=lambda *a, **kw: next(calls))
         loop.tools.get_definitions = MagicMock(return_value=[])
 
-        sent: list[OutboundMessage] = []
-        mt = loop.tools.get("message")
-        if isinstance(mt, MessageTool):
-            mt.set_send_callback(AsyncMock(side_effect=lambda m: sent.append(m)))
-
         msg = InboundMessage(
             channel="feishu", sender_id="user1", chat_id="chat123", content="Send email"
         )
         result = await loop._process_message(msg)
 
-        assert len(sent) == 1
-        assert sent[0].channel == "email"
+        # Message tool output went to the bus via DirectOutboundPort.
+        # Filter out progress messages (metadata["_progress"]).
+        outbound = []
+        while loop.bus.outbound_size > 0:
+            ob = await loop.bus.consume_outbound()
+            if not ob.metadata.get("_progress"):
+                outbound.append(ob)
+        assert len(outbound) == 1
+        assert outbound[0].channel == "email"
         assert result is not None  # not suppressed
         assert result.channel == "feishu"
 
@@ -123,11 +128,6 @@ class TestMessageToolSuppressLogic:
         loop.provider.chat_with_retry = AsyncMock(side_effect=lambda *a, **kw: next(calls))
         loop.tools.get_definitions = MagicMock(return_value=[])
 
-        sent: list[OutboundMessage] = []
-        mt = loop.tools.get("message")
-        if isinstance(mt, MessageTool):
-            mt.set_send_callback(AsyncMock(side_effect=lambda m: sent.append(m)))
-
         pending_queue = asyncio.Queue()
         await pending_queue.put(
             InboundMessage(
@@ -140,8 +140,15 @@ class TestMessageToolSuppressLogic:
         )
         result = await loop._process_message(msg, pending_queue=pending_queue)
 
-        assert len(sent) == 1
-        assert sent[0].content == "Tool reply"
+        # Message tool output went to the bus via DirectOutboundPort.
+        # Filter out progress messages (metadata["_progress"]).
+        outbound = []
+        while loop.bus.outbound_size > 0:
+            ob = await loop.bus.consume_outbound()
+            if not ob.metadata.get("_progress"):
+                outbound.append(ob)
+        assert len(outbound) == 1
+        assert outbound[0].content == "Tool reply"
         assert result is None
 
     async def test_progress_hides_internal_reasoning(self, tmp_path: Path) -> None:

@@ -259,6 +259,9 @@ def _make_minimal_loop_with_executor(processed_turn: ProcessedTurn) -> Any:
     from miniunicorn.agent.turn_dispatcher import TurnDispatcher
 
     loop = object.__new__(AgentLoop)
+    # TurnDispatcher.process_message reads host.bus for the
+    # DirectOutboundPort fallback; provide a mock since __init__ is skipped.
+    loop.bus = MagicMock()
     loop._turn_executor = AsyncMock()
     loop._turn_executor.execute = AsyncMock(return_value=processed_turn)
     # _process_message delegates to TurnDispatcher, which routes through

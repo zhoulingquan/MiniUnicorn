@@ -8,9 +8,6 @@ from miniunicorn.agent.loop import AgentLoop
 
 LOOP_LINE_LIMIT = 900
 COMPATIBILITY_METHODS = {
-    "run",
-    "process_direct",
-    "_dispatch",
     "_process_message",
     "_execute_message",
     "_process_system_message",
@@ -19,13 +16,6 @@ COMPATIBILITY_METHODS = {
     "_sanitize_persisted_blocks",
     "_save_turn",
     "_persist_subagent_followup",
-    "_set_runtime_checkpoint",
-    "_mark_pending_user_turn",
-    "_clear_pending_user_turn",
-    "_clear_runtime_checkpoint",
-    "_restore_runtime_checkpoint",
-    "_restore_pending_user_turn",
-    "_cancel_active_tasks",
 }
 
 DELEGATE_METHODS = COMPATIBILITY_METHODS
@@ -34,7 +24,7 @@ COLLABORATOR_LINE_LIMITS = {
     "turn_executor.py": 340,
     "agent_run_adapter.py": 420,
     "turn_persistence.py": 450,
-    "turn_dispatcher.py": 550,
+    "turn_dispatcher.py": 200,
 }
 
 

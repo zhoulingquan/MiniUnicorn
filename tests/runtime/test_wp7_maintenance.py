@@ -881,8 +881,14 @@ class TestDreamIdleTriggerDurableMode:
         assert enqueued == ["cursor-1"], "enqueue callback must be called with the cursor"
 
     @pytest.mark.asyncio
-    async def test_legacy_mode_uses_create_task(self, tmp_path) -> None:
-        """Without enqueue_callback, maybe_trigger uses asyncio.create_task."""
+    async def test_no_callback_skips_trigger(self, tmp_path) -> None:
+        """Without enqueue_callback, maybe_trigger skips (WP7 hard cutover).
+
+        The legacy ``asyncio.create_task`` path was removed in the WP7
+        hard cutover. When no ``enqueue_callback`` is bound, the trigger
+        logs a warning and returns without running Dream — required work
+        must be durable and owned by a maintenance Worker.
+        """
         import asyncio
         from miniunicorn.agent.dream_trigger import DreamIdleTrigger
 
@@ -914,11 +920,10 @@ class TestDreamIdleTriggerDurableMode:
         trigger._last_trigger_ts = 0.0
 
         await trigger.maybe_trigger(active_session_keys=())
-        # The _dream_task should have been created.
-        assert trigger._dream_task is not None
-        # Wait for it to complete.
-        await asyncio.sleep(0.05)
-        assert dream.ran == [True]  # type: ignore[attr-defined]
+        # No legacy _dream_task attribute — the create_task path is gone.
+        assert not hasattr(trigger, "_dream_task")
+        # Dream was NOT run (no durable task was enqueued).
+        assert dream.ran == []  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------

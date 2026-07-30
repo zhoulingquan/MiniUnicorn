@@ -1,26 +1,25 @@
 """Turn persistence and recovery collaborator.
 
-Owns session history writes, multimodal sanitization, runtime checkpoints,
-pending user-turn recovery, and subagent follow-up dedup. The algorithms
-were moved here mechanically from :class:`AgentLoop`; the loop retains thin
-delegates so existing monkeypatches continue to intercept calls.
+Owns session history writes, multimodal sanitization, and subagent follow-up
+dedup. The algorithms were moved here mechanically from :class:`AgentLoop`;
+the loop retains thin delegates so existing monkeypatches continue to
+intercept calls.
 
 Design §29.4 splits this module's responsibilities without duplicating state:
 
-- **Legacy checkpoint reader** — ``restore_runtime_checkpoint`` /
-  ``restore_pending_user_turn`` remain for migration (design §31.2) and for
-  the legacy non-durable path. They are no-ops for runtime tasks.
+- **Session transcript persistence** — ``persist_user_message_early``,
+  ``save_turn``, ``assemble_outbound``, ``sanitize_persisted_blocks``, and
+  ``persist_subagent_followup`` remain the transcript authority.
 - **Durable checkpoint adapter** — implemented separately in
   :mod:`miniunicorn.runtime.durable_journal` (design §29.4). Used by the
-  Worker Adapter when ``runtime.enabled=true``.
+  Worker Adapter.
 - **SessionCommitter adapter** — implemented separately in
   :mod:`miniunicorn.runtime.session_committer` (design §17.7).
 
-For runtime tasks (design §29.4):
-
-- do not write ``runtime_checkpoint`` session metadata;
-- do not write ``pending_user_turn`` session metadata;
-- do not convert pending calls into synthetic errors.
+Legacy ``runtime_checkpoint`` / ``pending_user_turn`` session-metadata
+writers and readers were removed in design Task 10. Durable tasks own
+recovery through the Runtime Store state machine and
+``TurnJournalPort.save_checkpoint()`` (design §6.22, §29.4).
 """
 
 from __future__ import annotations
@@ -41,16 +40,6 @@ if TYPE_CHECKING:
     from miniunicorn.session.manager import Session, SessionManager
 
 
-# Module-level constants. ``AgentLoop`` keeps class-level aliases so tests
-# and extensions that reference ``AgentLoop._RUNTIME_CHECKPOINT_KEY`` keep
-# working without importing this module.
-RUNTIME_CHECKPOINT_KEY = "runtime_checkpoint"
-PENDING_USER_TURN_KEY = "pending_user_turn"
-
-_INTERRUPTED_TOOL_MESSAGE = "Error: Task interrupted before this tool finished."
-_INTERRUPTED_RESPONSE_MESSAGE = "Error: Task interrupted before a response was generated."
-
-
 class TurnPersistenceHost(Protocol):
     """Host capabilities required by :class:`TurnPersistence`."""
 
@@ -61,7 +50,7 @@ class TurnPersistenceHost(Protocol):
 
 
 class TurnPersistence:
-    """Single owner of checkpoint, pending-turn and history-write algorithms."""
+    """Single owner of session transcript persistence algorithms."""
 
     def __init__(self, host: TurnPersistenceHost) -> None:
         self._host = host
@@ -94,7 +83,6 @@ class TurnPersistence:
             extra.update(kwargs)
             text = msg.content if isinstance(msg.content, str) else ""
             session.add_message("user", text, **extra)
-            self.mark_pending_user_turn(session)
             self._host.sessions.save(session)
             return True
         return False
@@ -261,114 +249,5 @@ class TurnPersistence:
             injected_event="subagent_result",
             subagent_task_id=task_id,
         )
-        return True
-
-    # ------------------------------------------------------------------
-    # Checkpoint mark/clear
-    # ------------------------------------------------------------------
-
-    def set_runtime_checkpoint(self, session: "Session", payload: dict[str, Any]) -> None:
-        """Persist the latest in-flight turn state into session metadata."""
-        session.metadata[RUNTIME_CHECKPOINT_KEY] = payload
-        self._host.sessions.save(session)
-
-    def mark_pending_user_turn(self, session: "Session") -> None:
-        session.metadata[PENDING_USER_TURN_KEY] = True
-
-    def clear_pending_user_turn(self, session: "Session") -> None:
-        session.metadata.pop(PENDING_USER_TURN_KEY, None)
-
-    def clear_runtime_checkpoint(self, session: "Session") -> None:
-        if RUNTIME_CHECKPOINT_KEY in session.metadata:
-            session.metadata.pop(RUNTIME_CHECKPOINT_KEY, None)
-
-    @staticmethod
-    def checkpoint_message_key(message: dict[str, Any]) -> tuple[Any, ...]:
-        return (
-            message.get("role"),
-            message.get("content"),
-            message.get("tool_call_id"),
-            message.get("name"),
-            message.get("tool_calls"),
-            message.get("reasoning_content"),
-            message.get("thinking_blocks"),
-        )
-
-    # ------------------------------------------------------------------
-    # Checkpoint / pending-turn recovery
-    # ------------------------------------------------------------------
-
-    def restore_runtime_checkpoint(self, session: "Session") -> bool:
-        """Materialize an unfinished turn into session history before a new request."""
-        from datetime import datetime
-
-        checkpoint = session.metadata.get(RUNTIME_CHECKPOINT_KEY)
-        if not isinstance(checkpoint, dict):
-            return False
-
-        assistant_message = checkpoint.get("assistant_message")
-        completed_tool_results = checkpoint.get("completed_tool_results") or []
-        pending_tool_calls = checkpoint.get("pending_tool_calls") or []
-
-        restored_messages: list[dict[str, Any]] = []
-        if isinstance(assistant_message, dict):
-            restored = dict(assistant_message)
-            restored.setdefault("timestamp", datetime.now().isoformat())
-            restored_messages.append(restored)
-        for message in completed_tool_results:
-            if isinstance(message, dict):
-                restored = dict(message)
-                restored.setdefault("timestamp", datetime.now().isoformat())
-                restored_messages.append(restored)
-        for tool_call in pending_tool_calls:
-            if not isinstance(tool_call, dict):
-                continue
-            tool_id = tool_call.get("id")
-            name = ((tool_call.get("function") or {}).get("name")) or "tool"
-            restored_messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_id,
-                    "name": name,
-                    "content": _INTERRUPTED_TOOL_MESSAGE,
-                    "timestamp": datetime.now().isoformat(),
-                }
-            )
-
-        overlap = 0
-        max_overlap = min(len(session.messages), len(restored_messages))
-        for size in range(max_overlap, 0, -1):
-            existing = session.messages[-size:]
-            restored = restored_messages[:size]
-            if all(
-                self.checkpoint_message_key(left) == self.checkpoint_message_key(right)
-                for left, right in zip(existing, restored)
-            ):
-                overlap = size
-                break
-        session.messages.extend(restored_messages[overlap:])
-
-        self.clear_pending_user_turn(session)
-        self.clear_runtime_checkpoint(session)
-        return True
-
-    def restore_pending_user_turn(self, session: "Session") -> bool:
-        """Close a turn that only persisted the user message before crashing."""
-        from datetime import datetime
-
-        if not session.metadata.get(PENDING_USER_TURN_KEY):
-            return False
-
-        if session.messages and session.messages[-1].get("role") == "user":
-            session.messages.append(
-                {
-                    "role": "assistant",
-                    "content": _INTERRUPTED_RESPONSE_MESSAGE,
-                    "timestamp": datetime.now().isoformat(),
-                }
-            )
-            session.updated_at = datetime.now()
-
-        self.clear_pending_user_turn(session)
         return True
 

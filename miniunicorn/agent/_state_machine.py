@@ -110,7 +110,7 @@ class StateMixin:
     """
 
     async def _state_restore(self: "AgentLoop", ctx: TurnContext) -> TurnState:
-        """Restore checkpoint / pending user turn; extract documents."""
+        """Prepare media and session scope for the turn."""
         msg = ctx.msg
 
         if msg.media:
@@ -127,11 +127,6 @@ class StateMixin:
             ctx.session = self.sessions.get_or_create(ctx.session_key)
         mark_webui_session(ctx.session, msg.metadata)
         self.workspace_scopes.persist_message_scope(ctx.session, msg)
-
-        if self._restore_runtime_checkpoint(ctx.session):
-            self.sessions.save(ctx.session)
-        if self._restore_pending_user_turn(ctx.session):
-            self.sessions.save(ctx.session)
 
         return "ok"
 
@@ -171,7 +166,6 @@ class StateMixin:
                 )
                 ctx.session.add_message("assistant", result.content, _command=True)
                 self.sessions.save(ctx.session)
-                self._clear_pending_user_turn(ctx.session)
             return "shortcut"
         return "dispatch"
 
@@ -262,8 +256,6 @@ class StateMixin:
             turn_latency_ms=ctx.turn_latency_ms,
         )
         ctx.session.enforce_file_cap(on_archive=self.context.memory.raw_archive)
-        self._clear_pending_user_turn(ctx.session)
-        self._clear_runtime_checkpoint(ctx.session)
         self.sessions.save(ctx.session)
         self._schedule_background(
             self.consolidator.maybe_consolidate_by_tokens(

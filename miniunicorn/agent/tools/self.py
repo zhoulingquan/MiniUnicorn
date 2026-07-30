@@ -73,12 +73,10 @@ class MyTool(Tool, ContextAware):
             "auto_compact",
             "context",
             "commands",
-            # Sensitive runtime state (credentials, message routing, task tracking)
+            # Sensitive runtime state (credentials, message routing)
             "_mcp_servers",
             "_mcp_stacks",
-            "_pending_queues",
             "_session_locks",
-            "_active_tasks",
             "_background_supervisor",
             # Security boundaries (inspect + modify both blocked)
             "restrict_to_workspace",

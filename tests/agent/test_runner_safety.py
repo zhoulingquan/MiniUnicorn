@@ -9,6 +9,8 @@ import pytest
 from miniunicorn.config.schema import AgentDefaults
 from miniunicorn.providers.base import LLMResponse, ToolCallRequest
 
+from tests.agent.conftest import FakeToolExecutionPort
+
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
 
@@ -51,6 +53,7 @@ async def test_runner_does_not_abort_on_workspace_violation_anymore():
         AgentRunSpec(
             initial_messages=[],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=3,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -129,6 +132,7 @@ async def test_runner_returns_non_retryable_hint_on_ssrf_violation():
         AgentRunSpec(
             initial_messages=[],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=3,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -188,6 +192,7 @@ async def test_runner_lets_llm_recover_from_shell_guard_path_outside():
         AgentRunSpec(
             initial_messages=[],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=3,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -242,6 +247,7 @@ async def test_runner_throttles_repeated_workspace_bypass_attempts():
         AgentRunSpec(
             initial_messages=[],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=10,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,

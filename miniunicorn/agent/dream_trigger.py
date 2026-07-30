@@ -65,11 +65,9 @@ class DreamIdleTrigger:
         self._last_trigger_ts: float = 0.0
         self._last_user_activity_ts: float = time.monotonic()
         self._running: bool = False  # 防止并发 dream
-        # 跟踪后台 dream 任务，便于取消和资源回收
-        self._dream_task: asyncio.Task | None = None
-        # Durable enqueue callback (design §22.3). When set, the trigger
-        # enqueues a DREAM task instead of asyncio.create_task. The callback
-        # receives the source revision (dream cursor) and returns the task_id.
+        # Durable enqueue callback (design §22.3). The trigger enqueues a
+        # DREAM task instead of asyncio.create_task. The callback receives
+        # the source revision (dream cursor) and returns the task_id.
         self._enqueue_callback = enqueue_callback
 
     def update_config(
@@ -105,9 +103,8 @@ class DreamIdleTrigger:
 
         在 AgentLoop.run() 的 timeout 分支中调用（每秒一次）。
 
-        When ``enqueue_callback`` is set (durable mode, design §22.3), the
-        trigger enqueues a durable DREAM task instead of spawning
-        ``asyncio.create_task``. The source revision is derived from the
+        Enqueues a durable DREAM task through ``enqueue_callback`` (design
+        §22.3, WP7 hard cutover). The source revision is derived from the
         current dream cursor so repeated submissions within the same cursor
         deduplicate (design §13.1).
         """
@@ -138,44 +135,23 @@ class DreamIdleTrigger:
             "Dream idle trigger: {} unprocessed entries, triggering dream",
             len(unprocessed),
         )
-        if self._enqueue_callback is not None:
-            # Durable mode: enqueue a DREAM task (design §22.3).
-            # The source revision is the current dream cursor, so repeated
-            # submissions deduplicate until the cursor advances.
-            source_revision = cursor or "init"
-            try:
-                task_id = await self._enqueue_callback(source_revision)
-                if task_id:
-                    logger.info(
-                        "Dream idle trigger: enqueued durable DREAM task {} (rev={})",
-                        task_id,
-                        source_revision,
-                    )
-            except Exception:
-                logger.exception("Dream idle trigger: enqueue failed")
-        else:
-            # Legacy mode: own the work via asyncio.create_task.
-            self._dream_task = asyncio.create_task(self._safe_run())
-
-    async def _safe_run(self) -> None:
-        """安全执行 Dream.run()，捕获异常并重置运行标志。"""
-        self._running = True
+        if self._enqueue_callback is None:
+            logger.warning("Dream idle trigger: no enqueue_callback, skipping (WP7 hard cutover)")
+            return
+        # Durable mode: enqueue a DREAM task (design §22.3).
+        # The source revision is the current dream cursor, so repeated
+        # submissions deduplicate until the cursor advances.
+        source_revision = cursor or "init"
         try:
-            import time as _time
-
-            t0 = _time.monotonic()
-            did_work = await self.dream.run()
-            elapsed = _time.monotonic() - t0
-            if did_work:
-                logger.info("Dream idle trigger completed in {:.1f}s", elapsed)
-            else:
-                logger.debug("Dream idle trigger: nothing to process")
+            task_id = await self._enqueue_callback(source_revision)
+            if task_id:
+                logger.info(
+                    "Dream idle trigger: enqueued durable DREAM task {} (rev={})",
+                    task_id,
+                    source_revision,
+                )
         except Exception:
-            logger.exception("Dream idle trigger failed")
-        finally:
-            self._running = False
-            # 清理任务引用，便于后续触发重新创建
-            self._dream_task = None
+            logger.exception("Dream idle trigger: enqueue failed")
 
     @property
     def is_running(self) -> bool:

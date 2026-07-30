@@ -534,7 +534,8 @@ class CronService:
                 # Spawn _on_timer as a separate task so a subsequent
                 # _arm_timer (which cancels self._timer_task) does not
                 # cancel a running _on_timer / _execute_job.
-                task = asyncio.create_task(self._on_timer())
+                timer_coro = self._on_timer()
+                task = asyncio.create_task(timer_coro)
                 self._exec_tasks.add(task)
                 task.add_done_callback(self._exec_task_done)
 

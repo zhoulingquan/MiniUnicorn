@@ -4,20 +4,9 @@ Design §30 WP0 task 5: "inventory every direct ``process_direct``,
 ``tool.execute``, Channel send, maintenance ``create_task``, and final
 outbound publication."
 
-Each inventory item is expressed as an ``xfail`` test that asserts the
-*future* state (the path is gone or routed through a runtime port). Until
-the relevant WP lands, the assertion fails — making the migration debt
-visible in the test suite. When the WP completes, the xfail flips to a
-passing test that prevents regression.
-
-WP mapping (design §30):
-- WP3: durable task path — replaces ``process_direct``, turn ``create_task``,
-  ``runtime_checkpoint`` / ``pending_user_turn`` authority
-- WP4: Tool Gateway — replaces direct ``tool.execute()`` in the runner
-- WP5: Outbox — replaces direct ``channel.send`` and ``bus.publish_outbound``
-  for final replies
-- WP7: maintenance — replaces fire-and-forget ``create_task`` for required
-  background work
+Each inventory item is expressed as a hard assertion that the legacy
+path is gone or routed through a runtime port. These tests prevent
+regression of the hard cutover (Task 10).
 """
 
 from __future__ import annotations
@@ -53,17 +42,6 @@ def _count_pattern(source: str, pattern: str) -> int:
     )
 
 
-def _has_method_call(source: str, method_name: str) -> bool:
-    """True if ``method_name`` appears as a call in source (rough check)."""
-    tree = ast.parse(source)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and getattr(node.func, "attr", None) == method_name:
-            return True
-        if isinstance(node, ast.Call) and getattr(node.func, "id", None) == method_name:
-            return True
-    return False
-
-
 # ---------------------------------------------------------------------------
 # WP3: durable task path — process_direct must be routed through TaskService
 # ---------------------------------------------------------------------------
@@ -72,11 +50,6 @@ def _has_method_call(source: str, method_name: str) -> bool:
 class TestProcessDirectInventory:
     """``process_direct`` bypasses durable acceptance (design §28.4, §29.1)."""
 
-    @pytest.mark.xfail(
-        reason="WP3: route process_direct through TaskService.submit() per §28.4",
-        strict=True,
-        raises=AssertionError,
-    )
     def test_dispatcher_process_direct_is_removed_or_routed(self) -> None:
         source = _read(_DISPATCHER)
         assert "def process_direct" not in source, (
@@ -84,11 +57,6 @@ class TestProcessDirectInventory:
             "with TaskService.submit() + await."
         )
 
-    @pytest.mark.xfail(
-        reason="WP3: replace asyncio.create_task turn dispatch with durable submit",
-        strict=True,
-        raises=AssertionError,
-    )
     def test_dispatcher_does_not_create_task_for_turns(self) -> None:
         source = _read(_DISPATCHER)
         assert "asyncio.create_task(self._host._dispatch" not in source, (
@@ -96,11 +64,6 @@ class TestProcessDirectInventory:
             "must submit through the durable Scheduler instead."
         )
 
-    @pytest.mark.xfail(
-        reason="WP3: remove pending_queues as a process-local task authority",
-        strict=True,
-        raises=AssertionError,
-    )
     def test_dispatcher_does_not_own_pending_queues_registry(self) -> None:
         source = _read(_DISPATCHER)
         assert "self.pending_queues" not in source, (
@@ -118,11 +81,6 @@ class TestLegacyCheckpointInventory:
     """``runtime_checkpoint`` / ``pending_user_turn`` are recovery authorities
     today; durable tasks must not dual-write them (design §6.22, §29.4)."""
 
-    @pytest.mark.xfail(
-        reason="WP3: runtime tasks must not write runtime_checkpoint metadata",
-        strict=True,
-        raises=AssertionError,
-    )
     def test_turn_persistence_does_not_write_runtime_checkpoint(self) -> None:
         source = _read(_PERSISTENCE)
         assert "set_runtime_checkpoint" not in source or "def set_runtime_checkpoint" not in source, (
@@ -130,11 +88,6 @@ class TestLegacyCheckpointInventory:
             "route through TurnJournalPort.save_checkpoint() instead."
         )
 
-    @pytest.mark.xfail(
-        reason="WP3: runtime tasks must not write pending_user_turn metadata",
-        strict=True,
-        raises=AssertionError,
-    )
     def test_turn_persistence_does_not_mark_pending_user_turn(self) -> None:
         source = _read(_PERSISTENCE)
         assert "mark_pending_user_turn" not in source, (
@@ -155,11 +108,6 @@ class TestDirectToolExecutionInventory:
     through ``ToolGateway``.
     """
 
-    @pytest.mark.xfail(
-        reason="WP4: route tool execution through ToolExecutionPort / ToolGateway",
-        strict=True,
-        raises=AssertionError,
-    )
     def test_runner_does_not_call_tool_execute_directly(self) -> None:
         source = _read(_RUNNER)
         assert "await tool.execute(" not in source, (
@@ -167,11 +115,6 @@ class TestDirectToolExecutionInventory:
             "through ToolExecutionPort.execute()."
         )
 
-    @pytest.mark.xfail(
-        reason="WP4: route tool registry execution through ToolGateway",
-        strict=True,
-        raises=AssertionError,
-    )
     def test_registry_execute_is_not_called_from_runner(self) -> None:
         source = _read(_RUNNER)
         assert "spec.tools.execute(" not in source, (
@@ -191,11 +134,6 @@ class TestDirectOutboundPublicationInventory:
     WP5 routes them through the durable Outbox so delivery is reliable.
     """
 
-    @pytest.mark.xfail(
-        reason="WP5: route final reply through Outbox, not bus.publish_outbound",
-        strict=True,
-        raises=AssertionError,
-    )
     def test_dispatcher_does_not_publish_final_reply_directly(self) -> None:
         source = _read(_DISPATCHER)
         # The final-response publish happens in the dispatch completion path.
@@ -204,23 +142,31 @@ class TestDirectOutboundPublicationInventory:
             "WP5 must enqueue through Outbox atomically with task completion."
         )
 
-    @pytest.mark.xfail(
-        reason="WP5: ChannelManager must expose send_with_receipt to Outbox Sender",
-        strict=True,
-        raises=AssertionError,
-    )
     def test_channel_manager_does_not_send_directly_without_receipt(self) -> None:
+        """``channel.send(...)`` is allowed only inside ``send_with_receipt``.
+
+        Uses ``ast`` to find all ``Call`` nodes where ``func.attr == "send"``
+        and verifies the enclosing function name is ``send_with_receipt``.
+        """
         source = _read(_CHANNELS_MANAGER)
-        assert "await channel.send(" not in source, (
-            "ChannelManager still calls channel.send() directly; WP5 must "
-            "route through send_with_receipt() and let Outbox own delivery state."
+        tree = ast.parse(source)
+        send_callers: set[str] = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for child in ast.walk(node):
+                if (
+                    isinstance(child, ast.Call)
+                    and isinstance(child.func, ast.Attribute)
+                    and child.func.attr == "send"
+                ):
+                    send_callers.add(node.name)
+        assert send_callers <= {"send_with_receipt"}, (
+            "ChannelManager still calls channel.send() outside "
+            "send_with_receipt; WP5 must route through send_with_receipt() "
+            f"and let Outbox own delivery state. Found in: {send_callers}"
         )
 
-    @pytest.mark.xfail(
-        reason="WP5: MessageTool must enqueue through Outbox, not bus.publish_outbound",
-        strict=True,
-        raises=AssertionError,
-    )
     def test_message_tool_does_not_bind_bus_publish_directly(self) -> None:
         source = _read(_MESSAGE_TOOL)
         assert "bus.publish_outbound" not in source, (
@@ -238,11 +184,6 @@ class TestMaintenanceCreateTaskInventory:
     """Dream, consolidation, cron, and cleanup use ``asyncio.create_task``
     today (design §29.16, §22.3). WP7 enqueues them as durable internal tasks."""
 
-    @pytest.mark.xfail(
-        reason="WP7: Dream trigger must enqueue a durable DREAM task",
-        strict=True,
-        raises=AssertionError,
-    )
     def test_dream_trigger_does_not_own_required_work_via_create_task(self) -> None:
         source = _read(_DREAM_TRIGGER)
         assert "asyncio.create_task(self._safe_run())" not in source, (
@@ -250,11 +191,6 @@ class TestMaintenanceCreateTaskInventory:
             "WP7 must submit a durable DREAM task through TaskService.submit_internal()."
         )
 
-    @pytest.mark.xfail(
-        reason="WP7: cron timer must enqueue a durable task, not create_task",
-        strict=True,
-        raises=AssertionError,
-    )
     def test_cron_service_does_not_own_required_work_via_create_task(self) -> None:
         source = _read(_CRON_SERVICE)
         assert "asyncio.create_task(self._on_timer())" not in source, (
@@ -269,21 +205,12 @@ class TestMaintenanceCreateTaskInventory:
 
 
 def test_inventory_count_of_process_direct_call_sites() -> None:
-    """Current count of ``process_direct`` references in production source.
-
-    This is a passing characterization test — it documents today's debt.
-    When WP3 lands, the count drops to zero.
-    """
+    """``process_direct`` references in production source must be zero."""
     source = _read(_DISPATCHER)
-    count = source.count("process_direct")
-    assert count > 0, "process_direct references have been removed — WP3 progress"
+    assert source.count("process_direct") == 0
 
 
 def test_inventory_count_of_publish_outbound_in_dispatcher() -> None:
-    """Current count of ``publish_outbound`` calls in the dispatcher.
-
-    Passing characterization; WP5 drives this to zero.
-    """
+    """``publish_outbound`` calls in the dispatcher must be zero."""
     source = _read(_DISPATCHER)
-    count = _count_pattern(source, "publish_outbound")
-    assert count > 0, "publish_outbound calls removed from dispatcher — WP5 progress"
+    assert _count_pattern(source, "publish_outbound") == 0

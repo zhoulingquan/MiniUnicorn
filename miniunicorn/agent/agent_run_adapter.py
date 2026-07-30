@@ -61,6 +61,39 @@ def _durable_runtime_port(attr: str) -> Any:
     return getattr(runtime, attr, None)
 
 
+class DirectToolExecutionPort:
+    """Legacy/test fallback that executes tools directly via the registry.
+
+    Used when no durable ToolGateway is bound (legacy/test mode). Mirrors
+    the former in-process execution path: resolve the tool via the
+    registry, call ``tool.execute(**params)`` for real ToolRegistry
+    instances, or fall back to ``tools.execute(name, params)`` for mocks.
+    Exceptions are re-raised so the Runner's gateway exception handler
+    can apply violation classification and soft-error semantics.
+    """
+
+    def __init__(self, tools: Any) -> None:
+        self._tools = tools
+
+    async def execute(self, request: Any) -> Any:
+        from miniunicorn.agent.ports import ToolExecutionResult
+        from miniunicorn.agent.tools.registry import ToolRegistry
+
+        if isinstance(self._tools, ToolRegistry):
+            tool = self._tools.get(request.tool_name)
+            if tool is not None:
+                result = await tool.execute(**request.normalized_arguments)
+            else:
+                result = await self._tools.execute(
+                    request.tool_name, request.normalized_arguments
+                )
+        else:
+            result = await self._tools.execute(
+                request.tool_name, request.normalized_arguments
+            )
+        return ToolExecutionResult(state="SUCCEEDED", content=result)
+
+
 class AgentRunHost(Protocol):
     """Host capabilities required by :class:`AgentRunAdapter`."""
 
@@ -100,8 +133,6 @@ class AgentRunHost(Protocol):
         metadata: dict | None = None,
         session_key: str | None = None,
     ) -> None: ...
-
-    def _set_runtime_checkpoint(self, session: "Session", payload: dict[str, Any]) -> None: ...
 
     def _prepare_message_media(self, content: str, media: list[str]) -> tuple[str, list[str]]: ...
 
@@ -174,11 +205,6 @@ class AgentRunAdapter:
         # through shared mutable state.
         extra = list(host._extra_hooks) + list(turn_hooks or [])
         hook: AgentHook = CompositeHook([loop_hook] + extra) if extra else loop_hook
-
-        async def _checkpoint(payload: dict[str, Any]) -> None:
-            if session is None:
-                return
-            host._set_runtime_checkpoint(session, payload)
 
         async def _drain_pending(*, limit: int = _MAX_INJECTIONS_PER_TURN) -> list[dict[str, Any]]:
             """Drain follow-up messages from the pending queue.
@@ -292,7 +318,6 @@ class AgentRunAdapter:
                     progress_callback=on_progress,
                     stream_progress_deltas=on_stream is not None,
                     retry_wait_callback=on_retry_wait,
-                    checkpoint_callback=_checkpoint,
                     injection_callback=_drain_pending,
                     # Sustained goals may legitimately exceed MINIUNICORN_LLM_TIMEOUT_S; idle stall
                     # is still capped by MINIUNICORN_STREAM_IDLE_TIMEOUT_S in streaming providers.
@@ -314,8 +339,12 @@ class AgentRunAdapter:
                     turn_budget=host._build_turn_budget(),
                     # Durable runtime ports (design §11.1, §19, §20). Picked
                     # up from the bound TurnRuntime when running under the
-                    # durable runtime; None for legacy turns.
-                    tool_execution_port=_durable_runtime_port("tool_execution_port"),
+                    # durable runtime; fall back to DirectToolExecutionPort
+                    # for legacy/test turns where no TurnRuntime is bound.
+                    tool_execution_port=(
+                        _durable_runtime_port("tool_execution_port")
+                        or DirectToolExecutionPort(tools)
+                    ),
                     turn_journal=_durable_runtime_port("turn_journal"),
                 )
             )

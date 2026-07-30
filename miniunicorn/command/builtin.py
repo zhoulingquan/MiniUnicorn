@@ -121,11 +121,26 @@ def builtin_command_palette() -> list[dict[str, str]]:
 
 
 async def cmd_stop(ctx: CommandContext) -> OutboundMessage:
-    """Cancel all active tasks and subagents for the session."""
+    """Cancel all active subagents for the session.
+
+    In-process task cancellation was removed in design Task 10. Durable
+    task cancellation is handled by the Runtime Store; this command now
+    cancels only in-process subagents.
+    """
     loop = ctx.loop
     msg = ctx.msg
-    total = await loop._cancel_active_tasks(ctx.key)
-    content = f"Stopped {total} task(s)." if total else "No active task to stop."
+    # Legacy in-process active_tasks registry was removed (design Task 10).
+    # Subagent cancellation remains for in-process subagent runs.
+    from contextlib import suppress
+
+    sub_cancelled = 0
+    with suppress(Exception):
+        import asyncio
+
+        sub_cancelled = await asyncio.wait_for(
+            loop.subagents.cancel_by_session(ctx.key), timeout=10.0
+        )
+    content = f"Stopped {sub_cancelled} subagent(s)." if sub_cancelled else "No active task to stop."
     return OutboundMessage(
         channel=msg.channel, chat_id=msg.chat_id, content=content, metadata=dict(msg.metadata or {})
     )
@@ -164,10 +179,11 @@ async def cmd_status(ctx: CommandContext) -> OutboundMessage:
     if ctx_est <= 0:
         ctx_est = last_usage.get("prompt_tokens", 0)
 
-    active_tasks = loop._active_tasks.get(ctx.key, [])
-    task_count = sum(1 for t in active_tasks if not t.done())
+    # Legacy in-process active_tasks registry was removed (design Task 10).
+    # Only subagent count remains for in-process status reporting.
+    task_count = 0
     with suppress(Exception):
-        task_count += loop.subagents.get_running_count_by_session(ctx.key)
+        task_count = loop.subagents.get_running_count_by_session(ctx.key)
     return OutboundMessage(
         channel=ctx.msg.channel,
         chat_id=ctx.msg.chat_id,
@@ -191,9 +207,16 @@ async def cmd_status(ctx: CommandContext) -> OutboundMessage:
 
 
 async def cmd_new(ctx: CommandContext) -> OutboundMessage:
-    """Stop active task and start a fresh session."""
+    """Stop active subagents and start a fresh session."""
     loop = ctx.loop
-    await loop._cancel_active_tasks(ctx.key)
+    # Legacy in-process active_tasks cancellation was removed (design Task 10).
+    # Subagent cancellation remains for in-process subagent runs.
+    from contextlib import suppress
+
+    with suppress(Exception):
+        import asyncio
+
+        await asyncio.wait_for(loop.subagents.cancel_by_session(ctx.key), timeout=10.0)
     session = ctx.session or loop.sessions.get_or_create(ctx.key)
     snapshot = session.messages[session.last_consolidated :]
     session.clear()

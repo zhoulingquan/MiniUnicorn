@@ -4,6 +4,7 @@ import pytest
 
 import miniunicorn.agent.memory as memory_module
 from miniunicorn.agent.loop import AgentLoop
+from miniunicorn.bus.events import InboundMessage
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.providers.base import LLMResponse
 
@@ -31,12 +32,24 @@ def _make_loop(tmp_path, *, estimated_tokens: int, context_window_tokens: int) -
     return loop
 
 
+async def _run_turn(loop: AgentLoop, content: str = "hello", session_key: str = "cli:test") -> None:
+    """Drive a turn through the SDK-style _process_message path.
+
+    Replaces the legacy ``loop.process_direct(...)`` entry point removed
+    in design Task 10.
+    """
+    msg = InboundMessage(
+        channel="cli", sender_id="user", chat_id="test", content=content, media=[]
+    )
+    await loop._process_message(msg, session_key=session_key)
+
+
 @pytest.mark.asyncio
 async def test_prompt_below_threshold_does_not_consolidate(tmp_path) -> None:
     loop = _make_loop(tmp_path, estimated_tokens=100, context_window_tokens=200)
     loop.consolidator.archive = AsyncMock(return_value=True)  # type: ignore[method-assign]
 
-    await loop.process_direct("hello", session_key="cli:test")
+    await _run_turn(loop)
 
     loop.consolidator.archive.assert_not_awaited()
 
@@ -54,7 +67,7 @@ async def test_prompt_above_threshold_triggers_consolidation(tmp_path, monkeypat
     loop.sessions.save(session)
     monkeypatch.setattr(memory_module, "estimate_message_tokens", lambda _message: 500)
 
-    await loop.process_direct("hello", session_key="cli:test")
+    await _run_turn(loop)
 
     assert loop.consolidator.archive.await_count >= 1
 
@@ -214,7 +227,7 @@ async def test_preflight_consolidation_receives_pending_summary(tmp_path) -> Non
     loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=None)  # type: ignore[method-assign]
     loop._schedule_background = lambda coro: coro.close()  # type: ignore[method-assign]
 
-    await loop.process_direct("hello", session_key="cli:test")
+    await _run_turn(loop)
 
     loop.consolidator.maybe_consolidate_by_tokens.assert_any_await(
         session,
@@ -224,7 +237,7 @@ async def test_preflight_consolidation_receives_pending_summary(tmp_path) -> Non
 
 @pytest.mark.asyncio
 async def test_preflight_consolidation_before_llm_call(tmp_path, monkeypatch) -> None:
-    """Verify preflight consolidation runs before the LLM call in process_direct."""
+    """Verify preflight consolidation runs before the LLM call in the SDK path."""
     order: list[str] = []
 
     loop = _make_loop(tmp_path, estimated_tokens=0, context_window_tokens=200)
@@ -260,7 +273,7 @@ async def test_preflight_consolidation_before_llm_call(tmp_path, monkeypatch) ->
 
     loop.consolidator.estimate_session_prompt_tokens = mock_estimate  # type: ignore[method-assign]
 
-    await loop.process_direct("hello", session_key="cli:test")
+    await _run_turn(loop)
 
     assert "consolidate" in order
     assert "llm" in order

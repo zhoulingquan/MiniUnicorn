@@ -59,17 +59,18 @@ async def test_run_returns_result(tmp_path):
     from miniunicorn.bus.events import OutboundMessage
 
     mock_response = OutboundMessage(channel="cli", chat_id="direct", content="Hello back!")
-    bot._loop.process_direct = AsyncMock(return_value=mock_response)
+    bot._loop._connect_mcp = AsyncMock()
+    bot._loop._process_message = AsyncMock(return_value=mock_response)
 
     result = await bot.run("hi")
 
     assert isinstance(result, RunResult)
     assert result.content == "Hello back!"
-    # Hooks are now passed via the hooks= parameter (one capture hook).
-    call_kwargs = bot._loop.process_direct.await_args
-    assert call_kwargs.args[0] == "hi"
+    # Hooks are now passed via the turn_hooks= parameter (one capture hook).
+    call_kwargs = bot._loop._process_message.await_args
+    assert call_kwargs.args[0].content == "hi"
     assert call_kwargs.kwargs["session_key"] == "sdk:default"
-    passed_hooks = call_kwargs.kwargs["hooks"]
+    passed_hooks = call_kwargs.kwargs["turn_hooks"]
     assert len(passed_hooks) == 1  # SDKCaptureHook only
 
 
@@ -86,7 +87,8 @@ async def test_run_with_hooks(tmp_path):
             pass
 
     mock_response = OutboundMessage(channel="cli", chat_id="direct", content="done")
-    bot._loop.process_direct = AsyncMock(return_value=mock_response)
+    bot._loop._connect_mcp = AsyncMock()
+    bot._loop._process_message = AsyncMock(return_value=mock_response)
 
     user_hook = TestHook()
     result = await bot.run("hi", hooks=[user_hook])
@@ -95,21 +97,22 @@ async def test_run_with_hooks(tmp_path):
     # The SDK no longer mutates _extra_hooks.
     assert bot._loop._extra_hooks == []
     # The user hook is passed alongside the capture hook.
-    call_kwargs = bot._loop.process_direct.await_args
-    passed_hooks = call_kwargs.kwargs["hooks"]
+    call_kwargs = bot._loop._process_message.await_args
+    passed_hooks = call_kwargs.kwargs["turn_hooks"]
     assert len(passed_hooks) == 2
     assert passed_hooks[1] is user_hook
 
 
 @pytest.mark.asyncio
 async def test_run_does_not_mutate_extra_hooks_on_error(tmp_path):
-    """Errors in process_direct must not leak hooks into _extra_hooks."""
+    """Errors in _process_message must not leak hooks into _extra_hooks."""
     config_path = _write_config(tmp_path)
     bot = Miniunicorn.from_config(config_path, workspace=tmp_path)
 
     from miniunicorn.agent.hook import AgentHook
 
-    bot._loop.process_direct = AsyncMock(side_effect=RuntimeError("boom"))
+    bot._loop._connect_mcp = AsyncMock()
+    bot._loop._process_message = AsyncMock(side_effect=RuntimeError("boom"))
     original_hooks = list(bot._loop._extra_hooks)
 
     with pytest.raises(RuntimeError):
@@ -122,7 +125,8 @@ async def test_run_does_not_mutate_extra_hooks_on_error(tmp_path):
 async def test_run_none_response(tmp_path):
     config_path = _write_config(tmp_path)
     bot = Miniunicorn.from_config(config_path, workspace=tmp_path)
-    bot._loop.process_direct = AsyncMock(return_value=None)
+    bot._loop._connect_mcp = AsyncMock()
+    bot._loop._process_message = AsyncMock(return_value=None)
 
     result = await bot.run("hi")
     assert result.content == ""
@@ -145,11 +149,12 @@ async def test_run_custom_session_key(tmp_path):
     bot = Miniunicorn.from_config(config_path, workspace=tmp_path)
 
     mock_response = OutboundMessage(channel="cli", chat_id="direct", content="ok")
-    bot._loop.process_direct = AsyncMock(return_value=mock_response)
+    bot._loop._connect_mcp = AsyncMock()
+    bot._loop._process_message = AsyncMock(return_value=mock_response)
 
     await bot.run("hi", session_key="user-alice")
-    call_kwargs = bot._loop.process_direct.await_args
-    assert call_kwargs.args[0] == "hi"
+    call_kwargs = bot._loop._process_message.await_args
+    assert call_kwargs.args[0].content == "hi"
     assert call_kwargs.kwargs["session_key"] == "user-alice"
 
 
@@ -175,25 +180,26 @@ async def test_run_populates_tools_used_across_iterations(tmp_path):
     config_path = _write_config(tmp_path)
     bot = Miniunicorn.from_config(config_path, workspace=tmp_path)
 
-    async def fake_process_direct(message, *, session_key, hooks=None):
-        # Hooks are now passed per-turn via the hooks= parameter.
-        turn_hooks = list(hooks or [])
-        messages = [{"role": "user", "content": message}]
+    async def fake_process_message(msg, *, session_key, turn_hooks=None):
+        # Hooks are now passed per-turn via the turn_hooks= parameter.
+        th = list(turn_hooks or [])
+        messages = [{"role": "user", "content": msg.content}]
         ctx1 = AgentHookContext(iteration=0, messages=messages)
         ctx1.tool_calls = [
             ToolCallRequest(id="c1", name="read_file", arguments={}),
             ToolCallRequest(id="c2", name="grep", arguments={}),
         ]
-        for h in turn_hooks:
+        for h in th:
             await h.after_iteration(ctx1)
         messages.append({"role": "assistant", "content": "ok"})
         ctx2 = AgentHookContext(iteration=1, messages=messages)
         ctx2.tool_calls = [ToolCallRequest(id="c3", name="list_dir", arguments={})]
-        for h in turn_hooks:
+        for h in th:
             await h.after_iteration(ctx2)
         return OutboundMessage(channel="cli", chat_id="direct", content="final")
 
-    bot._loop.process_direct = fake_process_direct
+    bot._loop._connect_mcp = AsyncMock()
+    bot._loop._process_message = fake_process_message
     result = await bot.run("do stuff")
     assert result.content == "final"
     assert result.tools_used == ["read_file", "grep", "list_dir"]
@@ -208,18 +214,19 @@ async def test_run_populates_final_messages(tmp_path):
     config_path = _write_config(tmp_path)
     bot = Miniunicorn.from_config(config_path, workspace=tmp_path)
 
-    async def fake_process_direct(message, *, session_key, hooks=None):
-        turn_hooks = list(hooks or [])
+    async def fake_process_message(msg, *, session_key, turn_hooks=None):
+        th = list(turn_hooks or [])
         messages = [
-            {"role": "user", "content": message},
+            {"role": "user", "content": msg.content},
             {"role": "assistant", "content": "hi there"},
         ]
         ctx = AgentHookContext(iteration=0, messages=messages)
-        for h in turn_hooks:
+        for h in th:
             await h.after_iteration(ctx)
         return OutboundMessage(channel="cli", chat_id="direct", content="hi there")
 
-    bot._loop.process_direct = fake_process_direct
+    bot._loop._connect_mcp = AsyncMock()
+    bot._loop._process_message = fake_process_message
     result = await bot.run("hello")
     assert result.messages == [
         {"role": "user", "content": "hello"},
@@ -234,7 +241,8 @@ async def test_run_no_iterations_leaves_defaults_empty(tmp_path):
 
     config_path = _write_config(tmp_path)
     bot = Miniunicorn.from_config(config_path, workspace=tmp_path)
-    bot._loop.process_direct = AsyncMock(
+    bot._loop._connect_mcp = AsyncMock()
+    bot._loop._process_message = AsyncMock(
         return_value=OutboundMessage(channel="cli", chat_id="direct", content="noop"),
     )
     result = await bot.run("hi")
@@ -257,15 +265,16 @@ async def test_run_user_hooks_still_fire_alongside_capture(tmp_path):
         async def after_iteration(self, context: AgentHookContext) -> None:
             seen_iterations.append(context.iteration)
 
-    async def fake_process_direct(message, *, session_key, hooks=None):
-        turn_hooks = list(hooks or [])
-        assert len(turn_hooks) == 2, f"expected capture + user hook, got {len(turn_hooks)}"
+    async def fake_process_message(msg, *, session_key, turn_hooks=None):
+        th = list(turn_hooks or [])
+        assert len(th) == 2, f"expected capture + user hook, got {len(th)}"
         ctx = AgentHookContext(iteration=7, messages=[])
-        for h in turn_hooks:
+        for h in th:
             await h.after_iteration(ctx)
         return OutboundMessage(channel="cli", chat_id="direct", content="ok")
 
-    bot._loop.process_direct = fake_process_direct
+    bot._loop._connect_mcp = AsyncMock()
+    bot._loop._process_message = fake_process_message
     await bot.run("x", hooks=[UserHook()])
     assert seen_iterations == [7]
 
@@ -283,16 +292,17 @@ async def test_run_does_not_leak_loop_extra_hooks(tmp_path):
     sentinel_hook = AgentHook()
     bot._loop._extra_hooks = [sentinel_hook]
 
-    async def fake_process_direct(message, *, session_key, hooks=None):
+    async def fake_process_message(msg, *, session_key, turn_hooks=None):
         # Per-turn hooks arrive via the parameter; loop-level hooks remain
         # on _extra_hooks untouched.
-        turn_hooks = list(hooks or [])
+        th = list(turn_hooks or [])
         ctx = AgentHookContext(iteration=0, messages=[])
-        for h in turn_hooks:
+        for h in th:
             await h.after_iteration(ctx)
         return OutboundMessage(channel="cli", chat_id="direct", content="done")
 
-    bot._loop.process_direct = fake_process_direct
+    bot._loop._connect_mcp = AsyncMock()
+    bot._loop._process_message = fake_process_message
     await bot.run("hello")
     assert bot._loop._extra_hooks == [sentinel_hook]
 
@@ -329,8 +339,8 @@ async def test_concurrent_runs_isolate_hooks(tmp_path):
     started = asyncio.Event()
     release = asyncio.Event()
 
-    async def fake_process_direct(message, *, session_key, hooks=None):
-        turn_hooks = list(hooks or [])
+    async def fake_process_message(msg, *, session_key, turn_hooks=None):
+        th = list(turn_hooks or [])
         # Signal that we've captured our hooks, then wait for release.
         started.set()
         try:
@@ -338,17 +348,18 @@ async def test_concurrent_runs_isolate_hooks(tmp_path):
         except asyncio.TimeoutError:
             pass
         ctx = AgentHookContext(iteration=0, messages=[])
-        for h in turn_hooks:
+        for h in th:
             await h.after_iteration(ctx)
         # Verify only this run's user hook fired — no cross-contamination.
-        hook_names = {type(h).__name__ for h in turn_hooks}
+        hook_names = {type(h).__name__ for h in th}
         if "HookA" in hook_names:
             assert "HookB" not in hook_names, "HookB leaked into run A"
         if "HookB" in hook_names:
             assert "HookA" not in hook_names, "HookA leaked into run B"
-        return OutboundMessage(channel="cli", chat_id="direct", content=message)
+        return OutboundMessage(channel="cli", chat_id="direct", content=msg.content)
 
-    bot._loop.process_direct = fake_process_direct
+    bot._loop._connect_mcp = AsyncMock()
+    bot._loop._process_message = fake_process_message
 
     task_a = asyncio.create_task(bot.run("a", hooks=[HookA()], session_key="sdk:a"))
     task_b = asyncio.create_task(bot.run("b", hooks=[HookB()], session_key="sdk:b"))

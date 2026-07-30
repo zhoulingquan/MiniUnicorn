@@ -8,9 +8,9 @@ DONE state machine and returns a :class:`ProcessedTurn`.
 The executor only sees the host capabilities it needs through the
 :class:`TurnExecutionHost` protocol; it never imports ``AgentLoop`` at runtime.
 Monkeypatch seams (``_run_agent_loop``, ``_save_turn``,
-``_restore_runtime_checkpoint``, ``_persist_subagent_followup``) remain on the
-host, so existing tests and extensions that patch those methods on the loop
-instance continue to intercept calls.
+``_persist_subagent_followup``) remain on the host, so existing tests and
+extensions that patch those methods on the loop instance continue to
+intercept calls.
 """
 
 from __future__ import annotations
@@ -234,10 +234,6 @@ class TurnExecutor:
         logger.info("Processing system message from {}", msg.sender_id)
         key = msg.session_key_override or f"{channel}:{chat_id}"
         session = host.sessions.get_or_create(key)
-        if host._restore_runtime_checkpoint(session):
-            host.sessions.save(session)
-        if host._restore_pending_user_turn(session):
-            host.sessions.save(session)
 
         session, pending = host.auto_compact.prepare_session(session, key)
         if pending:
@@ -301,7 +297,6 @@ class TurnExecutor:
         latency_ms = max(0, int((wall_done - t_wall) * 1000))
         host._save_turn(session, result.messages, 1 + len(history), turn_latency_ms=latency_ms)
         session.enforce_file_cap(on_archive=host.context.memory.raw_archive)
-        host._clear_runtime_checkpoint(session)
         host.sessions.save(session)
         host._schedule_background(
             host.consolidator.maybe_consolidate_by_tokens(

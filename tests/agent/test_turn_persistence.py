@@ -1,9 +1,14 @@
 """Collaborator-level tests for :class:`TurnPersistence`.
 
 These tests instantiate ``TurnPersistence`` directly with a fake host so the
-persist/checkpoint/restore algorithms can be exercised without spinning up a
+persist and sanitize algorithms can be exercised without spinning up a
 full :class:`AgentLoop`. The matching delegation tests live alongside to
 guarantee the ``AgentLoop`` compatibility wrappers remain thin forwarders.
+
+Legacy ``runtime_checkpoint`` / ``pending_user_turn`` session-metadata
+writers and readers were removed in design Task 10. Durable tasks own
+recovery through the Runtime Store state machine and
+``TurnJournalPort.save_checkpoint()`` (design §6.22, §29.4).
 """
 
 from __future__ import annotations
@@ -17,11 +22,7 @@ from miniunicorn.agent.context import ContextBuilder
 from miniunicorn.agent.loop import AgentLoop
 from miniunicorn.agent.tools.message import MessageTool
 from miniunicorn.agent.tools.registry import ToolRegistry
-from miniunicorn.agent.turn_persistence import (
-    PENDING_USER_TURN_KEY,
-    RUNTIME_CHECKPOINT_KEY,
-    TurnPersistence,
-)
+from miniunicorn.agent.turn_persistence import TurnPersistence
 from miniunicorn.bus.events import InboundMessage
 from miniunicorn.session.manager import Session
 from miniunicorn.utils.helpers import image_placeholder_text
@@ -238,10 +239,7 @@ def _make_message_tool_with_sent_flag(sent: bool) -> MessageTool:
     suppression branch in ``assemble_outbound`` exercises production logic.
     """
 
-    async def _noop_send(_msg: Any) -> None:
-        pass
-
-    tool = MessageTool(send_callback=_noop_send)
+    tool = MessageTool()
     tool._sent_in_turn = sent
     return tool
 
@@ -357,7 +355,7 @@ class TestPersistSubagentFollowup:
 
 
 class TestPersistUserMessageEarly:
-    def test_persists_text_message_and_marks_pending(self) -> None:
+    def test_persists_text_message(self) -> None:
         sessions = MagicMock()
         persistence = _make_persistence(sessions=sessions)
         session = Session(key="cli:early")
@@ -367,7 +365,6 @@ class TestPersistUserMessageEarly:
 
         assert result is True
         assert session.messages[0]["content"] == "hello"
-        assert session.metadata.get(PENDING_USER_TURN_KEY) is True
         sessions.save.assert_called_once_with(session)
 
     def test_skips_when_no_text_and_no_media(self) -> None:
@@ -379,193 +376,6 @@ class TestPersistUserMessageEarly:
 
         assert result is False
         assert session.messages == []
-        assert PENDING_USER_TURN_KEY not in session.metadata
-
-
-# ---------------------------------------------------------------------------
-# Step 2: checkpoint recovery tests
-# ---------------------------------------------------------------------------
-
-
-class TestRestoreRuntimeCheckpoint:
-    def test_no_checkpoint_returns_false_and_no_changes(self) -> None:
-        persistence = _make_persistence()
-        session = Session(key="cli:none", metadata={"unrelated": "value"})
-        snapshot_messages = list(session.messages)
-        snapshot_metadata = dict(session.metadata)
-
-        result = persistence.restore_runtime_checkpoint(session)
-
-        assert result is False
-        assert session.messages == snapshot_messages
-        assert session.metadata == snapshot_metadata
-
-    def test_assistant_and_completed_tools_restored_in_order(self) -> None:
-        persistence = _make_persistence()
-        session = Session(
-            key="cli:restore",
-            metadata={
-                RUNTIME_CHECKPOINT_KEY: {
-                    "assistant_message": {
-                        "role": "assistant",
-                        "content": "working",
-                        "tool_calls": [
-                            {
-                                "id": "call_done",
-                                "type": "function",
-                                "function": {"name": "read_file", "arguments": "{}"},
-                            }
-                        ],
-                    },
-                    "completed_tool_results": [
-                        {
-                            "role": "tool",
-                            "tool_call_id": "call_done",
-                            "name": "read_file",
-                            "content": "ok",
-                        }
-                    ],
-                    "pending_tool_calls": [],
-                }
-            },
-        )
-
-        result = persistence.restore_runtime_checkpoint(session)
-
-        assert result is True
-        assert [m["role"] for m in session.messages] == ["assistant", "tool"]
-        assert session.messages[1]["tool_call_id"] == "call_done"
-        assert RUNTIME_CHECKPOINT_KEY not in session.metadata
-
-    def test_pending_tool_calls_become_interrupted_error_messages(self) -> None:
-        persistence = _make_persistence()
-        session = Session(
-            key="cli:pending",
-            metadata={
-                RUNTIME_CHECKPOINT_KEY: {
-                    "assistant_message": None,
-                    "completed_tool_results": [],
-                    "pending_tool_calls": [
-                        {
-                            "id": "call_pending",
-                            "type": "function",
-                            "function": {"name": "exec", "arguments": "{}"},
-                        }
-                    ],
-                }
-            },
-        )
-
-        result = persistence.restore_runtime_checkpoint(session)
-
-        assert result is True
-        assert session.messages[-1]["role"] == "tool"
-        assert session.messages[-1]["tool_call_id"] == "call_pending"
-        assert "interrupted before this tool finished" in session.messages[-1]["content"].lower()
-
-    def test_overlapping_tail_deduplicated(self) -> None:
-        persistence = _make_persistence()
-        existing_assistant = {
-            "role": "assistant",
-            "content": "working",
-            "tool_calls": [
-                {
-                    "id": "call_done",
-                    "type": "function",
-                    "function": {"name": "read_file", "arguments": "{}"},
-                }
-            ],
-        }
-        existing_tool = {
-            "role": "tool",
-            "tool_call_id": "call_done",
-            "name": "read_file",
-            "content": "ok",
-        }
-        session = Session(
-            key="cli:overlap",
-            messages=[dict(existing_assistant), dict(existing_tool)],
-            metadata={
-                RUNTIME_CHECKPOINT_KEY: {
-                    "assistant_message": existing_assistant,
-                    "completed_tool_results": [existing_tool],
-                    "pending_tool_calls": [],
-                }
-            },
-        )
-
-        result = persistence.restore_runtime_checkpoint(session)
-
-        assert result is True
-        # The two existing messages should not be duplicated.
-        assert len(session.messages) == 2
-
-    def test_checkpoint_and_pending_marker_cleared_after_success(self) -> None:
-        persistence = _make_persistence()
-        session = Session(
-            key="cli:clear",
-            metadata={
-                RUNTIME_CHECKPOINT_KEY: {
-                    "assistant_message": {"role": "assistant", "content": "working"},
-                    "completed_tool_results": [],
-                    "pending_tool_calls": [],
-                },
-                PENDING_USER_TURN_KEY: True,
-            },
-        )
-
-        result = persistence.restore_runtime_checkpoint(session)
-
-        assert result is True
-        assert RUNTIME_CHECKPOINT_KEY not in session.metadata
-        assert PENDING_USER_TURN_KEY not in session.metadata
-
-    def test_restore_twice_is_idempotent(self) -> None:
-        persistence = _make_persistence()
-        session = Session(
-            key="cli:idempotent",
-            metadata={
-                RUNTIME_CHECKPOINT_KEY: {
-                    "assistant_message": {"role": "assistant", "content": "working"},
-                    "completed_tool_results": [],
-                    "pending_tool_calls": [],
-                }
-            },
-        )
-
-        first = persistence.restore_runtime_checkpoint(session)
-        snapshot = list(session.messages)
-        second = persistence.restore_runtime_checkpoint(session)
-
-        assert first is True
-        assert second is False
-        assert session.messages == snapshot
-
-
-class TestRestorePendingUserTurn:
-    def test_user_only_pending_turn_gets_interrupted_response(self) -> None:
-        persistence = _make_persistence()
-        session = Session(
-            key="cli:pending-user",
-            messages=[{"role": "user", "content": "hello"}],
-            metadata={PENDING_USER_TURN_KEY: True},
-        )
-
-        result = persistence.restore_pending_user_turn(session)
-
-        assert result is True
-        assert session.messages[-1]["role"] == "assistant"
-        assert "interrupted before a response was generated" in session.messages[-1]["content"]
-        assert PENDING_USER_TURN_KEY not in session.metadata
-
-    def test_no_pending_marker_returns_false(self) -> None:
-        persistence = _make_persistence()
-        session = Session(key="cli:none", messages=[{"role": "user", "content": "hi"}])
-
-        result = persistence.restore_pending_user_turn(session)
-
-        assert result is False
-        assert len(session.messages) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -640,21 +450,6 @@ class TestDelegationForwarding:
 
         assert result is sentinel
 
-    def test_restore_runtime_checkpoint_delegates_to_collaborator(self, tmp_path: Path) -> None:
-        loop = _make_loop_for_delegation(tmp_path)
-        session = Session(key="cli:delegate-restore")
-
-        def fake_restore(sess):
-            sess.messages.append({"role": "assistant", "content": "restored"})
-            return True
-
-        loop._turn_persistence.restore_runtime_checkpoint = fake_restore  # type: ignore[method-assign]
-
-        result = loop._restore_runtime_checkpoint(session)
-
-        assert result is True
-        assert session.messages[0]["content"] == "restored"
-
     def test_persist_subagent_followup_delegates_to_collaborator(self, tmp_path: Path) -> None:
         loop = _make_loop_for_delegation(tmp_path)
         session = Session(key="cli:delegate-sub")
@@ -679,29 +474,3 @@ class TestDelegationForwarding:
         assert result is True
         assert captured["sess"] is session
         assert captured["msg"] is msg
-
-
-class TestConstants:
-    def test_runtime_checkpoint_key_matches_legacy_constant(self) -> None:
-        assert RUNTIME_CHECKPOINT_KEY == "runtime_checkpoint"
-        assert AgentLoop._RUNTIME_CHECKPOINT_KEY == RUNTIME_CHECKPOINT_KEY
-
-    def test_pending_user_turn_key_matches_legacy_constant(self) -> None:
-        assert PENDING_USER_TURN_KEY == "pending_user_turn"
-        assert AgentLoop._PENDING_USER_TURN_KEY == PENDING_USER_TURN_KEY
-
-    def test_checkpoint_message_key_is_static_delegate(self) -> None:
-        message = {
-            "role": "tool",
-            "content": "ok",
-            "tool_call_id": "call_1",
-            "name": "read_file",
-            "tool_calls": [],
-            "reasoning_content": None,
-            "thinking_blocks": None,
-        }
-
-        loop_result = AgentLoop._checkpoint_message_key(message)
-        collab_result = TurnPersistence.checkpoint_message_key(message)
-
-        assert loop_result == collab_result

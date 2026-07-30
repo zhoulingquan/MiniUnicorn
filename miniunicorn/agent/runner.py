@@ -1357,15 +1357,50 @@ class AgentRunner:
                 event,
                 (RuntimeError(prep_error) if spec.fail_on_tool_error else None),
             )
-        # Durable runtime: route every tool call through ToolExecutionPort so
-        # no Agent tool bypasses the Tool Gateway (design §20, WP4 exit). The
-        # gateway journals the logical call + attempt, applies approval policy
-        # and resource leases, and returns a durable result. The in-memory
-        # ``content`` echo is fed back to the LLM context.
-        if spec.tool_execution_port is not None:
-            return await self._run_tool_via_gateway(
-                spec, tool_call, tool, params, hint
-            )
+        # ToolExecutionPort is mandatory (design §20, WP4 hard cutover).
+        # Every tool call routes through the gateway so no Agent tool
+        # bypasses approval policy, resource leases, and attempt journaling.
+        if spec.tool_execution_port is None:
+            raise RuntimeError("ToolExecutionPort is required")
+        return await self._run_tool_via_gateway(
+            spec, tool_call, tool, params, hint, workspace_violation_counts
+        )
+
+    async def _run_tool_via_gateway(
+        self,
+        spec: AgentRunSpec,
+        tool_call: ToolCallRequest,
+        tool: Any | None,
+        params: Any,
+        hint: str,
+        workspace_violation_counts: dict[str, int],
+    ) -> tuple[Any, dict[str, str], BaseException | None]:
+        """Execute one tool call through the durable ToolExecutionPort (design §20).
+
+        The gateway owns approval policy, resource leases, attempt journaling,
+        and result durability. This method builds the
+        :class:`ToolExecutionRequest` from the prepared (normalized)
+        arguments and the tool's declarative policy, delegates to the port,
+        and maps the durable result back into the Runner's (result, event,
+        error) contract.
+
+        On ``SUCCEEDED`` the in-memory ``content`` echo is returned to the
+        LLM. On ``WAITING_APPROVAL`` / ``FAILED`` / ``OUTCOME_UNKNOWN`` a
+        conversational error string is returned so the turn recovers without
+        aborting (matching the legacy direct-execution error contract).
+        """
+        port = spec.tool_execution_port
+        assert port is not None  # guarded by caller
+        task_id = self._current_task_id()
+        normalized = params if isinstance(params, dict) else dict(tool_call.arguments or {})
+        policy = self._effective_policy_for(tool)
+        request = build_tool_execution_request(
+            task_id=task_id,
+            tool_call_id=tool_call.id,
+            tool_name=tool_call.name,
+            arguments=normalized,
+            policy=policy,
+        )
         emit_file_edit_events = (
             spec.progress_callback is not None
             and on_progress_accepts_file_edit_events(spec.progress_callback)
@@ -1395,14 +1430,10 @@ class AgentRunner:
             )
         _tool_start = time.monotonic()
         try:
-            if tool is not None:
-                result = await tool.execute(**params)
-            else:
-                result = await spec.tools.execute(tool_call.name, params)
+            result = await port.execute(request)
         except asyncio.CancelledError:
             _append_tool_metric(tool_call.name, _tool_start, "cancelled")
             raise
-        # 使用 Exception 而非 BaseException，避免吞掉 KeyboardInterrupt 等系统级中断
         except Exception as exc:
             if file_edit_trackers and progress_callback is not None:
                 await invoke_file_edit_progress(
@@ -1420,7 +1451,6 @@ class AgentRunner:
             payload = f"Error: {type(exc).__name__}: {exc}"
             handled = self._classify_violation(
                 raw_text=str(exc),
-                # Preserve legacy exception payloads without the retry hint.
                 soft_payload=payload,
                 event=event,
                 tool_call=tool_call,
@@ -1435,111 +1465,50 @@ class AgentRunner:
             _append_tool_metric(tool_call.name, _tool_start, "error", type(exc).__name__)
             return payload, event, None
 
-        if isinstance(result, str) and result.startswith("Error"):
+        if result.state == "SUCCEEDED":
+            content = result.content if result.content is not None else ""
+
+            if isinstance(content, str) and content.startswith("Error"):
+                if file_edit_trackers and progress_callback is not None:
+                    await invoke_file_edit_progress(
+                        progress_callback,
+                        [
+                            build_file_edit_error_event(file_edit_tracker, content)
+                            for file_edit_tracker in file_edit_trackers
+                        ],
+                    )
+                event = {
+                    "name": tool_call.name,
+                    "status": "error",
+                    "detail": content.replace("\n", " ").strip()[:120],
+                }
+                handled = self._classify_violation(
+                    raw_text=content,
+                    soft_payload=content + hint,
+                    event=event,
+                    tool_call=tool_call,
+                    workspace_violation_counts=workspace_violation_counts,
+                )
+                if handled is not None:
+                    _append_tool_metric(tool_call.name, _tool_start, "error", "error_result")
+                    return handled
+                if spec.fail_on_tool_error:
+                    _append_tool_metric(tool_call.name, _tool_start, "error", "error_result")
+                    return content + hint, event, RuntimeError(content)
+                _append_tool_metric(tool_call.name, _tool_start, "error", "error_result")
+                return content + hint, event, None
+
             if file_edit_trackers and progress_callback is not None:
                 await invoke_file_edit_progress(
                     progress_callback,
                     [
-                        build_file_edit_error_event(file_edit_tracker, result)
+                        build_file_edit_end_event(
+                            file_edit_tracker,
+                            params if isinstance(params, dict) else None,
+                        )
                         for file_edit_tracker in file_edit_trackers
                     ],
                 )
-            event = {
-                "name": tool_call.name,
-                "status": "error",
-                "detail": result.replace("\n", " ").strip()[:120],
-            }
-            handled = self._classify_violation(
-                raw_text=result,
-                soft_payload=result + hint,
-                event=event,
-                tool_call=tool_call,
-                workspace_violation_counts=workspace_violation_counts,
-            )
-            if handled is not None:
-                _append_tool_metric(tool_call.name, _tool_start, "error", "error_result")
-                return handled
-            if spec.fail_on_tool_error:
-                _append_tool_metric(tool_call.name, _tool_start, "error", "error_result")
-                return result + hint, event, RuntimeError(result)
-            _append_tool_metric(tool_call.name, _tool_start, "error", "error_result")
-            return result + hint, event, None
-
-        if file_edit_trackers and progress_callback is not None:
-            await invoke_file_edit_progress(
-                progress_callback,
-                [
-                    build_file_edit_end_event(
-                        file_edit_tracker,
-                        params if isinstance(params, dict) else None,
-                    )
-                    for file_edit_tracker in file_edit_trackers
-                ],
-            )
-
-        detail = "" if result is None else str(result)
-        detail = detail.replace("\n", " ").strip()
-        if not detail:
-            detail = "(empty)"
-        elif len(detail) > 120:
-            detail = detail[:120] + "..."
-        _append_tool_metric(tool_call.name, _tool_start, "ok")
-        return result, {"name": tool_call.name, "status": "ok", "detail": detail}, None
-
-    async def _run_tool_via_gateway(
-        self,
-        spec: AgentRunSpec,
-        tool_call: ToolCallRequest,
-        tool: Any | None,
-        params: Any,
-        hint: str,
-    ) -> tuple[Any, dict[str, str], BaseException | None]:
-        """Execute one tool call through the durable ToolExecutionPort (design §20).
-
-        The gateway owns approval policy, resource leases, attempt journaling,
-        and result durability. This method builds the
-        :class:`ToolExecutionRequest` from the prepared (normalized)
-        arguments and the tool's declarative policy, delegates to the port,
-        and maps the durable result back into the Runner's (result, event,
-        error) contract.
-
-        On ``SUCCEEDED`` the in-memory ``content`` echo is returned to the
-        LLM. On ``WAITING_APPROVAL`` / ``FAILED`` / ``OUTCOME_UNKNOWN`` a
-        conversational error string is returned so the turn recovers without
-        aborting (matching the legacy direct-execution error contract).
-        """
-        port = spec.tool_execution_port
-        assert port is not None  # guarded by caller
-        task_id = self._current_task_id()
-        normalized = params if isinstance(params, dict) else dict(tool_call.arguments or {})
-        policy = self._effective_policy_for(tool)
-        request = build_tool_execution_request(
-            task_id=task_id,
-            tool_call_id=tool_call.id,
-            tool_name=tool_call.name,
-            arguments=normalized,
-            policy=policy,
-        )
-        _tool_start = time.monotonic()
-        try:
-            result = await port.execute(request)
-        except asyncio.CancelledError:
-            _append_tool_metric(tool_call.name, _tool_start, "cancelled")
-            raise
-        except Exception as exc:
-            _append_tool_metric(tool_call.name, _tool_start, "error", type(exc).__name__)
-            payload = f"Error: {type(exc).__name__}: {exc}"
-            event = {
-                "name": tool_call.name,
-                "status": "error",
-                "detail": str(exc)[:120],
-            }
-            if spec.fail_on_tool_error:
-                return payload, event, exc
-            return payload + hint, event, None
-
-        if result.state == "SUCCEEDED":
-            content = result.content if result.content is not None else ""
             detail = str(content).replace("\n", " ").strip()
             if not detail:
                 detail = "(empty)"
@@ -1578,29 +1547,35 @@ class AgentRunner:
         """Build an :class:`EffectiveToolPolicy` from a tool's declarative metadata.
 
         When ``tool`` is None (registry-level prepare failed), use the
-        conservative EXTERNAL_WRITE defaults from design §20.2.
+        conservative EXTERNAL_WRITE defaults from design §20.2. Tools that
+        don't expose declarative policy attributes also get the conservative
+        defaults.
         """
         from miniunicorn.agent.ports import EffectiveToolPolicy
 
-        if tool is None:
-            return EffectiveToolPolicy(
-                effect_class="EXTERNAL_WRITE",
-                risk_class="HIGH",
-                idempotency_mode="NONE",
-                approval_policy="POLICY",
-                recovery_policy="MANUAL",
-                concurrency_scope="NONE",
-            )
-        return EffectiveToolPolicy(
-            effect_class=tool.effect_class,
-            risk_class=tool.risk_class,
-            idempotency_mode=tool.idempotency_mode,
-            approval_policy=tool.approval_policy,
-            recovery_policy=tool.recovery_policy,
-            concurrency_scope=tool.concurrency_scope,
-            progress_required=tool.progress_required,
-            timeout_s=tool.timeout_s,
+        defaults = EffectiveToolPolicy(
+            effect_class="EXTERNAL_WRITE",
+            risk_class="HIGH",
+            idempotency_mode="NONE",
+            approval_policy="POLICY",
+            recovery_policy="MANUAL",
+            concurrency_scope="NONE",
         )
+        if tool is None:
+            return defaults
+        try:
+            return EffectiveToolPolicy(
+                effect_class=tool.effect_class,
+                risk_class=tool.risk_class,
+                idempotency_mode=tool.idempotency_mode,
+                approval_policy=tool.approval_policy,
+                recovery_policy=tool.recovery_policy,
+                concurrency_scope=tool.concurrency_scope,
+                progress_required=getattr(tool, "progress_required", False),
+                timeout_s=getattr(tool, "timeout_s", None),
+            )
+        except AttributeError:
+            return defaults
 
     # SSRF is a hard security block at the tool boundary, but the agent turn
     # should recover conversationally instead of aborting the runtime.

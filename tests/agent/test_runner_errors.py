@@ -10,6 +10,8 @@ import pytest
 from miniunicorn.config.schema import AgentDefaults
 from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 
+from tests.agent.conftest import FakeToolExecutionPort
+
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
 
@@ -34,6 +36,7 @@ async def test_runner_returns_structured_tool_error():
         AgentRunSpec(
             initial_messages=[],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=2,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -73,6 +76,7 @@ async def test_llm_error_not_appended_to_session_messages():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "hello"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=5,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -109,6 +113,7 @@ async def test_llm_arrearage_error_surfaces_clear_message():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "hello"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=5,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -142,6 +147,7 @@ async def test_runner_tool_error_sets_final_content():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "do task"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=1,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -192,6 +198,7 @@ async def test_runner_tool_error_preserves_tool_results_in_messages():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "do stuff"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=1,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,

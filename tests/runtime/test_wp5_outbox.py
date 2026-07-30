@@ -605,7 +605,6 @@ class TestMessageToolDurableEnqueue:
         token = bind_turn_runtime(rt)
 
         tool = MessageTool(
-            send_callback=None,  # No callback — durable mode should not use it.
             default_channel="test-channel",
             default_chat_id="test-target",
         )
@@ -637,22 +636,25 @@ class TestMessageToolDurableEnqueue:
     def test_message_tool_falls_back_without_ledger(
         self, store: Any, sample_scope: Any, make_inbound_envelope: Any
     ) -> None:
-        """MessageTool falls back to legacy path when no delivery ledger is bound."""
+        """MessageTool raises when no OutboundPort is bound (WP5 hard cutover).
+
+        The legacy send_callback fallback was removed. Without a bound
+        OutboundPort (no TurnRuntime or outbound_port is None), the tool
+        raises RuntimeError per design §20.6.
+        """
         from miniunicorn.agent.tools.message import MessageTool
 
         tool = MessageTool(
-            send_callback=None,
             default_channel="test-channel",
             default_chat_id="test-target",
         )
 
-        # No delivery ledger bound → should fall back to legacy path.
-        # With no send_callback either, should return the error.
+        # No TurnRuntime / OutboundPort bound → raises RuntimeError.
         import asyncio
-        result = asyncio.run(
-            tool.execute(content="hello")
-        )
-        assert "Error: Message sending not configured" in result
+        with pytest.raises(RuntimeError, match="OutboundPort is required"):
+            asyncio.run(
+                tool.execute(content="hello")
+            )
 
     def test_message_tool_durable_sets_sent_in_turn(
         self, store: Any, sample_scope: Any, make_inbound_envelope: Any
@@ -682,7 +684,6 @@ class TestMessageToolDurableEnqueue:
         token = bind_turn_runtime(rt)
 
         tool = MessageTool(
-            send_callback=None,
             default_channel="test-channel",
             default_chat_id="test-target",
         )
@@ -740,7 +741,6 @@ class TestMessageToolDurableEnqueue:
         token = bind_turn_runtime(rt)
 
         tool = MessageTool(
-            send_callback=None,
             default_channel="test-channel",
             default_chat_id="test-target",
         )

@@ -17,6 +17,8 @@ from miniunicorn.agent.hook import AgentHook, AgentHookContext
 from miniunicorn.config.schema import AgentDefaults
 from miniunicorn.providers.base import LLMResponse, ToolCallRequest
 
+from tests.agent.conftest import FakeToolExecutionPort
+
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
 
@@ -70,6 +72,7 @@ async def test_runner_preserves_reasoning_fields_in_assistant_history():
                 {"role": "user", "content": "do task"},
             ],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=3,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -122,6 +125,7 @@ async def test_runner_emits_anthropic_thinking_blocks():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "question"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=3,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -160,6 +164,7 @@ async def test_runner_emits_inline_think_content_as_reasoning():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "what is the answer?"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=3,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -198,6 +203,7 @@ async def test_runner_prefers_reasoning_content_over_inline_think():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "question"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=3,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -245,6 +251,7 @@ async def test_runner_emits_reasoning_content_even_when_answer_was_streamed():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "question"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=3,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -291,6 +298,7 @@ async def test_runner_does_not_double_emit_when_inline_think_already_streamed():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "question"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=3,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -332,6 +340,7 @@ async def test_runner_closes_reasoning_stream_after_one_shot_response():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "q"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=3,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -383,6 +392,7 @@ async def test_runner_streams_native_thinking_deltas_without_post_hoc_dup():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "q"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=3,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,

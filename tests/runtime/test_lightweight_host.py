@@ -501,17 +501,21 @@ class TestLegacyPathUnaffected:
 
         assert RUNTIME_TURN_TRANSITIONS[(TurnState.COMMAND, "shortcut")] is TurnState.SAVE
 
-    def test_dispatcher_legacy_methods_preserved(self) -> None:
-        """TurnDispatcher still has legacy dispatch/process_message methods."""
+    def test_dispatcher_legacy_methods_removed(self) -> None:
+        """TurnDispatcher legacy authority removed (WP3 hard cutover).
+
+        ``dispatch`` and ``process_direct`` were removed in the WP3 hard
+        cutover — ingress routes through ``RuntimeApplication`` /
+        ``TaskService``. Only ``process_message`` remains as the
+        SDK/Worker compatibility bridge.
+        """
         from miniunicorn.agent.turn_dispatcher import TurnDispatcher
 
-        # Legacy methods exist alongside the new durable methods.
-        assert hasattr(TurnDispatcher, "dispatch")
+        # Legacy authority removed.
+        assert not hasattr(TurnDispatcher, "dispatch")
+        assert not hasattr(TurnDispatcher, "process_direct")
+        # Compatibility bridge remains.
         assert hasattr(TurnDispatcher, "process_message")
-        assert hasattr(TurnDispatcher, "process_direct")
-        # Durable ingress now lives in the application façade
-        # (RuntimeApplication / build_inbound_envelope), not in the
-        # runtime adapter module.
 
 
 # ---------------------------------------------------------------------------

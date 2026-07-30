@@ -40,8 +40,6 @@ from miniunicorn.agent.turn_coordinator import TurnCoordinator
 from miniunicorn.agent.turn_dispatcher import TurnDispatcher
 from miniunicorn.agent.turn_executor import TURN_TRANSITIONS, TurnExecutor
 from miniunicorn.agent.turn_persistence import (
-    PENDING_USER_TURN_KEY,
-    RUNTIME_CHECKPOINT_KEY,
     TurnPersistence,
 )
 from miniunicorn.agent.turn_runtime import (
@@ -142,9 +140,6 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             max_output_tokens=None,
             max_cost_usd=self._max_cost_per_turn_usd,
         )
-
-    _RUNTIME_CHECKPOINT_KEY = RUNTIME_CHECKPOINT_KEY
-    _PENDING_USER_TURN_KEY = PENDING_USER_TURN_KEY
 
     # Event-driven state transition table.
     # The canonical table lives in ``turn_executor.TURN_TRANSITIONS``; this
@@ -390,21 +385,12 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         self._runtime_vars: dict[str, Any] = {}
         self.commands = CommandRouter()
         register_builtin_commands(self.commands)
-        # TurnDispatcher owns the bus-consume loop, dispatch, the
-        # _process_message compatibility bridge, process_direct, and task
-        # cancellation. Task registries live on the dispatcher and are
-        # exposed below as read-only compatibility properties.
+        # TurnDispatcher owns the process_message normalization bridge
+        # used by the SDK path. Legacy bus-consume loop, dispatch,
+        # process_direct, pending_queues, and active_tasks were removed
+        # in design Task 10 — inbound work is submitted through
+        # RuntimeApplication and final replies go through the Outbox.
         self._turn_dispatcher = TurnDispatcher(self, self._turn_coordinator)
-
-    @property
-    def _active_tasks(self) -> dict[str, list[asyncio.Task[Any]]]:
-        """Read-only compatibility alias for the dispatcher's task registry."""
-        return self._turn_dispatcher.active_tasks
-
-    @property
-    def _pending_queues(self) -> dict[str, asyncio.Queue[InboundMessage]]:
-        """Read-only compatibility alias for the dispatcher's pending queues."""
-        return self._turn_dispatcher.pending_queues
 
     @property
     def core_dispatcher(self) -> TurnDispatcher:
@@ -567,10 +553,6 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         else:
             logger.warning("Command '{}' matched but dispatch returned None", raw)
 
-    async def _cancel_active_tasks(self, key: str) -> int:
-        """Cancel and await all active tasks and subagents for *key*."""
-        return await self._turn_dispatcher.cancel_active_tasks(key)
-
     def _effective_session_key(self, msg: InboundMessage) -> str:
         """Return the session key used for task routing and mid-turn injections."""
         if msg.session_key_override:
@@ -662,12 +644,17 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         )
 
     async def run(self) -> None:
-        """Run the agent loop. Delegates to :class:`TurnDispatcher`."""
-        await self._turn_dispatcher.run()
+        """Run the agent loop.
 
-    async def _dispatch(self, msg: InboundMessage) -> None:
-        """Process a message: per-session serial, cross-session concurrent."""
-        await self._turn_dispatcher.dispatch(msg)
+        Legacy bus-consume loop removed in design Task 10. Production
+        entry points use the durable Runtime (``RuntimeApplication``);
+        the SDK path uses :meth:`_process_message` directly.
+        """
+        raise NotImplementedError(
+            "AgentLoop.run() bus-consume loop was removed in design Task 10. "
+            "Use RuntimeApplication.submit_and_wait() or the Worker callback "
+            "for durable execution, or Miniunicorn.run() for the SDK path."
+        )
 
     def _schedule_background(self, coro, *, name: str = "agent-background") -> None:
         """Schedule a coroutine as a tracked background task (drained on shutdown)."""
@@ -818,65 +805,6 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
     def _persist_subagent_followup(self, session: Session, msg: InboundMessage) -> bool:
         """Persist subagent follow-ups before prompt assembly so history stays durable."""
         return self._turn_persistence.persist_subagent_followup(session, msg)
-
-    def _set_runtime_checkpoint(self, session: Session, payload: dict[str, Any]) -> None:
-        """Persist the latest in-flight turn state into session metadata."""
-        self._turn_persistence.set_runtime_checkpoint(session, payload)
-
-    def _mark_pending_user_turn(self, session: Session) -> None:
-        """Delegates to :class:`TurnPersistence`."""
-        self._turn_persistence.mark_pending_user_turn(session)
-
-    def _clear_pending_user_turn(self, session: Session) -> None:
-        """Delegates to :class:`TurnPersistence`."""
-        self._turn_persistence.clear_pending_user_turn(session)
-
-    def _clear_runtime_checkpoint(self, session: Session) -> None:
-        """Delegates to :class:`TurnPersistence`."""
-        self._turn_persistence.clear_runtime_checkpoint(session)
-
-    @staticmethod
-    def _checkpoint_message_key(message: dict[str, Any]) -> tuple[Any, ...]:
-        """Delegates to :class:`TurnPersistence`."""
-        return TurnPersistence.checkpoint_message_key(message)
-
-    def _restore_runtime_checkpoint(self, session: Session) -> bool:
-        """Materialize an unfinished turn into session history before a new request."""
-        return self._turn_persistence.restore_runtime_checkpoint(session)
-
-    def _restore_pending_user_turn(self, session: Session) -> bool:
-        """Close a turn that only persisted the user message before crashing."""
-        return self._turn_persistence.restore_pending_user_turn(session)
-
-    async def process_direct(
-        self,
-        content: str,
-        session_key: str = "cli:direct",
-        channel: str = "cli",
-        chat_id: str = "direct",
-        media: list[str] | None = None,
-        on_progress: Callable[..., Awaitable[None]] | None = None,
-        on_stream: Callable[[str], Awaitable[None]] | None = None,
-        on_stream_end: Callable[..., Awaitable[None]] | None = None,
-        hooks: list[AgentHook] | None = None,
-    ) -> OutboundMessage | None:
-        """Process a message directly and return the outbound payload.
-
-        Delegates to :class:`TurnDispatcher`. ``hooks`` are per-call only;
-        direct calls share the same :class:`TurnCoordinator` as bus
-        dispatches so same-session calls serialize.
-        """
-        return await self._turn_dispatcher.process_direct(
-            content,
-            session_key=session_key,
-            channel=channel,
-            chat_id=chat_id,
-            media=media,
-            on_progress=on_progress,
-            on_stream=on_stream,
-            on_stream_end=on_stream_end,
-            hooks=hooks,
-        )
 
 
 # Re-export for backwards compatibility (tests/extensions may import from loop)

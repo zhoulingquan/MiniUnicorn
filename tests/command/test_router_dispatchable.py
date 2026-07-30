@@ -86,7 +86,10 @@ class TestMidTurnCommandDispatchedDirectly:
         loop.sessions.save = MagicMock()
         loop.sessions.invalidate = MagicMock()
         loop._schedule_background = MagicMock()
-        loop._cancel_active_tasks = AsyncMock(return_value=0)
+        # Legacy _cancel_active_tasks removed in design Task 10;
+        # subagents.cancel_by_session is the surviving cancellation path.
+        loop.subagents = MagicMock()
+        loop.subagents.cancel_by_session = AsyncMock(return_value=0)
         return loop
 
     @pytest.fixture()

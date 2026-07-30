@@ -448,15 +448,15 @@ async def test_empty_response_falls_back(aiohttp_client) -> None:
 
 
 @pytest.mark.asyncio
-async def test_process_direct_accepts_media() -> None:
-    """process_direct should forward media paths to _execute_message."""
+async def test_process_message_accepts_media() -> None:
+    """_process_message should forward media paths to _execute_message."""
     from miniunicorn.agent.loop import AgentLoop
     from miniunicorn.agent.turn_coordinator import TurnCoordinator
     from miniunicorn.agent.turn_dispatcher import TurnDispatcher
     from miniunicorn.agent.turn_runtime import ProcessedTurn
+    from miniunicorn.bus.events import InboundMessage
 
     loop = AgentLoop.__new__(AgentLoop)
-    loop._connect_mcp = AsyncMock()
     loop._turn_coordinator = TurnCoordinator(max_concurrent_requests=None)
 
     captured_msg = None
@@ -469,21 +469,20 @@ async def test_process_direct_accepts_media() -> None:
     loop._execute_message = fake_execute
 
     # Build a minimal TurnDispatcher that delegates to the loop's
-    # _execute_message (bypassing full __init__). ``host`` is a read-only
-    # property backed by ``_host``; assign the private field directly.
-    # NOTE: This test exercises the legacy ``process_direct`` path that
-    # Task 10 of the three-worker cutover plan removes entirely. It is kept
-    # passing here only so the cutover can land in staged tasks.
+    # _execute_message (bypassing full __init__).
     dispatcher = TurnDispatcher.__new__(TurnDispatcher)
     dispatcher._host = loop
     dispatcher._coordinator = loop._turn_coordinator
     loop._turn_dispatcher = dispatcher
 
-    await loop.process_direct(
+    msg = InboundMessage(
+        channel="cli",
+        sender_id="user",
+        chat_id="1",
         content="analyze this",
         media=["/tmp/image.png", "/tmp/report.pdf"],
-        session_key="test:1",
     )
+    await loop._process_message(msg, session_key="test:1")
 
     assert captured_msg is not None
     assert captured_msg.media == ["/tmp/image.png", "/tmp/report.pdf"]

@@ -12,6 +12,7 @@ from typing import Any, Callable
 from loguru import logger
 
 from miniunicorn.agent.hook import AgentHook, AgentHookContext
+from miniunicorn.agent.agent_run_adapter import DirectToolExecutionPort
 from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 from miniunicorn.agent.tools.context import ToolContext
 from miniunicorn.agent.tools.file_state import FileStates
@@ -428,6 +429,7 @@ class SubagentManager:
                         AgentRunSpec(
                             initial_messages=messages,
                             tools=tools,
+                            tool_execution_port=DirectToolExecutionPort(tools),
                             model=self.model,
                             temperature=temperature,
                             max_iterations=self.max_iterations,
@@ -573,6 +575,7 @@ class SubagentManager:
                     AgentRunSpec(
                         initial_messages=messages,
                         tools=tools,
+                        tool_execution_port=DirectToolExecutionPort(tools),
                         model=use_model,
                         temperature=temperature,
                         max_iterations=self.max_iterations,

@@ -8,6 +8,8 @@ from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 from miniunicorn.config.schema import AgentDefaults
 from miniunicorn.providers.base import LLMResponse, ToolCallRequest
 
+from tests.agent.conftest import FakeToolExecutionPort
+
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
 
@@ -138,11 +140,13 @@ async def test_runner_streams_live_write_file_activity_from_tool_argument_deltas
     provider.chat_stream_with_retry = chat_stream_with_retry
     provider.chat_with_retry = AsyncMock()
 
+    tools = Tools()
     runner = AgentRunner(provider)
     result = await runner.run(
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "write a large file"}],
-            tools=Tools(),
+            tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=2,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -234,11 +238,13 @@ async def test_runner_streams_live_edit_file_activity_from_tool_argument_deltas(
     provider.chat_stream_with_retry = chat_stream_with_retry
     provider.chat_with_retry = AsyncMock()
 
+    tools = Tools()
     runner = AgentRunner(provider)
     result = await runner.run(
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "edit a file"}],
-            tools=Tools(),
+            tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=2,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,

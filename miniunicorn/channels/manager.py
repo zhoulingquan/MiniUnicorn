@@ -470,9 +470,14 @@ class ChannelManager:
             except asyncio.CancelledError:
                 break
 
-    @staticmethod
-    async def _send_once(channel: BaseChannel, msg: OutboundMessage) -> None:
-        """Send one outbound message without retry policy."""
+    async def _send_once(self, channel: BaseChannel, msg: OutboundMessage) -> None:
+        """Send one outbound message without retry policy.
+
+        Regular sends route through :meth:`send_with_receipt` (design §23.5,
+        WP5) so ``channel.send()`` is only ever called from that method.
+        Reasoning deltas and stream deltas use their dedicated channel APIs
+        and are not affected.
+        """
         if msg.metadata.get("_reasoning_end"):
             await channel.send_reasoning_end(msg.chat_id, msg.metadata)
         elif msg.metadata.get("_reasoning_delta"):
@@ -485,7 +490,11 @@ class ChannelManager:
         elif msg.metadata.get("_stream_delta") or msg.metadata.get("_stream_end"):
             await channel.send_delta(msg.chat_id, msg.content, msg.metadata)
         elif not msg.metadata.get("_streamed"):
-            await channel.send(msg)
+            receipt = await self.send_with_receipt(msg.channel, msg)
+            if receipt.status != "DELIVERED":
+                raise ConnectionError(
+                    f"Delivery to {msg.channel} failed: {receipt.safe_error_code}"
+                )
 
     def _coalesce_stream_deltas(
         self, first_msg: OutboundMessage
