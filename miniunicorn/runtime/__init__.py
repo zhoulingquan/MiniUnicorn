@@ -78,6 +78,27 @@ from miniunicorn.runtime.durable_journal import (
     JournalProviderObserver,
 )
 from miniunicorn.runtime.outbox import OutboxSender
+from miniunicorn.runtime.maintenance import (
+    PRIORITY_USER_TURN,
+    PRIORITY_MEMORY,
+    PRIORITY_REFLECTION_DREAM,
+    PRIORITY_RETENTION_CLEANUP,
+    MAINTENANCE_RESOURCE_KEY,
+    MAINTENANCE_HOLDER_KIND,
+    MAINTENANCE_CAPACITY,
+    enqueue_maintenance,
+    run_retention_batch,
+    run_blob_gc,
+    run_wal_checkpoint,
+    run_backup,
+    user_work_is_queued,
+    is_maintenance_task_kind,
+    is_low_priority_maintenance,
+)
+from miniunicorn.runtime.maintenance_executor import (
+    MaintenanceExecutor,
+    MaintenanceExecutionResult,
+)
 from miniunicorn.runtime.ipc import (
     IPC_PROTOCOL_VERSION,
     IpcEnvelope,
@@ -179,6 +200,24 @@ __all__ = [
     "posix_start_new_session",
     # Durable Outbox Sender (WP5)
     "OutboxSender",
+    # Durable maintenance and retention (WP7)
+    "PRIORITY_USER_TURN",
+    "PRIORITY_MEMORY",
+    "PRIORITY_REFLECTION_DREAM",
+    "PRIORITY_RETENTION_CLEANUP",
+    "MAINTENANCE_RESOURCE_KEY",
+    "MAINTENANCE_HOLDER_KIND",
+    "MAINTENANCE_CAPACITY",
+    "enqueue_maintenance",
+    "run_retention_batch",
+    "run_blob_gc",
+    "run_wal_checkpoint",
+    "run_backup",
+    "user_work_is_queued",
+    "is_maintenance_task_kind",
+    "is_low_priority_maintenance",
+    "MaintenanceExecutor",
+    "MaintenanceExecutionResult",
     # IPC + Supervisor (WP6)
     "IPC_PROTOCOL_VERSION",
     "IpcEnvelope",

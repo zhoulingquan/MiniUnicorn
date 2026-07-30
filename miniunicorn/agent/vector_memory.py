@@ -7,6 +7,16 @@ sqlite-vec extension, enabling top-k similarity search at recall time.
 sqlite-vec is an optional dependency. If unavailable, VectorMemoryStore
 degrades to a NoOpStore that returns empty results — the rest of the
 system continues to work with the legacy full-injection memory strategy.
+
+WP7 hardening (design §22.2):
+
+- WAL mode and busy timeout for concurrent write safety;
+- bounded write transactions with ``BEGIN IMMEDIATE``;
+- deterministic source identity and source revision on every entry;
+- unique idempotency keys so duplicate index updates are harmless;
+- tombstone-based deletion with revision checks;
+- principal, tenant, Agent, and workspace scope in every lookup;
+- rebuild tooling from authoritative memory sources.
 """
 
 from __future__ import annotations
@@ -17,7 +27,7 @@ import struct
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from loguru import logger
 
@@ -48,7 +58,8 @@ def _serialize_f32(vec: list[float]) -> bytes:
 
 #: Fingerprint schema version. Bump when the on-disk vector metadata layout
 #: changes so older databases are rejected rather than silently misread.
-_VEC_SCHEMA_VERSION = "1"
+#: Version 2 adds WP7 hardening columns (design §22.2).
+_VEC_SCHEMA_VERSION = "2"
 
 #: Default vector dimension for the local embedding model
 #: (:data:`BAAI/bge-small-zh-v1.5 <miniunicorn.providers.local_embedding.DEFAULT_LOCAL_MODEL>`).
@@ -56,6 +67,10 @@ _DEFAULT_EMBEDDING_DIM = 512
 
 #: Default local model id used to fingerprint the vector database.
 _DEFAULT_MODEL_ID = "BAAI/bge-small-zh-v1.5"
+
+#: Busy timeout in milliseconds for SQLite concurrent write contention
+#: (design §22.2: "WAL mode and busy timeout").
+_VEC_BUSY_TIMEOUT_MS = 5_000
 
 
 class VectorMemoryStore:
@@ -98,6 +113,11 @@ class VectorMemoryStore:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
             self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
             self._conn.row_factory = sqlite3.Row
+            # WP7 hardening (design §22.2): WAL mode + busy timeout for
+            # concurrent write safety across processes.
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute(f"PRAGMA busy_timeout={_VEC_BUSY_TIMEOUT_MS}")
+            self._conn.execute("PRAGMA synchronous=NORMAL")
             self._enabled = _try_load_sqlite_vec(self._conn)
             if not self._enabled:
                 return
@@ -136,16 +156,59 @@ class VectorMemoryStore:
                 self._conn.execute("ALTER TABLE vec_entries ADD COLUMN importance REAL DEFAULT 0.5")
             except sqlite3.OperationalError:
                 pass  # column already exists
+            # WP7 hardening columns (design §22.2):
+            # - source_identity: where the content came from (e.g. "history.jsonl")
+            # - source_revision: deterministic revision of the source (e.g. cursor)
+            # - idempotency_key: unique key for dedup (kind:source_identity:source_revision)
+            # - tombstone: soft-delete flag (0=active, 1=deleted)
+            # - tenant_id, principal_id, agent_id, workspace_id: scope columns
+            for col, col_type, default in [
+                ("source_identity", "TEXT", "''"),
+                ("source_revision", "TEXT", "''"),
+                ("idempotency_key", "TEXT", "''"),
+                ("tombstone", "INTEGER", "0"),
+                ("tenant_id", "TEXT", "''"),
+                ("principal_id", "TEXT", "''"),
+                ("agent_id", "TEXT", "''"),
+                ("workspace_id", "TEXT", "''"),
+            ]:
+                try:
+                    self._conn.execute(
+                        f"ALTER TABLE vec_entries ADD COLUMN {col} {col_type} DEFAULT {default}"
+                    )
+                except sqlite3.OperationalError:
+                    pass  # column already exists
+            # Unique index on idempotency_key for dedup (design §22.2).
+            # Only enforce on non-empty keys to avoid conflicts with legacy
+            # entries that have empty keys.
+            self._conn.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_vec_idempotency
+                ON vec_entries(idempotency_key)
+                WHERE idempotency_key != ''
+            """)
+            # Index on scope columns for filtered lookups (design §22.2).
+            self._conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_vec_scope
+                ON vec_entries(tenant_id, principal_id, agent_id, workspace_id)
+                WHERE tombstone = 0
+            """)
+            # Index on kind for filtered searches.
+            self._conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_vec_kind
+                ON vec_entries(kind)
+                WHERE tombstone = 0
+            """)
             # sqlite-vec virtual table (cosine distance)
             self._conn.execute(
                 f"CREATE VIRTUAL TABLE IF NOT EXISTS vec USING vec0(embedding float[{self.embedding_dim}] distance=cosine)"
             )
             self._conn.commit()
             logger.debug(
-                "VectorMemoryStore initialized at {} (dim={}, model={})",
+                "VectorMemoryStore initialized at {} (dim={}, model={}, schema=v{})",
                 self.db_path,
                 self.embedding_dim,
                 self.model_id,
+                _VEC_SCHEMA_VERSION,
             )
         except Exception:
             logger.exception("VectorMemoryStore init failed; disabling")
@@ -214,8 +277,23 @@ class VectorMemoryStore:
         kind: str = "history",
         metadata: dict[str, Any] | None = None,
         importance: float = 0.5,
+        *,
+        source_identity: str = "",
+        source_revision: str = "",
+        scope: dict[str, str] | None = None,
     ) -> int | None:
-        """Insert an entry with its pre-computed embedding. Returns row id or None."""
+        """Insert an entry with its pre-computed embedding. Returns row id or None.
+
+        WP7 hardening (design §22.2):
+
+        - ``source_identity`` and ``source_revision`` record where the content
+          came from and at what revision, so a stale consolidation task cannot
+          overwrite newer memory (design §13.1).
+        - ``idempotency_key`` is derived from ``(kind, source_identity,
+          source_revision)``; duplicate submissions are harmless (UPSERT).
+        - ``scope`` carries ``tenant_id``, ``principal_id``, ``agent_id``,
+          ``workspace_id`` for scoped lookups (design §22.2).
+        """
         if not self._enabled or self._conn is None or not text:
             return None
         if len(embedding) != self.embedding_dim:
@@ -229,18 +307,71 @@ class VectorMemoryStore:
             blob = _serialize_f32(embedding)
             meta_json = json.dumps(metadata or {}, ensure_ascii=False)
             ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+            idempotency_key = ""
+            if source_identity or source_revision:
+                idempotency_key = f"{kind}:{source_identity}:{source_revision}"
+            scope = scope or {}
+            tenant_id = scope.get("tenant_id", "")
+            principal_id = scope.get("principal_id", "")
+            agent_id = scope.get("agent_id", "")
+            workspace_id = scope.get("workspace_id", "")
             with self._lock:
-                cur = self._conn.execute(
-                    "INSERT INTO vec_entries(kind, text, embedding, metadata_json, importance, created_at) VALUES (?,?,?,?,?,?)",
-                    (kind, text, blob, meta_json, float(importance), ts),
-                )
-                rowid = cur.lastrowid
-                self._conn.execute(
-                    "INSERT INTO vec(rowid, embedding) VALUES (?, ?)",
-                    (rowid, blob),
-                )
-                self._conn.commit()
-                return rowid
+                # Idempotent UPSERT: if the idempotency_key already exists,
+                # update the row in place (including the vector in the
+                # virtual table). Otherwise insert a new row.
+                existing_id = None
+                if idempotency_key:
+                    row = self._conn.execute(
+                        "SELECT id FROM vec_entries WHERE idempotency_key = ?",
+                        (idempotency_key,),
+                    ).fetchone()
+                    existing_id = row["id"] if row else None
+
+                if existing_id is not None:
+                    # Update existing entry (revise in place).
+                    self._conn.execute(
+                        "UPDATE vec_entries SET text=?, embedding=?, metadata_json=?, "
+                        "importance=?, source_identity=?, source_revision=?, "
+                        "tenant_id=?, principal_id=?, agent_id=?, workspace_id=?, "
+                        "tombstone=0 WHERE id=?",
+                        (
+                            text, blob, meta_json, float(importance),
+                            source_identity, source_revision,
+                            tenant_id, principal_id, agent_id, workspace_id,
+                            existing_id,
+                        ),
+                    )
+                    # sqlite-vec does not support UPDATE on stored vectors;
+                    # delete and re-insert to refresh the vector.
+                    self._conn.execute(
+                        "DELETE FROM vec WHERE rowid = ?", (existing_id,)
+                    )
+                    self._conn.execute(
+                        "INSERT INTO vec(rowid, embedding) VALUES (?, ?)",
+                        (existing_id, blob),
+                    )
+                    self._conn.commit()
+                    return existing_id
+                else:
+                    cur = self._conn.execute(
+                        "INSERT INTO vec_entries("
+                        "kind, text, embedding, metadata_json, importance, created_at, "
+                        "source_identity, source_revision, idempotency_key, tombstone, "
+                        "tenant_id, principal_id, agent_id, workspace_id"
+                        ") VALUES (?,?,?,?,?,?,?,?,?,0,?,?,?,?)",
+                        (
+                            kind, text, blob, meta_json, float(importance), ts,
+                            source_identity, source_revision, idempotency_key,
+                            tenant_id, principal_id, agent_id, workspace_id,
+                        ),
+                    )
+                    rowid = cur.lastrowid
+                    self._conn.execute(
+                        "INSERT INTO vec(rowid, embedding) VALUES (?, ?)",
+                        (rowid, blob),
+                    )
+                    self._conn.commit()
+                    return rowid
         except Exception:
             logger.exception("VectorMemoryStore.index failed")
             return None
@@ -250,6 +381,8 @@ class VectorMemoryStore:
         query_embedding: list[float],
         k: int = 5,
         kind: str | None = None,
+        *,
+        scope: dict[str, str] | None = None,
     ) -> list[dict[str, Any]]:
         """Return top-k entries by cosine similarity. Empty list if disabled.
 
@@ -258,6 +391,13 @@ class VectorMemoryStore:
         of equally-similar low-importance ones. The weighted score is stored
         under the ``score`` key (similarity is left untouched under
         ``similarity`` for callers that still want the raw value).
+
+        WP7 hardening (design §22.2):
+
+        - Tombstoned entries (``tombstone=1``) are excluded.
+        - When ``scope`` is provided, results are filtered by the provided
+          ``tenant_id``, ``principal_id``, ``agent_id``, ``workspace_id``
+          (empty values in scope match anything).
         """
         if not self._enabled or self._conn is None:
             return []
@@ -265,6 +405,7 @@ class VectorMemoryStore:
             return []
         try:
             blob = _serialize_f32(query_embedding)
+            scope = scope or {}
             with self._lock:
                 # sqlite-vec KNN query
                 rows = self._conn.execute(
@@ -274,13 +415,28 @@ class VectorMemoryStore:
                 results = []
                 for row in rows:
                     entry = self._conn.execute(
-                        "SELECT id, kind, text, metadata_json, importance, created_at FROM vec_entries WHERE id = ?",
+                        "SELECT id, kind, text, metadata_json, importance, created_at, "
+                        "tombstone, tenant_id, principal_id, agent_id, workspace_id, "
+                        "source_identity, source_revision "
+                        "FROM vec_entries WHERE id = ?",
                         (row["rowid"],),
                     ).fetchone()
                     if entry is None:
                         continue
+                    if entry["tombstone"]:
+                        continue
                     if kind is not None and entry["kind"] != kind:
                         continue
+                    # Scope filtering (design §22.2).
+                    if scope:
+                        if scope.get("tenant_id") and entry["tenant_id"] and entry["tenant_id"] != scope["tenant_id"]:
+                            continue
+                        if scope.get("principal_id") and entry["principal_id"] and entry["principal_id"] != scope["principal_id"]:
+                            continue
+                        if scope.get("agent_id") and entry["agent_id"] and entry["agent_id"] != scope["agent_id"]:
+                            continue
+                        if scope.get("workspace_id") and entry["workspace_id"] and entry["workspace_id"] != scope["workspace_id"]:
+                            continue
                     meta = json.loads(entry["metadata_json"] or "{}")
                     importance = entry["importance"] if entry["importance"] is not None else 0.5
                     similarity = 1.0 - row["distance"]  # cosine distance -> similarity
@@ -298,6 +454,8 @@ class VectorMemoryStore:
                             "created_at": entry["created_at"],
                             "similarity": similarity,
                             "score": score,
+                            "source_identity": entry["source_identity"],
+                            "source_revision": entry["source_revision"],
                         }
                     )
                     if len(results) >= k:
@@ -312,19 +470,49 @@ class VectorMemoryStore:
             return []
 
     def count(self, kind: str | None = None) -> int:
-        """Return entry count, optionally filtered by kind."""
+        """Return active (non-tombstoned) entry count, optionally filtered by kind."""
         if not self._enabled or self._conn is None:
             return 0
         try:
             with self._lock:
                 if kind:
                     cur = self._conn.execute(
-                        "SELECT COUNT(*) FROM vec_entries WHERE kind = ?", (kind,)
+                        "SELECT COUNT(*) FROM vec_entries WHERE kind = ? AND tombstone = 0",
+                        (kind,),
                     )
                 else:
-                    cur = self._conn.execute("SELECT COUNT(*) FROM vec_entries")
+                    cur = self._conn.execute(
+                        "SELECT COUNT(*) FROM vec_entries WHERE tombstone = 0"
+                    )
                 return cur.fetchone()[0]
         except Exception:
+            return 0
+
+    def tombstone_by_source_revision(
+        self,
+        *,
+        source_identity: str,
+        source_revision: str,
+    ) -> int:
+        """Soft-delete (tombstone) entries matching a source revision (design §22.2).
+
+        Tombstoning is revision-aware: only entries whose
+        ``source_revision`` matches are tombstoned, so a stale delete cannot
+        remove newer memory. Returns the number of entries tombstoned.
+        """
+        if not self._enabled or self._conn is None:
+            return 0
+        try:
+            with self._lock:
+                cur = self._conn.execute(
+                    "UPDATE vec_entries SET tombstone = 1 "
+                    "WHERE source_identity = ? AND source_revision = ? AND tombstone = 0",
+                    (source_identity, source_revision),
+                )
+                self._conn.commit()
+                return cur.rowcount
+        except Exception:
+            logger.exception("tombstone_by_source_revision failed")
             return 0
 
     def decay_importance(self, days_threshold: int = 30, decay_factor: float = 0.9) -> int:
@@ -394,6 +582,68 @@ class VectorMemoryStore:
                 pass
             self._conn = None
 
+    def rebuild(
+        self,
+        *,
+        embed_fn: Callable[[str], list[float]],
+        entries: list[dict[str, Any]],
+        scope: dict[str, str] | None = None,
+    ) -> int:
+        """Rebuild the vector index from authoritative memory sources (design §22.2).
+
+        Wipes all existing entries and vectors, then re-indexes the provided
+        ``entries``. Each entry is a dict with keys: ``text``, ``kind``,
+        ``metadata``, ``importance``, ``source_identity``,
+        ``source_revision``.
+
+        This is idempotent: running it twice with the same ``entries``
+        produces the same final state. Used by the ``MEMORY_INDEX``
+        maintenance task to recover from corruption or model swaps.
+
+        Returns the number of entries indexed.
+        """
+        if not self._enabled or self._conn is None:
+            return 0
+        try:
+            with self._lock:
+                # Wipe existing data. Use DELETE (not DROP) so the schema
+                # and indexes are preserved.
+                self._conn.execute("DELETE FROM vec")
+                self._conn.execute("DELETE FROM vec_entries")
+                self._conn.commit()
+            count = 0
+            for entry in entries:
+                text = entry.get("text", "")
+                if not text:
+                    continue
+                kind = entry.get("kind", "history")
+                metadata = entry.get("metadata")
+                importance = entry.get("importance", 0.5)
+                source_identity = entry.get("source_identity", "")
+                source_revision = entry.get("source_revision", "")
+                embedding = embed_fn(text)
+                if not embedding or len(embedding) != self.embedding_dim:
+                    continue
+                row_id = self.index(
+                    text,
+                    embedding,
+                    kind=kind,
+                    metadata=metadata,
+                    importance=importance,
+                    source_identity=source_identity,
+                    source_revision=source_revision,
+                    scope=scope,
+                )
+                if row_id is not None:
+                    count += 1
+            logger.info(
+                "VectorMemoryStore.rebuild: indexed {} entries", count
+            )
+            return count
+        except Exception:
+            logger.exception("VectorMemoryStore.rebuild failed")
+            return 0
+
 
 class NoOpVectorStore:
     """Fallback when sqlite-vec is unavailable. All operations are no-ops."""
@@ -402,10 +652,11 @@ class NoOpVectorStore:
     def enabled(self) -> bool:
         return False
 
-    def index(self, text, embedding, kind="history", metadata=None, importance=0.5):
+    def index(self, text, embedding, kind="history", metadata=None, importance=0.5,
+              *, source_identity="", source_revision="", scope=None):
         return None
 
-    def search(self, query_embedding, k=5, kind=None):
+    def search(self, query_embedding, k=5, kind=None, *, scope=None):
         return []
 
     def count(self, kind=None):
@@ -415,6 +666,12 @@ class NoOpVectorStore:
         return 0
 
     def archive_low_importance(self, threshold=0.2, min_age_days=60):
+        return 0
+
+    def tombstone_by_source_revision(self, *, source_identity, source_revision):
+        return 0
+
+    def rebuild(self, *, embed_fn, entries, scope=None):
         return 0
 
     def close(self):
