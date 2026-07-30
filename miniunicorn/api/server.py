@@ -58,9 +58,9 @@ __all__ = (
 API_SESSION_KEY = "api:default"
 API_CHAT_ID = "default"
 
-# Routes that bypass auth (health checks only). /v1/* always requires auth
-# when api_key is configured.
-_PUBLIC_PATHS = frozenset({"/health"})
+# Routes that bypass auth (health checks and metrics only). /v1/* always
+# requires auth when api_key is configured.
+_PUBLIC_PATHS = frozenset({"/health", "/status", "/metrics"})
 
 # session_locks LRU 上限,避免恶意/异常客户端用大量不同 session_id 耗尽内存。
 # 超过上限时驱逐最久未使用的 session 锁(仅驱逐引用计数为零且未持有的锁)。
@@ -463,8 +463,52 @@ async def handle_models(request: web.Request) -> web.Response:
 
 
 async def handle_health(request: web.Request) -> web.Response:
-    """GET /health"""
+    """GET /health — liveness + readiness probe (design §34, WP8).
+
+    When a runtime store is attached to the app (``app["runtime_store"]``),
+    the response includes ``alive`` and ``ready`` fields. Otherwise it
+    falls back to the legacy ``{"status": "ok"}`` response.
+    """
+    store = request.app.get("runtime_store")
+    if store is not None:
+        from miniunicorn.runtime.observability import check_health
+
+        health = check_health(store)
+        return web.json_response(health.to_dict())
     return web.json_response({"status": "ok"})
+
+
+async def handle_status(request: web.Request) -> web.Response:
+    """GET /status — detailed runtime status snapshot (design §34, WP8)."""
+    store = request.app.get("runtime_store")
+    host_mode = request.app.get("runtime_mode", "unknown")
+    host_started = request.app.get("runtime_host_started", False)
+    host_snapshot = request.app.get("runtime_host_snapshot")
+    if host_snapshot is not None and callable(host_snapshot):
+        try:
+            host_snapshot = host_snapshot()
+        except Exception:
+            host_snapshot = None
+    from miniunicorn.runtime.observability import collect_status
+
+    status = collect_status(
+        store,
+        host_mode=host_mode,
+        host_started=host_started,
+        host_snapshot=host_snapshot,
+    )
+    return web.json_response(status.to_dict())
+
+
+async def handle_metrics(request: web.Request) -> web.Response:
+    """GET /metrics — Prometheus-style metrics export (design §34, WP8)."""
+    store = request.app.get("runtime_store")
+    host_mode = request.app.get("runtime_mode", "unknown")
+    host_started = request.app.get("runtime_host_started", False)
+    from miniunicorn.runtime.observability import collect_metrics_text
+
+    text = collect_metrics_text(store, host_mode=host_mode, host_started=host_started)
+    return web.Response(text=text, content_type="text/plain", charset="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -543,4 +587,6 @@ def create_app(
     app.router.add_post("/v1/chat/completions", handle_chat_completions)
     app.router.add_get("/v1/models", handle_models)
     app.router.add_get("/health", handle_health)
+    app.router.add_get("/status", handle_status)
+    app.router.add_get("/metrics", handle_metrics)
     return app

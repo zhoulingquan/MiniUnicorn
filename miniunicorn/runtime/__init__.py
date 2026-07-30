@@ -99,6 +99,18 @@ from miniunicorn.runtime.maintenance_executor import (
     MaintenanceExecutor,
     MaintenanceExecutionResult,
 )
+from miniunicorn.runtime.observability import (
+    RuntimeHealth,
+    RuntimeStatus,
+    check_health,
+    collect_status,
+    collect_metrics_text,
+)
+from miniunicorn.runtime.migration_reader import (
+    LegacyCheckpointScanner,
+    LegacyScanResult,
+    scan_legacy_checkpoints,
+)
 from miniunicorn.runtime.ipc import (
     IPC_PROTOCOL_VERSION,
     IpcEnvelope,
@@ -218,6 +230,16 @@ __all__ = [
     "is_low_priority_maintenance",
     "MaintenanceExecutor",
     "MaintenanceExecutionResult",
+    # Observability (WP8)
+    "RuntimeHealth",
+    "RuntimeStatus",
+    "check_health",
+    "collect_status",
+    "collect_metrics_text",
+    # Legacy migration reader (WP8)
+    "LegacyCheckpointScanner",
+    "LegacyScanResult",
+    "scan_legacy_checkpoints",
     # IPC + Supervisor (WP6)
     "IPC_PROTOCOL_VERSION",
     "IpcEnvelope",
