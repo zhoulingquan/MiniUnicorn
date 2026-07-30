@@ -509,11 +509,9 @@ class TestLegacyPathUnaffected:
         assert hasattr(TurnDispatcher, "dispatch")
         assert hasattr(TurnDispatcher, "process_message")
         assert hasattr(TurnDispatcher, "process_direct")
-        # Durable runtime entry points live in the runtime adapter module.
-        from miniunicorn.runtime.agent_adapter import dispatch_durable, submit_durable
-
-        assert callable(submit_durable)
-        assert callable(dispatch_durable)
+        # Durable ingress now lives in the application façade
+        # (RuntimeApplication / build_inbound_envelope), not in the
+        # runtime adapter module.
 
 
 # ---------------------------------------------------------------------------

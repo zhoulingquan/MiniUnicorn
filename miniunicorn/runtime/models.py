@@ -15,7 +15,7 @@ this table before applying it.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 from miniunicorn.agent.ports import (
     CommitKind,
@@ -305,6 +305,7 @@ class InternalTaskEnvelope:
     trace_id: str | None = None
     received_at_ms: int = 0
     available_at_ms: int | None = None
+    payload_content: bytes | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -817,6 +818,25 @@ DeliveryResolution = Literal["MARK_DELIVERED", "RETRY"]
 
 
 # ---------------------------------------------------------------------------
+# Durable reply (design Task 4 — application façade result)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(slots=True, frozen=True)
+class DurableReply:
+    """Final reply content read from the Runtime Store (design Task 4).
+
+    Returned by ``TaskIngressStore.read_final_reply`` and surfaced through
+    ``RuntimeApplication.read_reply``. The ``outbox_id`` is ``None`` when no
+    final-reply Outbox row exists (e.g. empty or suppressed replies).
+    """
+
+    content: str
+    outbox_id: int | None
+    metadata: dict[str, Any]
+
+
+# ---------------------------------------------------------------------------
 # Resource leases
 # ---------------------------------------------------------------------------
 
@@ -1028,6 +1048,7 @@ __all__ = [
     "OutboxRecord",
     "DeliveryReceipt",
     "DeliveryResolution",
+    "DurableReply",
     # Resources
     "ResourceLeaseRequest",
     "ResourceLease",

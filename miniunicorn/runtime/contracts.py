@@ -30,6 +30,7 @@ from miniunicorn.runtime.models import (
     DeliveryReceipt,
     DeliveryResolution,
     DurableEventRecord,
+    DurableReply,
     InternalCompletionWrite,
     InboundTaskEnvelope,
     InternalTaskEnvelope,
@@ -185,6 +186,9 @@ class TaskIngressStore(Protocol):
         ...
 
     def read_task_snapshot(self, scope: RequestScope, task_id: str) -> TaskSnapshot | None:
+        ...
+
+    def read_final_reply(self, scope: RequestScope, task_id: str) -> DurableReply | None:
         ...
 
 

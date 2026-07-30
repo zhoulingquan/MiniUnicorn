@@ -272,9 +272,10 @@ class TurnDispatcher:
                     )
                     # Legacy direct final Channel send (design §23.1, WP5 task 7).
                     # Runtime tasks bypass this path entirely: they are submitted
-                    # via ``submit_durable`` and processed by the Worker through
-                    # ``AgentExecutionCallback``, which calls ``_execute_message``
-                    # directly and enqueues the final reply to the Outbox.
+                    # via ``RuntimeApplication`` and processed by the Worker
+                    # through ``AgentExecutionCallback``, which calls
+                    # ``_execute_message`` directly and enqueues the final reply
+                    # to the Outbox.
                     if response is not None:
                         await self._host.bus.publish_outbound(response)
                     elif msg.channel == "cli":

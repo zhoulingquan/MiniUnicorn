@@ -60,6 +60,7 @@ from miniunicorn.runtime.models import (
     DeliveryReceipt,
     DeliveryResolution,
     DurableEventRecord,
+    DurableReply,
     InboundTaskEnvelope,
     InternalCompletionWrite,
     InternalTaskEnvelope,
@@ -699,17 +700,30 @@ class SqliteRuntimeStore:
         available_at = envelope.available_at_ms or now_ms
         scope_key = f"{envelope.scope.tenant_id}/{envelope.scope.principal_id}"
 
-        blob = self.write_blob(
-            BlobWrite(
-                scope_key=scope_key,
-                blob_kind="TASK_PAYLOAD",
-                content_hash=envelope.payload_hash,
-                encoding="RAW_BYTES",
-                external_ref=envelope.normalized_payload_ref,
-                size_bytes=0,
-                created_at_ms=now_ms,
+        if envelope.payload_content is not None:
+            blob = self.write_blob(
+                BlobWrite(
+                    scope_key=scope_key,
+                    blob_kind="TASK_PAYLOAD",
+                    content_hash=envelope.payload_hash,
+                    encoding="RAW_BYTES",
+                    inline_content=envelope.payload_content,
+                    size_bytes=len(envelope.payload_content),
+                    created_at_ms=now_ms,
+                )
             )
-        )
+        else:
+            blob = self.write_blob(
+                BlobWrite(
+                    scope_key=scope_key,
+                    blob_kind="TASK_PAYLOAD",
+                    content_hash=envelope.payload_hash,
+                    encoding="RAW_BYTES",
+                    external_ref=envelope.normalized_payload_ref,
+                    size_bytes=0,
+                    created_at_ms=now_ms,
+                )
+            )
 
         self._conn.execute("BEGIN IMMEDIATE")
         try:
@@ -2923,6 +2937,60 @@ class SqliteRuntimeStore:
             "SELECT * FROM outbox WHERE outbox_id=?", (outbox_id,)
         ).fetchone()
         return _row_to_outbox_record(row) if row else None
+
+    def read_final_reply(
+        self,
+        scope: RequestScope,
+        task_id: str,
+    ) -> DurableReply | None:
+        """Read the final-reply content for a completed task (design Task 4).
+
+        Joins ``tasks`` to the task's ``FINAL_REPLY`` Outbox row and
+        ``runtime_blobs``. Verifies tenant, principal, agent, and workspace
+        scope before returning content. Decodes only ``RAW_BYTES``.
+        Returns ``None`` when no final-reply Outbox row exists.
+        """
+        row = self._conn.execute(
+            """
+            SELECT t.state AS task_state,
+                   o.outbox_id AS outbox_id,
+                   b.inline_content AS inline_content,
+                   b.encoding AS encoding
+            FROM tasks t
+            JOIN outbox o ON o.task_id = t.task_id
+                AND o.message_kind = 'FINAL_REPLY'
+                AND o.state IN ('PENDING', 'DELIVERED', 'RETRY_WAIT')
+            LEFT JOIN runtime_blobs b ON b.blob_id = o.payload_blob_id
+            WHERE t.task_id = ?
+              AND t.tenant_id = ?
+              AND t.principal_id = ?
+              AND t.agent_id = ?
+              AND t.workspace_id = ?
+            ORDER BY o.outbox_id DESC
+            LIMIT 1
+            """,
+            (
+                task_id,
+                scope.tenant_id,
+                scope.principal_id,
+                scope.agent_id,
+                scope.workspace_id,
+            ),
+        ).fetchone()
+        if row is None:
+            return None
+        content = ""
+        if row["inline_content"] is not None and row["encoding"] == "RAW_BYTES":
+            content = bytes(row["inline_content"]).decode("utf-8")
+        return DurableReply(
+            content=content,
+            outbox_id=int(row["outbox_id"]),
+            metadata={
+                "task_id": task_id,
+                "state": row["task_state"],
+                "outbox_id": int(row["outbox_id"]),
+            },
+        )
 
     def enqueue_message_tool_outbox(
         self,

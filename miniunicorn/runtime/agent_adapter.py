@@ -11,10 +11,12 @@ This module provides:
 - :class:`AgentExecutionCallback` — the production callback that wraps an
   :class:`~miniunicorn.agent.loop.AgentLoop` (or any host satisfying the
   :class:`TurnDispatchHost` protocol).
-- :func:`submit_durable` / :func:`dispatch_durable` — runtime entry points
-  that map a legacy :class:`~miniunicorn.bus.events.InboundMessage` to a
-  durable task envelope and submit it through the Task Service
-  (design §29.1).
+
+Durable ingress (submit/wait/result) lives in
+:mod:`miniunicorn.runtime.application` via ``RuntimeApplication`` and
+``build_inbound_envelope`` (design §29.1, Task 4). The legacy
+``submit_durable`` / ``dispatch_durable`` envelope builders were removed
+once the deterministic ingress helpers centralized that construction.
 
 WP3 scope: the callback wraps the existing Agent loop without per-attempt
 Provider journaling or Tool Gateway routing (those are WP4). The Agent loop
@@ -24,9 +26,6 @@ commit durably.
 
 from __future__ import annotations
 
-import hashlib
-import json
-import time
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -42,8 +41,6 @@ from miniunicorn.runtime.worker import (
 if TYPE_CHECKING:
     from miniunicorn.agent.turn_coordinator import TurnCoordinator
     from miniunicorn.agent.turn_dispatcher import TurnDispatcher
-    from miniunicorn.runtime.models import RequestScope
-    from miniunicorn.runtime.task_service import TaskService
 
 
 class AgentExecutionCallback:
@@ -219,99 +216,4 @@ class AgentExecutionCallback:
             )
 
 
-__all__ = ["AgentExecutionCallback", "submit_durable", "dispatch_durable"]
-
-
-# ---------------------------------------------------------------------------
-# Durable runtime entry points (design §29.1, §30 WP3)
-# ---------------------------------------------------------------------------
-
-
-async def submit_durable(
-    dispatcher: "TurnDispatcher",
-    msg: InboundMessage,
-    *,
-    task_service: "TaskService",
-    scope: "RequestScope",
-) -> Any:
-    """Submit an inbound message as a durable task (design §29.1).
-
-    Maps the legacy :class:`InboundMessage` to an
-    :class:`~miniunicorn.runtime.models.InboundTaskEnvelope` and submits
-    it through the :class:`~miniunicorn.runtime.task_service.TaskService`.
-
-    The task is durable before this method returns. The caller may await
-    completion through the Task Service or the Outbox (design §29.1).
-    """
-    from miniunicorn.runtime.models import InboundTaskEnvelope, MediaRef
-
-    session_key = dispatcher.host._effective_session_key(msg)
-    content = msg.content if isinstance(msg.content, str) else ""
-    payload = {
-        "content": content,
-        "media": list(msg.media or []),
-        "metadata": dict(msg.metadata or {}),
-    }
-    payload_bytes = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
-    payload_hash = hashlib.sha256(payload_bytes).hexdigest()
-    normalized_payload_ref = f"inline:{payload_hash[:16]}"
-
-    # Channel message id for dedup (design §13.2).
-    channel_message_id = None
-    if isinstance(msg.metadata, dict):
-        channel_message_id = msg.metadata.get("message_id")
-
-    # Dedup key: stable per (channel, chat_id, message_id) when available.
-    dedup_key = None
-    if channel_message_id:
-        dedup_key = f"{msg.channel}:{msg.chat_id}:{channel_message_id}"
-
-    envelope = InboundTaskEnvelope(
-        protocol_version=1,
-        task_kind="USER_TURN",
-        priority=100,
-        scope=scope,
-        session_key=session_key,
-        channel=msg.channel,
-        channel_account=msg.sender_id,
-        channel_message_id=channel_message_id,
-        dedup_key=dedup_key,
-        normalized_payload_ref=normalized_payload_ref,
-        payload_hash=payload_hash,
-        media_refs=tuple(
-            MediaRef(
-                artifact_ref=p,
-                content_hash=hashlib.sha256(p.encode("utf-8")).hexdigest(),
-                media_kind="path",
-                size_bytes=0,
-            )
-            for p in (msg.media or [])
-            if isinstance(p, str) and p
-        ),
-        received_at_ms=int(time.time() * 1000),
-        turn_id=None,
-        payload_content=payload_bytes,
-    )
-    return await task_service.submit(envelope)
-
-
-async def dispatch_durable(
-    dispatcher: "TurnDispatcher",
-    msg: InboundMessage,
-    *,
-    task_service: "TaskService",
-    scope: "RequestScope",
-    timeout_s: float | None = None,
-) -> Any:
-    """Submit-and-await for the durable runtime path (design §29.1, WP3 task 6).
-
-    Submits the message as a durable task and waits for it to reach a
-    terminal state. Returns the terminal :class:`TaskSnapshot`.
-
-    This is the runtime equivalent of ``TurnDispatcher.dispatch`` — it does
-    NOT publish the outbound message directly (design §29.1). Final reply
-    delivery is handled by the Outbox (WP5) or the internal fake delivery
-    ledger (WP3).
-    """
-    handle = await submit_durable(dispatcher, msg, task_service=task_service, scope=scope)
-    return await task_service.wait_terminal(scope, handle.task_id, timeout_s)
+__all__ = ["AgentExecutionCallback"]
