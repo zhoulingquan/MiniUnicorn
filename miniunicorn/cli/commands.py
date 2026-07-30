@@ -64,7 +64,6 @@ from prompt_toolkit import PromptSession
 from rich.table import Table
 
 from miniunicorn import __logo__, __version__
-from miniunicorn.agent.loop import AgentLoop  # re-exported for _gateway_runner (Task 9 cutover pending)
 from miniunicorn.cli._gateway_runner import _run_gateway
 from miniunicorn.cli._terminal_render import (
     _flush_cli_reasoning,
@@ -507,9 +506,12 @@ def gateway(
             filter=lambda record: record["extra"].setdefault("channel", "-") or True,
         )
     cfg = _load_runtime_config(config, workspace)
-    _resolve_runtime_mode(cfg, runtime_mode, "supervised")
+    mode = _resolve_runtime_mode(cfg, runtime_mode, "supervised")
     _ensure_local_allow_from(cfg)
-    _run_gateway(cfg)
+    sync_workspace_templates(cfg.workspace_path)
+    if is_default_workspace(cfg.workspace_path):
+        _migrate_cron_store(cfg)
+    _run_gateway(cfg, runtime_mode=mode)
 
 
 def _ensure_local_allow_from(cfg: Config) -> None:
@@ -647,15 +649,19 @@ def desktop_gateway(
             filter=lambda record: record["extra"].setdefault("channel", "-") or True,
         )
     cfg = _load_or_create_desktop_config(config, workspace)
-    _resolve_runtime_mode(cfg, runtime_mode, "supervised")
+    mode = _resolve_runtime_mode(cfg, runtime_mode, "supervised")
     _configure_desktop_gateway(
         cfg,
         webui_port=webui_port,
         webui_socket=webui_socket,
         token_issue_secret=token_issue_secret,
     )
+    sync_workspace_templates(cfg.workspace_path)
+    if is_default_workspace(cfg.workspace_path):
+        _migrate_cron_store(cfg)
     _run_gateway(
         cfg,
+        runtime_mode=mode,
         webui_static_dist=False,
         webui_runtime_surface="native",
         webui_runtime_capabilities={

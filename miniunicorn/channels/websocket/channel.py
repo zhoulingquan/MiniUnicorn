@@ -200,6 +200,7 @@ class WebSocketChannel(BaseChannel):
         agent_model_refresher: Callable[[], None] | None = None,
         cron_service: Any = None,
         tool_registry: Any = None,
+        submit_control: Any = None,
     ):
         if isinstance(config, dict):
             config = WebSocketConfig.model_validate(config)
@@ -240,6 +241,7 @@ class WebSocketChannel(BaseChannel):
         self._agent_model_refresher = agent_model_refresher
         self._cron_service = cron_service
         self._tool_registry = tool_registry
+        self._submit_control = submit_control
         self._runtime_surface = "native" if runtime_surface in {"native", "desktop"} else "browser"
         self._runtime_capabilities = runtime_capabilities(
             self._runtime_surface,
@@ -1469,7 +1471,76 @@ class WebSocketChannel(BaseChannel):
                 is_dm=False,
             )
             return
+        if t == "task_control":
+            await self._handle_task_control(connection, client_id, envelope)
+            return
         await self._send_event(connection, "error", detail=f"unknown type: {t!r}")
+
+    async def _handle_task_control(
+        self,
+        connection: Any,
+        client_id: str,
+        envelope: dict[str, Any],
+    ) -> None:
+        """Handle a task control request (cancel/steer/continue/approve/reject).
+
+        Maps the wire ``action`` to a ``ControlKind`` and submits a
+        ``TaskControlRequest`` through the ``submit_control`` callback
+        wired by the runtime bootstrap (Task 9).
+        """
+        if self._submit_control is None:
+            await self._send_event(
+                connection, "error", detail="task_control not available"
+            )
+            return
+
+        task_id = envelope.get("task_id")
+        action = envelope.get("action")
+        if not isinstance(task_id, str) or not task_id:
+            await self._send_event(connection, "error", detail="invalid task_id")
+            return
+        if not isinstance(action, str) or not action:
+            await self._send_event(connection, "error", detail="missing action")
+            return
+
+        action_map = {
+            "cancel": "CANCEL",
+            "steer": "STEER",
+            "continue": "CONTINUE",
+            "approve_tool": "APPROVE_TOOL",
+            "reject_tool": "REJECT_TOOL",
+        }
+        kind = action_map.get(action)
+        if kind is None:
+            await self._send_event(
+                connection, "error", detail=f"unknown action: {action!r}"
+            )
+            return
+
+        payload = envelope.get("payload") or {}
+        if not isinstance(payload, dict):
+            payload = {}
+
+        try:
+            result = await self._submit_control(
+                task_id=task_id,
+                kind=kind,
+                payload=payload,
+                requested_by=client_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.logger.warning("task_control failed: {}", exc)
+            await self._send_event(
+                connection, "error", detail="task_control_failed"
+            )
+            return
+
+        status = getattr(result, "status", "ERROR")
+        await self._send_event(
+            connection,
+            "error" if status == "TASK_NOT_FOUND" else "session_updated",
+            chat_id=envelope.get("chat_id"),
+        )
 
     async def _workspace_scope_or_error(
         self,

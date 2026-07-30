@@ -74,6 +74,8 @@ class ChannelManager:
         webui_agent_model_refresher: Callable[[], None] | None = None,
         webui_cron_service: Any = None,
         webui_tool_registry: Any = None,
+        submit_inbound: Any | None = None,
+        submit_control: Any | None = None,
     ):
         self.config = config
         self.bus = bus
@@ -87,6 +89,8 @@ class ChannelManager:
         self._webui_agent_model_refresher = webui_agent_model_refresher
         self._webui_cron_service = webui_cron_service
         self._webui_tool_registry = webui_tool_registry
+        self._submit_inbound = submit_inbound
+        self._submit_control = submit_control
         self.channels: dict[str, BaseChannel] = {}
         self._dispatch_task: asyncio.Task | None = None
         # 去重指纹缓存:使用 OrderedDict 实现 LRU,访问/写入时 move_to_end,
@@ -153,6 +157,8 @@ class ChannelManager:
                         kwargs["cron_service"] = self._webui_cron_service
                     if self._webui_tool_registry is not None:
                         kwargs["tool_registry"] = self._webui_tool_registry
+                    if self._submit_control is not None:
+                        kwargs["submit_control"] = self._submit_control
                 channel = cls(section, self.bus, **kwargs)
                 channel.transcription_provider = transcription_provider
                 channel.transcription_api_key = transcription_key
@@ -174,6 +180,11 @@ class ChannelManager:
                     self.config.channels.show_reasoning,
                 )
                 self.channels[name] = channel
+                # Propagate the submit_inbound callback so channels route
+                # ingress to the Runtime TaskService instead of the legacy
+                # bus when a callback is wired (Task 9 cutover).
+                if self._submit_inbound is not None:
+                    channel._submit_inbound = self._submit_inbound
                 logger.info("{} channel enabled", cls.display_name)
             except Exception as e:
                 logger.warning("{} channel not available: {}", name, e)

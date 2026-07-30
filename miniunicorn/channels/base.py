@@ -269,7 +269,13 @@ class BaseChannel(ABC):
             session_key_override=session_key,
         )
 
-        await self.bus.publish_inbound(msg)
+        # When a submit_inbound callback is wired (Task 9 cutover), route
+        # ingress to the Runtime TaskService instead of the legacy bus.
+        submit = getattr(self, "_submit_inbound", None)
+        if submit is not None:
+            await submit(msg)
+        else:
+            await self.bus.publish_inbound(msg)
 
     @classmethod
     def default_config(cls) -> dict[str, Any]:

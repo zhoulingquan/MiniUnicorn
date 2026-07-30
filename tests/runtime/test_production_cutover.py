@@ -19,8 +19,9 @@ def test_cli_does_not_call_process_direct() -> None:
     workspace bootstrap. Any residual ``.process_direct(`` call (the
     legacy in-process path) fails the cutover.
     """
-    source = Path("miniunicorn/cli/commands.py").read_text(encoding="utf-8")
-    assert ".process_direct(" not in source
+    for path in ("miniunicorn/cli/commands.py", "miniunicorn/cli/_gateway_runner.py"):
+        source = Path(path).read_text(encoding="utf-8")
+        assert ".process_direct(" not in source
 
 
 def test_api_does_not_receive_agent_loop() -> None:
@@ -28,3 +29,15 @@ def test_api_does_not_receive_agent_loop() -> None:
     source = Path("miniunicorn/api/server.py").read_text(encoding="utf-8")
     assert 'app["agent_loop"]' not in source
     assert "agent_loop.process_direct" not in source
+
+
+def test_gateway_does_not_construct_agent_loop() -> None:
+    source = Path("miniunicorn/cli/_gateway_runner.py").read_text(encoding="utf-8")
+    assert "AgentLoop.from_config" not in source
+    assert "set_send_callback" not in source
+    assert "await bus.publish_outbound(msg)" not in source
+
+
+def test_runtime_composition_is_called_outside_runtime_package() -> None:
+    source = Path("miniunicorn/cli/_gateway_runner.py").read_text(encoding="utf-8")
+    assert "build_supervised_runtime" in source
