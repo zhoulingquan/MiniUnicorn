@@ -29,8 +29,7 @@ from miniunicorn.runtime.config import (
 class TestDefaults:
     def test_default_config_is_valid(self) -> None:
         cfg = parse_runtime_config(None)
-        assert cfg.enabled is True
-        assert cfg.mode == "lightweight"
+        assert cfg.mode is None
         assert cfg.worker_count == 3
         assert cfg.heartbeat_interval_s == 15
         assert cfg.lease_timeout_s == 180
@@ -73,9 +72,9 @@ class TestAliasHandling:
         assert cfg.heartbeat_interval_s == 15
         assert cfg.lease_timeout_s == 60
 
-    def test_extra_keys_ignored(self) -> None:
-        cfg = parse_runtime_config({"unknownField": 42})
-        assert cfg.enabled is True
+    def test_extra_keys_rejected(self) -> None:
+        with pytest.raises((ValueError, ValidationError)):
+            parse_runtime_config({"unknownField": 42})
 
 
 class TestCrossFieldValidation:
@@ -86,19 +85,19 @@ class TestCrossFieldValidation:
         assert cfg.heartbeat_interval_s == 15
         assert cfg.lease_timeout_s == 60
 
-        with pytest.raises((ValueError, ValidationError), match="heartbeat_interval_s"):
+        with pytest.raises((ValueError, ValidationError), match="heartbeat"):
             parse_runtime_config(
                 {"heartbeatIntervalS": 20, "leaseTimeoutS": 50}  # 20*3=60 > 50
             )
 
     def test_progress_timeout_exceeds_heartbeat(self) -> None:
-        with pytest.raises((ValueError, ValidationError), match="progress_timeout_s"):
+        with pytest.raises((ValueError, ValidationError), match="progress timeout"):
             parse_runtime_config(
                 {"progressTimeoutS": 10, "heartbeatIntervalS": 15}
             )
 
     def test_queue_poll_max_below_lease_scan(self) -> None:
-        with pytest.raises((ValueError, ValidationError), match="queue_poll_max_ms"):
+        with pytest.raises((ValueError, ValidationError), match="queue poll"):
             parse_runtime_config(
                 {
                     "queuePollMaxMs": 20_000,
@@ -107,7 +106,7 @@ class TestCrossFieldValidation:
             )
 
     def test_outbox_lease_exceeds_channel_send(self) -> None:
-        with pytest.raises((ValueError, ValidationError), match="outbox_lease_timeout_s"):
+        with pytest.raises((ValueError, ValidationError), match="Outbox lease"):
             parse_runtime_config(
                 {
                     "outboxLeaseTimeoutS": 60,
@@ -116,7 +115,7 @@ class TestCrossFieldValidation:
             )
 
     def test_sqlite_busy_timeout_below_lease_timeout(self) -> None:
-        with pytest.raises((ValueError, ValidationError), match="sqlite_busy_timeout_ms"):
+        with pytest.raises((ValueError, ValidationError), match="SQLite busy"):
             parse_runtime_config(
                 {
                     "sqliteBusyTimeoutMs": 200_000,
@@ -125,7 +124,7 @@ class TestCrossFieldValidation:
             )
 
     def test_backup_path_must_differ_from_database_path(self) -> None:
-        with pytest.raises((ValueError, ValidationError), match="backup_path"):
+        with pytest.raises((ValueError, ValidationError), match="backup path"):
             parse_runtime_config(
                 {
                     "databasePath": "runtime/store.sqlite",
@@ -139,8 +138,9 @@ class TestModeValidation:
         with pytest.raises((ValueError, ValidationError), match="mode"):
             parse_runtime_config({"mode": "embedded"})
 
-    def test_supervised_requires_worker_concurrency_one(self) -> None:
-        with pytest.raises((ValueError, ValidationError), match="worker_concurrency"):
+    def test_worker_concurrency_capped_at_one(self) -> None:
+        # Field-level constraint (le=1) fires before the model_validator.
+        with pytest.raises((ValueError, ValidationError), match="workerConcurrency"):
             parse_runtime_config(
                 {
                     "mode": "supervised",
@@ -202,12 +202,6 @@ class TestPathResolution:
         cfg = parse_runtime_config(None)
         assert cfg.database_path_resolved is None
         assert cfg.backup_path_resolved is None
-
-
-class TestEnabledFlag:
-    def test_disabled_via_config(self) -> None:
-        cfg = parse_runtime_config({"enabled": False})
-        assert cfg.enabled is False
 
 
 class TestRuntimeModeType:

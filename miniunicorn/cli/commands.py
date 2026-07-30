@@ -84,6 +84,7 @@ from miniunicorn.cli._terminal_render import (
 )
 from miniunicorn.cli.stream import StreamRenderer, ThinkingSpinner
 from miniunicorn.config.paths import get_workspace_path, is_default_workspace
+from miniunicorn.config.runtime import RuntimeMode, resolve_runtime_mode
 from miniunicorn.config.schema import Config, validate_api_bind_security
 from miniunicorn.utils.helpers import sync_workspace_templates
 from miniunicorn.utils.restart import (
@@ -339,6 +340,23 @@ def _warn_deprecated_config_keys(config_path: Path | None) -> None:
         )
 
 
+def _resolve_runtime_mode(
+    config: "Config",
+    cli_value: str | None,
+    launcher_default: RuntimeMode,
+) -> RuntimeMode:
+    """Validate and resolve the runtime mode from CLI, env, config, or default."""
+    if cli_value is not None and cli_value not in ("lightweight", "supervised"):
+        console.print(f"[red]Error: invalid --runtime-mode {cli_value!r}[/red]")
+        raise typer.Exit(1)
+    return resolve_runtime_mode(
+        configured=config.runtime.mode,
+        cli_value=cli_value,  # type: ignore[arg-type]
+        environment=os.getenv("MINIUNICORN_RUNTIME_MODE"),  # type: ignore[arg-type]
+        launcher_default=launcher_default,
+    )
+
+
 def _migrate_cron_store(config: "Config") -> None:
     """One-time migration: move legacy global cron store into the workspace."""
     from miniunicorn.config.paths import get_cron_dir
@@ -367,6 +385,9 @@ def serve(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show MiniUnicorn runtime logs"),
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    runtime_mode: str | None = typer.Option(
+        None, "--runtime-mode", help="Runtime mode: lightweight or supervised"
+    ),
 ):
     """Start the OpenAI-compatible API server (/v1/chat/completions)."""
     try:
@@ -389,6 +410,7 @@ def serve(
         logger.disable("miniunicorn")
 
     runtime_config = _load_runtime_config(config, workspace)
+    _resolve_runtime_mode(runtime_config, runtime_mode, "lightweight")
     api_cfg = runtime_config.api
     host = host if host is not None else api_cfg.host
     port = port if port is not None else api_cfg.port
@@ -470,6 +492,9 @@ def gateway(
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    runtime_mode: str | None = typer.Option(
+        None, "--runtime-mode", help="Runtime mode: lightweight or supervised"
+    ),
 ):
     """Start the MiniUnicorn gateway."""
     if verbose:
@@ -487,6 +512,7 @@ def gateway(
             filter=lambda record: record["extra"].setdefault("channel", "-") or True,
         )
     cfg = _load_runtime_config(config, workspace)
+    _resolve_runtime_mode(cfg, runtime_mode, "supervised")
     _ensure_local_allow_from(cfg)
     _run_gateway(cfg)
 
@@ -600,6 +626,9 @@ def desktop_gateway(
     ),
     config: str | None = typer.Option(None, "--config", "-c", help="Desktop config file"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+    runtime_mode: str | None = typer.Option(
+        None, "--runtime-mode", help="Runtime mode: lightweight or supervised"
+    ),
 ):
     """Start the private local gateway used by MiniUnicorn Desktop."""
     if not token_issue_secret.strip():
@@ -623,6 +652,7 @@ def desktop_gateway(
             filter=lambda record: record["extra"].setdefault("channel", "-") or True,
         )
     cfg = _load_or_create_desktop_config(config, workspace)
+    _resolve_runtime_mode(cfg, runtime_mode, "supervised")
     _configure_desktop_gateway(
         cfg,
         webui_port=webui_port,
@@ -659,6 +689,9 @@ def agent(
     logs: bool = typer.Option(
         False, "--logs/--no-logs", help="Show MiniUnicorn runtime logs during chat"
     ),
+    runtime_mode: str | None = typer.Option(
+        None, "--runtime-mode", help="Runtime mode: lightweight or supervised"
+    ),
 ):
     """Interact with the agent directly."""
     from loguru import logger
@@ -667,6 +700,7 @@ def agent(
     from miniunicorn.cron.service import CronService
 
     config = _load_runtime_config(config, workspace)
+    _resolve_runtime_mode(config, runtime_mode, "lightweight")
     sync_workspace_templates(config.workspace_path)
 
     bus = MessageBus()

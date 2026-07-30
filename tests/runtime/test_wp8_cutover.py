@@ -287,19 +287,7 @@ class TestLegacyMigrationReader:
 
 
 class TestRuntimeConfigCutover:
-    """Tests for the runtime.enabled cutover flag (WP8 task 1, design §31.1)."""
-
-    def test_config_enabled_default_true(self) -> None:
-        from miniunicorn.runtime.config import RuntimeConfig
-
-        cfg = RuntimeConfig()
-        assert cfg.enabled is True
-
-    def test_config_disabled_uses_legacy(self) -> None:
-        from miniunicorn.runtime.config import RuntimeConfig
-
-        cfg = RuntimeConfig(enabled=False)
-        assert cfg.enabled is False
+    """Tests for runtime config after hard cutover (no enabled flag)."""
 
     def test_config_mode_lightweight(self) -> None:
         from miniunicorn.runtime.config import RuntimeConfig

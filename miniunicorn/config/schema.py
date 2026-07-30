@@ -11,6 +11,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 from pydantic_settings import BaseSettings
 
+from miniunicorn.config.runtime import RuntimeConfig
 from miniunicorn.cron.types import CronSchedule
 
 
@@ -553,6 +554,7 @@ class Config(BaseSettings):
     api: ApiConfig = Field(default_factory=ApiConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     model_presets: dict[str, ModelPresetConfig] = Field(
         default_factory=dict,
         validation_alias=AliasChoices("modelPresets", "model_presets"),
