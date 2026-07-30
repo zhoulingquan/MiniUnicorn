@@ -61,9 +61,14 @@ class AgentExecutionCallback:
         self,
         dispatcher: "TurnDispatcher",
         coordinator: "TurnCoordinator",
+        *,
+        tool_execution_port: Any | None = None,
+        turn_journal: Any | None = None,
     ) -> None:
         self._dispatcher = dispatcher
         self._coordinator = coordinator
+        self._tool_execution_port = tool_execution_port
+        self._turn_journal = turn_journal
 
     async def __call__(
         self,
@@ -104,6 +109,11 @@ class AgentExecutionCallback:
                 turn_id=payload.turn_id,
                 durable_identifiers=durable_ids,
             ) as turn_runtime:
+                # Bind the durable runtime ports so the Agent Core routes
+                # tools through ToolExecutionPort and journals Provider
+                # attempts through TurnJournalPort (design §11.1, §19, §20).
+                turn_runtime.tool_execution_port = self._tool_execution_port
+                turn_runtime.turn_journal = self._turn_journal
                 # Use process_message with runtime_mode. The dispatcher's
                 # process_message calls _execute_message which calls
                 # TurnExecutor.execute. We need to pass runtime_mode=True.

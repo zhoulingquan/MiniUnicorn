@@ -61,6 +61,19 @@ from miniunicorn.runtime.worker import (
 )
 from miniunicorn.runtime.hosts import LightweightHost
 from miniunicorn.runtime.agent_adapter import AgentExecutionCallback
+from miniunicorn.runtime.tool_gateway import ToolGateway
+from miniunicorn.runtime.containment import (
+    ContainmentScope,
+    NullContainmentScope,
+    ProcessContainmentScope,
+    bind_containment_scope,
+    current_containment_scope,
+    reset_containment_scope,
+)
+from miniunicorn.runtime.durable_journal import (
+    DurableTurnJournalAdapter,
+    JournalProviderObserver,
+)
 from miniunicorn.runtime.models import (
     BLOB_ENCODING,
     BLOB_KIND,
@@ -127,6 +140,17 @@ __all__ = [
     "LightweightHost",
     # Agent adapter
     "AgentExecutionCallback",
+    # Tool Gateway & durable journal (WP4)
+    "ToolGateway",
+    "DurableTurnJournalAdapter",
+    "JournalProviderObserver",
+    # Child-process containment (WP4 task 9)
+    "ContainmentScope",
+    "NullContainmentScope",
+    "ProcessContainmentScope",
+    "bind_containment_scope",
+    "current_containment_scope",
+    "reset_containment_scope",
     # Contracts
     "ClaimRequest",
     "ClaimedTask",

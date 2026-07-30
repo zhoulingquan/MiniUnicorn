@@ -517,11 +517,17 @@ class ExecTool(Tool):
           连带终止子 shell 启动的子孙进程。
         - Windows: ``CREATE_NEW_PROCESS_GROUP`` 让子进程成为新进程组根,
           终止时通过 ``taskkill /T`` 递归终止整棵树。
+
+        The spawned PID is registered with the task's containment scope
+        (design §20.7) so the entire child tree is terminated on Worker
+        termination, cancellation, or hard timeout.
         """
+        from miniunicorn.runtime.containment import current_containment_scope
+
         if _IS_WINDOWS:
             creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
             if "\n" in command:
-                return await asyncio.create_subprocess_exec(
+                proc = await asyncio.create_subprocess_exec(
                     _windows_powershell(),
                     "-NoProfile",
                     "-Command",
@@ -533,30 +539,37 @@ class ExecTool(Tool):
                     env=env,
                     creationflags=creationflags,
                 )
-            return await asyncio.create_subprocess_shell(
-                command,
+            else:
+                proc = await asyncio.create_subprocess_shell(
+                    command,
+                    stdin=stdin,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=cwd,
+                    env=env,
+                    creationflags=creationflags,
+                )
+        else:
+            shell_program = shell_program or shutil.which("bash") or "/bin/bash"
+            args = [shell_program]
+            shell_name = Path(shell_program).name.lower()
+            if login and shell_name in {"bash", "bash.exe", "zsh", "zsh.exe"}:
+                args.append("-l")
+            args.extend(["-c", command])
+            proc = await asyncio.create_subprocess_exec(
+                *args,
                 stdin=stdin,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
                 env=env,
-                creationflags=creationflags,
+                start_new_session=True,
             )
-        shell_program = shell_program or shutil.which("bash") or "/bin/bash"
-        args = [shell_program]
-        shell_name = Path(shell_program).name.lower()
-        if login and shell_name in {"bash", "bash.exe", "zsh", "zsh.exe"}:
-            args.append("-l")
-        args.extend(["-c", command])
-        return await asyncio.create_subprocess_exec(
-            *args,
-            stdin=stdin,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=cwd,
-            env=env,
-            start_new_session=True,
-        )
+        # Register the spawned PID with the task's containment scope.
+        scope = current_containment_scope()
+        if scope is not None:
+            scope.register(proc.pid)
+        return proc
 
     @staticmethod
     def _resolve_shell(shell: str | None) -> tuple[str | None, str | None]:

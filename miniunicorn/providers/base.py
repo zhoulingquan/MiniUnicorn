@@ -98,6 +98,11 @@ class LLMProvider(ABC):
 
     supports_progress_deltas = False
 
+    # Provider attempt observer (design §19). Defaults to None (legacy mode
+    # with no per-attempt journaling). The durable runtime sets this to an
+    # observer backed by TurnJournalPort before invoking the Runner.
+    attempt_observer: Any = None
+
     _CHAT_RETRY_DELAYS = (1, 2, 4)
     _PERSISTENT_MAX_DELAY = 60
     _PERSISTENT_IDENTICAL_ERROR_LIMIT = 10
@@ -786,7 +791,7 @@ class LLMProvider(ABC):
         identical_error_count = 0
         while True:
             attempt += 1
-            response = await call(**kw)
+            response = await self._invoke_with_observer(call, kw)
             if response.finish_reason != "error":
                 return response
             last_response = response
@@ -808,7 +813,7 @@ class LLMProvider(ABC):
                     )
                     retry_kw = dict(kw)
                     retry_kw["messages"] = stripped
-                    result = await call(**retry_kw)
+                    result = await self._invoke_with_observer(call, retry_kw)
                     # Permanently strip images from the original messages so
                     # subsequent iterations do not repeat the error-retry cycle.
                     if result.finish_reason != "error":
@@ -857,7 +862,95 @@ class LLMProvider(ABC):
                 on_retry_wait=on_retry_wait,
             )
 
-        return last_response if last_response is not None else await call(**kw)
+        return (
+            last_response
+            if last_response is not None
+            else await self._invoke_with_observer(call, kw)
+        )
+
+    async def _invoke_with_observer(
+        self,
+        call: Callable[..., Awaitable[LLMResponse]],
+        kw: dict[str, Any],
+    ) -> LLMResponse:
+        """Invoke one network attempt, journaling it via the observer (design §19).
+
+        When ``attempt_observer`` is None (legacy mode), this is a plain
+        passthrough to ``call(**kw)`` with no journaling overhead.
+        """
+        observer = self.attempt_observer
+        if observer is None:
+            return await call(**kw)
+
+        import hashlib
+        import time
+
+        from miniunicorn.agent.ports import (
+            ProviderAttemptCompleted,
+            ProviderAttemptFailed,
+            ProviderAttemptStarted,
+        )
+
+        model_name = str(kw.get("model", ""))
+        provider_name = getattr(self, "name", self.__class__.__name__)
+        request_hash = hashlib.sha256(
+            json.dumps(kw.get("messages", []), default=str, ensure_ascii=False).encode("utf-8")
+        ).hexdigest()
+        started_at_ms = int(time.time() * 1000)
+        attempt_id = await observer.started(
+            ProviderAttemptStarted(
+                provider_name=provider_name,
+                model_name=model_name,
+                request_hash=request_hash,
+                started_at_ms=started_at_ms,
+            )
+        )
+        t0 = time.monotonic()
+        try:
+            response = await call(**kw)
+        except Exception as exc:
+            latency_ms = int((time.monotonic() - t0) * 1000)
+            await observer.failed(
+                attempt_id,
+                ProviderAttemptFailed(
+                    error_code=type(exc).__name__,
+                    error_summary=str(exc)[:500],
+                    latency_ms=latency_ms,
+                ),
+            )
+            raise
+
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        if response.finish_reason == "error":
+            await observer.failed(
+                attempt_id,
+                ProviderAttemptFailed(
+                    error_code=response.error_kind or "LLM_ERROR",
+                    error_summary=(response.content or "")[:500],
+                    latency_ms=latency_ms,
+                ),
+            )
+        else:
+            # The observer stores the response durably and returns; the
+            # Runner may consume the response only after completed() succeeds
+            # (design §19). The blob write is the observer's responsibility.
+            response_hash = hashlib.sha256(
+                (response.content or "").encode("utf-8")
+            ).hexdigest()
+            usage = response.usage or {}
+            await observer.completed(
+                attempt_id,
+                ProviderAttemptCompleted(
+                    response_blob_id=f"inline:{response_hash[:16]}",
+                    response_hash=response_hash,
+                    input_tokens=int(usage.get("prompt_tokens", 0)),
+                    output_tokens=int(usage.get("completion_tokens", 0)),
+                    finish_reason=response.finish_reason,
+                    latency_ms=latency_ms,
+                    content=response.content,
+                ),
+            )
+        return response
 
     @abstractmethod
     def get_default_model(self) -> str:

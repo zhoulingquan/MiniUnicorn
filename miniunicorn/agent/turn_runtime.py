@@ -56,6 +56,12 @@ class TurnRuntime:
     lease_epoch: int = 0
     run_segment: int = 0
     trace_id: str | None = None
+    # Durable runtime ports (design §11.1, §19, §20). Populated by the
+    # Worker Adapter for durable tasks so the Agent Core routes tools
+    # through ToolExecutionPort and journals Provider attempts through
+    # TurnJournalPort. None for legacy (non-durable) turns.
+    tool_execution_port: Any = None
+    turn_journal: Any = None
 
 
 _CURRENT_TURN: ContextVar[TurnRuntime | None] = ContextVar(

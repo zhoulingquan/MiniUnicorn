@@ -34,6 +34,13 @@ from miniunicorn.agent.ports import (
     SessionCommitResult,
     SessionMutation,
 )
+from miniunicorn.runtime.containment import (
+    ContainmentScope,
+    NullContainmentScope,
+    ProcessContainmentScope,
+    bind_containment_scope,
+    reset_containment_scope,
+)
 from miniunicorn.runtime.contracts import (
     ClaimedTask,
     CompletionResult,
@@ -130,6 +137,7 @@ class AgentTaskWorker:
         execution_callback: ExecutionCallback,
         *,
         heartbeat_interval_s: float = 15.0,
+        containment_factory: Callable[[str], ContainmentScope] | None = None,
     ) -> None:
         self._worker_id = worker_id
         self._scheduler = scheduler
@@ -137,6 +145,7 @@ class AgentTaskWorker:
         self._committer = session_committer
         self._execution_callback = execution_callback
         self._heartbeat_interval_s = heartbeat_interval_s
+        self._containment_factory = containment_factory
         self._running = False
 
     @property
@@ -220,6 +229,17 @@ class AgentTaskWorker:
         # Set the active claim for SessionCommitter (design §17.7).
         set_active_claim(task_id, claim)
 
+        # Create and bind the task's child-process containment scope
+        # (design §20.7, WP4 task 9). On Worker termination, cancellation,
+        # or hard timeout, the entire child tree is terminated before the
+        # task lease is released.
+        containment = (
+            self._containment_factory(task_id)
+            if self._containment_factory is not None
+            else NullContainmentScope()
+        )
+        containment_token = bind_containment_scope(containment)
+
         # Start heartbeat renewal.
         heartbeat_task = asyncio.create_task(
             self._heartbeat_loop(claim, task_id),
@@ -275,6 +295,13 @@ class AgentTaskWorker:
             heartbeat_task.cancel()
             with suppress_exception(asyncio.CancelledError):
                 await heartbeat_task
+            # Terminate the task's child-process tree before releasing
+            # the lease (design §20.7).
+            try:
+                containment.close()
+            except Exception:  # noqa: BLE001
+                logger.warning("worker {}: containment close failed for {}", self._worker_id, task_id)
+            reset_containment_scope(containment_token)
             clear_active_claim(task_id)
 
     # ------------------------------------------------------------------

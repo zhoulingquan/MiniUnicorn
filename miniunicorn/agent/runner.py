@@ -145,6 +145,13 @@ class AgentRunSpec:
     # Dream to consolidate. Default False = no reflection overhead.
     enable_reflection: bool = False
     reflection_interval: int = 5  # periodic reflection every N iterations
+    # Durable runtime ports (design §11.1, §20). When set, the Runner routes
+    # every tool call through ``tool_execution_port`` (no bypass) and journals
+    # each Provider attempt through ``turn_journal``. When None, the Runner
+    # uses the legacy in-process path (no durable journaling). Typed as Any to
+    # avoid a circular import with miniunicorn.agent.ports.
+    tool_execution_port: Any | None = None
+    turn_journal: Any | None = None
 
 
 @dataclass(slots=True)
@@ -396,6 +403,17 @@ class AgentRunner:
         stop_reason = "completed"
         tool_events: list[dict[str, str]] = []
         external_lookup_counts: dict[str, int] = {}
+        # Durable Provider attempt observer (design §19). When the runtime
+        # supplies a TurnJournal, build a JournalProviderObserver and bind it
+        # to the provider so every retry/fallback attempt is journaled.
+        # Always (re)assign so a prior durable run's observer cannot leak
+        # into a later non-durable run.
+        provider_observer: Any | None = None
+        if spec.turn_journal is not None:
+            from miniunicorn.runtime.durable_journal import JournalProviderObserver
+
+            provider_observer = JournalProviderObserver(spec.turn_journal)
+        self.provider.attempt_observer = provider_observer
         # Per-turn throttle for repeated attempts against the same outside target.
         workspace_violation_counts: dict[str, int] = {}
         empty_content_retries = 0
@@ -501,6 +519,8 @@ class AgentRunner:
                 messages_for_model = self._inject_step_guidance(messages_for_model, guidance)
             context = AgentHookContext(iteration=iteration, messages=messages)
             await hook.before_iteration(context)
+            if provider_observer is not None:
+                provider_observer.begin_logical_call()
             response = await self._request_model(spec, messages_for_model, hook, context)
             raw_usage = self._usage_dict(response.usage)
             context.response = response
@@ -1331,6 +1351,15 @@ class AgentRunner:
                 event,
                 (RuntimeError(prep_error) if spec.fail_on_tool_error else None),
             )
+        # Durable runtime: route every tool call through ToolExecutionPort so
+        # no Agent tool bypasses the Tool Gateway (design §20, WP4 exit). The
+        # gateway journals the logical call + attempt, applies approval policy
+        # and resource leases, and returns a durable result. The in-memory
+        # ``content`` echo is fed back to the LLM context.
+        if spec.tool_execution_port is not None:
+            return await self._run_tool_via_gateway(
+                spec, tool_call, tool, params, hint
+            )
         emit_file_edit_events = (
             spec.progress_callback is not None
             and on_progress_accepts_file_edit_events(spec.progress_callback)
@@ -1450,6 +1479,126 @@ class AgentRunner:
             detail = detail[:120] + "..."
         _append_tool_metric(tool_call.name, _tool_start, "ok")
         return result, {"name": tool_call.name, "status": "ok", "detail": detail}, None
+
+    async def _run_tool_via_gateway(
+        self,
+        spec: AgentRunSpec,
+        tool_call: ToolCallRequest,
+        tool: Any | None,
+        params: Any,
+        hint: str,
+    ) -> tuple[Any, dict[str, str], BaseException | None]:
+        """Execute one tool call through the durable ToolExecutionPort (design §20).
+
+        The gateway owns approval policy, resource leases, attempt journaling,
+        and result durability. This method builds the
+        :class:`ToolExecutionRequest` from the prepared (normalized)
+        arguments and the tool's declarative policy, delegates to the port,
+        and maps the durable result back into the Runner's (result, event,
+        error) contract.
+
+        On ``SUCCEEDED`` the in-memory ``content`` echo is returned to the
+        LLM. On ``WAITING_APPROVAL`` / ``FAILED`` / ``OUTCOME_UNKNOWN`` a
+        conversational error string is returned so the turn recovers without
+        aborting (matching the legacy direct-execution error contract).
+        """
+        from miniunicorn.runtime.tool_gateway import (
+            build_tool_execution_request,
+        )
+
+        port = spec.tool_execution_port
+        assert port is not None  # guarded by caller
+        task_id = self._current_task_id()
+        normalized = params if isinstance(params, dict) else dict(tool_call.arguments or {})
+        policy = self._effective_policy_for(tool)
+        request = build_tool_execution_request(
+            task_id=task_id,
+            tool_call_id=tool_call.id,
+            tool_name=tool_call.name,
+            arguments=normalized,
+            policy=policy,
+        )
+        _tool_start = time.monotonic()
+        try:
+            result = await port.execute(request)
+        except asyncio.CancelledError:
+            _append_tool_metric(tool_call.name, _tool_start, "cancelled")
+            raise
+        except Exception as exc:
+            _append_tool_metric(tool_call.name, _tool_start, "error", type(exc).__name__)
+            payload = f"Error: {type(exc).__name__}: {exc}"
+            event = {
+                "name": tool_call.name,
+                "status": "error",
+                "detail": str(exc)[:120],
+            }
+            if spec.fail_on_tool_error:
+                return payload, event, exc
+            return payload + hint, event, None
+
+        if result.state == "SUCCEEDED":
+            content = result.content if result.content is not None else ""
+            detail = str(content).replace("\n", " ").strip()
+            if not detail:
+                detail = "(empty)"
+            elif len(detail) > 120:
+                detail = detail[:120] + "..."
+            _append_tool_metric(tool_call.name, _tool_start, "ok")
+            return content, {"name": tool_call.name, "status": "ok", "detail": detail}, None
+
+        # WAITING_APPROVAL / FAILED / OUTCOME_UNKNOWN / REJECTED: surface a
+        # conversational error so the LLM can adapt, mirroring the legacy
+        # soft-error contract. The durable fact is already committed by the
+        # gateway before this point.
+        err = result.error
+        code = err.error_code if err else str(result.state)
+        summary = err.error_summary if err else f"Tool {tool_call.name} {result.state}"
+        _append_tool_metric(tool_call.name, _tool_start, "error", code)
+        payload = f"Error: {code}: {summary}"
+        event = {
+            "name": tool_call.name,
+            "status": "error",
+            "detail": summary[:120],
+        }
+        if spec.fail_on_tool_error:
+            return payload, event, RuntimeError(payload)
+        return payload + hint, event, None
+
+    def _current_task_id(self) -> str:
+        """Return the durable task_id bound to the current TurnRuntime, or ''."""
+        runtime = current_turn_runtime()
+        if runtime is not None and runtime.task_id is not None:
+            return runtime.task_id
+        return ""
+
+    @staticmethod
+    def _effective_policy_for(tool: Any | None) -> Any:
+        """Build an :class:`EffectiveToolPolicy` from a tool's declarative metadata.
+
+        When ``tool`` is None (registry-level prepare failed), use the
+        conservative EXTERNAL_WRITE defaults from design §20.2.
+        """
+        from miniunicorn.agent.ports import EffectiveToolPolicy
+
+        if tool is None:
+            return EffectiveToolPolicy(
+                effect_class="EXTERNAL_WRITE",
+                risk_class="HIGH",
+                idempotency_mode="NONE",
+                approval_policy="POLICY",
+                recovery_policy="MANUAL",
+                concurrency_scope="NONE",
+            )
+        return EffectiveToolPolicy(
+            effect_class=tool.effect_class,
+            risk_class=tool.risk_class,
+            idempotency_mode=tool.idempotency_mode,
+            approval_policy=tool.approval_policy,
+            recovery_policy=tool.recovery_policy,
+            concurrency_scope=tool.concurrency_scope,
+            progress_required=tool.progress_required,
+            timeout_s=tool.timeout_s,
+        )
 
     # SSRF is a hard security block at the tool boundary, but the agent turn
     # should recover conversationally instead of aborting the runtime.

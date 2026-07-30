@@ -135,6 +135,28 @@ class DurableTurnJournalAdapter:
             finish_reason=result.finish_reason,
         )
 
+    def write_response_blob(self, content: str, content_hash: str) -> str:
+        """Write raw response text into a protected runtime blob (design §19).
+
+        Returns the durable ``blob_id``. Used by the Provider attempt
+        observer so the model attempt's ``response_blob_id`` FK resolves.
+        """
+        from miniunicorn.runtime.models import BlobWrite
+
+        if self._journal is None:
+            return f"inline:{content_hash[:16]}"
+        blob = self._journal.write_blob(  # type: ignore[attr-defined]
+            BlobWrite(
+                scope_key=f"task/{_task_id_from_context()}",
+                blob_kind="MODEL_RESPONSE",
+                content_hash=content_hash,
+                encoding="RAW_BYTES",
+                inline_content=content.encode("utf-8"),
+                size_bytes=len(content.encode("utf-8")),
+            )
+        )
+        return blob.blob_id
+
     async def record_model_failed(
         self, attempt: AttemptIdentity, error: SafeError
     ) -> None:
@@ -222,4 +244,90 @@ def _task_id_from_context() -> str:
     return runtime.task_id
 
 
-__all__ = ["DurableTurnJournalAdapter"]
+class JournalProviderObserver:
+    """Adapts :class:`TurnJournalPort` to :class:`ProviderAttemptObserver`
+    (design §19).
+
+    The Provider calls ``started/completed/failed`` for every network
+    attempt. This adapter derives a deterministic ``logical_call_id`` from
+    the bound task id plus a monotonic per-run model-call ordinal, tracks
+    ``attempt_no`` within each logical call, and forwards the facts to the
+    durable :class:`TurnJournalPort`.
+
+    The Provider does not write SQLite directly; all durability flows
+    through this adapter into the Runtime Store via the journal.
+    """
+
+    def __init__(self, journal: "TurnJournalPort") -> None:  # type: ignore[name-defined]
+        self._journal = journal
+        # Per-run monotonic counters (design §19: logical_call_id derives
+        # from task_id + run_segment + inner_loop_iteration + ordinal).
+        self._call_ordinal = 0
+        self._attempt_no = 0
+        self._logical_call_id = ""
+        # Map provider attempt_id -> (AttemptIdentity) for completed/failed.
+        self._attempts: dict[str, Any] = {}
+
+    def begin_logical_call(self) -> None:
+        """Start a new logical model call (called by Runner before _request_model)."""
+        self._call_ordinal += 1
+        self._attempt_no = 0
+        task_id = _task_id_from_context()
+        self._logical_call_id = f"{task_id}:{self._call_ordinal}"
+
+    async def started(self, value: Any) -> str:
+        from miniunicorn.agent.ports import (
+            AttemptIdentity,
+            ModelAttemptStarted,
+        )
+
+        self._attempt_no += 1
+        call = ModelAttemptStarted(
+            logical_call_id=self._logical_call_id,
+            attempt_no=self._attempt_no,
+            provider_name=value.provider_name,
+            model_name=value.model_name,
+            request_hash=value.request_hash,
+            started_at_ms=value.started_at_ms,
+        )
+        attempt = await self._journal.record_model_started(call)
+        self._attempts[attempt.model_attempt_id] = attempt
+        return attempt.model_attempt_id
+
+    async def completed(self, attempt_id: str, value: Any) -> None:
+        from miniunicorn.agent.ports import ModelAttemptResult
+
+        attempt = self._attempts.get(attempt_id)
+        if attempt is None:
+            return
+        # Write the raw response into a protected blob so the model attempt's
+        # response_blob_id FK resolves (design §19). The provider does not
+        # write SQLite directly; the observer owns the blob write.
+        blob_id = value.response_blob_id
+        if value.content is not None and hasattr(self._journal, "write_response_blob"):
+            blob_id = self._journal.write_response_blob(value.content, value.response_hash)
+        result = ModelAttemptResult(
+            response_blob_id=blob_id,
+            response_hash=value.response_hash,
+            input_tokens=value.input_tokens,
+            output_tokens=value.output_tokens,
+            finish_reason=value.finish_reason,
+        )
+        await self._journal.record_model_completed(attempt, result)
+
+    async def failed(self, attempt_id: str, value: Any) -> None:
+        from miniunicorn.agent.ports import SafeError
+
+        attempt = self._attempts.get(attempt_id)
+        if attempt is None:
+            return
+        await self._journal.record_model_failed(
+            attempt,
+            SafeError(
+                error_code=value.error_code,
+                error_summary=value.error_summary,
+            ),
+        )
+
+
+__all__ = ["DurableTurnJournalAdapter", "JournalProviderObserver"]

@@ -190,6 +190,52 @@ class Tool(ABC):
         """Whether repeated calls with same args can reuse a cached result."""
         return False
 
+    # --- Effective tool policy (design §20.1, §20.2) ---
+    # Conservative defaults: read_only tools are REPLAY_SAFE; all others
+    # default to EXTERNAL_WRITE / HIGH risk / NONE idempotency / MANUAL
+    # recovery (design §20.2). Subclasses override these to declare
+    # less-conservative policies after an explicit metadata audit.
+
+    @property
+    def effect_class(self) -> str:
+        """READ, LOCAL_WRITE, or EXTERNAL_WRITE (design §20.1)."""
+        return "READ" if self.read_only else "EXTERNAL_WRITE"
+
+    @property
+    def risk_class(self) -> str:
+        """LOW, MEDIUM, or HIGH (design §20.1)."""
+        return "LOW" if self.read_only else "HIGH"
+
+    @property
+    def idempotency_mode(self) -> str:
+        """REPLAY_SAFE, NATIVE_KEY, RUNTIME_RESULT, or NONE (design §20.1)."""
+        return "REPLAY_SAFE" if self.read_only else "NONE"
+
+    @property
+    def approval_policy(self) -> str:
+        """NEVER, POLICY, or ALWAYS (design §20.1)."""
+        return "NEVER" if self.read_only else "POLICY"
+
+    @property
+    def recovery_policy(self) -> str:
+        """REPLAY, QUERY_THEN_RETRY, REUSE_RESULT, or MANUAL (design §20.1)."""
+        return "REPLAY" if self.read_only else "MANUAL"
+
+    @property
+    def concurrency_scope(self) -> str:
+        """NONE, SESSION, WORKSPACE, or GLOBAL (design §20.1)."""
+        return "NONE"
+
+    @property
+    def progress_required(self) -> bool:
+        """Whether the tool must emit progress while running (design §20.1)."""
+        return False
+
+    @property
+    def timeout_s(self) -> int | None:
+        """Maximum execution time in seconds (design §20.1)."""
+        return None
+
     # --- Plugin metadata ---
 
     config_key: str = ""

@@ -49,6 +49,18 @@ if TYPE_CHECKING:
     from miniunicorn.session.manager import Session
 
 
+def _durable_runtime_port(attr: str) -> Any:
+    """Read a durable runtime port from the bound TurnRuntime (design §11.1).
+
+    Returns None for legacy (non-durable) turns where no TurnRuntime is
+    bound or the port was not populated by the Worker Adapter.
+    """
+    runtime = current_turn_runtime()
+    if runtime is None:
+        return None
+    return getattr(runtime, attr, None)
+
+
 class AgentRunHost(Protocol):
     """Host capabilities required by :class:`AgentRunAdapter`."""
 
@@ -300,6 +312,11 @@ class AgentRunAdapter:
                     enable_reflection=host.enable_reflection,
                     reflection_interval=host.reflection_interval,
                     turn_budget=host._build_turn_budget(),
+                    # Durable runtime ports (design §11.1, §19, §20). Picked
+                    # up from the bound TurnRuntime when running under the
+                    # durable runtime; None for legacy turns.
+                    tool_execution_port=_durable_runtime_port("tool_execution_port"),
+                    turn_journal=_durable_runtime_port("turn_journal"),
                 )
             )
         finally:

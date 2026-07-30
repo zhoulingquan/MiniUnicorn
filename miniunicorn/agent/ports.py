@@ -310,6 +310,12 @@ class ToolExecutionResult:
     ``result_hash`` are present on ``SUCCEEDED``; ``error`` is present on
     ``FAILED`` and ``OUTCOME_UNKNOWN``. ``effect_receipt_ref`` is an opaque
     reference to a Channel/provider receipt when available.
+
+    ``content`` is the ephemeral in-memory echo of the tool output that the
+    Agent Core may feed back into the LLM context on the success path. It is
+    NOT a durable fact — the durable fact is the ``result_blob_id`` /
+    ``result_hash`` pair. On recovery, callers must read the result back from
+    the Runtime Store blob rather than rely on ``content`` (design §20).
     """
 
     state: ToolLogicalState
@@ -317,6 +323,7 @@ class ToolExecutionResult:
     result_hash: str | None = None
     effect_receipt_ref: str | None = None
     error: SafeError | None = None
+    content: Any = None
 
 
 # ---------------------------------------------------------------------------
@@ -499,6 +506,85 @@ class ProgressPort(Protocol):
         ...
 
 
+# ---------------------------------------------------------------------------
+# Provider attempt observer (design §19)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(slots=True, frozen=True)
+class ProviderAttemptStarted:
+    """Per-network-attempt start facts reported by a Provider (design §19)."""
+
+    provider_name: str
+    model_name: str
+    request_hash: str
+    started_at_ms: int
+
+
+@dataclass(slots=True, frozen=True)
+class ProviderAttemptCompleted:
+    """Per-network-attempt completion facts reported by a Provider (design §19).
+
+    ``content`` carries the raw response text transiently so the observer
+    can write it into a protected runtime blob; it is NOT stored in task
+    events or logs (design §19: "raw response content stay in protected
+    blobs").
+    """
+
+    response_blob_id: str
+    response_hash: str
+    input_tokens: int = 0
+    output_tokens: int = 0
+    finish_reason: str | None = None
+    latency_ms: int = 0
+    content: str | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class ProviderAttemptFailed:
+    """Per-network-attempt failure facts reported by a Provider (design §19)."""
+
+    error_code: str
+    error_summary: str
+    latency_ms: int = 0
+
+
+@runtime_checkable
+class ProviderAttemptObserver(Protocol):
+    """Observer the Provider calls for every network attempt (design §19).
+
+    The Runtime supplies an observer backed by
+    :class:`TurnJournalPort`; tests and legacy mode may supply a no-op
+    observer. A completed response is returned to the Runner only after
+    ``completed()`` succeeds (design §19).
+    """
+
+    async def started(self, value: ProviderAttemptStarted) -> str:
+        """Record that a network attempt started; return the attempt id."""
+        ...
+
+    async def completed(self, attempt_id: str, value: ProviderAttemptCompleted) -> None:
+        """Record that a network attempt completed durably."""
+        ...
+
+    async def failed(self, attempt_id: str, value: ProviderAttemptFailed) -> None:
+        """Record that a network attempt failed."""
+        ...
+
+
+class NullProviderAttemptObserver:
+    """No-op observer used by legacy mode and tests (design §19)."""
+
+    async def started(self, value: ProviderAttemptStarted) -> str:
+        return ""
+
+    async def completed(self, attempt_id: str, value: ProviderAttemptCompleted) -> None:
+        return None
+
+    async def failed(self, attempt_id: str, value: ProviderAttemptFailed) -> None:
+        return None
+
+
 __all__ = [
     # Ports
     "TurnJournalPort",
@@ -506,6 +592,7 @@ __all__ = [
     "SessionCommitPort",
     "ControlInboxPort",
     "ProgressPort",
+    "ProviderAttemptObserver",
     # Enums / Literals
     "TaskKind",
     "TaskState",
@@ -544,4 +631,8 @@ __all__ = [
     "ControlRequest",
     "ControlBatch",
     "ControlOutcome",
+    "ProviderAttemptStarted",
+    "ProviderAttemptCompleted",
+    "ProviderAttemptFailed",
+    "NullProviderAttemptObserver",
 ]
