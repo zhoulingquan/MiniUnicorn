@@ -1,0 +1,249 @@
+"""Production construction for lightweight and supervised modes (design Task 5).
+
+``build_lightweight_runtime`` assembles the full durable kernel — Runtime
+Store, SessionManager, AgentLoop, ToolGateway, SessionCommitter,
+AgentExecutionCallback, LightweightHost, OutboxSender, and
+RuntimeApplication — into one lifecycle-managed ``RuntimeResources``
+object.
+
+This module must not import ``sqlite3`` directly; it uses
+:func:`miniunicorn.runtime.sqlite.open_connection` and
+:func:`miniunicorn.runtime.sqlite.run_migrations` as opaque factories
+(design Task 5 Step 3).
+"""
+
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Protocol, runtime_checkable
+
+from loguru import logger
+
+from miniunicorn.config.runtime import RuntimeConfig, resolve_runtime_paths
+from miniunicorn.runtime.application import RuntimeApplication
+from miniunicorn.runtime.agent_adapter import AgentExecutionCallback
+from miniunicorn.runtime.durable_journal import DurableTurnJournalAdapter
+from miniunicorn.runtime.hosts.lightweight import LightweightHost
+from miniunicorn.runtime.message_delivery import DurableMessageDelivery, LocalResultSender
+from miniunicorn.runtime.outbox import OutboxSender
+from miniunicorn.runtime.realtime import LocalProgressPort, RealtimeSubscriptionHub
+from miniunicorn.runtime.session_committer import SessionCommitter
+from miniunicorn.runtime.tool_gateway import ToolGateway
+
+
+# ---------------------------------------------------------------------------
+# Closeable protocol (design Task 5 Step 3)
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class Closeable(Protocol):
+    """Minimal closeable resource (avoids importing sqlite3 here)."""
+
+    def close(self) -> None: ...
+
+
+# ---------------------------------------------------------------------------
+# RuntimeResources — lifecycle-managed lightweight runtime (Task 5 Step 3)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(slots=True)
+class RuntimeResources:
+    """Lifecycle-managed lightweight runtime (design Task 5).
+
+    Owns the application, host, outbox sender, store connection, and
+    agent. ``start()`` brings everything online in dependency order;
+    ``stop()`` tears down in reverse, continuing past individual close
+    failures and re-raising the first captured exception.
+    """
+
+    application: RuntimeApplication
+    host: LightweightHost
+    outbox_sender: OutboxSender
+    store: Any
+    connection: Closeable
+    agent: Any
+    config: RuntimeConfig
+    shutdown_grace_s: float = 60.0
+    shutdown_requested: asyncio.Event = field(default_factory=asyncio.Event)
+    closed: asyncio.Event = field(default_factory=asyncio.Event)
+    _stopped: bool = False
+
+    async def start(self) -> None:
+        """Start the outbox, host, and begin accepting ingress."""
+        await self.outbox_sender.start()
+        await self.host.start()
+        self.application.start_accepting()
+        logger.info("lightweight runtime resources started")
+
+    async def stop(self) -> None:
+        """Stop resources in reverse dependency order (idempotent).
+
+        Continues closing later resources if an earlier close fails;
+        re-raises the first captured exception after all cleanup.
+        """
+        if self._stopped:
+            return
+        self._stopped = True
+        first_exc: BaseException | None = None
+
+        self.application.stop_accepting()
+        try:
+            await self.host.stop(grace_s=self.shutdown_grace_s)
+        except BaseException as exc:  # noqa: BLE001
+            first_exc = exc if first_exc is None else first_exc
+        try:
+            await self.outbox_sender.drain(timeout_s=self.shutdown_grace_s)
+        except BaseException as exc:  # noqa: BLE001
+            first_exc = exc if first_exc is None else first_exc
+        try:
+            await self.outbox_sender.stop()
+        except BaseException as exc:  # noqa: BLE001
+            first_exc = exc if first_exc is None else first_exc
+        try:
+            await self.agent.close_mcp()
+        except BaseException as exc:  # noqa: BLE001
+            first_exc = exc if first_exc is None else first_exc
+        try:
+            self.connection.close()
+        except BaseException as exc:  # noqa: BLE001
+            first_exc = exc if first_exc is None else first_exc
+
+        self.closed.set()
+        logger.info("lightweight runtime resources stopped")
+        if first_exc is not None:
+            raise first_exc
+
+    def request_shutdown(self) -> None:
+        """Signal the long-running launcher to shut down."""
+        self.shutdown_requested.set()
+
+    async def wait_for_shutdown(self) -> None:
+        """Wait until shutdown is requested."""
+        await self.shutdown_requested.wait()
+
+
+# ---------------------------------------------------------------------------
+# build_lightweight_runtime (Task 5 Step 4)
+# ---------------------------------------------------------------------------
+
+
+def build_lightweight_runtime(
+    config: Any,
+    *,
+    provider_override: Any | None = None,
+    channel_sender: Any | None = None,
+    gateway: bool = False,
+    surface: dict[str, Any] | None = None,
+) -> RuntimeResources:
+    """Construct the full lightweight runtime from a root ``Config``.
+
+    Construction order follows design Task 5 Step 4. The same durable
+    kernel is used for one-shot CLI, API ``serve``, and the gateway's
+    lightweight fallback. ``gateway=True`` wires a ChannelManager-based
+    sender; otherwise a :class:`LocalResultSender` is used.
+    """
+    # Lazy imports to keep bootstrap free of sqlite3 at module level.
+    from miniunicorn.agent.loop import AgentLoop
+    from miniunicorn.bus.queue import MessageBus
+    from miniunicorn.runtime.sqlite import (
+        SqliteRuntimeStore,
+        open_connection,
+        run_migrations,
+    )
+    from miniunicorn.runtime.sqlite.vector_memory_store import create_vector_store
+    from miniunicorn.session.manager import SessionManager
+
+    resolved = resolve_runtime_paths(config.runtime, config.workspace_path)
+    db_path = resolved.database_path_resolved or Path(resolved.database_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    connection = open_connection(db_path)
+    run_migrations(connection)
+    store = SqliteRuntimeStore(connection)
+
+    sessions = SessionManager(config.workspace_path)
+    bus = MessageBus()
+
+    agent = AgentLoop.from_config(
+        config,
+        bus,
+        session_manager=sessions,
+        provider=provider_override,
+        vector_memory_factory=create_vector_store,
+    )
+
+    session_committer = SessionCommitter(store, sessions)
+    tool_gateway = ToolGateway(agent.tools, store, store)
+    journal = DurableTurnJournalAdapter(store, store)
+    realtime = RealtimeSubscriptionHub(
+        capacity=resolved.realtime_event_queue_capacity
+    )
+
+    def _outbound_factory(task_id: str) -> Any:
+        return DurableMessageDelivery(task_id)
+
+    def _progress_factory(task_id: str) -> LocalProgressPort:
+        return LocalProgressPort(task_id, realtime)
+
+    callback = AgentExecutionCallback(
+        agent.core_dispatcher,
+        agent.turn_coordinator,
+        tool_execution_port=tool_gateway,
+        turn_journal=journal,
+        outbound_port_factory=_outbound_factory,
+        progress_port_factory=_progress_factory,
+    )
+
+    host = LightweightHost(
+        store,
+        session_committer,
+        callback,
+        worker_count=resolved.lightweight_execution_slots,
+        lease_ms=resolved.lease_timeout_s * 1000,
+        heartbeat_interval_s=resolved.heartbeat_interval_s,
+        max_root_attempts=resolved.task_max_attempts,
+    )
+
+    if channel_sender is not None:
+        sender = channel_sender
+    elif gateway:
+        # Gateway mode constructs ChannelManager in-process (Task 9).
+        # Until then, fall back to LocalResultSender.
+        sender = LocalResultSender()
+    else:
+        sender = LocalResultSender()
+
+    outbox_sender = OutboxSender(
+        store,
+        sender,
+        lease_ms=resolved.outbox_lease_timeout_s * 1000,
+        send_timeout_s=resolved.channel_send_timeout_s,
+    )
+
+    application = RuntimeApplication(
+        task_service=host.task_service,
+        result_store=store,
+        realtime=realtime,
+    )
+
+    return RuntimeResources(
+        application=application,
+        host=host,
+        outbox_sender=outbox_sender,
+        store=store,
+        connection=connection,
+        agent=agent,
+        config=resolved,
+        shutdown_grace_s=float(resolved.shutdown_grace_s),
+    )
+
+
+__all__ = [
+    "RuntimeResources",
+    "Closeable",
+    "build_lightweight_runtime",
+]

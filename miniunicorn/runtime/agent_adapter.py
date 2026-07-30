@@ -61,11 +61,15 @@ class AgentExecutionCallback:
         *,
         tool_execution_port: Any | None = None,
         turn_journal: Any | None = None,
+        outbound_port_factory: Any | None = None,
+        progress_port_factory: Any | None = None,
     ) -> None:
         self._dispatcher = dispatcher
         self._coordinator = coordinator
         self._tool_execution_port = tool_execution_port
         self._turn_journal = turn_journal
+        self._outbound_port_factory = outbound_port_factory
+        self._progress_port_factory = progress_port_factory
 
     async def __call__(
         self,
@@ -120,13 +124,48 @@ class AgentExecutionCallback:
                 # attempts through TurnJournalPort (design §11.1, §19, §20).
                 turn_runtime.tool_execution_port = self._tool_execution_port
                 turn_runtime.turn_journal = self._turn_journal
+                # Per-task ports (design Task 5 Step 5): the Worker binds
+                # the active claim/delivery ledger and containment scope via
+                # ContextVars before calling this callback; the callback
+                # creates the per-task OutboundPort and ProgressPort from
+                # factories and binds the Worker's containment scope to the
+                # TurnRuntime so Agent-owned tools (Shell, Message) reach
+                # them through Agent-owned ports.
+                if self._outbound_port_factory is not None:
+                    turn_runtime.outbound_port = self._outbound_port_factory(
+                        payload.task_id
+                    )
+                if self._progress_port_factory is not None:
+                    turn_runtime.progress_port = self._progress_port_factory(
+                        payload.task_id
+                    )
+                from miniunicorn.runtime.containment import (
+                    current_containment_scope,
+                )
+
+                _containment = current_containment_scope()
+                if _containment is not None:
+                    turn_runtime.containment_port = _containment
                 host = self._dispatcher.host
 
                 # Build transient streaming callbacks that publish Token
-                # deltas to the Message Bus (design §23.1, WP5 task 6).
+                # deltas to the Message Bus (design §23.1, WP5 task 6) and
+                # to the Realtime hub via the ProgressPort (Task 6 Step 5).
                 # The final reply is delivered via the Outbox, not the bus.
+                #
+                # The realtime hub path is always active when a progress_port
+                # is bound: CLI/API subscribers consume deltas from
+                # ``RuntimeApplication.subscribe(task_id)``. The MessageBus
+                # path is retained for legacy consumers (gateway) until Task 9.
                 on_stream = on_stream_end = None
-                if msg.metadata.get("_wants_stream"):
+                progress_port = turn_runtime.progress_port
+                wants_bus_stream = msg.metadata.get("_wants_stream")
+                if wants_bus_stream or progress_port is not None:
+                    from miniunicorn.bus.agent_events import (
+                        DeltaEvent,
+                        StreamEndEvent,
+                    )
+
                     stream_base_id = f"{payload.session_key}:{_time.time_ns()}"
                     stream_segment = 0
 
@@ -134,32 +173,49 @@ class AgentExecutionCallback:
                         return f"{stream_base_id}:{stream_segment}"
 
                     async def on_stream(delta: str) -> None:
-                        meta = dict(msg.metadata or {})
-                        meta["_stream_delta"] = True
-                        meta["_stream_id"] = _current_stream_id()
-                        await host.bus.publish_outbound(
-                            OutboundMessage(
-                                channel=msg.channel,
-                                chat_id=msg.chat_id,
-                                content=delta,
-                                metadata=meta,
+                        if progress_port is not None:
+                            await progress_port.emit(
+                                DeltaEvent(
+                                    chat_id=msg.chat_id,
+                                    text=delta,
+                                    stream_id=_current_stream_id(),
+                                )
                             )
-                        )
+                        if wants_bus_stream:
+                            meta = dict(msg.metadata or {})
+                            meta["_stream_delta"] = True
+                            meta["_stream_id"] = _current_stream_id()
+                            await host.bus.publish_outbound(
+                                OutboundMessage(
+                                    channel=msg.channel,
+                                    chat_id=msg.chat_id,
+                                    content=delta,
+                                    metadata=meta,
+                                )
+                            )
 
                     async def on_stream_end(*, resuming: bool = False) -> None:
                         nonlocal stream_segment
-                        meta = dict(msg.metadata or {})
-                        meta["_stream_end"] = True
-                        meta["_resuming"] = resuming
-                        meta["_stream_id"] = _current_stream_id()
-                        await host.bus.publish_outbound(
-                            OutboundMessage(
-                                channel=msg.channel,
-                                chat_id=msg.chat_id,
-                                content="",
-                                metadata=meta,
+                        if progress_port is not None:
+                            await progress_port.emit(
+                                StreamEndEvent(
+                                    chat_id=msg.chat_id,
+                                    stream_id=_current_stream_id(),
+                                )
                             )
-                        )
+                        if wants_bus_stream:
+                            meta = dict(msg.metadata or {})
+                            meta["_stream_end"] = True
+                            meta["_resuming"] = resuming
+                            meta["_stream_id"] = _current_stream_id()
+                            await host.bus.publish_outbound(
+                                OutboundMessage(
+                                    channel=msg.channel,
+                                    chat_id=msg.chat_id,
+                                    content="",
+                                    metadata=meta,
+                                )
+                            )
                         stream_segment += 1
 
                 result = await host._execute_message(

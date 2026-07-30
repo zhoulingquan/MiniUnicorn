@@ -323,7 +323,7 @@ class TestApiEndpoints:
         from aiohttp.test_utils import TestClient, TestServer
         from miniunicorn.api.server import create_app
 
-        app = create_app(agent_loop=None)
+        app = create_app(runtime=None)
         server = TestServer(app)
         client = TestClient(server)
         await client.start_server()
@@ -340,7 +340,7 @@ class TestApiEndpoints:
         from aiohttp.test_utils import TestClient, TestServer
         from miniunicorn.api.server import create_app
 
-        app = create_app(agent_loop=None)
+        app = create_app(runtime=None)
         server = TestServer(app)
         client = TestClient(server)
         await client.start_server()
@@ -359,7 +359,7 @@ class TestApiEndpoints:
         from aiohttp.test_utils import TestClient, TestServer
         from miniunicorn.api.server import create_app
 
-        app = create_app(agent_loop=None)
+        app = create_app(runtime=None)
         server = TestServer(app)
         client = TestClient(server)
         await client.start_server()
@@ -376,7 +376,7 @@ class TestApiEndpoints:
         from aiohttp.test_utils import TestClient, TestServer
         from miniunicorn.api.server import create_app
 
-        app = create_app(agent_loop=None)
+        app = create_app(runtime=None)
         app["runtime_store"] = store
         server = TestServer(app)
         client = TestClient(server)
@@ -403,7 +403,7 @@ class TestApiEndpoints:
         env = make_inbound_envelope(sample_scope)
         store.submit_task(env)
 
-        app = create_app(agent_loop=None)
+        app = create_app(runtime=None)
         app["runtime_store"] = store
         app["runtime_mode"] = "lightweight"
         app["runtime_host_started"] = True
@@ -427,7 +427,7 @@ class TestApiEndpoints:
         from aiohttp.test_utils import TestClient, TestServer
         from miniunicorn.api.server import create_app
 
-        app = create_app(agent_loop=None, api_key="secret-key")
+        app = create_app(runtime=None, api_key="secret-key")
         app["runtime_store"] = store
         server = TestServer(app)
         client = TestClient(server)

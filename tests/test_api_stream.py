@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -14,6 +15,8 @@ from miniunicorn.api.server import (
     _sse_chunk,
     create_app,
 )
+from miniunicorn.runtime.application import RuntimeTurnResult
+from miniunicorn.runtime.models import DurableReply, RequestScope, TaskSnapshot
 
 try:
     from aiohttp.test_utils import TestClient, TestServer
@@ -23,6 +26,94 @@ except ImportError:
     HAS_AIOHTTP = False
 
 pytest_plugins = ("pytest_asyncio",)
+
+
+# ---------------------------------------------------------------------------
+# Mock RuntimeApplication helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_scope() -> RequestScope:
+    return RequestScope(
+        tenant_id="local",
+        principal_id="local-user",
+        agent_id="default",
+        workspace_id="test",
+    )
+
+
+def _make_snapshot(state: str = "COMPLETED") -> TaskSnapshot:
+    error = None
+    if state == "FAILED":
+        from miniunicorn.agent.ports import SafeError
+
+        error = SafeError(
+            error_code="INTERNAL_ERROR",
+            error_summary="backend blew up",
+        )
+    return TaskSnapshot(
+        task_id="test-task",
+        state=state,
+        checkpoint_phase="done",
+        run_segment=0,
+        root_attempt_count=1,
+        max_root_attempts=3,
+        recovery_pending=0,
+        error=error,
+    )
+
+
+def _make_reply(content: str = "mock response") -> DurableReply:
+    return DurableReply(content=content, outbox_id=1, metadata={})
+
+
+def _make_runtime(
+    *,
+    reply_text: str = "mock response",
+    delta_tokens: list[str] | None = None,
+    state: str = "COMPLETED",
+) -> MagicMock:
+    """Create a mock RuntimeApplication.
+
+    For non-streaming: ``submit_and_wait`` returns a completed result.
+    For streaming: ``submit`` returns a handle, ``subscribe`` yields delta
+    events, ``wait`` returns a terminal snapshot, ``read_reply`` returns
+    the final reply.
+    """
+    runtime = MagicMock()
+    scope = _make_scope()
+    snapshot = _make_snapshot(state)
+    reply = _make_reply(reply_text)
+
+    async def _submit(request):
+        handle = MagicMock()
+        handle.task_id = "test-task"
+        return handle
+
+    async def _wait(scope, task_id, timeout_s):
+        return snapshot
+
+    async def _submit_and_wait(request, timeout_s=None):
+        return RuntimeTurnResult(snapshot=snapshot, reply=reply)
+
+    def _read_reply(scope, task_id):
+        return reply
+
+    @asynccontextmanager
+    async def _subscribe(task_id):
+        queue: asyncio.Queue = asyncio.Queue()
+        if delta_tokens:
+            for token in delta_tokens:
+                await queue.put({"event": "delta", "text": token})
+            await queue.put({"event": "stream_end", "stream_id": "s0"})
+        yield queue
+
+    runtime.submit = AsyncMock(side_effect=_submit)
+    runtime.wait = AsyncMock(side_effect=_wait)
+    runtime.submit_and_wait = AsyncMock(side_effect=_submit_and_wait)
+    runtime.read_reply = MagicMock(side_effect=_read_reply)
+    runtime.subscribe = _subscribe
+    return runtime
 
 
 # ---------------------------------------------------------------------------
@@ -58,34 +149,6 @@ def test_sse_done_format() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _make_streaming_agent(tokens: list[str]) -> MagicMock:
-    """Create a mock agent that streams tokens via on_stream callback."""
-    agent = MagicMock()
-    agent._connect_mcp = AsyncMock()
-    agent.close_mcp = AsyncMock()
-
-    async def fake_process_direct(
-        *,
-        content="",
-        media=None,
-        session_key="",
-        channel="",
-        chat_id="",
-        on_stream=None,
-        on_stream_end=None,
-        **kwargs,
-    ):
-        if on_stream:
-            for token in tokens:
-                await on_stream(token)
-        if on_stream_end:
-            await on_stream_end()
-        return " ".join(tokens)
-
-    agent.process_direct = fake_process_direct
-    return agent
-
-
 @pytest_asyncio.fixture
 async def aiohttp_client():
     clients: list[TestClient] = []
@@ -107,8 +170,8 @@ async def aiohttp_client():
 @pytest.mark.asyncio
 async def test_stream_true_returns_sse(aiohttp_client) -> None:
     """stream=true should return text/event-stream with SSE chunks."""
-    agent = _make_streaming_agent(["Hello", " world"])
-    app = create_app(agent, model_name="test-model")
+    runtime = _make_runtime(delta_tokens=["Hello", " world"])
+    app = create_app(runtime, model_name="test-model")
     client = await aiohttp_client(app)
 
     resp = await client.post(
@@ -137,12 +200,8 @@ async def test_stream_true_returns_sse(aiohttp_client) -> None:
 @pytest.mark.asyncio
 async def test_stream_false_returns_json(aiohttp_client) -> None:
     """stream=false should still return regular JSON response."""
-    agent = MagicMock()
-    agent.process_direct = AsyncMock(return_value="normal reply")
-    agent._connect_mcp = AsyncMock()
-    agent.close_mcp = AsyncMock()
-
-    app = create_app(agent, model_name="m")
+    runtime = _make_runtime(reply_text="normal reply")
+    app = create_app(runtime, model_name="m")
     client = await aiohttp_client(app)
 
     resp = await client.post(
@@ -159,12 +218,8 @@ async def test_stream_false_returns_json(aiohttp_client) -> None:
 @pytest.mark.asyncio
 async def test_stream_default_is_false(aiohttp_client) -> None:
     """Omitting stream should behave like stream=false."""
-    agent = MagicMock()
-    agent.process_direct = AsyncMock(return_value="default reply")
-    agent._connect_mcp = AsyncMock()
-    agent.close_mcp = AsyncMock()
-
-    app = create_app(agent, model_name="m")
+    runtime = _make_runtime(reply_text="default reply")
+    app = create_app(runtime, model_name="m")
     client = await aiohttp_client(app)
 
     resp = await client.post(
@@ -180,8 +235,8 @@ async def test_stream_default_is_false(aiohttp_client) -> None:
 @pytest.mark.asyncio
 async def test_stream_sse_chunk_ids_are_consistent(aiohttp_client) -> None:
     """All SSE chunks in a single stream should share the same id."""
-    agent = _make_streaming_agent(["A", "B", "C"])
-    app = create_app(agent, model_name="m")
+    runtime = _make_runtime(delta_tokens=["A", "B", "C"])
+    app = create_app(runtime, model_name="m")
     client = await aiohttp_client(app)
 
     resp = await client.post(
@@ -203,90 +258,10 @@ async def test_stream_sse_chunk_ids_are_consistent(aiohttp_client) -> None:
 
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
 @pytest.mark.asyncio
-async def test_stream_passes_on_stream_callbacks(aiohttp_client) -> None:
-    """process_direct should be called with on_stream and on_stream_end when streaming."""
-    captured_kwargs: dict = {}
-
-    async def fake_process_direct(**kwargs):
-        captured_kwargs.update(kwargs)
-        if kwargs.get("on_stream_end"):
-            await kwargs["on_stream_end"]()
-        return "done"
-
-    agent = MagicMock()
-    agent.process_direct = fake_process_direct
-    agent._connect_mcp = AsyncMock()
-    agent.close_mcp = AsyncMock()
-
-    app = create_app(agent, model_name="m")
-    client = await aiohttp_client(app)
-
-    resp = await client.post(
-        "/v1/chat/completions",
-        json={"messages": [{"role": "user", "content": "hi"}], "stream": True},
-    )
-    assert resp.status == 200
-    assert captured_kwargs.get("on_stream") is not None
-    assert captured_kwargs.get("on_stream_end") is not None
-
-
-@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
-@pytest.mark.asyncio
-async def test_stream_segment_end_does_not_close_sse(aiohttp_client) -> None:
-    """Intermediate stream-end callbacks should not terminate the HTTP stream."""
-    agent = MagicMock()
-
-    async def fake_process_direct(*, on_stream=None, on_stream_end=None, **kwargs):
-        assert on_stream is not None
-        assert on_stream_end is not None
-        await on_stream("planning")
-        await on_stream_end(resuming=True)
-        await asyncio.sleep(0.05)
-        await on_stream(" final")
-        await on_stream_end(resuming=False)
-        return "planning final"
-
-    agent.process_direct = fake_process_direct
-    agent._connect_mcp = AsyncMock()
-    agent.close_mcp = AsyncMock()
-
-    app = create_app(agent, model_name="m")
-    client = await aiohttp_client(app)
-
-    resp = await client.post(
-        "/v1/chat/completions",
-        json={"messages": [{"role": "user", "content": "use a tool"}], "stream": True},
-    )
-
-    assert resp.status == 200
-    body = await resp.text()
-    data_lines = [line[len("data: ") :] for line in body.split("\n") if line.startswith("data: ")]
-    assert data_lines[-1] == "[DONE]"
-
-    chunks = [json.loads(line) for line in data_lines[:-1]]
-    deltas = [c["choices"][0]["delta"].get("content", "") for c in chunks]
-    assert "planning" in deltas
-    assert " final" in deltas
-    assert chunks[-1]["choices"][0]["finish_reason"] == "stop"
-
-
-@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
-@pytest.mark.asyncio
 async def test_stream_uses_final_response_when_no_deltas(aiohttp_client) -> None:
-    """stream=true should not return an empty stream when the agent returns content."""
-    agent = MagicMock()
-
-    async def fake_process_direct(*, on_stream=None, on_stream_end=None, **kwargs):
-        assert on_stream is not None
-        assert on_stream_end is not None
-        await on_stream_end(resuming=False)
-        return "plain final"
-
-    agent.process_direct = fake_process_direct
-    agent._connect_mcp = AsyncMock()
-    agent.close_mcp = AsyncMock()
-
-    app = create_app(agent, model_name="m")
+    """stream=true should emit the durable reply when no deltas were received."""
+    runtime = _make_runtime(reply_text="plain final", delta_tokens=[])
+    app = create_app(runtime, model_name="m")
     client = await aiohttp_client(app)
 
     resp = await client.post(
@@ -309,23 +284,17 @@ async def test_stream_uses_final_response_when_no_deltas(aiohttp_client) -> None
 @pytest.mark.asyncio
 async def test_stream_with_session_id(aiohttp_client) -> None:
     """Streaming should respect session_id for session key routing."""
-    captured_key: str = ""
+    captured_request: list = []
 
-    async def fake_process_direct(*, session_key="", on_stream=None, on_stream_end=None, **kwargs):
-        nonlocal captured_key
-        captured_key = session_key
-        if on_stream:
-            await on_stream("ok")
-        if on_stream_end:
-            await on_stream_end()
-        return "ok"
+    async def _submit(request):
+        captured_request.append(request)
+        handle = MagicMock()
+        handle.task_id = "test-task"
+        return handle
 
-    agent = MagicMock()
-    agent.process_direct = fake_process_direct
-    agent._connect_mcp = AsyncMock()
-    agent.close_mcp = AsyncMock()
-
-    app = create_app(agent, model_name="m")
+    runtime = _make_runtime(delta_tokens=["ok"])
+    runtime.submit = AsyncMock(side_effect=_submit)
+    app = create_app(runtime, model_name="m")
     client = await aiohttp_client(app)
 
     resp = await client.post(
@@ -337,23 +306,15 @@ async def test_stream_with_session_id(aiohttp_client) -> None:
         },
     )
     assert resp.status == 200
-    assert captured_key == "api:my-session"
+    assert captured_request[0].session_key == "api:my-session"
 
 
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
 @pytest.mark.asyncio
 async def test_streaming_backend_failure_does_not_emit_success_terminator(aiohttp_client) -> None:
-    """Backend exceptions should not surface as a normal stop+[DONE] stream."""
-    agent = MagicMock()
-
-    async def boom(**kwargs):
-        raise RuntimeError("backend blew up")
-
-    agent.process_direct = boom
-    agent._connect_mcp = AsyncMock()
-    agent.close_mcp = AsyncMock()
-
-    app = create_app(agent, model_name="m")
+    """Failed tasks should not surface as a normal stop+[DONE] stream."""
+    runtime = _make_runtime(state="FAILED", delta_tokens=[])
+    app = create_app(runtime, model_name="m")
     client = await aiohttp_client(app)
 
     resp = await client.post(

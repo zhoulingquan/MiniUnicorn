@@ -406,6 +406,16 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         """Read-only compatibility alias for the dispatcher's pending queues."""
         return self._turn_dispatcher.pending_queues
 
+    @property
+    def core_dispatcher(self) -> TurnDispatcher:
+        """Read-only access to the TurnDispatcher (design Task 5)."""
+        return self._turn_dispatcher
+
+    @property
+    def turn_coordinator(self) -> TurnCoordinator:
+        """Read-only access to the TurnCoordinator (design Task 5)."""
+        return self._turn_coordinator
+
     @classmethod
     def from_config(
         cls,

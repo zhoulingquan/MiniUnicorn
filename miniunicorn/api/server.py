@@ -275,7 +275,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
     if not isinstance(content_type, str):
         content_type = ""
 
-    agent_loop = request.app["agent_loop"]
+    runtime = request.app["runtime"]
     timeout_s: float = request.app.get("request_timeout", 120.0)
     model_name: str = request.app.get("model_name", "MiniUnicorn")
 
@@ -318,6 +318,23 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
     entry.refcount += 1
     session_lock = entry.lock
 
+    # Derive the request scope from the root config (Task 6 Step 4).
+    from miniunicorn.runtime.application import RuntimeInboundRequest
+    from miniunicorn.runtime.ingress import local_request_scope
+
+    config = request.app.get("config")
+    if config is not None:
+        scope = local_request_scope(config)
+    else:
+        from miniunicorn.runtime.models import RequestScope
+
+        scope = RequestScope(
+            tenant_id="local",
+            principal_id="local-user",
+            agent_id="default",
+            workspace_id="api",
+        )
+
     try:
         logger.info(
             "API request session_key={} media={} text={} stream={}",
@@ -326,6 +343,18 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
             text[:80],
             stream,
         )
+
+        inbound = RuntimeInboundRequest(
+            content=text,
+            media=tuple(media_paths),
+            metadata={},
+            session_key=session_key,
+            channel="api",
+            channel_account="local-user",
+            channel_message_id=None,
+            scope=scope,
+        )
+
         # -- streaming path --
         if stream:
             resp = web.StreamResponse()
@@ -335,108 +364,114 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
             await resp.prepare(request)
 
             chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
-            queue: asyncio.Queue[str | None] = asyncio.Queue()
             stream_failed = False
             emitted_content = False
 
-            async def _on_stream(token: str) -> None:
-                nonlocal emitted_content
-                if token:
-                    emitted_content = True
-                await queue.put(token)
-
-            async def _on_stream_end(*_a: Any, **_kw: Any) -> None:
-                # Agent stream-end callbacks mark generation segment boundaries.
-                # Tool-backed requests may continue after a segment ends, so the
-                # HTTP SSE stream is closed only when process_direct returns.
-                return None
-
-            async def _run() -> None:
-                nonlocal stream_failed
-                try:
-                    async with session_lock:
-                        response = await asyncio.wait_for(
-                            agent_loop.process_direct(
-                                content=text,
-                                media=media_paths if media_paths else None,
-                                session_key=session_key,
-                                channel="api",
-                                chat_id=API_CHAT_ID,
-                                on_stream=_on_stream,
-                                on_stream_end=_on_stream_end,
-                            ),
-                            timeout=timeout_s,
-                        )
-                        if not emitted_content:
-                            response_text = _response_text(response)
-                            if response_text.strip():
-                                await queue.put(response_text)
-                except Exception:
-                    stream_failed = True
-                    logger.exception("Streaming error for session {}", session_key)
-                finally:
-                    await queue.put(None)
-
-            task = asyncio.create_task(_run())
             try:
-                while True:
-                    token = await queue.get()
-                    if token is None:
-                        break
-                    await resp.write(_sse_chunk(token, model_name, chunk_id))
-            finally:
-                if not task.done():
-                    task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await task
+                handle = await runtime.submit(inbound)
+            except Exception:
+                logger.exception("Streaming submit failed for session {}", session_key)
+                return resp
 
-            if not stream_failed:
+            wait_task = asyncio.create_task(
+                runtime.wait(scope, handle.task_id, timeout_s)
+            )
+
+            try:
+                async with runtime.subscribe(handle.task_id) as event_queue:
+                    while True:
+                        # Check if the wait task is done first.
+                        if wait_task.done():
+                            break
+                        try:
+                            event = await asyncio.wait_for(
+                                event_queue.get(), timeout=0.1
+                            )
+                        except asyncio.TimeoutError:
+                            continue
+                        event_type = event.get("event")
+                        if event_type == "delta":
+                            delta_text = event.get("text", "")
+                            if delta_text:
+                                emitted_content = True
+                                await resp.write(
+                                    _sse_chunk(delta_text, model_name, chunk_id)
+                                )
+                        # stream_end and other events are ignored for SSE —
+                        # the final reply is read from the durable store.
+
+                    # Wait for the terminal snapshot.
+                    snapshot = await wait_task
+            finally:
+                if not wait_task.done():
+                    wait_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await wait_task
+
+            if snapshot.state == "COMPLETED":
+                reply = runtime.read_reply(scope, handle.task_id)
+                reply_text = reply.content or ""
+                if not emitted_content and reply_text.strip():
+                    await resp.write(_sse_chunk(reply_text, model_name, chunk_id))
                 await resp.write(_sse_chunk("", model_name, chunk_id, finish_reason="stop"))
                 await resp.write(_SSE_DONE)
+            elif snapshot.state == "FAILED":
+                stream_failed = True
+            elif snapshot.state == "CANCELLED":
+                stream_failed = True
+            else:
+                # Non-terminal timeout.
+                stream_failed = True
+
+            if stream_failed:
+                # Write a minimal error event so the chunked response closes
+                # cleanly without emitting the success terminator ([DONE]).
+                error_payload = _json.dumps(
+                    {"error": {"message": "stream failed", "state": snapshot.state}}
+                )
+                await resp.write(f"data: {error_payload}\n\n".encode())
+                logger.warning(
+                    "Streaming failed for session {} state={}",
+                    session_key,
+                    snapshot.state,
+                )
             return resp
 
-        # -- non-streaming path (original logic) --
-        fallback = EMPTY_FINAL_RESPONSE_MESSAGE
-
+        # -- non-streaming path --
         try:
             async with session_lock:
                 try:
-                    response = await asyncio.wait_for(
-                        agent_loop.process_direct(
-                            content=text,
-                            media=media_paths if media_paths else None,
-                            session_key=session_key,
-                            channel="api",
-                            chat_id=API_CHAT_ID,
-                        ),
-                        timeout=timeout_s,
+                    result = await asyncio.wait_for(
+                        runtime.submit_and_wait(inbound, timeout_s=timeout_s),
+                        timeout=timeout_s + 5,
                     )
-                    response_text = _response_text(response)
-
-                    if not response_text or not response_text.strip():
-                        logger.warning("Empty response for session {}, retrying", session_key)
-                        retry_response = await asyncio.wait_for(
-                            agent_loop.process_direct(
-                                content=text,
-                                media=media_paths if media_paths else None,
-                                session_key=session_key,
-                                channel="api",
-                                chat_id=API_CHAT_ID,
-                            ),
-                            timeout=timeout_s,
-                        )
-                        response_text = _response_text(retry_response)
-                        if not response_text or not response_text.strip():
-                            logger.warning("Empty response after retry, using fallback")
-                            response_text = fallback
-
                 except asyncio.TimeoutError:
                     return _error_json(504, f"Request timed out after {timeout_s}s")
-                except Exception:
-                    logger.exception("Error processing request for session {}", session_key)
-                    return _error_json(500, "Internal server error", err_type="server_error")
+
+                snapshot = result.snapshot
+                state = snapshot.state
+
+                if state == "COMPLETED":
+                    response_text = result.reply.content or ""
+                    if not response_text or not response_text.strip():
+                        # Do not retry by submitting the same user turn again
+                        # (design Task 6 Step 4). Return the fallback.
+                        logger.warning(
+                            "Empty durable reply for session {}, using fallback",
+                            session_key,
+                        )
+                        response_text = EMPTY_FINAL_RESPONSE_MESSAGE
+                elif state == "FAILED":
+                    err = snapshot.error
+                    code = err.error_code if err else "INTERNAL_ERROR"
+                    msg = err.error_summary if err else "Internal server error"
+                    return _error_json(500, msg, err_type="server_error")
+                elif state == "CANCELLED":
+                    return _error_json(409, "Request was cancelled")
+                else:
+                    return _error_json(504, f"Request did not complete (state={state})")
         except Exception:
-            logger.exception("Unexpected API lock error for session {}", session_key)
+            logger.exception("Error processing request for session {}", session_key)
             return _error_json(500, "Internal server error", err_type="server_error")
 
         return web.json_response(_chat_completion_response(response_text, model_name))
@@ -559,27 +594,32 @@ async def _auth_middleware(request: web.Request, handler):
 
 
 def create_app(
-    agent_loop,
+    runtime,
     model_name: str = "MiniUnicorn",
     request_timeout: float = 120.0,
     api_key: str = "",
+    *,
+    config: Any = None,
 ) -> web.Application:
     """Create the aiohttp application.
 
     Args:
-        agent_loop: An initialized AgentLoop instance.
+        runtime: A ``RuntimeApplication`` instance for durable submit/wait.
         model_name: Model name reported in responses.
         request_timeout: Per-request timeout in seconds.
         api_key: Bearer token required for /v1/* endpoints. Empty = no auth.
+        config: Optional root ``Config`` used to derive the request scope.
     """
     app = web.Application(
         client_max_size=20 * 1024 * 1024,  # 20MB for base64 images
         middlewares=[_auth_middleware],
     )
-    app["agent_loop"] = agent_loop
+    app["runtime"] = runtime
     app["model_name"] = model_name
     app["request_timeout"] = request_timeout
     app["api_key"] = api_key
+    if config is not None:
+        app["config"] = config
     # 使用 OrderedDict 实现 LRU:命中时 move_to_end,超过 _MAX_SESSION_LOCKS
     # 时 popitem(last=False) 驱逐最久未使用的 session 锁。
     app["session_locks"] = OrderedDict()  # per-user locks, keyed by session_key

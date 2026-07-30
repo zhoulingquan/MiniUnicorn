@@ -111,6 +111,19 @@ class OutboxSender:
                 await self._task
             self._task = None
 
+    async def drain(self, timeout_s: float) -> None:
+        """Wait until no immediately deliverable rows remain (Task 5 Step 3).
+
+        Polls the Outbox for claimable rows and delivers them until none
+        remain or the timeout expires. Does not wait forever on future
+        retries — only drains rows that are immediately claimable now.
+        """
+        deadline = time.monotonic() + timeout_s
+        while self._running and time.monotonic() < deadline:
+            delivered = await self._deliver_one()
+            if not delivered:
+                return
+
     async def _run_loop(self) -> None:
         """Main poll-and-deliver loop."""
         logger.info("OutboxSender {} started", self._sender_id)

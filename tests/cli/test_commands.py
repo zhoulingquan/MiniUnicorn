@@ -13,6 +13,8 @@ from miniunicorn.cli.commands import app
 from miniunicorn.config.schema import Config
 from miniunicorn.cron.types import CronJob, CronPayload
 from miniunicorn.providers.factory import ProviderSnapshot, make_provider
+from miniunicorn.runtime.application import RuntimeTurnResult
+from miniunicorn.runtime.models import DurableReply, TaskSnapshot
 
 runner = CliRunner()
 
@@ -22,6 +24,75 @@ def _fake_provider():
     p = MagicMock()
     p.generation.max_tokens = 4096
     return p
+
+
+# ---------------------------------------------------------------------------
+# Fakes for the durable lightweight runtime (Task 6 cutover).
+# The CLI ``agent`` and ``serve`` commands call ``build_lightweight_runtime``
+# to obtain a ``RuntimeResources`` whose ``application`` exposes
+# ``submit_and_wait``. These fakes let CLI tests exercise command wiring
+# without constructing the full durable kernel.
+# ---------------------------------------------------------------------------
+
+
+class _FakeRuntimeApplication:
+    """Minimal stand-in for ``RuntimeApplication`` used by CLI tests."""
+
+    def __init__(self, reply_text: str = "mock-response") -> None:
+        self._reply_text = reply_text
+        self.submit_and_wait = AsyncMock(side_effect=self._submit_and_wait)
+        self.submit = AsyncMock(side_effect=self._submit)
+        self.wait = AsyncMock(side_effect=self._wait)
+        self.read_reply = MagicMock(return_value=DurableReply(content=reply_text, outbox_id=1, metadata={}))
+
+    async def _submit_and_wait(self, inbound, timeout_s=None):
+        reply = DurableReply(content=self._reply_text, outbox_id=1, metadata={})
+        snapshot = TaskSnapshot(
+            task_id="test-task",
+            state="COMPLETED",
+            checkpoint_phase="done",
+            run_segment=0,
+            root_attempt_count=1,
+            max_root_attempts=3,
+            recovery_pending=0,
+        )
+        return RuntimeTurnResult(snapshot=snapshot, reply=reply)
+
+    async def _submit(self, inbound):
+        handle = MagicMock()
+        handle.task_id = "test-task"
+        return handle
+
+    async def _wait(self, scope, task_id, timeout_s):
+        return TaskSnapshot(
+            task_id=task_id,
+            state="COMPLETED",
+            checkpoint_phase="done",
+            run_segment=0,
+            root_attempt_count=1,
+            max_root_attempts=3,
+            recovery_pending=0,
+        )
+
+    def start_accepting(self) -> None:
+        pass
+
+    def stop_accepting(self) -> None:
+        pass
+
+
+class _FakeRuntimeResources:
+    """Minimal stand-in for ``RuntimeResources`` used by CLI tests."""
+
+    def __init__(self, config, reply_text: str = "mock-response") -> None:
+        self.application = _FakeRuntimeApplication(reply_text=reply_text)
+        self.config = config
+
+    async def start(self) -> None:
+        return None
+
+    async def stop(self) -> None:
+        return None
 
 
 class _StopGatewayError(RuntimeError):
@@ -269,22 +340,17 @@ def mock_agent_runtime(tmp_path):
         patch("miniunicorn.cli.commands._print_agent_response") as mock_print_response,
         patch("miniunicorn.bus.queue.MessageBus"),
         patch("miniunicorn.cron.service.CronService"),
-        patch("miniunicorn.cli.commands.AgentLoop.from_config") as mock_from_config,
+        patch("miniunicorn.runtime.bootstrap.build_lightweight_runtime") as mock_build,
     ):
-        agent_loop = MagicMock()
-        agent_loop.channels_config = None
-        agent_loop.process_direct = AsyncMock(
-            return_value=OutboundMessage(channel="cli", chat_id="direct", content="mock-response"),
-        )
-        agent_loop.close_mcp = AsyncMock(return_value=None)
-        mock_from_config.return_value = agent_loop
+        resources = _FakeRuntimeResources(config)
+        mock_build.return_value = resources
 
         yield {
             "config": config,
             "load_config": mock_load_config,
             "sync_templates": mock_sync_templates,
-            "from_config": mock_from_config,
-            "agent_loop": agent_loop,
+            "build_runtime": mock_build,
+            "resources": resources,
             "print_response": mock_print_response,
         }
 
@@ -308,13 +374,12 @@ def test_agent_uses_default_config_when_no_workspace_or_config_flags(mock_agent_
     assert mock_agent_runtime["sync_templates"].call_args.args == (
         mock_agent_runtime["config"].workspace_path,
     )
-    passed_config = mock_agent_runtime["from_config"].call_args.args[0]
+    passed_config = mock_agent_runtime["build_runtime"].call_args.args[0]
     assert passed_config.workspace_path == mock_agent_runtime["config"].workspace_path
-    mock_agent_runtime["agent_loop"].process_direct.assert_awaited_once()
+    mock_agent_runtime["resources"].application.submit_and_wait.assert_awaited_once()
     mock_agent_runtime["print_response"].assert_called_once_with(
         "mock-response",
         render_markdown=True,
-        metadata={},
     )
 
 
@@ -347,22 +412,10 @@ def test_agent_config_sets_active_path(monkeypatch, tmp_path: Path) -> None:
     )
     monkeypatch.setattr("miniunicorn.bus.queue.MessageBus", lambda: object())
     monkeypatch.setattr("miniunicorn.cron.service.CronService", lambda _store: object())
-
-    class _FakeAgentLoop:
-        @classmethod
-        def from_config(cls, config, bus=None, **extra):
-            return cls(**extra)
-
-        def __init__(self, *args, **kwargs) -> None:
-            pass
-
-        async def process_direct(self, *_args, **_kwargs):
-            return OutboundMessage(channel="cli", chat_id="direct", content="ok")
-
-        async def close_mcp(self) -> None:
-            return None
-
-    monkeypatch.setattr("miniunicorn.cli.commands.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr(
+        "miniunicorn.runtime.bootstrap.build_lightweight_runtime",
+        lambda _config: _FakeRuntimeResources(_config),
+    )
     monkeypatch.setattr(
         "miniunicorn.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
     )
@@ -374,13 +427,14 @@ def test_agent_config_sets_active_path(monkeypatch, tmp_path: Path) -> None:
 
 
 def test_agent_uses_workspace_directory_for_cron_store(monkeypatch, tmp_path: Path) -> None:
+    """Agent command with a custom workspace succeeds; cron store path is
+    derived from the workspace when the gateway creates it (Task 9)."""
     config_file = tmp_path / "instance" / "config.json"
     config_file.parent.mkdir(parents=True)
     config_file.write_text("{}")
 
     config = Config()
     config.agents.defaults.workspace = str(tmp_path / "agent-workspace")
-    seen: dict[str, Path] = {}
 
     monkeypatch.setattr("miniunicorn.config.loader.set_config_path", lambda _path: None)
     monkeypatch.setattr("miniunicorn.config.loader.load_config", lambda _path=None: config)
@@ -389,27 +443,10 @@ def test_agent_uses_workspace_directory_for_cron_store(monkeypatch, tmp_path: Pa
         "miniunicorn.providers.factory.make_provider", lambda _config: _fake_provider()
     )
     monkeypatch.setattr("miniunicorn.bus.queue.MessageBus", lambda: object())
-
-    class _FakeCron:
-        def __init__(self, store_path: Path) -> None:
-            seen["cron_store"] = store_path
-
-    class _FakeAgentLoop:
-        @classmethod
-        def from_config(cls, config, bus=None, **extra):
-            return cls(**extra)
-
-        def __init__(self, *args, **kwargs) -> None:
-            pass
-
-        async def process_direct(self, *_args, **_kwargs):
-            return OutboundMessage(channel="cli", chat_id="direct", content="ok")
-
-        async def close_mcp(self) -> None:
-            return None
-
-    monkeypatch.setattr("miniunicorn.cron.service.CronService", _FakeCron)
-    monkeypatch.setattr("miniunicorn.cli.commands.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr(
+        "miniunicorn.runtime.bootstrap.build_lightweight_runtime",
+        lambda _config: _FakeRuntimeResources(_config),
+    )
     monkeypatch.setattr(
         "miniunicorn.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
     )
@@ -417,7 +454,6 @@ def test_agent_uses_workspace_directory_for_cron_store(monkeypatch, tmp_path: Pa
     result = runner.invoke(app, ["agent", "-m", "hello", "-c", str(config_file)])
 
     assert result.exit_code == 0
-    assert seen["cron_store"] == config.workspace_path / "cron" / "jobs.json"
 
 
 def test_agent_workspace_override_does_not_migrate_legacy_cron(monkeypatch, tmp_path: Path) -> None:
@@ -432,7 +468,6 @@ def test_agent_workspace_override_does_not_migrate_legacy_cron(monkeypatch, tmp_
 
     override = tmp_path / "override-workspace"
     config = Config()
-    seen: dict[str, Path] = {}
 
     monkeypatch.setattr("miniunicorn.config.loader.set_config_path", lambda _path: None)
     monkeypatch.setattr("miniunicorn.config.loader.load_config", lambda _path=None: config)
@@ -442,27 +477,10 @@ def test_agent_workspace_override_does_not_migrate_legacy_cron(monkeypatch, tmp_
     )
     monkeypatch.setattr("miniunicorn.bus.queue.MessageBus", lambda: object())
     monkeypatch.setattr("miniunicorn.config.paths.get_cron_dir", lambda: legacy_dir)
-
-    class _FakeCron:
-        def __init__(self, store_path: Path) -> None:
-            seen["cron_store"] = store_path
-
-    class _FakeAgentLoop:
-        @classmethod
-        def from_config(cls, config, bus=None, **extra):
-            return cls(**extra)
-
-        def __init__(self, *args, **kwargs) -> None:
-            pass
-
-        async def process_direct(self, *_args, **_kwargs):
-            return OutboundMessage(channel="cli", chat_id="direct", content="ok")
-
-        async def close_mcp(self) -> None:
-            return None
-
-    monkeypatch.setattr("miniunicorn.cron.service.CronService", _FakeCron)
-    monkeypatch.setattr("miniunicorn.cli.commands.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr(
+        "miniunicorn.runtime.bootstrap.build_lightweight_runtime",
+        lambda _config: _FakeRuntimeResources(_config),
+    )
     monkeypatch.setattr(
         "miniunicorn.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
     )
@@ -473,7 +491,6 @@ def test_agent_workspace_override_does_not_migrate_legacy_cron(monkeypatch, tmp_
     )
 
     assert result.exit_code == 0
-    assert seen["cron_store"] == override / "cron" / "jobs.json"
     assert legacy_file.exists()
     assert not (override / "cron" / "jobs.json").exists()
 
@@ -493,7 +510,6 @@ def test_agent_custom_config_workspace_does_not_migrate_legacy_cron(
     custom_workspace = tmp_path / "custom-workspace"
     config = Config()
     config.agents.defaults.workspace = str(custom_workspace)
-    seen: dict[str, Path] = {}
 
     monkeypatch.setattr("miniunicorn.config.loader.set_config_path", lambda _path: None)
     monkeypatch.setattr("miniunicorn.config.loader.load_config", lambda _path=None: config)
@@ -503,27 +519,10 @@ def test_agent_custom_config_workspace_does_not_migrate_legacy_cron(
     )
     monkeypatch.setattr("miniunicorn.bus.queue.MessageBus", lambda: object())
     monkeypatch.setattr("miniunicorn.config.paths.get_cron_dir", lambda: legacy_dir)
-
-    class _FakeCron:
-        def __init__(self, store_path: Path) -> None:
-            seen["cron_store"] = store_path
-
-    class _FakeAgentLoop:
-        @classmethod
-        def from_config(cls, config, bus=None, **extra):
-            return cls(**extra)
-
-        def __init__(self, *args, **kwargs) -> None:
-            pass
-
-        async def process_direct(self, *_args, **_kwargs):
-            return OutboundMessage(channel="cli", chat_id="direct", content="ok")
-
-        async def close_mcp(self) -> None:
-            return None
-
-    monkeypatch.setattr("miniunicorn.cron.service.CronService", _FakeCron)
-    monkeypatch.setattr("miniunicorn.cli.commands.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr(
+        "miniunicorn.runtime.bootstrap.build_lightweight_runtime",
+        lambda _config: _FakeRuntimeResources(_config),
+    )
     monkeypatch.setattr(
         "miniunicorn.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
     )
@@ -531,7 +530,6 @@ def test_agent_custom_config_workspace_does_not_migrate_legacy_cron(
     result = runner.invoke(app, ["agent", "-m", "hello", "-c", str(config_file)])
 
     assert result.exit_code == 0
-    assert seen["cron_store"] == custom_workspace / "cron" / "jobs.json"
     assert legacy_file.exists()
     assert not (custom_workspace / "cron" / "jobs.json").exists()
 
@@ -544,7 +542,7 @@ def test_agent_overrides_workspace_path(mock_agent_runtime):
     assert result.exit_code == 0
     assert mock_agent_runtime["config"].agents.defaults.workspace == str(workspace_path)
     assert mock_agent_runtime["sync_templates"].call_args.args == (workspace_path,)
-    passed_config = mock_agent_runtime["from_config"].call_args.args[0]
+    passed_config = mock_agent_runtime["build_runtime"].call_args.args[0]
     assert passed_config.workspace_path == workspace_path
 
 
@@ -562,7 +560,7 @@ def test_agent_workspace_override_wins_over_config_workspace(mock_agent_runtime,
     assert mock_agent_runtime["load_config"].call_args.args == (config_path.resolve(),)
     assert mock_agent_runtime["config"].agents.defaults.workspace == str(workspace_path)
     assert mock_agent_runtime["sync_templates"].call_args.args == (workspace_path,)
-    passed_config = mock_agent_runtime["from_config"].call_args.args[0]
+    passed_config = mock_agent_runtime["build_runtime"].call_args.args[0]
     assert passed_config.workspace_path == workspace_path
 
 
@@ -658,24 +656,14 @@ def _patch_serve_runtime(monkeypatch, config: Config, seen: dict[str, object]) -
             self.on_startup: list[object] = []
             self.on_cleanup: list[object] = []
 
-    class _FakeAgentLoop:
-        @classmethod
-        def from_config(cls, config, bus=None, **extra):
-            return cls(workspace=config.workspace_path, **extra)
-
-        def __init__(self, **kwargs) -> None:
-            seen["workspace"] = kwargs["workspace"]
-
-        async def _connect_mcp(self) -> None:
-            return None
-
-        async def close_mcp(self) -> None:
-            return None
+    def _fake_build_runtime(cfg):
+        seen["workspace"] = cfg.workspace_path
+        return _FakeRuntimeResources(cfg)
 
     def _fake_create_app(
-        agent_loop, model_name: str, request_timeout: float, api_key: str = "", **kwargs
+        runtime, model_name: str, request_timeout: float, api_key: str = "", **kwargs
     ):
-        seen["agent_loop"] = agent_loop
+        seen["runtime"] = runtime
         seen["model_name"] = model_name
         seen["request_timeout"] = request_timeout
         seen["api_key"] = api_key
@@ -692,7 +680,9 @@ def _patch_serve_runtime(monkeypatch, config: Config, seen: dict[str, object]) -
         message_bus=lambda: object(),
         session_manager=lambda _workspace: object(),
     )
-    monkeypatch.setattr("miniunicorn.cli.commands.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr(
+        "miniunicorn.runtime.bootstrap.build_lightweight_runtime", _fake_build_runtime
+    )
     monkeypatch.setattr("miniunicorn.api.server.create_app", _fake_create_app)
     monkeypatch.setattr("aiohttp.web.run_app", _fake_run_app)
 

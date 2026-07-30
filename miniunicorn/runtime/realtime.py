@@ -14,7 +14,10 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from miniunicorn.bus.agent_events import AgentEvent
 
 
 class RealtimeSubscriptionHub:
@@ -80,4 +83,28 @@ class RealtimeSubscriptionHub:
         self.publish(env.task_id, event)
 
 
-__all__ = ["RealtimeSubscriptionHub"]
+# ---------------------------------------------------------------------------
+# LocalProgressPort — ProgressPort backed by the in-process hub (Task 5)
+# ---------------------------------------------------------------------------
+
+
+class LocalProgressPort:
+    """ProgressPort that publishes serialized events to the local hub.
+
+    A direct in-process transient fan-out — not another consumer of
+    MessageBus; therefore it cannot race ChannelManager for the same
+    queue (design Task 5 Step 4). Final replies bypass this port and
+    are written only to the Outbox.
+    """
+
+    def __init__(self, task_id: str, hub: "RealtimeSubscriptionHub") -> None:
+        self._task_id = task_id
+        self._hub = hub
+
+    async def emit(self, event: "AgentEvent") -> None:
+        from miniunicorn.bus.agent_events import serialize_agent_event
+
+        self._hub.publish(self._task_id, serialize_agent_event(event))
+
+
+__all__ = ["RealtimeSubscriptionHub", "LocalProgressPort"]

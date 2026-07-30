@@ -92,7 +92,7 @@ def reset_containment_scope(
 class NullContainmentScope:
     """No-op containment scope for tests and legacy non-durable paths."""
 
-    def register(self, pid: int) -> None:  # noqa: D401
+    def register(self, pid: int, *, pgid: int | None = None) -> None:  # noqa: D401
         """No-op."""
 
     def close(self) -> None:
@@ -126,8 +126,8 @@ class ProcessContainmentScope:
     _pids: set[int] = field(default_factory=set)
     _closed: bool = field(default=False)
 
-    def register(self, pid: int) -> None:
-        """Register a spawned child PID."""
+    def register(self, pid: int, *, pgid: int | None = None) -> None:
+        """Register a spawned child PID (and optional POSIX process-group id)."""
         if self._closed:
             logger.warning(
                 "containment: cannot register PID {} — scope already closed (task={})",
@@ -136,6 +136,9 @@ class ProcessContainmentScope:
             )
             return
         self._pids.add(pid)
+        # pgid is tracked by SupervisorContainment; ProcessContainmentScope
+        # terminates by PID tree (taskkill /T on Windows, PID list on POSIX).
+        # Accepting pgid keeps this class conformant with ContainmentPort.
 
     def close(self) -> None:
         """Terminate the entire child tree (idempotent)."""

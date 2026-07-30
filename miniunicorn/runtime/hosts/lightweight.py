@@ -88,6 +88,11 @@ class LightweightHost:
     def scheduler(self) -> Scheduler:
         return self._scheduler
 
+    @property
+    def worker_count(self) -> int:
+        """Number of Worker coroutines the host was configured with."""
+        return self._worker_count
+
     async def start(self) -> None:
         """Start the host: create and launch Worker coroutines."""
         if self._running:
@@ -110,8 +115,15 @@ class LightweightHost:
 
         logger.info("lightweight host started with {} workers", self._worker_count)
 
-    async def stop(self) -> None:
-        """Stop the host: signal Workers to stop and wait for them."""
+    async def stop(self, *, grace_s: float | None = None) -> None:
+        """Stop the host: signal Workers to stop and wait for them.
+
+        With ``grace_s`` the host stops accepting new claims, waits up to
+        the deadline for in-flight Worker tasks to finish, and only cancels
+        survivors after the deadline (design Task 5 Step 3). Without
+        ``grace_s`` the Workers are cancelled immediately (legacy
+        behavior retained for existing tests).
+        """
         if not self._running:
             return
         self._running = False
@@ -119,12 +131,25 @@ class LightweightHost:
         for worker in self._workers:
             worker.stop()
 
-        # Cancel worker tasks (they may be sleeping in the poll loop).
-        for task in self._worker_tasks:
-            task.cancel()
+        if grace_s is not None and self._worker_tasks:
+            # Graceful drain: let in-flight tasks finish before cancelling.
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*self._worker_tasks, return_exceptions=True),
+                    timeout=grace_s,
+                )
+            except asyncio.TimeoutError:
+                # Cancel survivors after the grace deadline.
+                for task in self._worker_tasks:
+                    task.cancel()
+                await asyncio.gather(*self._worker_tasks, return_exceptions=True)
+        else:
+            # Cancel worker tasks (they may be sleeping in the poll loop).
+            for task in self._worker_tasks:
+                task.cancel()
 
-        if self._worker_tasks:
-            await asyncio.gather(*self._worker_tasks, return_exceptions=True)
+            if self._worker_tasks:
+                await asyncio.gather(*self._worker_tasks, return_exceptions=True)
 
         self._worker_tasks.clear()
         self._workers.clear()
