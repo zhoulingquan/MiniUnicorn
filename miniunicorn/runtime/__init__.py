@@ -59,15 +59,18 @@ from miniunicorn.runtime.worker import (
     WorkerExecutionResult,
     ExecutionCallback,
 )
-from miniunicorn.runtime.hosts import LightweightHost
+from miniunicorn.runtime.hosts import LightweightHost, SupervisedHost, RealtimeEventBridge
 from miniunicorn.runtime.agent_adapter import AgentExecutionCallback
 from miniunicorn.runtime.tool_gateway import ToolGateway
 from miniunicorn.runtime.containment import (
     ContainmentScope,
     NullContainmentScope,
     ProcessContainmentScope,
+    SupervisorContainment,
     bind_containment_scope,
     current_containment_scope,
+    posix_set_child_death_signal,
+    posix_start_new_session,
     reset_containment_scope,
 )
 from miniunicorn.runtime.durable_journal import (
@@ -75,6 +78,23 @@ from miniunicorn.runtime.durable_journal import (
     JournalProviderObserver,
 )
 from miniunicorn.runtime.outbox import OutboxSender
+from miniunicorn.runtime.ipc import (
+    IPC_PROTOCOL_VERSION,
+    IpcEnvelope,
+    ProcessIpcChannel,
+    agent_event,
+    child_ready,
+    child_stopped,
+    fan_out_wake_hints,
+    shutdown_signal,
+    wake_hint,
+    worker_ready,
+)
+from miniunicorn.runtime.supervisor import (
+    ChildEntrypoint,
+    RestartPolicy,
+    Supervisor,
+)
 from miniunicorn.runtime.models import (
     BLOB_ENCODING,
     BLOB_KIND,
@@ -139,21 +159,40 @@ __all__ = [
     "ExecutionCallback",
     # Hosts
     "LightweightHost",
+    "SupervisedHost",
+    "RealtimeEventBridge",
     # Agent adapter
     "AgentExecutionCallback",
     # Tool Gateway & durable journal (WP4)
     "ToolGateway",
     "DurableTurnJournalAdapter",
     "JournalProviderObserver",
-    # Child-process containment (WP4 task 9)
+    # Child-process containment (WP4 task 9, WP6 task 6)
     "ContainmentScope",
     "NullContainmentScope",
     "ProcessContainmentScope",
+    "SupervisorContainment",
     "bind_containment_scope",
     "current_containment_scope",
     "reset_containment_scope",
+    "posix_set_child_death_signal",
+    "posix_start_new_session",
     # Durable Outbox Sender (WP5)
     "OutboxSender",
+    # IPC + Supervisor (WP6)
+    "IPC_PROTOCOL_VERSION",
+    "IpcEnvelope",
+    "ProcessIpcChannel",
+    "agent_event",
+    "child_ready",
+    "child_stopped",
+    "fan_out_wake_hints",
+    "shutdown_signal",
+    "wake_hint",
+    "worker_ready",
+    "ChildEntrypoint",
+    "RestartPolicy",
+    "Supervisor",
     # Contracts
     "ClaimRequest",
     "ClaimedTask",
