@@ -216,13 +216,19 @@ def collect_metrics_text(
     *,
     host_mode: str = "unknown",
     host_started: bool = False,
+    host_snapshot: dict[str, Any] | None = None,
 ) -> str:
     """Export metrics in Prometheus text exposition format (design §34, WP8).
 
     No prompt text, tool arguments, or credentials are included (design
     §34 criterion 26). Only aggregate counts and durations.
     """
-    status = collect_status(store, host_mode=host_mode, host_started=host_started)
+    status = collect_status(
+        store,
+        host_mode=host_mode,
+        host_started=host_started,
+        host_snapshot=host_snapshot,
+    )
     lines: list[str] = []
 
     # Helper to emit a gauge.
@@ -262,6 +268,45 @@ def collect_metrics_text(
         status.database_size_bytes,
         "Runtime Store database size in bytes",
     )
+
+    # Supervised-mode worker metrics (design Task 8 Step 5).
+    snap = host_snapshot or {}
+    if snap.get("children"):
+        children = snap["children"]
+        workers = [c for c in children if c.get("role") == "worker"]
+        ready_workers = sum(1 for w in workers if w.get("ready") and w.get("alive"))
+        _gauge(
+            "miniunicorn_runtime_configured_workers",
+            len(workers),
+            "Number of configured Worker processes",
+        )
+        _gauge(
+            "miniunicorn_runtime_ready_workers",
+            ready_workers,
+            "Number of ready and alive Worker processes",
+        )
+        _gauge(
+            "miniunicorn_runtime_supervisor_started",
+            1 if snap.get("started") else 0,
+            "Whether the Supervisor is started (1) or stopped (0)",
+        )
+        _gauge(
+            "miniunicorn_runtime_supervisor_shutting_down",
+            1 if snap.get("shutting_down") else 0,
+            "Whether the Supervisor is shutting down (1) or not (0)",
+        )
+        _gauge(
+            "miniunicorn_runtime_relay_dropped_events",
+            snap.get("relay_dropped_events", 0),
+            "Transient realtime events dropped by the Supervisor relay",
+        )
+        # Per-worker restart counts (no secrets, just role/id/restarts).
+        for child in children:
+            cid = child.get("id", "unknown")
+            lines.append(
+                f'miniunicorn_runtime_child_restarts_in_window{{child="{cid}"}} '
+                f'{child.get("restarts_in_window", 0)}'
+            )
 
     # Tasks by state.
     for state, count in sorted(status.tasks_by_state.items()):

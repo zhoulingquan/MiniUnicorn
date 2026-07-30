@@ -350,10 +350,102 @@ def build_control_plane_runtime(
     )
 
 
+# ---------------------------------------------------------------------------
+# Supervised runtime composition (design Task 8)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(slots=True)
+class SupervisedRuntimeResources:
+    """Lifecycle-managed supervised runtime (design Task 8).
+
+    Owns a :class:`SupervisedHost` that spawns one Control Plane process
+    and ``worker_count`` Worker processes. ``start()`` blocks until the
+    Control Plane and all required Workers report ready; ``stop()``
+    gracefully shuts down the entire child tree.
+    """
+
+    host: Any  # SupervisedHost (avoid import cycle)
+    shutdown_requested: asyncio.Event = field(default_factory=asyncio.Event)
+    closed: asyncio.Event = field(default_factory=asyncio.Event)
+    _stopped: bool = False
+
+    async def start(self) -> None:
+        """Start the SupervisedHost and wait for readiness."""
+        await self.host.start()
+
+    async def stop(self) -> None:
+        """Graceful shutdown (idempotent)."""
+        if self._stopped:
+            return
+        self._stopped = True
+        await self.host.stop()
+        self.closed.set()
+
+    def request_shutdown(self) -> None:
+        """Signal the long-running launcher to shut down."""
+        self.shutdown_requested.set()
+
+    async def wait_for_shutdown(self) -> None:
+        """Wait until shutdown is requested."""
+        await self.shutdown_requested.wait()
+
+
+def build_supervised_runtime(
+    config: Any,
+    *,
+    surface: dict[str, Any] | None = None,
+    bus: Any | None = None,
+) -> SupervisedRuntimeResources:
+    """Construct the supervised runtime from a root ``Config`` (Task 8).
+
+    Wires the production :func:`control_plane_main` and
+    :func:`worker_main` entrypoints with a frozen, picklable
+    :class:`ChildBootstrapPayload`. Worker count and min_workers come
+    from ``config.runtime`` (default 3). The config is serialised to
+    JSON and reconstructed inside each child — no live Config, Provider,
+    Agent, Store, MessageBus, callable, or open socket crosses the
+    ``spawn`` boundary.
+    """
+    from miniunicorn.config.runtime import resolve_runtime_paths
+    from miniunicorn.runtime.hosts.supervised import SupervisedHost
+    from miniunicorn.runtime.process_entrypoints import (
+        ChildBootstrapPayload,
+        control_plane_main,
+        worker_main,
+    )
+
+    resolved = resolve_runtime_paths(config.runtime, config.workspace_path)
+    worker_count = resolved.worker_count
+    payload = ChildBootstrapPayload(
+        config_json=config.model_dump_json(),
+        surface={
+            "mode": "supervised",
+            "worker_count": worker_count,
+            "database_path": str(resolved.database_path_resolved or resolved.database_path),
+        },
+    )
+
+    host = SupervisedHost(
+        config=payload,
+        control_entrypoint=control_plane_main,
+        worker_entrypoint=worker_main,
+        bus=bus,
+        worker_count=worker_count,
+        min_workers=worker_count,
+        ready_timeout_s=60.0,
+        shutdown_grace_s=resolved.shutdown_grace_s,
+    )
+
+    return SupervisedRuntimeResources(host=host)
+
+
 __all__ = [
     "RuntimeResources",
     "ControlPlaneResources",
+    "SupervisedRuntimeResources",
     "Closeable",
     "build_lightweight_runtime",
     "build_control_plane_runtime",
+    "build_supervised_runtime",
 ]
