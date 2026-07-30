@@ -74,6 +74,7 @@ dev = [
     "pytest-cov>=6.0.0,<7.0.0",
     "ruff>=0.1.0",
     "pymupdf>=1.25.0",
+    "tzdata>=2025.2; sys_platform == 'win32'",
 ]
 
 [project.scripts]
