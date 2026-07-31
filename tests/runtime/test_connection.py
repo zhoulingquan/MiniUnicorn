@@ -9,7 +9,6 @@ import pytest
 
 from miniunicorn.runtime.sqlite import open_connection
 
-
 # ---------------------------------------------------------------------------
 # Required pragmas (design §16.1)
 # ---------------------------------------------------------------------------

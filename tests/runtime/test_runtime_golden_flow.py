@@ -17,16 +17,14 @@ from typing import Any
 
 import pytest
 
+from miniunicorn.runtime.application import RuntimeInboundRequest
 from miniunicorn.runtime.bootstrap import build_lightweight_runtime, build_supervised_runtime
 from miniunicorn.runtime.ingress import build_inbound_envelope, local_request_scope
 from miniunicorn.runtime.sqlite import SqliteRuntimeStore, open_connection
 from miniunicorn.runtime.task_service import TaskService
-from miniunicorn.runtime.application import RuntimeInboundRequest
 from miniunicorn.session.manager import SessionManager
-
 from tests.runtime.faults import collect_durable_facts
 from tests.runtime.support.openai_stub import OpenAIStubServer, chat_completion
-
 
 # ---------------------------------------------------------------------------
 # Config builder (shared by both modes)

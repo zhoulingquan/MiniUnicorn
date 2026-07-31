@@ -20,11 +20,9 @@ import asyncio
 import hashlib
 import time
 from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
 
-from miniunicorn.agent.ports import SafeError
 from miniunicorn.bus.events import OutboundMessage
 from miniunicorn.runtime.contracts import ClaimRequest
 from miniunicorn.runtime.models import (
@@ -33,7 +31,6 @@ from miniunicorn.runtime.models import (
     DeliveryReceipt,
 )
 from miniunicorn.runtime.outbox import OutboxSender
-
 
 # ---------------------------------------------------------------------------
 # Stubs

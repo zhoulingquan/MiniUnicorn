@@ -18,19 +18,14 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import time
 from typing import Any
 
 import pytest
 
 from miniunicorn.runtime.maintenance import (
-    MAINTENANCE_CAPACITY,
-    MAINTENANCE_HOLDER_KIND,
-    MAINTENANCE_RESOURCE_KEY,
     PRIORITY_MEMORY,
     PRIORITY_REFLECTION_DREAM,
     PRIORITY_RETENTION_CLEANUP,
-    PRIORITY_USER_TURN,
     dedup_key_for_backup,
     dedup_key_for_consolidation,
     dedup_key_for_dream,
@@ -52,7 +47,6 @@ from miniunicorn.runtime.models import (
     RequestScope,
     RetentionPolicy,
 )
-
 
 # ---------------------------------------------------------------------------
 # Dedup key builder tests
@@ -212,7 +206,6 @@ class TestUserWorkPreemptsMaintenance:
         make_inbound_envelope: Any,
     ) -> None:
         from miniunicorn.runtime.contracts import ClaimRequest
-        from miniunicorn.runtime.models import InternalTaskEnvelope
 
         # Submit a user task.
         env = make_inbound_envelope(sample_scope)
@@ -245,7 +238,6 @@ class TestUserWorkPreemptsMaintenance:
         sample_scope: RequestScope,
     ) -> None:
         from miniunicorn.runtime.contracts import ClaimRequest
-        from miniunicorn.runtime.models import InternalTaskEnvelope
 
         # Submit only a maintenance task.
         maint_env = InternalTaskEnvelope(
@@ -306,7 +298,6 @@ class TestRetention:
         self,
         store: Any,
     ) -> None:
-        from miniunicorn.runtime.models import RetentionPolicy
 
         batch = store.list_retention_batch(RetentionPolicy(), now_ms=2_000_000)
         assert len(batch.task_ids) == 0
@@ -324,7 +315,6 @@ class TestRetention:
             BlobWrite,
             CompletionWrite,
             DeliveryReceipt,
-            RetentionPolicy,
         )
 
         # Submit and complete a task.
@@ -396,7 +386,6 @@ class TestRetention:
         sample_scope: RequestScope,
         make_inbound_envelope: Any,
     ) -> None:
-        from miniunicorn.runtime.models import RetentionPolicy
 
         env = make_inbound_envelope(sample_scope)
         submit = store.submit_task(env)
@@ -842,7 +831,6 @@ class TestDreamIdleTriggerDurableMode:
     @pytest.mark.asyncio
     async def test_durable_mode_enqueues_task(self, tmp_path) -> None:
         """When enqueue_callback is set, maybe_trigger calls it instead of create_task."""
-        import asyncio
         from miniunicorn.agent.dream_trigger import DreamIdleTrigger
 
         # Minimal fake Dream with the attributes maybe_trigger reads.
@@ -892,7 +880,6 @@ class TestDreamIdleTriggerDurableMode:
         logs a warning and returns without running Dream — required work
         must be durable and owned by a maintenance Worker.
         """
-        import asyncio
         from miniunicorn.agent.dream_trigger import DreamIdleTrigger
 
         class FakeDreamStore:

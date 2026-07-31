@@ -22,7 +22,6 @@ import asyncio
 import hashlib
 import json
 import time
-import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Protocol
 
@@ -40,13 +39,11 @@ from miniunicorn.agent.ports import (
 from miniunicorn.runtime.containment import (
     ContainmentScope,
     NullContainmentScope,
-    ProcessContainmentScope,
     bind_containment_scope,
     reset_containment_scope,
 )
 from miniunicorn.runtime.contracts import (
     ClaimedTask,
-    CompletionResult,
     LeaseLostError,
     StaleLeaseError,
     WorkerLedger,
@@ -61,10 +58,10 @@ from miniunicorn.runtime.models import (
 from miniunicorn.runtime.scheduler import Scheduler
 from miniunicorn.runtime.session_committer import (
     SessionCommitter,
-    set_active_claim,
     clear_active_claim,
-    set_active_delivery_ledger,
     clear_active_delivery_ledger,
+    set_active_claim,
+    set_active_delivery_ledger,
 )
 
 # ---------------------------------------------------------------------------
@@ -792,7 +789,7 @@ def _session_commit_succeeded(result: SessionCommitResult) -> bool:
     return result.state in {"COMMITTED", "ALREADY_COMMITTED"}
 
 
-class suppress_exception:
+class suppress_exception:  # noqa: N801 - matches contextlib.suppress style
     """Context manager that suppresses a specific exception type."""
 
     def __init__(self, exc_type: type[BaseException]) -> None:

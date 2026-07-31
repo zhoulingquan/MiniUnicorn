@@ -17,10 +17,9 @@ This ensures required Dream work survives process restarts.
 
 from __future__ import annotations
 
-import asyncio
 import time
 from collections.abc import Collection
-from typing import TYPE_CHECKING, Callable, Coroutine, Any
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 from loguru import logger
 

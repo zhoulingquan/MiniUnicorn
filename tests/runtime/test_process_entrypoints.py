@@ -20,24 +20,20 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import pickle
-import time
 from typing import Any
 
 import pytest
 
 from miniunicorn.runtime.ipc import (
     KIND_AGENT_EVENT,
-    KIND_SHUTDOWN,
     ProcessIpcChannel,
     agent_event,
-    shutdown_signal,
 )
 from miniunicorn.runtime.process_entrypoints import (
     ChildBootstrapPayload,
     control_plane_main,
     worker_main,
 )
-
 
 # ---------------------------------------------------------------------------
 # Picklability and module identity
@@ -235,11 +231,11 @@ def test_supervised_surface_preserves_caller_overrides() -> None:
     runtime defaults so ``webui_runtime_surface``, ``webui_static_dist``,
     and capability overrides reach ``_build_channel_manager`` inside the
     Control Plane child process."""
-    from miniunicorn.config.schema import Config
-    from miniunicorn.runtime.bootstrap import build_supervised_runtime
-
     import tempfile
     from pathlib import Path
+
+    from miniunicorn.config.schema import Config
+    from miniunicorn.runtime.bootstrap import build_supervised_runtime
 
     with tempfile.TemporaryDirectory() as tmp:
         config = Config.model_validate(

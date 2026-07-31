@@ -27,24 +27,19 @@ from typing import Any
 import pytest
 
 from miniunicorn.agent.ports import SafeError
-from miniunicorn.runtime.contracts import RuntimeStore
 from miniunicorn.runtime.hosts.lightweight import LightweightHost
 from miniunicorn.runtime.models import (
     InboundTaskEnvelope,
-    MediaRef,
     RequestScope,
 )
-from miniunicorn.runtime.scheduler import Scheduler
 from miniunicorn.runtime.session_committer import SessionCommitter
 from miniunicorn.runtime.sqlite import SqliteRuntimeStore
 from miniunicorn.runtime.task_service import TaskService
 from miniunicorn.runtime.worker import (
-    AgentTaskWorker,
     WorkerExecutionResult,
     WorkerTaskPayload,
 )
 from miniunicorn.session.manager import SessionManager
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

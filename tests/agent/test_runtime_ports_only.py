@@ -3,7 +3,7 @@
 import ast
 from pathlib import Path
 
-from miniunicorn.agent.ports import build_tool_execution_request, EffectiveToolPolicy
+from miniunicorn.agent.ports import EffectiveToolPolicy, build_tool_execution_request
 
 
 def test_tool_request_builder_is_agent_owned() -> None:

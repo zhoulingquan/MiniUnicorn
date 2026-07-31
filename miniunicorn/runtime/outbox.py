@@ -23,15 +23,13 @@ from typing import Any, Protocol, runtime_checkable
 
 from loguru import logger
 
+from miniunicorn.agent.ports import SafeError
 from miniunicorn.runtime.contracts import DeliveryLedger
 from miniunicorn.runtime.models import (
     DeliveryReceipt,
     OutboxClaim,
-    OutboxRecord,
     RetryDecision,
 )
-from miniunicorn.agent.ports import SafeError
-
 
 # ---------------------------------------------------------------------------
 # Channel sender protocol (avoids importing ChannelManager at runtime)
@@ -57,7 +55,7 @@ class ChannelSender(Protocol):
         ...
 
 
-class DeliveryLeaseLost(Exception):
+class DeliveryLeaseLost(Exception):  # noqa: N818
     """Raised when the delivery lease is lost during an in-progress send (Task 8 Step 6).
 
     The OutboxSender must **not** call ``_record_result`` with the stale
@@ -484,7 +482,7 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
-class suppress_cancelled:
+class suppress_cancelled:  # noqa: N801 - matches contextlib.suppress style
     """Context manager that suppresses asyncio.CancelledError."""
 
     async def __aenter__(self) -> "suppress_cancelled":

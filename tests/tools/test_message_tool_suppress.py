@@ -8,7 +8,7 @@ import pytest
 
 from miniunicorn.agent.loop import AgentLoop
 from miniunicorn.agent.tools.message import MessageTool
-from miniunicorn.bus.events import InboundMessage, OutboundMessage
+from miniunicorn.bus.events import InboundMessage
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.providers.base import LLMResponse, ToolCallRequest
 

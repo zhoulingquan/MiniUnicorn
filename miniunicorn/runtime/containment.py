@@ -380,7 +380,7 @@ def _create_kill_on_close_job() -> Any:
         kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
 
         # JOBOBJECT_EXTENDED_LIMIT_INFORMATION layout (abbreviated).
-        class IO_COUNTERS(ctypes.Structure):
+        class IO_COUNTERS(ctypes.Structure):  # noqa: N801
             _fields_ = [
                 ("ReadOperationCount", ctypes.c_ulonglong),
                 ("WriteOperationCount", ctypes.c_ulonglong),
@@ -390,7 +390,7 @@ def _create_kill_on_close_job() -> Any:
                 ("OtherTransferCount", ctypes.c_ulonglong),
             ]
 
-        class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+        class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):  # noqa: N801
             _fields_ = [
                 ("PerProcessUserTimeLimit", ctypes.c_int64),
                 ("PerJobUserTimeLimit", ctypes.c_int64),
@@ -403,7 +403,7 @@ def _create_kill_on_close_job() -> Any:
                 ("SchedulingClass", wintypes.DWORD),
             ]
 
-        class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+        class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):  # noqa: N801
             _fields_ = [
                 ("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
                 ("IoInfo", IO_COUNTERS),
@@ -413,8 +413,8 @@ def _create_kill_on_close_job() -> Any:
                 ("PeakJobMemoryUsed", ctypes.c_size_t),
             ]
 
-        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
-        JobObjectExtendedLimitInformation = 9
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000  # noqa: N806
+        JobObjectExtendedLimitInformation = 9  # noqa: N806
 
         handle = kernel32.CreateJobObjectW(None, None)
         if not handle:
@@ -443,10 +443,9 @@ def _assign_pid_to_job(job_handle: Any, pid: int) -> None:
         import ctypes
 
         kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
         # Open the target process with PROCESS_SET_QUOTA | PROCESS_TERMINATE.
-        PROCESS_SET_QUOTA = 0x0100
-        PROCESS_TERMINATE = 0x0001
+        PROCESS_SET_QUOTA = 0x0100  # noqa: N806
+        PROCESS_TERMINATE = 0x0001  # noqa: N806
         inh = False
         proc_handle = kernel32.OpenProcess(
             PROCESS_SET_QUOTA | PROCESS_TERMINATE, inh, pid
@@ -474,8 +473,8 @@ def posix_set_child_death_signal() -> None:
     try:
         import ctypes
 
-        PR_SET_PDEATHSIG = 1
-        SIGHUP = signal.SIGHUP
+        PR_SET_PDEATHSIG = 1  # noqa: N806
+        SIGHUP = signal.SIGHUP  # noqa: N806
         libc = ctypes.CDLL("libc.so.6", use_errno=True)
         libc.prctl(PR_SET_PDEATHSIG, SIGHUP, 0, 0, 0)
     except Exception as exc:  # noqa: BLE001

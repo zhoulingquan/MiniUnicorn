@@ -29,22 +29,19 @@ from typing import Any
 
 import pytest
 
+from miniunicorn.runtime.application import RuntimeInboundRequest
 from miniunicorn.runtime.hosts.lightweight import LightweightHost
 from miniunicorn.runtime.ingress import build_inbound_envelope, local_request_scope
 from miniunicorn.runtime.scheduler import Scheduler
 from miniunicorn.runtime.session_committer import SessionCommitter
-from miniunicorn.runtime.sqlite import SqliteRuntimeStore, open_connection, run_migrations
+from miniunicorn.runtime.sqlite import SqliteRuntimeStore, open_connection
 from miniunicorn.runtime.task_service import TaskService
-from miniunicorn.runtime.application import RuntimeInboundRequest
 from miniunicorn.runtime.worker import (
-    AgentTaskWorker,
     WorkerExecutionResult,
     WorkerTaskPayload,
 )
 from miniunicorn.session.manager import SessionManager
-
 from tests.runtime.faults import FaultInjector, collect_durable_facts
-
 
 # ---------------------------------------------------------------------------
 # Stub execution callback with effect counter
@@ -91,7 +88,6 @@ class CountingStubCallback:
 
 
 def _make_payload_bytes(content: str) -> bytes:
-    import hashlib
     import json
 
     payload = {"content": content, "media": [], "metadata": {}}
@@ -166,8 +162,6 @@ class TestLightweightCrashRecovery:
         The task must reach COMPLETED with exactly one Provider effect
         (no duplicate execution after recovery).
         """
-        import hashlib
-        import json
 
         from miniunicorn.runtime.models import RequestScope
 
@@ -333,7 +327,7 @@ class TestFaultInjectionBoundaries:
         await host.start()
         try:
             envelope = _make_envelope(scope, content="inbound-crash", session_key="inbound-crash-session")
-            handle = await host.task_service.submit(envelope)
+            _handle = await host.task_service.submit(envelope)
             await asyncio.sleep(0.5)
         finally:
             await host.stop()
@@ -422,10 +416,9 @@ class TestSupervisedWorkerKillRecovery:
         task is reclaimed and completed by another Worker (or the
         restarted Worker).
         """
-        from tests.runtime.support.openai_stub import OpenAIStubServer, chat_completion
-
         from miniunicorn.config.schema import Config
         from miniunicorn.runtime.bootstrap import build_supervised_runtime
+        from tests.runtime.support.openai_stub import OpenAIStubServer, chat_completion
 
         stub = OpenAIStubServer(
             [

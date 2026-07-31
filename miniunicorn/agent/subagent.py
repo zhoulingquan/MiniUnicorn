@@ -11,8 +11,8 @@ from typing import Any, Callable
 
 from loguru import logger
 
-from miniunicorn.agent.hook import AgentHook, AgentHookContext
 from miniunicorn.agent.agent_run_adapter import DirectToolExecutionPort
+from miniunicorn.agent.hook import AgentHook, AgentHookContext
 from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 from miniunicorn.agent.tools.context import ToolContext
 from miniunicorn.agent.tools.file_state import FileStates

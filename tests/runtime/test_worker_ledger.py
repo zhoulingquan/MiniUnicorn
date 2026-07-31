@@ -7,11 +7,8 @@ import pytest
 from miniunicorn.agent.ports import SafeError
 from miniunicorn.runtime.contracts import (
     ClaimRequest,
-    ClaimedTask,
-    ClaimResult,
     CompletionWrite,
     InternalCompletionWrite,
-    ReclaimResult,
     StaleLeaseError,
     TaskClaim,
 )
@@ -23,7 +20,6 @@ from miniunicorn.runtime.models import (
     TaskFailure,
 )
 from miniunicorn.runtime.scheduler import Scheduler
-
 
 # ---------------------------------------------------------------------------
 # claim_next
@@ -134,8 +130,8 @@ class TestSessionHeadClaimOrdering:
             sample_scope, channel_message_id="msg-order-3"
         )
         r1 = store.submit_task(env1)
-        r2 = store.submit_task(env2)
-        r3 = store.submit_task(env3)
+        _r2 = store.submit_task(env2)
+        _r3 = store.submit_task(env3)
 
         # Claim should return the first task (sequence 0)
         result = store.claim_next(
@@ -156,7 +152,7 @@ class TestSessionHeadClaimOrdering:
             sample_scope, channel_message_id="msg-block-2"
         )
         store.submit_task(env1)
-        r2 = store.submit_task(env2)
+        _r2 = store.submit_task(env2)
 
         # Claim the first task (now LEASED)
         result1 = store.claim_next(
@@ -179,7 +175,7 @@ class TestSessionHeadClaimOrdering:
         env2 = make_inbound_envelope(
             sample_scope, channel_message_id="msg-comp-2"
         )
-        r1 = store.submit_task(env1)
+        _r1 = store.submit_task(env1)
         r2 = store.submit_task(env2)
 
         # Claim and complete the first task
@@ -230,7 +226,7 @@ class TestPriorityAcrossSessions:
             channel_message_id="msg-prio-high",
             priority=200,
         )
-        r_low = store.submit_task(env_low)
+        _r_low = store.submit_task(env_low)
         r_high = store.submit_task(env_high)
 
         result = store.claim_next(
@@ -256,7 +252,7 @@ class TestPriorityAcrossSessions:
             channel_message_id="msg-recovery",
             priority=50,
         )
-        r_normal = store.submit_task(env_normal)
+        _r_normal = store.submit_task(env_normal)
         r_recovery = store.submit_task(env_recovery)
 
         # Manually set recovery_pending on the lower-priority task
@@ -826,7 +822,7 @@ class TestLeaseReclaim:
     ) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-reclaim-3")
         store.submit_task(env)
-        result = store.claim_next(
+        store.claim_next(
             ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
         )
 
@@ -843,7 +839,7 @@ class TestLeaseReclaim:
     ) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-reclaim-4")
         submit = store.submit_task(env)
-        result = store.claim_next(
+        store.claim_next(
             ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
         )
 

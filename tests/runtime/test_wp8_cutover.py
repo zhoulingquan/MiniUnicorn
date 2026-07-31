@@ -11,14 +11,12 @@ but not duplicated here.
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from miniunicorn.runtime.models import RequestScope
-
 
 # ---------------------------------------------------------------------------
 # Observability: health, status, metrics (design §34 criterion 26, WP8)
@@ -188,6 +186,7 @@ class TestApiEndpoints:
     @pytest.mark.asyncio
     async def test_health_without_store_returns_ok(self) -> None:
         from aiohttp.test_utils import TestClient, TestServer
+
         from miniunicorn.api.server import create_app
 
         app = create_app(runtime=None)
@@ -205,6 +204,7 @@ class TestApiEndpoints:
     @pytest.mark.asyncio
     async def test_status_without_store_returns_json(self) -> None:
         from aiohttp.test_utils import TestClient, TestServer
+
         from miniunicorn.api.server import create_app
 
         app = create_app(runtime=None)
@@ -224,6 +224,7 @@ class TestApiEndpoints:
     @pytest.mark.asyncio
     async def test_metrics_without_store_returns_text(self) -> None:
         from aiohttp.test_utils import TestClient, TestServer
+
         from miniunicorn.api.server import create_app
 
         app = create_app(runtime=None)
@@ -241,6 +242,7 @@ class TestApiEndpoints:
     @pytest.mark.asyncio
     async def test_health_with_store_returns_ready(self, store: Any) -> None:
         from aiohttp.test_utils import TestClient, TestServer
+
         from miniunicorn.api.server import create_app
 
         app = create_app(runtime=None)
@@ -265,6 +267,7 @@ class TestApiEndpoints:
         make_inbound_envelope: Any,
     ) -> None:
         from aiohttp.test_utils import TestClient, TestServer
+
         from miniunicorn.api.server import create_app
 
         env = make_inbound_envelope(sample_scope)
@@ -292,6 +295,7 @@ class TestApiEndpoints:
     async def test_endpoints_bypass_auth(self, store: Any) -> None:
         """Health/status/metrics must be public (design §4.6, WP8)."""
         from aiohttp.test_utils import TestClient, TestServer
+
         from miniunicorn.api.server import create_app
 
         app = create_app(runtime=None, api_key="secret-key")
@@ -387,13 +391,13 @@ class TestAcceptanceCriteriaSpotChecks:
         make_inbound_envelope: Any,
     ) -> None:
         """§34.6: Stale Workers cannot checkpoint or complete tasks."""
+        import hashlib
+
         from miniunicorn.runtime.contracts import ClaimRequest, StaleLeaseError
         from miniunicorn.runtime.models import (
             BlobWrite,
             CheckpointWrite,
-            CompletionWrite,
         )
-        import hashlib
 
         env = make_inbound_envelope(sample_scope)
         store.submit_task(env)
@@ -409,7 +413,7 @@ class TestAcceptanceCriteriaSpotChecks:
             ClaimRequest(worker_id="w-2", now_ms=2_000_001, lease_ms=60_000)
         )
         assert result2.claimed is not None
-        new_claim = result2.claimed.claim
+        _new_claim = result2.claimed.claim
 
         # The old claim's lease_epoch is now stale. Attempting to
         # checkpoint with the old token must fail.
@@ -448,12 +452,13 @@ class TestAcceptanceCriteriaSpotChecks:
         make_inbound_envelope: Any,
     ) -> None:
         """§34.12: Every final reply is enqueued atomically with task completion."""
+        import hashlib
+
         from miniunicorn.runtime.contracts import ClaimRequest
         from miniunicorn.runtime.models import (
             BlobWrite,
             CompletionWrite,
         )
-        import hashlib
 
         env = make_inbound_envelope(sample_scope)
         store.submit_task(env)

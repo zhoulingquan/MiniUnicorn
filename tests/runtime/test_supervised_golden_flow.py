@@ -73,15 +73,14 @@ async def test_supervised_processes_real_turn_after_readiness(
     synchronous ``child_poll`` call, so the task times out while all
     three Worker records report ready.
     """
-    from tests.runtime.support.openai_stub import OpenAIStubServer, chat_completion
-
+    from miniunicorn.runtime.application import RuntimeInboundRequest
     from miniunicorn.runtime.ingress import (
         build_inbound_envelope,
         local_request_scope,
     )
     from miniunicorn.runtime.sqlite import SqliteRuntimeStore, open_connection
     from miniunicorn.runtime.task_service import TaskService
-    from miniunicorn.runtime.application import RuntimeInboundRequest
+    from tests.runtime.support.openai_stub import OpenAIStubServer, chat_completion
 
     # 1. Start the OpenAI-compatible stub server with one deterministic response.
     stub = OpenAIStubServer([chat_completion("final answer")])

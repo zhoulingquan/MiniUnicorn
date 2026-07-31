@@ -1,6 +1,6 @@
 """Task 2 — Root Config owns Runtime settings; no ``enabled`` switch."""
 
-from miniunicorn.config.runtime import resolve_runtime_mode, RuntimeConfig
+from miniunicorn.config.runtime import RuntimeConfig, resolve_runtime_mode
 from miniunicorn.config.schema import Config
 
 

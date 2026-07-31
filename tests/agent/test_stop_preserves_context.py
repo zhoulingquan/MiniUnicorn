@@ -57,14 +57,14 @@ class TestLegacyCheckpointWritersRemoved:
         )
 
     def test_loop_does_not_define_runtime_checkpoint_key_constant(self, tmp_path) -> None:
-        loop = _make_loop(tmp_path)
+        _make_loop(tmp_path)
         assert not hasattr(AgentLoop, "_RUNTIME_CHECKPOINT_KEY"), (
             "AgentLoop._RUNTIME_CHECKPOINT_KEY was removed in design Task 10; "
             "durable checkpoints are owned by TurnJournalPort.save_checkpoint()."
         )
 
     def test_loop_does_not_define_pending_user_turn_key_constant(self, tmp_path) -> None:
-        loop = _make_loop(tmp_path)
+        _make_loop(tmp_path)
         assert not hasattr(AgentLoop, "_PENDING_USER_TURN_KEY"), (
             "AgentLoop._PENDING_USER_TURN_KEY was removed in design Task 10; "
             "durable tasks use the WAITING_USER state instead."

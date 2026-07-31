@@ -16,7 +16,6 @@ import pytest
 from miniunicorn.agent.hook import AgentHook, AgentHookContext
 from miniunicorn.config.schema import AgentDefaults
 from miniunicorn.providers.base import LLMResponse, ToolCallRequest
-
 from tests.agent.conftest import FakeToolExecutionPort
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars

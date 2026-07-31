@@ -17,7 +17,7 @@ from miniunicorn.api.server import (
     create_app,
 )
 from miniunicorn.runtime.application import RuntimeTurnResult
-from miniunicorn.runtime.models import DurableReply, RequestScope, TaskSnapshot
+from miniunicorn.runtime.models import DurableReply, TaskSnapshot
 from miniunicorn.utils.document import extract_documents
 
 try:

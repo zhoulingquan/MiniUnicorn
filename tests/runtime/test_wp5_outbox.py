@@ -21,7 +21,6 @@ import asyncio
 import hashlib
 import time
 from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -32,12 +31,10 @@ from miniunicorn.runtime.models import (
     BlobWrite,
     CompletionWrite,
     DeliveryReceipt,
-    OutboxRecord,
     RetryDecision,
 )
 from miniunicorn.runtime.outbox import OutboxSender
-from miniunicorn.runtime.session_committer import set_active_claim, clear_active_claim
-
+from miniunicorn.runtime.session_committer import clear_active_claim, set_active_claim
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -318,15 +315,15 @@ class TestDeliveryFencing:
     def test_stale_delivery_lease_cannot_commit(self, store: Any, sample_scope: Any, make_inbound_envelope: Any) -> None:
         """A stale delivery lease cannot mark delivered (design §17.9 fencing)."""
         record, claim = _claim_and_run_task(store, sample_scope, make_inbound_envelope)
-        oid = _enqueue_final_reply(store, claim, content="hello")
+        _oid = _enqueue_final_reply(store, claim, content="hello")
 
         c = store.claim_next_delivery("sender", now_ms=3_000_000, lease_ms=60_000)
         assert c is not None
 
         # Forge a stale claim with wrong epoch.
-        from miniunicorn.runtime.models import OutboxClaim as OC
+        from miniunicorn.runtime.models import OutboxClaim as OutboxClaimModel
 
-        stale = OC(
+        stale = OutboxClaimModel(
             outbox_id=c.outbox_id,
             task_id=c.task_id,
             channel=c.channel,
@@ -608,13 +605,17 @@ class TestMessageToolDurableEnqueue:
     ) -> None:
         """MessageTool enqueues to Outbox when delivery ledger and claim are bound."""
         from miniunicorn.agent.tools.message import MessageTool
-        from miniunicorn.agent.turn_runtime import TurnRuntime, bind_turn_runtime, reset_turn_runtime
+        from miniunicorn.agent.turn_runtime import (
+            TurnRuntime,
+            bind_turn_runtime,
+            reset_turn_runtime,
+        )
         from miniunicorn.runtime.message_delivery import DurableMessageDelivery
         from miniunicorn.runtime.session_committer import (
-            set_active_delivery_ledger,
             clear_active_delivery_ledger,
-            set_active_tool_call_id,
             clear_active_tool_call_id,
+            set_active_delivery_ledger,
+            set_active_tool_call_id,
         )
 
         record, claim = _claim_and_run_task(store, sample_scope, make_inbound_envelope)
@@ -689,13 +690,17 @@ class TestMessageToolDurableEnqueue:
     ) -> None:
         """Durable enqueue sets _sent_in_turn for same-target sends (design §17.8)."""
         from miniunicorn.agent.tools.message import MessageTool
-        from miniunicorn.agent.turn_runtime import TurnRuntime, bind_turn_runtime, reset_turn_runtime
+        from miniunicorn.agent.turn_runtime import (
+            TurnRuntime,
+            bind_turn_runtime,
+            reset_turn_runtime,
+        )
         from miniunicorn.runtime.message_delivery import DurableMessageDelivery
         from miniunicorn.runtime.session_committer import (
-            set_active_delivery_ledger,
             clear_active_delivery_ledger,
-            set_active_tool_call_id,
             clear_active_tool_call_id,
+            set_active_delivery_ledger,
+            set_active_tool_call_id,
         )
 
         record, claim = _claim_and_run_task(store, sample_scope, make_inbound_envelope)
@@ -745,14 +750,19 @@ class TestMessageToolDurableEnqueue:
     ) -> None:
         """Dedup key is sha256(task_id:tool_call_id:message) (design §16.6)."""
         import hashlib
+
         from miniunicorn.agent.tools.message import MessageTool
-        from miniunicorn.agent.turn_runtime import TurnRuntime, bind_turn_runtime, reset_turn_runtime
+        from miniunicorn.agent.turn_runtime import (
+            TurnRuntime,
+            bind_turn_runtime,
+            reset_turn_runtime,
+        )
         from miniunicorn.runtime.message_delivery import DurableMessageDelivery
         from miniunicorn.runtime.session_committer import (
-            set_active_delivery_ledger,
             clear_active_delivery_ledger,
-            set_active_tool_call_id,
             clear_active_tool_call_id,
+            set_active_delivery_ledger,
+            set_active_tool_call_id,
         )
 
         record, claim = _claim_and_run_task(store, sample_scope, make_inbound_envelope)
@@ -1116,7 +1126,7 @@ class TestFinalReplyRoutingAndPayload:
             clear_active_claim(record.task_id)
 
         outbox_id_str = result.split("outbox_id=")[1].rstrip(")")
-        outbox_id = int(outbox_id_str)
+        _outbox_id = int(outbox_id_str)
 
         # Claim and deliver through OutboxSender to verify decoding.
         sender = StubChannelSender()

@@ -11,7 +11,6 @@ import pytest
 import pytest_asyncio
 
 from miniunicorn.api.server import (
-    API_CHAT_ID,
     API_SESSION_KEY,
     _chat_completion_response,
     _error_json,

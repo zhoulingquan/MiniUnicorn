@@ -26,8 +26,7 @@ code; production code only sees the ``fault_hook`` callable argument.
 from __future__ import annotations
 
 import threading
-from typing import Any, Callable
-
+from typing import Any
 
 # Canonical fault-point names (design Task 14 Step 1).
 FAULT_POINTS: tuple[str, ...] = (

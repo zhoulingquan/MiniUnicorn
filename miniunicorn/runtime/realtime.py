@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, AsyncIterator
 
 if TYPE_CHECKING:
     from miniunicorn.bus.agent_events import AgentEvent

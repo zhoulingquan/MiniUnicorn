@@ -12,8 +12,8 @@ import pytest
 from pydantic import TypeAdapter
 
 from miniunicorn.bus.agent_events import (
-    PROTOCOL_VERSION,
     AGENT_EVENT_ADAPTER,
+    PROTOCOL_VERSION,
     AttachedEvent,
     DeltaEvent,
     ErrorEvent,

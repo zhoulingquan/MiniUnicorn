@@ -22,7 +22,6 @@ import hashlib
 import json
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -41,7 +40,6 @@ from miniunicorn.runtime.models import (
     RequestScope,
 )
 from miniunicorn.runtime.realtime import RealtimeSubscriptionHub
-
 
 # ---------------------------------------------------------------------------
 # Fake store for façade tests
@@ -272,7 +270,7 @@ class TestRealtimeSubscriptionHub:
     @pytest.mark.asyncio
     async def test_full_queue_drops_event_and_increments_counter(self) -> None:
         hub = RealtimeSubscriptionHub(capacity=2)
-        async with hub.subscribe("task-1") as queue:
+        async with hub.subscribe("task-1") as _queue:
             # Fill the queue.
             hub.publish("task-1", {"i": 0})
             hub.publish("task-1", {"i": 1})

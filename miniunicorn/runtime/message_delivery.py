@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import hashlib
 import time
-from typing import Any
 
 from miniunicorn.agent.ports import OutboundReceipt, OutboundRequest
 from miniunicorn.bus.events import OutboundMessage
@@ -26,7 +25,6 @@ from miniunicorn.runtime.session_committer import (
     _get_claim_for_task,
     _get_delivery_ledger_for_task,
 )
-
 
 # ---------------------------------------------------------------------------
 # DurableMessageDelivery — OutboundPort implementation (design §20.6)

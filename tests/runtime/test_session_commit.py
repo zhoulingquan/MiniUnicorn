@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from miniunicorn.session.manager import SessionCommitOutcome, SessionManager, SessionSnapshot
+from miniunicorn.session.manager import SessionManager, SessionSnapshot
 
 
 @pytest.fixture

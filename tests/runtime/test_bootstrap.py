@@ -13,11 +13,10 @@ from typing import Any
 import pytest
 
 from miniunicorn.providers.base import LLMProvider, LLMResponse
-from miniunicorn.runtime.bootstrap import build_lightweight_runtime
 from miniunicorn.runtime.application import RuntimeInboundRequest
+from miniunicorn.runtime.bootstrap import build_lightweight_runtime
 from miniunicorn.runtime.ingress import local_request_scope
 from miniunicorn.runtime.models import RequestScope
-
 
 # ---------------------------------------------------------------------------
 # Fake provider

@@ -17,9 +17,8 @@ import time
 from dataclasses import dataclass
 
 from miniunicorn.runtime.contracts import (
-    ClaimRequest,
-    ClaimResult,
     ClaimedTask,
+    ClaimRequest,
     ReclaimResult,
     StaleLeaseError,
     WorkerLedger,

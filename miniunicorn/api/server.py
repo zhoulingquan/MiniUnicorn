@@ -464,7 +464,6 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
                         response_text = EMPTY_FINAL_RESPONSE_MESSAGE
                 elif state == "FAILED":
                     err = snapshot.error
-                    code = err.error_code if err else "INTERNAL_ERROR"
                     msg = err.error_summary if err else "Internal server error"
                     return _error_json(500, msg, err_type="server_error")
                 elif state == "CANCELLED":

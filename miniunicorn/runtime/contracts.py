@@ -12,7 +12,7 @@ implementation module. They depend only on the DTOs from
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from miniunicorn.agent.ports import (
     CompletedModelDecision,
@@ -31,8 +31,8 @@ from miniunicorn.runtime.models import (
     DeliveryResolution,
     DurableEventRecord,
     DurableReply,
-    InternalCompletionWrite,
     InboundTaskEnvelope,
+    InternalCompletionWrite,
     InternalTaskEnvelope,
     ModelAttemptWrite,
     ModelResultWrite,
@@ -62,7 +62,6 @@ from miniunicorn.runtime.models import (
     WaitDecision,
     WaitResult,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fencing primitives

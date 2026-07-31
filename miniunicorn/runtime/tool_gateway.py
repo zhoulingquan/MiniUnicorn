@@ -615,8 +615,8 @@ class ToolGateway:
         retrieve it without a hard runtime dependency (design §20.6, WP5).
         """
         from miniunicorn.runtime.session_committer import (
-            set_active_tool_call_id,
             clear_active_tool_call_id,
+            set_active_tool_call_id,
         )
 
         tool = self._registry.get(request.tool_name)

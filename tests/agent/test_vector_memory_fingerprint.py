@@ -12,10 +12,10 @@ import sqlite3
 import pytest
 
 from miniunicorn.agent.vector_memory import (
-    NoOpVectorStore,
     _DEFAULT_EMBEDDING_DIM,
     _DEFAULT_MODEL_ID,
     _VEC_SCHEMA_VERSION,
+    NoOpVectorStore,
 )
 from miniunicorn.runtime.sqlite.vector_memory_store import (
     VectorMemoryStore,

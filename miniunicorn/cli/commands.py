@@ -67,22 +67,16 @@ from rich.table import Table
 from miniunicorn import __logo__, __version__
 from miniunicorn.cli._gateway_runner import _run_gateway
 from miniunicorn.cli._terminal_render import (
-    _flush_cli_reasoning,
     _flush_pending_tty_input,
     _init_prompt_session,
     _is_exit_command,
-    _maybe_print_interactive_progress,
     _print_agent_response,
-    _print_cli_progress_line,
-    _print_cli_reasoning,
-    _print_interactive_response,
     _read_interactive_input_async,
-    _ReasoningBuffer,
     _restore_terminal,
     _sanitize_surrogates,
     console,
 )
-from miniunicorn.cli.stream import StreamRenderer, ThinkingSpinner
+from miniunicorn.cli.stream import StreamRenderer
 from miniunicorn.config.paths import get_workspace_path, is_default_workspace
 from miniunicorn.config.runtime import RuntimeMode, resolve_runtime_mode
 from miniunicorn.config.schema import Config, validate_api_bind_security
@@ -698,8 +692,8 @@ def agent(
     """Interact with the agent directly."""
     from loguru import logger
 
-    from miniunicorn.runtime.bootstrap import build_lightweight_runtime
     from miniunicorn.runtime.application import RuntimeInboundRequest
+    from miniunicorn.runtime.bootstrap import build_lightweight_runtime
     from miniunicorn.runtime.ingress import local_request_scope
 
     config = _load_runtime_config(config, workspace)
@@ -770,9 +764,9 @@ def agent(
         )
 
         if ":" in session_id:
-            cli_channel, cli_chat_id = session_id.split(":", 1)
+            cli_channel, _cli_chat_id = session_id.split(":", 1)
         else:
-            cli_channel, cli_chat_id = "cli", session_id
+            cli_channel, _cli_chat_id = "cli", session_id
 
         def _handle_signal(signum, frame):
             sig_name = signal.Signals(signum).name
@@ -826,7 +820,7 @@ def agent(
                             await renderer.on_end(
                                 resuming=False,
                             )
-                snapshot = await wait_task
+                _snapshot = await wait_task
             finally:
                 if not wait_task.done():
                     wait_task.cancel()

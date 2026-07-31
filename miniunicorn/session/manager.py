@@ -8,11 +8,11 @@ import sys
 import threading
 import time
 from collections import OrderedDict
-from contextlib import contextmanager, suppress
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Iterator, Literal
+from typing import Any, Callable, Literal
 
 from loguru import logger
 

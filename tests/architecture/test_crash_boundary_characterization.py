@@ -22,8 +22,7 @@ from __future__ import annotations
 
 from miniunicorn.agent.turn_persistence import TurnPersistence
 from miniunicorn.bus.events import InboundMessage
-from miniunicorn.session.manager import Session, SessionManager
-
+from miniunicorn.session.manager import Session
 
 # ---------------------------------------------------------------------------
 # Task 1: characterize the user-message early-persistence boundary
@@ -159,9 +158,9 @@ class TestFireAndForgetTurnTaskRemoved:
 
     def test_dispatcher_does_not_initialize_active_tasks(self) -> None:
         """The active-tasks registry must not exist on the dispatcher."""
-        from miniunicorn.agent.turn_dispatcher import TurnDispatcher
-
         import inspect
+
+        from miniunicorn.agent.turn_dispatcher import TurnDispatcher
 
         source = inspect.getsource(TurnDispatcher.__init__)
         assert "active_tasks" not in source, (
@@ -170,8 +169,9 @@ class TestFireAndForgetTurnTaskRemoved:
         )
 
     def test_dispatcher_does_not_initialize_pending_queues(self) -> None:
-        from miniunicorn.agent.turn_dispatcher import TurnDispatcher
         import inspect
+
+        from miniunicorn.agent.turn_dispatcher import TurnDispatcher
 
         source = inspect.getsource(TurnDispatcher.__init__)
         assert "pending_queues" not in source, (

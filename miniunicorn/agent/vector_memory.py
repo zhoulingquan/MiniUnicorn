@@ -74,7 +74,6 @@ class NoOpVectorStore:
 #: lives in :mod:`miniunicorn.agent.ports` (design §22.2).
 from miniunicorn.agent.ports import VectorMemoryFactory  # noqa: E402,F401
 
-
 __all__ = [
     "NoOpVectorStore",
     "VectorMemoryFactory",

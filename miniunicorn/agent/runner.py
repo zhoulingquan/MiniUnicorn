@@ -16,7 +16,6 @@ from loguru import logger
 from miniunicorn.agent.hook import AgentHook, AgentHookContext
 from miniunicorn.agent.ports import (
     _provider_attempt_observer,
-    bind_provider_attempt_observer,
     build_tool_execution_request,
     current_provider_attempt_observer,
 )

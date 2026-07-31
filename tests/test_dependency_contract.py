@@ -1,5 +1,5 @@
-from importlib.util import find_spec
 import sys
+from importlib.util import find_spec
 
 
 def test_api_test_dependency_is_installed() -> None:

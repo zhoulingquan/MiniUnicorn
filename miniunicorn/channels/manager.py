@@ -23,6 +23,7 @@ from miniunicorn.utils.restart import (
 )
 
 if TYPE_CHECKING:
+    from miniunicorn.runtime.models import DeliveryReceipt
     from miniunicorn.session.manager import SessionManager
 
 
@@ -622,7 +623,7 @@ class ChannelManager:
             )
         except asyncio.CancelledError:
             raise
-        except ConnectionError as exc:
+        except ConnectionError:
             return DeliveryReceipt(
                 status="RETRYABLE_FAILURE",
                 safe_error_code="DELIVERY_RETRYABLE",

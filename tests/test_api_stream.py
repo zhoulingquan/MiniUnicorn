@@ -81,7 +81,7 @@ def _make_runtime(
     the final reply.
     """
     runtime = MagicMock()
-    scope = _make_scope()
+    _scope = _make_scope()
     snapshot = _make_snapshot(state)
     reply = _make_reply(reply_text)
 

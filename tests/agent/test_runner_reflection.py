@@ -20,7 +20,6 @@ from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 from miniunicorn.config.schema import AgentDefaults
 from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from miniunicorn.utils.task_supervisor import TaskSupervisor
-
 from tests.agent.conftest import FakeToolExecutionPort
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars

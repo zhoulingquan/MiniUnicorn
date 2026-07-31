@@ -16,10 +16,22 @@ the runtime implementation (design §6.17).
 
 from __future__ import annotations
 
+from miniunicorn.runtime.agent_adapter import AgentExecutionCallback
 from miniunicorn.runtime.config import RuntimeConfig, RuntimeMode, parse_runtime_config
+from miniunicorn.runtime.containment import (
+    ContainmentScope,
+    NullContainmentScope,
+    ProcessContainmentScope,
+    SupervisorContainment,
+    bind_containment_scope,
+    current_containment_scope,
+    posix_set_child_death_signal,
+    posix_start_new_session,
+    reset_containment_scope,
+)
 from miniunicorn.runtime.contracts import (
-    ClaimRequest,
     ClaimedTask,
+    ClaimRequest,
     ClaimResult,
     CompletionResult,
     ControlResult,
@@ -30,9 +42,9 @@ from miniunicorn.runtime.contracts import (
     MaintenanceLedger,
     OutboxClaim,
     ReclaimResult,
-    ResourceLedger,
     ResourceLease,
     ResourceLeaseRequest,
+    ResourceLedger,
     RetryDecision,
     RuntimeStore,
     SessionCommitLedger,
@@ -46,66 +58,11 @@ from miniunicorn.runtime.contracts import (
     WaitResult,
     WorkerLedger,
 )
-from miniunicorn.runtime.session_committer import (
-    SessionCommitter,
-    clear_active_claim,
-    set_active_claim,
-)
-from miniunicorn.runtime.scheduler import Scheduler, ClaimOutcome
-from miniunicorn.runtime.task_service import TaskService
-from miniunicorn.runtime.worker import (
-    AgentTaskWorker,
-    WorkerTaskPayload,
-    WorkerExecutionResult,
-    ExecutionCallback,
-)
-from miniunicorn.runtime.hosts import LightweightHost, SupervisedHost, RealtimeEventBridge
-from miniunicorn.runtime.agent_adapter import AgentExecutionCallback
-from miniunicorn.runtime.tool_gateway import ToolGateway
-from miniunicorn.runtime.containment import (
-    ContainmentScope,
-    NullContainmentScope,
-    ProcessContainmentScope,
-    SupervisorContainment,
-    bind_containment_scope,
-    current_containment_scope,
-    posix_set_child_death_signal,
-    posix_start_new_session,
-    reset_containment_scope,
-)
 from miniunicorn.runtime.durable_journal import (
     DurableTurnJournalAdapter,
     JournalProviderObserver,
 )
-from miniunicorn.runtime.outbox import OutboxSender
-from miniunicorn.runtime.maintenance import (
-    PRIORITY_USER_TURN,
-    PRIORITY_MEMORY,
-    PRIORITY_REFLECTION_DREAM,
-    PRIORITY_RETENTION_CLEANUP,
-    MAINTENANCE_RESOURCE_KEY,
-    MAINTENANCE_HOLDER_KIND,
-    MAINTENANCE_CAPACITY,
-    enqueue_maintenance,
-    run_retention_batch,
-    run_blob_gc,
-    run_wal_checkpoint,
-    run_backup,
-    user_work_is_queued,
-    is_maintenance_task_kind,
-    is_low_priority_maintenance,
-)
-from miniunicorn.runtime.maintenance_executor import (
-    MaintenanceExecutor,
-    MaintenanceExecutionResult,
-)
-from miniunicorn.runtime.observability import (
-    RuntimeHealth,
-    RuntimeStatus,
-    check_health,
-    collect_status,
-    collect_metrics_text,
-)
+from miniunicorn.runtime.hosts import LightweightHost, RealtimeEventBridge, SupervisedHost
 from miniunicorn.runtime.ipc import (
     IPC_PROTOCOL_VERSION,
     IpcEnvelope,
@@ -118,19 +75,35 @@ from miniunicorn.runtime.ipc import (
     wake_hint,
     worker_ready,
 )
-from miniunicorn.runtime.supervisor import (
-    ChildEntrypoint,
-    RestartPolicy,
-    Supervisor,
+from miniunicorn.runtime.maintenance import (
+    MAINTENANCE_CAPACITY,
+    MAINTENANCE_HOLDER_KIND,
+    MAINTENANCE_RESOURCE_KEY,
+    PRIORITY_MEMORY,
+    PRIORITY_REFLECTION_DREAM,
+    PRIORITY_RETENTION_CLEANUP,
+    PRIORITY_USER_TURN,
+    enqueue_maintenance,
+    is_low_priority_maintenance,
+    is_maintenance_task_kind,
+    run_backup,
+    run_blob_gc,
+    run_retention_batch,
+    run_wal_checkpoint,
+    user_work_is_queued,
+)
+from miniunicorn.runtime.maintenance_executor import (
+    MaintenanceExecutionResult,
+    MaintenanceExecutor,
 )
 from miniunicorn.runtime.models import (
     BLOB_ENCODING,
     BLOB_KIND,
+    CONTROL_KINDS,
     DELIVERY_RECOVERY,
     EVENT_TYPES,
     OUTBOX_DEDUP_KINDS,
     TASK_KINDS,
-    CONTROL_KINDS,
     TASK_STATES,
     TERMINAL_TASK_STATES,
     TRANSITIONS,
@@ -166,6 +139,33 @@ from miniunicorn.runtime.models import (
     WaitDecision,
     is_allowed_transition,
     is_terminal_state,
+)
+from miniunicorn.runtime.observability import (
+    RuntimeHealth,
+    RuntimeStatus,
+    check_health,
+    collect_metrics_text,
+    collect_status,
+)
+from miniunicorn.runtime.outbox import OutboxSender
+from miniunicorn.runtime.scheduler import ClaimOutcome, Scheduler
+from miniunicorn.runtime.session_committer import (
+    SessionCommitter,
+    clear_active_claim,
+    set_active_claim,
+)
+from miniunicorn.runtime.supervisor import (
+    ChildEntrypoint,
+    RestartPolicy,
+    Supervisor,
+)
+from miniunicorn.runtime.task_service import TaskService
+from miniunicorn.runtime.tool_gateway import ToolGateway
+from miniunicorn.runtime.worker import (
+    AgentTaskWorker,
+    ExecutionCallback,
+    WorkerExecutionResult,
+    WorkerTaskPayload,
 )
 
 __all__ = [

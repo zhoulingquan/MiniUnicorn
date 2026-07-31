@@ -23,7 +23,7 @@ from miniunicorn.agent.ports import (
     SessionCommitRequest,
     SessionMutation,
 )
-from miniunicorn.runtime.contracts import ClaimRequest, SessionCommitMismatchError
+from miniunicorn.runtime.contracts import SessionCommitMismatchError
 from miniunicorn.runtime.models import SessionCommitWrite
 from miniunicorn.runtime.session_committer import (
     SessionCommitter,
