@@ -1,5 +1,22 @@
 # Three-Worker Runtime Hard-Cutover Implementation Plan
 
+> **Status (2026-07-31):** Tasks 1-10 were implemented on this branch. Tasks
+> 11 and 12 are **superseded / completed** by the follow-up remediation plan
+> `docs/superpowers/plans/2026-07-31-three-worker-production-readiness-remediation.md`,
+> which corrected the disconnected production paths and recovery semantics
+> found by the 2026-07-31 review. Do not re-implement them here.
+>
+> - Old Task 11 (SQLite façade split) → completed by remediation Task 12,
+>   commit `1a96b7b4` (`refactor: split sqlite runtime store by responsibility`).
+> - Old Task 12 (parity / crash recovery / load / docs) → completed by
+>   remediation Tasks 13-16: commits `53aa9a26` (duplicate-path cleanup),
+>   `def6dd2e` (golden-flow + fault gates), `d0d795db` (load + soak gates),
+>   and the documentation commit from remediation Task 16.
+>
+> The checkboxes below are left unchecked intentionally; this document is the
+> historical plan, not a live task tracker. The remediation plan is the
+> authority for production-readiness status.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the durable Runtime the only MiniUnicorn execution path, start the long-running Gateway as one Control Plane plus three Worker processes, and delete the legacy in-process task authority before merge.
@@ -2076,6 +2093,15 @@ git commit -m "refactor: remove legacy execution authority"
 
 ### Task 11: Split the SQLite implementation behind one façade
 
+> **Superseded (2026-07-31):** Completed by remediation Task 12, commit
+> `1a96b7b4` (`refactor: split sqlite runtime store by responsibility`).
+> The `SqliteRuntimeStore` façade is now composed of responsibility mixins
+> (`BlobStoreMixin`, `TaskStoreMixin`, `ExecutionStoreMixin`,
+> `SessionStoreMixin`, `OutboxStoreMixin`, `ResourceStoreMixin`,
+> `MaintenanceStoreMixin`) and is under 700 lines. See
+> `tests/runtime/test_sqlite_store_modules.py` for the façade-identity and
+> protocol-conformance gates.
+
 **Files:**
 - Create: `miniunicorn/runtime/sqlite/task_store.py`
 - Create: `miniunicorn/runtime/sqlite/execution_store.py`
@@ -2215,6 +2241,16 @@ git commit -m "refactor: split sqlite runtime store by responsibility"
 ---
 
 ### Task 12: Prove parity, crash recovery, load behavior, and clean acceptance
+
+> **Superseded (2026-07-31):** Completed by remediation Tasks 13-16.
+> Golden-flow parity and crash-boundary fault gates live in
+> `tests/runtime/test_runtime_golden_flow.py` and
+> `tests/runtime/test_runtime_fault_injection.py` (remediation Task 14,
+> commit `def6dd2e`). The 1,000-task load gate and bounded soak harness
+> live in `tests/runtime/test_runtime_load.py` and
+> `scripts/runtime_soak.py` (remediation Task 15, commit `d0d795db`).
+> Duplicate-path cleanup is commit `53aa9a26`. Operator documentation is
+> updated by remediation Task 16.
 
 **Files:**
 - Create: `tests/runtime/test_runtime_load.py`

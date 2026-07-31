@@ -1,6 +1,11 @@
 # MiniUnicorn Three-Worker Runtime Hard-Cutover Design
 
-**Status:** Approved direction, pending written-spec review
+**Status:** Implemented (2026-07-31). The hard cutover and the follow-up
+production-readiness remediation
+(`docs/superpowers/plans/2026-07-31-three-worker-production-readiness-remediation.md`)
+are complete; the default supervised Gateway runs one Control Plane plus
+three Worker processes and is verified by golden-flow, fault-injection,
+1,000-task load, and soak gates.
 **Date:** 2026-07-30
 **Builds on:** `2026-07-29-long-running-agent-runtime-design.md`
 **Primary decision:** Finish the existing durable Runtime construction, make it the

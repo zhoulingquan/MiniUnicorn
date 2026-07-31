@@ -1533,3 +1533,93 @@ Set `agents.defaults.toolHintMaxLength` to control the truncation threshold:
 | Option | Default | Description |
 |--------|---------|-------------|
 | `agents.defaults.toolHintMaxLength` | `40` | Maximum characters for tool hint display. Range: 20–500. Higher values show more of the command or path; lower values keep hints compact. |
+
+## Runtime
+
+MiniUnicorn runs on a durable Runtime that owns task dispatch, leases, and the
+Runtime Store (SQLite). The runtime is configured through the top-level
+`runtime` block in `config.json` (or `config.yaml`).
+
+> [!IMPORTANT]
+> There is no `runtime.enabled` switch — the durable Runtime is the only
+> execution path. The `runtime` block only tunes *how* it runs. The legacy
+> `process_direct()` entry path and the in-process `TurnDispatcher` pending
+> queues are no longer production entry paths.
+
+### Runtime modes
+
+Two modes are supported:
+
+- **`lightweight`** — a single process with a small number of execution slots.
+  Used by default for one-shot and development entry points. Concurrency is
+  bounded by `lightweightExecutionSlots` (default `1`, range `1..3`).
+- **`supervised`** — one Control Plane process plus Worker child processes.
+  The Control Plane owns ingress, Channels, the Outbox sender, and Cron
+  enqueue; Workers own Agent execution, Provider calls, tool execution
+  (ToolGateway), and session commit. Defaults to `workerCount=3` Workers
+  (minimum `2`), each with `workerConcurrency=1` (fixed). This is the default
+  for the long-running `gateway` command.
+
+### Mode resolution
+
+The effective mode is resolved at launcher time with the following precedence
+(highest first):
+
+1. CLI flag `--runtime-mode` (values: `lightweight` | `supervised`)
+2. Environment variable `MINIUNICORN_RUNTIME_MODE`
+3. Config value `runtime.mode`
+4. Launcher default — `gateway` defaults to `supervised`; one-shot `agent` and
+   `serve` commands default to `lightweight`.
+
+```json
+{
+  "runtime": {
+    "mode": "supervised",
+    "workerCount": 3
+  }
+}
+```
+
+### Key runtime fields
+
+Runtime tuning is done in the config file, not through environment variables
+(the only runtime-related environment variable is `MINIUNICORN_RUNTIME_MODE`,
+which selects the mode). The fields below are the ones operators most often
+adjust:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `runtime.mode` | _unset_ (launcher default applies) | `lightweight` or `supervised`. When unset, the launcher default is used (`gateway` → `supervised`, `agent`/`serve` → `lightweight`). |
+| `runtime.workerCount` | `3` | Number of Worker child processes in supervised mode. Minimum `2`. Ignored in lightweight mode. |
+| `runtime.lightweightExecutionSlots` | `1` | Execution slots in lightweight mode. Range `1..3`. Ignored in supervised mode. |
+| `runtime.workerConcurrency` | `1` | Per-Worker task concurrency. Fixed at `1` — do not raise. |
+| `runtime.heartbeatIntervalS` | `15` | Worker heartbeat interval. Must be less than `leaseTimeoutS / 3`. |
+| `runtime.leaseTimeoutS` | `180` | Task lease duration. Expired leases are reclaimed so work is redelivered to a healthy Worker. |
+| `runtime.leaseScanIntervalS` | `15` | Interval at which the Control Plane scans for expired leases. |
+| `runtime.progressTimeoutS` | `600` | Max wall time without a heartbeat/progress update before a task is considered stuck. Must exceed `heartbeatIntervalS`. |
+| `runtime.taskMaxAttempts` | `3` | Maximum retry attempts for a root task. |
+| `runtime.sqliteBusyTimeoutMs` | `5000` | SQLite `busy_timeout`. Must be shorter than `leaseTimeoutS`. |
+| `runtime.shutdownGraceS` | `60` | Graceful shutdown grace period. |
+| `runtime.outboxLeaseTimeoutS` | `120` | Outbox delivery lease. Must exceed `channelSendTimeoutS`. |
+| `runtime.outboxMaxAttempts` | `8` | Maximum Outbox send attempts. |
+| `runtime.channelSendTimeoutS` | `60` | Channel send timeout. |
+| `runtime.databasePath` | `runtime/runtime.sqlite` | Runtime Store database path (relative to the data root, or absolute). |
+| `runtime.backupPath` | `runtime/backups` | Runtime Store backup directory (relative to the data root, or absolute). Must differ from `databasePath`. |
+
+For the full field list (including retention, backup, blob, Worker recycling,
+and queue polling knobs), see `.env.example` and
+[`miniunicorn.config.runtime.RuntimeConfig`](../miniunicorn/config/runtime.py).
+
+### Concurrency contract
+
+The durable Runtime Store (SQLite) is the serialization authority — not
+`process_direct()` or in-process `TurnDispatcher` pending queues.
+
+- Tasks within the same session execute serially, one at a time, in
+  `session_sequence` order.
+- Tasks from different sessions may execute concurrently across the Workers
+  (up to 3 active tasks by default in supervised mode with `workerCount=3`).
+
+See [Turn Concurrency](concurrency.md) for the full contract and
+[Deployment](deployment.md) for the supervised topology and graceful-shutdown
+behavior.

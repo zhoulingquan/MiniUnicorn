@@ -1,37 +1,58 @@
 # Turn Concurrency
 
 MiniUnicorn serializes turns within a session and allows concurrent turns
-across different sessions, bounded by a global concurrency limit. This
-document defines the contract that operators and extension authors can rely
-on.
+across different sessions, bounded by the number of Workers. This document
+defines the contract that operators and extension authors can rely on.
+
+> [!IMPORTANT]
+> The durable Runtime Store (SQLite) is the serialization authority. The
+> legacy `process_direct()` entry path and the in-process `TurnDispatcher`
+> pending queues are no longer production entry paths — they were removed by
+> the hard cutover. Do not recommend `process_direct()` to extension authors.
 
 ## Concurrency Contract
 
-- Calls with the same effective session key are serialized, regardless of whether
-  they enter through the message bus or `process_direct()`.
-- Calls with different effective session keys may run concurrently up to
-  `max_concurrent_requests`.
-- Waiting for a same-session lock does not consume a global concurrency slot.
+- Tasks with the same effective session key are serialized by the Runtime
+  Store — they execute one at a time, in `session_sequence` order.
+- Tasks with different effective session keys may run concurrently across the
+  Workers. In supervised mode (default `workerCount=3`, each Worker fixed at
+  `workerConcurrency=1`) this means up to 3 active tasks by default. In
+  lightweight mode, concurrency is bounded by `lightweightExecutionSlots`
+  (default `1`, range `1..3`).
+- Waiting for a same-session slot does not consume a Worker's execution slot.
 - Per-turn iteration, usage, hooks, latency, and traces are task-local and are
   reset even when a turn is cancelled or raises.
 - Provider rate limits remain global and may further constrain throughput.
 
 ## How It Works
 
-### TurnCoordinator
+### Runtime Store (serialization authority)
 
-A single `TurnCoordinator` instance owns:
+The durable Runtime Store (SQLite) is the serialization authority. Incoming
+requests become durable tasks in the store; the Control Plane leases tasks to
+Workers, and same-session tasks are dispatched in `session_sequence` order.
+Because the store — not an in-process lock or pending queue — owns ordering,
+serialization survives process restarts and is consistent across all Workers.
+
+The legacy `process_direct()` SDK entry path and the in-process
+`TurnDispatcher` pending queues are **removed/legacy** and are no longer
+production entry paths. They are mentioned below only for historical context.
+
+### TurnCoordinator (in-process, per-Worker)
+
+Within a single Worker, a `TurnCoordinator` instance owns task-local turn
+state. It is no longer the cross-process serialization authority — that role
+belongs to the Runtime Store:
 
 1. **Per-session locks** — one `asyncio.Lock` per effective session key,
-   held weakly so idle sessions are garbage-collected. Both the message-bus
-   dispatch path (`_dispatch`) and the direct SDK path (`process_direct`)
-   acquire the same per-session lock, ensuring same-session calls serialize
-   across entry points.
+   held weakly so idle sessions are garbage-collected. Same-session ordering
+   is already guaranteed by the store's `session_sequence`; the in-process
+   lock guards against re-entrancy within a Worker.
 
-2. **Global concurrency gate** — an `asyncio.Semaphore` sized by
-   `max_concurrent_requests`. Lock acquisition always precedes semaphore
-   acquisition inside the coordinator's `scope()` context manager, so a task
-   waiting for its session lock does not consume a global permit.
+2. **Concurrency gate** — bounded by the Worker count and
+   `workerConcurrency` (fixed at `1`) in supervised mode, or by
+   `lightweightExecutionSlots` in lightweight mode. A task waiting for its
+   session slot does not consume a Worker's execution slot.
 
 ### TurnRuntime
 
@@ -58,9 +79,14 @@ boundaries.
 
 ### Background Task Supervision
 
-Fire-and-forget background jobs (session consolidation, idle archival,
-periodic reflections) are tracked by `TaskSupervisor` instances owned by
-`AgentLoop` and `AgentRunner` respectively. The supervisor:
+Durable maintenance work — DREAM, consolidation, indexing, retention, blob
+GC, WAL checkpoint, and backup — dispatches through the durable TaskService
+as `MAINTENANCE`-kind tasks executed by Workers, not as untracked background
+coroutines. This keeps maintenance observable, lease-protected, and restart-safe.
+
+Within a single turn, fire-and-forget jobs are still tracked by
+`TaskSupervisor` instances owned by `AgentLoop` and `AgentRunner` respectively.
+The supervisor:
 
 - Holds strong references to every spawned task so the garbage collector
   cannot reclaim a running task before it completes.
@@ -81,19 +107,20 @@ return `0` and `{}` respectively.
 
 ## Configuration
 
+Cross-session concurrency is now controlled by the `runtime` config block, not
+by an environment variable. See [Configuration → Runtime](configuration.md#runtime)
+for the full field list.
+
 | Option | Default | Description |
 |--------|---------|-------------|
-| `MINIUNICORN_MAX_CONCURRENT_REQUESTS` | `3` | Maximum number of concurrent turns across all sessions. Set to `0` or a negative value for unlimited concurrency. |
+| `runtime.workerCount` | `3` | Number of Worker child processes in supervised mode. With `workerConcurrency=1` (fixed) this is the cap on concurrently active tasks across different sessions. Minimum `2`. |
+| `runtime.lightweightExecutionSlots` | `1` | Execution slots in lightweight mode. Range `1..3`. |
+| `runtime.workerConcurrency` | `1` | Per-Worker task concurrency. Fixed at `1` — do not raise. |
 
-### Setting the limit
-
-```bash
-# Allow up to 5 concurrent turns
-export MINIUNICORN_MAX_CONCURRENT_REQUESTS=5
-
-# Unlimited (use with caution — no backpressure)
-export MINIUNICORN_MAX_CONCURRENT_REQUESTS=0
-```
+> The legacy `MINIUNICORN_MAX_CONCURRENT_REQUESTS` environment variable is
+> superseded by the `runtime` block above. Tune concurrency through
+> `runtime.workerCount` (supervised) or `runtime.lightweightExecutionSlots`
+> (lightweight) instead.
 
 ## What This Means for Extension Authors
 
@@ -102,24 +129,25 @@ export MINIUNICORN_MAX_CONCURRENT_REQUESTS=0
   current turn.
 - **Do not** assume a turn's state persists after the turn completes. The
   `TurnRuntime` is unbound when the coordinator scope exits.
-- **Do** use `process_direct()` for SDK calls — it routes through the same
-  coordinator as bus dispatch, so same-session calls are automatically
-  serialized.
+- **Do not** use `process_direct()` — it is a removed/legacy entry path. The
+  durable Runtime Store is the serialization authority; submit work through
+  the normal channel/ingress path so it becomes a durable task leased to a
+  Worker. Same-session serialization is handled by the store's
+  `session_sequence`, not by an in-process call.
 - **Do** be aware that provider rate limits are global and may further
-  constrain throughput regardless of the `max_concurrent_requests` setting.
+  constrain throughput regardless of the Worker count.
 
 ## Agent loop ownership
 
-`TurnDispatcher` owns both message-bus and direct entry into the shared
-`TurnCoordinator`. `TurnExecutor` assumes a task-local `TurnRuntime` is bound
-while it drives a normal turn. The compatibility `_process_message()` method
-creates a coordinator scope when called without one, so extensions cannot
-bypass same-session serialization by calling it directly.
+Workers own Agent execution — they drive the agent loop, make Provider calls,
+execute tools through the ToolGateway, and commit the session. A task-local
+`TurnRuntime` is bound while a Worker drives a normal turn.
 
-The task registries and pending queues are process-lifecycle state, not turn
-state. They live on `TurnDispatcher` and remain visible through read-only
-`AgentLoop` compatibility properties. Iteration, usage, latency, hooks, and
-state traces never live in those registries.
+The durable Runtime Store — not the legacy `TurnDispatcher` pending queues —
+is the serialization authority. `TurnDispatcher` and its task registries are
+process-lifecycle compatibility state only, not the production entry path;
+iteration, usage, latency, hooks, and state traces never live in those
+registries.
 
 See [Agent Loop Architecture](agent-loop-architecture.md) for the full facade
 ownership table, compatibility call chain, and downstream batch guidance.
