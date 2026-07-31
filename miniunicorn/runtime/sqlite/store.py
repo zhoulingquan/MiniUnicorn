@@ -529,7 +529,11 @@ class SqliteRuntimeStore:
         6. commit.
         """
         now_ms = envelope.received_at_ms or _now_ms()
-        available_at = envelope.available_at_ms or now_ms
+        available_at = (
+            envelope.available_at_ms
+            if envelope.available_at_ms is not None
+            else now_ms
+        )
 
         # Write the payload blob first (outside the task transaction is fine
         # because blob write is idempotent and self-contained).
@@ -697,7 +701,11 @@ class SqliteRuntimeStore:
         dedup key that identifies one logical occurrence.
         """
         now_ms = envelope.received_at_ms or _now_ms()
-        available_at = envelope.available_at_ms or now_ms
+        available_at = (
+            envelope.available_at_ms
+            if envelope.available_at_ms is not None
+            else now_ms
+        )
         scope_key = f"{envelope.scope.tenant_id}/{envelope.scope.principal_id}"
 
         if envelope.payload_content is not None:
@@ -1098,7 +1106,7 @@ class SqliteRuntimeStore:
         """Transition ``LEASED -> RUNNING`` (design §17.3)."""
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            self._validate_lease(claim)
+            self._validate_lease(claim, now_ms=now_ms)
             self._transition_task(
                 claim.task_id,
                 from_state="LEASED",
@@ -1126,32 +1134,32 @@ class SqliteRuntimeStore:
         assert record is not None
         return record
 
-    def renew_lease(self, claim: TaskClaim, lease_until_ms: int) -> bool:
+    def renew_lease(
+        self,
+        claim: TaskClaim,
+        lease_until_ms: int,
+        *,
+        now_ms: int | None = None,
+    ) -> bool:
         """Renew a valid lease without advancing ``state_version`` (design §6.11, §14.4).
 
         Lease renewal changes only ``lease_until_ms`` and
         ``last_heartbeat_at_ms``. It does not increment ``state_version``.
+        Returns ``False`` when the lease is stale or expired so callers can
+        cancel the active execution (Task 2 Step 5, §6.11).
         """
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            row = self._conn.execute(
-                "SELECT lease_token, lease_epoch, state FROM tasks WHERE task_id=?",
-                (claim.task_id,),
-            ).fetchone()
-            if row is None:
+            current_now_ms = now_ms if now_ms is not None else _now_ms()
+            try:
+                self._validate_lease(claim, now_ms=current_now_ms, check_deadline=True)
+            except StaleLeaseError:
                 self._conn.execute("COMMIT")
                 return False
-            if (
-                row["lease_token"] != claim.lease_token
-                or row["lease_epoch"] != claim.lease_epoch
-            ):
-                self._conn.execute("COMMIT")
-                return False
-            now_ms = _now_ms()
             self._conn.execute(
                 "UPDATE tasks SET lease_until_ms=?, last_heartbeat_at_ms=? "
                 "WHERE task_id=? AND lease_token=? AND lease_epoch=?",
-                (lease_until_ms, now_ms, claim.task_id, claim.lease_token, claim.lease_epoch),
+                (lease_until_ms, current_now_ms, claim.task_id, claim.lease_token, claim.lease_epoch),
             )
             self._conn.execute("COMMIT")
         except Exception:
@@ -1160,26 +1168,36 @@ class SqliteRuntimeStore:
         return True
 
     def heartbeat(self, claim: TaskClaim, now_ms: int) -> bool:
-        """Update ``last_heartbeat_at_ms`` without changing ``state_version`` (design §24.1)."""
-        self._conn.execute("BEGIN IMMEDIATE")
-        try:
-            cur = self._conn.execute(
-                "UPDATE tasks SET last_heartbeat_at_ms=? "
-                "WHERE task_id=? AND lease_token=? AND lease_epoch=?",
-                (now_ms, claim.task_id, claim.lease_token, claim.lease_epoch),
-            )
-            self._conn.execute("COMMIT")
-        except Exception:
-            self._conn.execute("ROLLBACK")
-            raise
-        return cur.rowcount > 0
+        """Renew the lease and update heartbeat timestamp atomically.
+
+        A successful heartbeat atomically sets both ``lease_until_ms`` and
+        ``last_heartbeat_at_ms`` (Task 2 Step 4). Delegates to
+        :meth:`renew_lease` so there is one lease-renewal transaction.
+        The lease duration is preserved from the current state.
+        """
+        row = self._conn.execute(
+            "SELECT lease_until_ms, last_heartbeat_at_ms FROM tasks "
+            "WHERE task_id=? AND lease_token=? AND lease_epoch=?",
+            (claim.task_id, claim.lease_token, claim.lease_epoch),
+        ).fetchone()
+        if row is None:
+            return False
+        prev_heartbeat = row["last_heartbeat_at_ms"]
+        if prev_heartbeat is None:
+            prev_heartbeat = row["lease_until_ms"]
+        lease_duration = (
+            row["lease_until_ms"] - prev_heartbeat
+            if row["lease_until_ms"] is not None and prev_heartbeat is not None
+            else 60_000
+        )
+        return self.renew_lease(claim, now_ms + lease_duration, now_ms=now_ms)
 
     def checkpoint(self, claim: TaskClaim, value: CheckpointWrite) -> str:
         """Save a durable checkpoint (design §17.4)."""
         checkpoint_id = value.checkpoint_id or _new_uuid()
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            self._validate_lease(claim)
+            self._validate_lease(claim, now_ms=value.created_at_ms)
             self._conn.execute(
                 """
                 INSERT INTO checkpoints (
@@ -1225,7 +1243,7 @@ class SqliteRuntimeStore:
         """Record bounded, redacted durable progress (design §24.1)."""
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            self._validate_lease(claim)
+            self._validate_lease(claim, now_ms=now_ms)
             self._conn.execute(
                 "UPDATE tasks SET last_progress_at_ms=?, updated_at_ms=? "
                 "WHERE task_id=?",
@@ -1240,7 +1258,11 @@ class SqliteRuntimeStore:
         """Transition ``RUNNING -> RETRY_WAIT`` (design §14.2)."""
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            self._validate_lease(claim)
+            self._validate_lease(
+                claim,
+                now_ms=retry.available_at_ms,
+                check_deadline=False,
+            )
             self._transition_task(
                 claim.task_id,
                 from_state="RUNNING",
@@ -1279,7 +1301,11 @@ class SqliteRuntimeStore:
         """Transition ``RUNNING -> WAITING_USER`` (design §17.11)."""
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            self._validate_lease(claim)
+            self._validate_lease(
+                claim,
+                now_ms=wait.wait_until_ms or _now_ms(),
+                check_deadline=False,
+            )
             self._transition_task(
                 claim.task_id,
                 from_state="RUNNING",
@@ -1323,7 +1349,7 @@ class SqliteRuntimeStore:
         """Transition to ``FAILED`` (design §17.10)."""
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            self._validate_lease(claim)
+            self._validate_lease(claim, now_ms=failure.failed_at_ms)
             self._transition_task(
                 claim.task_id,
                 from_state=None,
@@ -1350,25 +1376,26 @@ class SqliteRuntimeStore:
 
     def cancel_task(self, claim: TaskClaim, reason: SafeError) -> None:
         """Transition to ``CANCELLED`` (design §17.10)."""
+        now_ms = _now_ms()
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            self._validate_lease(claim)
+            self._validate_lease(claim, now_ms=now_ms, check_deadline=False)
             self._transition_task(
                 claim.task_id,
                 from_state=None,
                 to_state="CANCELLED",
-                now_ms=_now_ms(),
+                now_ms=now_ms,
                 error=reason,
                 clear_lease=True,
             )
-            self._release_session_slot(claim.task_id, _now_ms())
+            self._release_session_slot(claim.task_id, now_ms)
             self._append_event(
                 task_id=claim.task_id,
                 event_type="TASK_CANCELLED",
                 phase=None,
                 lease_epoch=claim.lease_epoch,
                 safe_payload=json.dumps({"error_code": reason.error_code}),
-                now_ms=_now_ms(),
+                now_ms=now_ms,
             )
             self._conn.execute("COMMIT")
         except Exception:
@@ -1379,16 +1406,16 @@ class SqliteRuntimeStore:
         self, claim: TaskClaim, completion: CompletionWrite
     ) -> CompletionResult:
         """Complete a user task and atomically enqueue the final reply (design §17.8)."""
+        now_ms = completion.completed_at_ms or _now_ms()
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            self._validate_lease(claim)
+            self._validate_lease(claim, now_ms=now_ms)
 
             outbox_id: int | None = None
             if completion.final_reply_blob_id and not completion.suppress_final:
                 dedup_key = completion.final_reply_dedup_key or _dedup_key_hash(
                     f"{claim.task_id}:final-reply"
                 )
-                now_ms = completion.completed_at_ms or _now_ms()
                 cur = self._conn.execute(
                     """
                     INSERT INTO outbox (
@@ -1414,7 +1441,7 @@ class SqliteRuntimeStore:
                 claim.task_id,
                 from_state=None,
                 to_state="COMPLETED",
-                now_ms=completion.completed_at_ms or _now_ms(),
+                now_ms=now_ms,
                 clear_lease=True,
             )
             self._conn.execute(
@@ -1427,7 +1454,7 @@ class SqliteRuntimeStore:
                 ),
             )
             self._release_session_slot(
-                claim.task_id, completion.completed_at_ms or _now_ms()
+                claim.task_id, now_ms
             )
 
             if outbox_id is not None:
@@ -1437,7 +1464,7 @@ class SqliteRuntimeStore:
                     phase="REPLY_ENQUEUED",
                     lease_epoch=claim.lease_epoch,
                     safe_payload=json.dumps({"outbox_id": outbox_id}),
-                    now_ms=completion.completed_at_ms or _now_ms(),
+                    now_ms=now_ms,
                 )
             self._append_event(
                 task_id=claim.task_id,
@@ -1445,7 +1472,7 @@ class SqliteRuntimeStore:
                 phase="TERMINAL",
                 lease_epoch=claim.lease_epoch,
                 safe_payload=None,
-                now_ms=completion.completed_at_ms or _now_ms(),
+                now_ms=now_ms,
             )
             self._conn.execute("COMMIT")
         except StaleLeaseError:
@@ -1465,18 +1492,19 @@ class SqliteRuntimeStore:
         self, claim: TaskClaim, completion: InternalCompletionWrite
     ) -> CompletionResult:
         """Complete an internal task without a Channel/Outbox row (design §17.10)."""
+        now_ms = completion.completed_at_ms or _now_ms()
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            self._validate_lease(claim)
+            self._validate_lease(claim, now_ms=now_ms)
             self._transition_task(
                 claim.task_id,
                 from_state=None,
                 to_state="COMPLETED",
-                now_ms=completion.completed_at_ms or _now_ms(),
+                now_ms=now_ms,
                 clear_lease=True,
             )
             self._release_session_slot(
-                claim.task_id, completion.completed_at_ms or _now_ms()
+                claim.task_id, now_ms
             )
             self._append_event(
                 task_id=claim.task_id,
@@ -1484,7 +1512,7 @@ class SqliteRuntimeStore:
                 phase="TERMINAL",
                 lease_epoch=claim.lease_epoch,
                 safe_payload=None,
-                now_ms=completion.completed_at_ms or _now_ms(),
+                now_ms=now_ms,
             )
             self._conn.execute("COMMIT")
         except StaleLeaseError:
@@ -1512,17 +1540,17 @@ class SqliteRuntimeStore:
         return count
 
     def reclaim_expired(self, now_ms: int, limit: int) -> ReclaimResult:
-        """Reclaim expired leases (design §24.2).
+        """Reclaim expired leases (design §24.2, Task 2 Step 6).
 
         Sets ``recovery_pending=1`` and returns the task to ``QUEUED``
-        when checkpoint and operation state are safe.
+        without incrementing ``root_attempt_count``. The next recovery
+        claim is the only place that charges a new root attempt.
         """
         self._conn.execute("BEGIN IMMEDIATE")
         try:
             rows = self._conn.execute(
                 """
-                SELECT task_id, session_key, lease_epoch, checkpoint_phase,
-                       root_attempt_count, max_root_attempts
+                SELECT task_id, session_key, lease_epoch, checkpoint_phase
                 FROM tasks
                 WHERE state IN ('LEASED', 'RUNNING')
                   AND lease_until_ms IS NOT NULL
@@ -1536,60 +1564,34 @@ class SqliteRuntimeStore:
             failed = 0
             waiting = 0
             for row in rows:
-                new_root = row["root_attempt_count"] + 1
-                if new_root > row["max_root_attempts"]:
-                    # Fail terminally (design §24.2 step 5).
-                    self._transition_task(
-                        row["task_id"],
-                        from_state=None,
-                        to_state="FAILED",
-                        now_ms=now_ms,
-                        error=SafeError(
-                            error_code="TASK_ATTEMPTS_EXHAUSTED",
-                            error_summary="lease expired; attempts exhausted",
-                        ),
-                        clear_lease=True,
-                    )
-                    self._release_session_slot(row["task_id"], now_ms)
-                    self._append_event(
-                        task_id=row["task_id"],
-                        event_type="TASK_FAILED",
-                        phase=row["checkpoint_phase"],
-                        lease_epoch=row["lease_epoch"],
-                        safe_payload=json.dumps(
-                            {"error_code": "TASK_ATTEMPTS_EXHAUSTED"}
-                        ),
-                        now_ms=now_ms,
-                    )
-                    failed += 1
-                else:
-                    # Return to QUEUED with recovery_pending=1 (design §24.2).
-                    self._conn.execute(
-                        """
-                        UPDATE tasks SET
-                            state='QUEUED',
-                            recovery_pending=1,
-                            root_attempt_count=?,
-                            leased_by=NULL,
-                            lease_token=NULL,
-                            lease_until_ms=NULL,
-                            last_heartbeat_at_ms=NULL,
-                            state_version=state_version+1,
-                            updated_at_ms=?
-                        WHERE task_id=?
-                        """,
-                        (new_root, now_ms, row["task_id"]),
-                    )
-                    self._release_session_slot(row["task_id"], now_ms)
-                    self._append_event(
-                        task_id=row["task_id"],
-                        event_type="LEASE_RECLAIMED",
-                        phase=row["checkpoint_phase"],
-                        lease_epoch=row["lease_epoch"],
-                        safe_payload=None,
-                        now_ms=now_ms,
-                    )
-                    reclaimed += 1
+                # Return to QUEUED with recovery_pending=1 (design §24.2).
+                # root_attempt_count is NOT incremented here; only the next
+                # recovery claim charges a new root attempt (Task 2 Step 6).
+                self._conn.execute(
+                    """
+                    UPDATE tasks SET
+                        state='QUEUED',
+                        recovery_pending=1,
+                        leased_by=NULL,
+                        lease_token=NULL,
+                        lease_until_ms=NULL,
+                        last_heartbeat_at_ms=NULL,
+                        state_version=state_version+1,
+                        updated_at_ms=?
+                    WHERE task_id=?
+                    """,
+                    (now_ms, row["task_id"]),
+                )
+                self._release_session_slot(row["task_id"], now_ms)
+                self._append_event(
+                    task_id=row["task_id"],
+                    event_type="LEASE_RECLAIMED",
+                    phase=row["checkpoint_phase"],
+                    lease_epoch=row["lease_epoch"],
+                    safe_payload=None,
+                    now_ms=now_ms,
+                )
+                reclaimed += 1
 
             self._conn.execute("COMMIT")
         except Exception:
@@ -1655,19 +1657,48 @@ class SqliteRuntimeStore:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _validate_lease(self, claim: TaskClaim) -> None:
+    def _validate_lease(
+        self,
+        claim: TaskClaim,
+        *,
+        now_ms: int | None = None,
+        check_deadline: bool = True,
+    ) -> None:
         """Validate that ``claim`` matches the current task lease.
 
-        Raises :class:`StaleLeaseError` when the token or epoch is stale
-        (design §6.10, §6.11, §11.2).
+        Raises :class:`StaleLeaseError` when the token/epoch is stale, the
+        task is no longer ``LEASED``/``RUNNING``, or (when
+        ``check_deadline`` is true) the lease deadline has passed
+        (design §6.10, §6.11, §11.2; Task 2 Step 5).
+
+        Use one ``now_ms`` value per transaction so a transaction cannot
+        observe two different deadlines. Pass ``check_deadline=False`` for
+        voluntary state transitions (enter_retry_wait, enter_waiting_user,
+        cancel_task) where the Worker is releasing the task — the
+        token/epoch check is sufficient fencing for these.
         """
+        if now_ms is None:
+            now_ms = _now_ms()
         row = self._conn.execute(
-            "SELECT lease_token, lease_epoch FROM tasks WHERE task_id=?",
+            "SELECT state, lease_token, lease_epoch, lease_until_ms "
+            "FROM tasks WHERE task_id=?",
             (claim.task_id,),
         ).fetchone()
         if row is None:
             raise StaleLeaseError(claim.task_id, claim.lease_epoch, "task not found")
-        if row["lease_token"] != claim.lease_token or row["lease_epoch"] != claim.lease_epoch:
+        if check_deadline:
+            deadline_ok = (
+                row["lease_until_ms"] is not None
+                and row["lease_until_ms"] >= now_ms
+            )
+        else:
+            deadline_ok = True
+        if (
+            row["state"] not in ("LEASED", "RUNNING")
+            or row["lease_token"] != claim.lease_token
+            or row["lease_epoch"] != claim.lease_epoch
+            or not deadline_ok
+        ):
             raise StaleLeaseError(
                 claim.task_id,
                 claim.lease_epoch,
@@ -1829,7 +1860,7 @@ class SqliteRuntimeStore:
         commit_id = value.session_commit_id or _new_uuid()
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            self._validate_lease(claim)
+            self._validate_lease(claim, now_ms=now_ms)
 
             # Check for an existing prepared/committed row (idempotent retry).
             existing = self._conn.execute(
@@ -1894,21 +1925,24 @@ class SqliteRuntimeStore:
 
         Revalidates the task lease, transitions the commit to ``COMMITTED``
         with the filesystem revision and timestamp, and appends
-        ``SESSION_COMMITTED``.
+        ``SESSION_COMMITTED``. An already-confirmed commit is returned
+        idempotently without re-validating the lease.
         """
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            self._validate_lease(claim)
             row = self._conn.execute(
                 "SELECT * FROM session_commits WHERE session_commit_id=?",
                 (commit_id,),
             ).fetchone()
             if row is None:
+                self._conn.execute("ROLLBACK")
                 raise RuntimeError(f"session commit not found: {commit_id}")
             if row["state"] == "COMMITTED":
-                # Idempotent: already confirmed.
+                # Idempotent: already confirmed — no lease revalidation.
                 self._conn.execute("COMMIT")
                 return self._row_to_session_commit(row)
+
+            self._validate_lease(claim, now_ms=committed_at_ms)
 
             self._conn.execute(
                 """
@@ -2063,7 +2097,7 @@ class SqliteRuntimeStore:
         model_attempt_id = value.model_attempt_id or _new_uuid()
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            self._validate_lease(claim)
+            self._validate_lease(claim, now_ms=value.started_at_ms)
             self._conn.execute(
                 """
                 INSERT INTO model_attempts (
@@ -2109,7 +2143,7 @@ class SqliteRuntimeStore:
         """Durable-record a completed Provider attempt (design §17.5)."""
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            self._validate_lease(claim)
+            self._validate_lease(claim, now_ms=value.finished_at_ms or _now_ms())
             self._conn.execute(
                 """
                 UPDATE model_attempts SET
@@ -2168,7 +2202,7 @@ class SqliteRuntimeStore:
         """Durable-record a failed Provider attempt (design §17.5)."""
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            self._validate_lease(claim)
+            self._validate_lease(claim, now_ms=finished_at_ms)
             self._conn.execute(
                 """
                 UPDATE model_attempts SET
@@ -2204,7 +2238,7 @@ class SqliteRuntimeStore:
         """Insert a logical tool call (idempotent) (design §17.6, §20)."""
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            self._validate_lease(claim)
+            self._validate_lease(claim, now_ms=value.created_at_ms)
             existing = self._conn.execute(
                 "SELECT * FROM tool_calls WHERE task_id=? AND tool_call_id=?",
                 (claim.task_id, value.tool_call_id),
@@ -2279,7 +2313,7 @@ class SqliteRuntimeStore:
         tool_attempt_id = value.tool_attempt_id or _new_uuid()
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            self._validate_lease(claim)
+            self._validate_lease(claim, now_ms=value.started_at_ms)
             self._conn.execute(
                 """
                 INSERT INTO tool_attempts (
@@ -2333,7 +2367,7 @@ class SqliteRuntimeStore:
         """Durable-record the terminal state of a tool attempt (design §17.6)."""
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            self._validate_lease(claim)
+            self._validate_lease(claim, now_ms=value.finished_at_ms or _now_ms())
             attempt_row = self._conn.execute(
                 "SELECT tool_call_id FROM tool_attempts WHERE tool_attempt_id=?",
                 (attempt_id,),
@@ -2427,7 +2461,7 @@ class SqliteRuntimeStore:
         """Mark a tool attempt ``OUTCOME_UNKNOWN`` (design §17.6, §24)."""
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            self._validate_lease(claim)
+            self._validate_lease(claim, now_ms=finished_at_ms)
             attempt_row = self._conn.execute(
                 "SELECT tool_call_id FROM tool_attempts WHERE tool_attempt_id=?",
                 (attempt_id,),
@@ -2490,7 +2524,7 @@ class SqliteRuntimeStore:
         now_ms = outcome.applied_at_ms or _now_ms()
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            self._validate_lease(claim)
+            self._validate_lease(claim, now_ms=now_ms)
             self._conn.execute(
                 """
                 UPDATE task_controls SET
@@ -3012,7 +3046,7 @@ class SqliteRuntimeStore:
         now_ms = now_ms or _now_ms()
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            self._validate_lease(claim)
+            self._validate_lease(claim, now_ms=now_ms)
             cur = self._conn.execute(
                 """
                 INSERT INTO outbox (

@@ -82,6 +82,18 @@ class StaleLeaseError(RuntimeError):
         self.lease_epoch = lease_epoch
 
 
+class LeaseLostError(RuntimeError):
+    """Raised when the heartbeat fails to renew the lease (Task 2 Step 7).
+
+    A rejected renewal must cancel the active Agent execution before it
+    can reach session or completion writes (design §6.11).
+    """
+
+    def __init__(self, task_id: str, message: str = "lease lost (heartbeat rejected)") -> None:
+        super().__init__(f"{message}: task={task_id}")
+        self.task_id = task_id
+
+
 # ---------------------------------------------------------------------------
 # Result DTOs used directly by Protocol signatures
 # ---------------------------------------------------------------------------
@@ -213,7 +225,13 @@ class WorkerLedger(Protocol):
     def mark_running(self, claim: TaskClaim, now_ms: int) -> TaskRecord:
         ...
 
-    def renew_lease(self, claim: TaskClaim, lease_until_ms: int) -> bool:
+    def renew_lease(
+        self,
+        claim: TaskClaim,
+        lease_until_ms: int,
+        *,
+        now_ms: int | None = None,
+    ) -> bool:
         ...
 
     def heartbeat(self, claim: TaskClaim, now_ms: int) -> bool:

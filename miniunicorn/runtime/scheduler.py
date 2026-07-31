@@ -95,25 +95,26 @@ class Scheduler:
         """Renew a task lease (design §6.11, §14.4).
 
         Returns ``True`` if the lease was renewed, ``False`` if the
-        claim is stale (token/epoch mismatch).
+        claim is stale (token/epoch mismatch or expired deadline).
         """
         now = now_ms if now_ms is not None else _now_ms()
         try:
-            return self._ledger.renew_lease(claim, now + self._lease_ms)  # type: ignore[arg-type]
+            return self._ledger.renew_lease(  # type: ignore[arg-type]
+                claim,
+                now + self._lease_ms,
+                now_ms=now,
+            )
         except StaleLeaseError:
             return False
 
     def heartbeat(self, claim: object, *, now_ms: int | None = None) -> bool:
-        """Send a heartbeat to keep the lease alive (design §6.11).
+        """Send a heartbeat that renews the lease (design §6.11, Task 2 Step 4).
 
-        Returns ``True`` if the heartbeat was accepted, ``False`` if
-        the claim is stale.
+        A successful heartbeat atomically sets both ``lease_until_ms`` and
+        ``last_heartbeat_at_ms``. Returns ``True`` if the lease was renewed,
+        ``False`` if the claim is stale.
         """
-        now = now_ms if now_ms is not None else _now_ms()
-        try:
-            return self._ledger.heartbeat(claim, now)  # type: ignore[arg-type]
-        except StaleLeaseError:
-            return False
+        return self.renew_lease(claim, now_ms=now_ms)
 
     # ------------------------------------------------------------------
     # Maintenance

@@ -8,6 +8,7 @@ The database is created under ``tmp_path`` and torn down automatically.
 from __future__ import annotations
 
 import sqlite3
+import time
 from pathlib import Path
 from typing import Any
 
@@ -147,11 +148,17 @@ def claim_and_run(store, sample_scope, make_inbound_envelope):
     def _claim_and_run(
         *,
         worker_id: str = "test-worker",
-        now_ms: int = 2_000_000,
+        now_ms: int | None = None,
         lease_ms: int = 60_000,
         **envelope_kwargs: Any,
     ) -> tuple[Any, Any]:
         from miniunicorn.runtime.contracts import ClaimRequest
+
+        # Use real-time now_ms by default so the lease deadline is in the
+        # future for downstream mutations that call _validate_lease with
+        # real-time _now_ms() (Task 2 Step 5 deadline fencing).
+        if now_ms is None:
+            now_ms = int(time.time() * 1000)
 
         env = make_inbound_envelope(sample_scope, **envelope_kwargs)
         submit = store.submit_task(env)

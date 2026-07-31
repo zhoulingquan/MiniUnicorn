@@ -557,3 +557,79 @@ class TestSessionCommitIntegration:
             assert any("response to: hello world" in (c or "") for c in contents)  # FINAL
         finally:
             await host.stop()
+
+
+# ---------------------------------------------------------------------------
+# Tests: heartbeat lease loss cancels execution (Task 2 Step 7)
+# ---------------------------------------------------------------------------
+
+
+class BlockingExecutionCallback:
+    """Execution callback that blocks until cancelled.
+
+    Used to verify that a rejected heartbeat cancels the active Agent
+    execution before it can reach session or completion writes.
+    """
+
+    def __init__(self) -> None:
+        self.cancelled = asyncio.Event()
+        self.started = asyncio.Event()
+
+    async def __call__(
+        self,
+        payload: WorkerTaskPayload,
+        session_base_revision: int,
+    ) -> WorkerExecutionResult:
+        self.started.set()
+        try:
+            # Block forever — only lease-loss cancellation can stop us.
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            self.cancelled.set()
+            raise
+        # Unreachable: the Event is never set.
+        return WorkerExecutionResult(final_content="unreachable", messages=[])
+
+
+class TestLeaseLossCancelsExecution:
+    """A rejected heartbeat must cancel Agent execution (Task 2 Step 7)."""
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_loss_cancels_execution(
+        self,
+        store: SqliteRuntimeStore,
+        committer: SessionCommitter,
+        sample_scope: RequestScope,
+    ) -> None:
+        callback = BlockingExecutionCallback()
+        # Short lease (100ms) with heartbeat firing AFTER the lease expires
+        # (300ms). The first heartbeat will find an expired lease and the
+        # renewal is rejected.
+        host = LightweightHost(
+            store,
+            committer,
+            callback,
+            worker_count=1,
+            lease_ms=100,
+            heartbeat_interval_s=0.3,
+        )
+        await host.start()
+        try:
+            envelope = _make_envelope(sample_scope, content="hello")
+            handle = await host.task_service.submit(envelope)
+
+            # Wait for execution to start.
+            await asyncio.wait_for(callback.started.wait(), timeout=5.0)
+
+            # Wait for heartbeat to fire, fail, and cancel execution.
+            await asyncio.wait_for(callback.cancelled.wait(), timeout=5.0)
+
+            # The execution was cancelled before any completion write.
+            assert callback.cancelled.is_set()
+
+            # The task must NOT be COMPLETED.
+            task = store.read_task(handle.task_id)
+            assert task is not None
+            assert task.state != "COMPLETED"
+        finally:
+            await host.stop()

@@ -18,6 +18,7 @@ durable safety layer is exercised without the full Agent Core.
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 from typing import Any
 
@@ -142,13 +143,17 @@ class _StubRegistry:
 
 def _claim_running_task(store: Any, sample_scope: Any, make_inbound_envelope: Any) -> Any:
     """Submit, claim, mark-running a task and return the active claim."""
+    # Use real-time now_ms so the lease deadline is in the future for
+    # downstream mutations that call _validate_lease with real-time
+    # _now_ms() (Task 2 Step 5 deadline fencing).
+    now_ms = int(time.time() * 1000)
     env = make_inbound_envelope(sample_scope, session_key="wp4-session")
     submit = store.submit_task(env)
     assert submit.status == "ACCEPTED"
-    result = store.claim_next(ClaimRequest(worker_id="wp4-worker", now_ms=2_000_000, lease_ms=60_000))
+    result = store.claim_next(ClaimRequest(worker_id="wp4-worker", now_ms=now_ms, lease_ms=60_000))
     assert result.claimed is not None
     claim = result.claimed.claim
-    store.mark_running(claim, now_ms=2_000_001)
+    store.mark_running(claim, now_ms=now_ms + 1)
     return claim
 
 

@@ -19,8 +19,10 @@ from miniunicorn.runtime.models import (
     BlobWrite,
     CheckpointWrite,
     RetryDecision,
+    SessionCommitWrite,
     TaskFailure,
 )
+from miniunicorn.runtime.scheduler import Scheduler
 
 
 # ---------------------------------------------------------------------------
@@ -471,7 +473,7 @@ class TestRenewLease:
         assert original is not None
 
         renewed = store.renew_lease(
-            result.claimed.claim, lease_until_ms=2_200_000
+            result.claimed.claim, lease_until_ms=2_200_000, now_ms=2_010_000
         )
         assert renewed is True
 
@@ -492,7 +494,7 @@ class TestRenewLease:
         before = store.read_task(result.claimed.claim.task_id)
         assert before is not None
 
-        store.renew_lease(result.claimed.claim, lease_until_ms=2_200_000)
+        store.renew_lease(result.claimed.claim, lease_until_ms=2_200_000, now_ms=2_010_000)
 
         after = store.read_task(result.claimed.claim.task_id)
         assert after is not None
@@ -515,7 +517,7 @@ class TestRenewLease:
             leased_by="w-1",
             lease_until_ms=result.claimed.claim.lease_until_ms,
         )
-        assert store.renew_lease(stale_claim, lease_until_ms=2_200_000) is False
+        assert store.renew_lease(stale_claim, lease_until_ms=2_200_000, now_ms=2_010_000) is False
 
 
 # ---------------------------------------------------------------------------
@@ -770,7 +772,7 @@ class TestLeaseReclaim:
         reclaim = store.reclaim_expired(now_ms=2_060_000, limit=10)
         assert reclaim.reclaimed_count == 0
 
-        # After expiry: reclaimed
+        # After expiry: reclaimed (no root_attempt_count increment — Task 2 Step 6)
         reclaim = store.reclaim_expired(now_ms=2_060_001, limit=10)
         assert reclaim.reclaimed_count == 1
 
@@ -778,11 +780,13 @@ class TestLeaseReclaim:
         assert task is not None
         assert task.state == "QUEUED"
         assert task.recovery_pending == 1
-        assert task.root_attempt_count == 2  # incremented by reclaim
+        assert task.root_attempt_count == 1  # not incremented by reclaim
 
-    def test_reclaim_fails_when_attempts_exhausted(
+    def test_reclaim_does_not_fail_exhausted_until_next_claim(
         self, store, sample_scope, make_inbound_envelope
     ) -> None:
+        """With ``max_root_attempts=1``: reclaim returns the task to QUEUED;
+        the terminal failure happens at the next recovery claim (Task 2 Step 6)."""
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-reclaim-2")
         store.submit_task(env)
         result = store.claim_next(
@@ -795,10 +799,22 @@ class TestLeaseReclaim:
         )
         assert result.claimed is not None
 
-        # After expiry: should fail terminally (max_root_attempts=1)
+        # After expiry: reclaim returns to QUEUED (no terminal failure here).
         reclaim = store.reclaim_expired(now_ms=2_060_001, limit=10)
-        assert reclaim.reclaimed_count == 0
-        assert reclaim.failed_count == 1
+        assert reclaim.reclaimed_count == 1
+        assert reclaim.failed_count == 0
+
+        task = store.read_task(result.claimed.claim.task_id)
+        assert task is not None
+        assert task.state == "QUEUED"
+        assert task.recovery_pending == 1
+
+        # The next recovery claim increments root_attempt_count beyond the
+        # limit and fails terminally.
+        claim_result = store.claim_next(
+            ClaimRequest(worker_id="w-2", now_ms=2_060_002, lease_ms=60_000)
+        )
+        assert claim_result.claimed is None
 
         task = store.read_task(result.claimed.claim.task_id)
         assert task is not None
@@ -1008,3 +1024,260 @@ class TestFailAndCancel:
         task = store.read_task(result.claimed.claim.task_id)
         assert task is not None
         assert task.state == "CANCELLED"
+
+
+# ---------------------------------------------------------------------------
+# Task 2: heartbeat renews lease and expired owners are fenced
+# ---------------------------------------------------------------------------
+
+
+class TestHeartbeatRenewsLease:
+    """A successful heartbeat atomically renews ``lease_until_ms`` and
+    ``last_heartbeat_at_ms`` (Task 2 Step 1)."""
+
+    def test_heartbeat_extends_lease_until_via_scheduler(
+        self, store, sample_scope, make_inbound_envelope
+    ) -> None:
+        env = make_inbound_envelope(
+            sample_scope, channel_message_id="msg-hb-ext-1", available_at_ms=0
+        )
+        submit = store.submit_task(env)
+
+        scheduler = Scheduler(store, lease_ms=3_000)
+        outcome = scheduler.claim_next("w-1", now_ms=1_000)
+        assert outcome.claimed is not None
+        claim = outcome.claimed.claim
+
+        # Original deadline: 1_000 + 3_000 = 4_000.
+        assert claim.lease_until_ms == 4_000
+
+        # Heartbeat at 2_500 renews the lease to 2_500 + 3_000 = 5_500.
+        assert scheduler.heartbeat(claim, now_ms=2_500) is True
+
+        task = store.read_task(submit.task_id)
+        assert task is not None
+        assert task.lease_until_ms == 5_500
+
+        # At 4_001 the original lease would have expired, but the renewed
+        # one is still valid.
+        result = scheduler.reclaim_expired(now_ms=4_001)
+        assert result.reclaimed_count == 0
+
+    def test_store_heartbeat_also_renews_lease(
+        self, store, sample_scope, make_inbound_envelope
+    ) -> None:
+        """``WorkerLedger.heartbeat`` must not be a timestamp-only path."""
+        env = make_inbound_envelope(
+            sample_scope, channel_message_id="msg-hb-ext-2", available_at_ms=0
+        )
+        submit = store.submit_task(env)
+
+        result = store.claim_next(
+            ClaimRequest(worker_id="w-1", now_ms=1_000, lease_ms=3_000)
+        )
+        assert result.claimed is not None
+        before = store.read_task(submit.task_id)
+        assert before is not None
+        assert before.lease_until_ms == 4_000
+
+        ok = store.heartbeat(result.claimed.claim, now_ms=2_500)
+        assert ok is True
+
+        after = store.read_task(submit.task_id)
+        assert after is not None
+        # Lease was renewed (3_000 ms lease duration preserved).
+        assert after.lease_until_ms == 5_500
+        assert after.last_heartbeat_at_ms == 2_500
+
+
+class TestExpiredOwnerFenced:
+    """Mutations after ``lease_until_ms`` without a heartbeat must raise
+    ``StaleLeaseError`` (Task 2 Step 2)."""
+
+    def test_expired_owner_checkpoint_rejected(
+        self, store, sample_scope, make_inbound_envelope
+    ) -> None:
+        env = make_inbound_envelope(
+            sample_scope, channel_message_id="msg-fence-exp-1", available_at_ms=0
+        )
+        store.submit_task(env)
+        result = store.claim_next(
+            ClaimRequest(worker_id="w-1", now_ms=1_000, lease_ms=3_000)
+        )
+        store.mark_running(result.claimed.claim, now_ms=1_001)
+
+        blob = store.write_blob(
+            BlobWrite(
+                scope_key="test/ckpt",
+                blob_kind="CHECKPOINT",
+                content_hash="ckpt-hash",
+                encoding="RAW_JSON",
+                inline_content=b"{}",
+            )
+        )
+
+        # Advance the clock past the lease deadline without heartbeat.
+        with pytest.raises(StaleLeaseError):
+            store.checkpoint(
+                result.claimed.claim,
+                CheckpointWrite(
+                    phase="CONTEXT_BUILT",
+                    run_segment=0,
+                    ordinal=1,
+                    payload_blob_id=blob.blob_id,
+                    payload_hash="ckpt-hash",
+                    lease_epoch=result.claimed.claim.lease_epoch,
+                    created_at_ms=5_000,
+                ),
+            )
+
+    def test_expired_owner_record_progress_rejected(
+        self, store, sample_scope, make_inbound_envelope
+    ) -> None:
+        env = make_inbound_envelope(
+            sample_scope, channel_message_id="msg-fence-exp-2", available_at_ms=0
+        )
+        store.submit_task(env)
+        result = store.claim_next(
+            ClaimRequest(worker_id="w-1", now_ms=1_000, lease_ms=3_000)
+        )
+        store.mark_running(result.claimed.claim, now_ms=1_001)
+
+        with pytest.raises(StaleLeaseError):
+            store.record_progress(
+                result.claimed.claim, {"phase": "x"}, now_ms=5_000
+            )
+
+    def test_expired_owner_prepare_session_commit_rejected(
+        self, store, sample_scope, make_inbound_envelope
+    ) -> None:
+        env = make_inbound_envelope(
+            sample_scope, channel_message_id="msg-fence-exp-3", available_at_ms=0
+        )
+        store.submit_task(env)
+        result = store.claim_next(
+            ClaimRequest(worker_id="w-1", now_ms=1_000, lease_ms=3_000)
+        )
+        store.mark_running(result.claimed.claim, now_ms=1_001)
+
+        blob = store.write_blob(
+            BlobWrite(
+                scope_key="test/session",
+                blob_kind="SESSION_COMMIT",
+                content_hash="hash",
+                encoding="RAW_JSON",
+                inline_content=b"{}",
+            )
+        )
+
+        with pytest.raises(StaleLeaseError):
+            store.prepare_session_commit(
+                result.claimed.claim,
+                SessionCommitWrite(
+                    session_key=env.session_key,
+                    commit_kind="INBOUND",
+                    base_revision=0,
+                    target_revision=1,
+                    content_hash="hash",
+                    payload_blob_id=blob.blob_id,
+                    created_at_ms=5_000,
+                ),
+            )
+
+    def test_expired_owner_complete_with_outbox_rejected(
+        self, store, sample_scope, make_inbound_envelope
+    ) -> None:
+        env = make_inbound_envelope(
+            sample_scope, channel_message_id="msg-fence-exp-4", available_at_ms=0
+        )
+        store.submit_task(env)
+        result = store.claim_next(
+            ClaimRequest(worker_id="w-1", now_ms=1_000, lease_ms=3_000)
+        )
+        store.mark_running(result.claimed.claim, now_ms=1_001)
+
+        completion = store.complete_with_outbox(
+            result.claimed.claim,
+            CompletionWrite(
+                final_reply_blob_id=None,
+                final_reply_hash=None,
+                final_reply_dedup_key=None,
+                suppress_final=True,
+                completed_at_ms=5_000,
+            ),
+        )
+        assert completion.status == "STALE_LEASE"
+
+
+class TestRootAttemptCharging:
+    """``reclaim_expired`` must not increment ``root_attempt_count``;
+    only the recovery claim increments (Task 2 Step 6)."""
+
+    def test_reclaim_does_not_increment_root_attempt(
+        self, store, sample_scope, make_inbound_envelope
+    ) -> None:
+        env = make_inbound_envelope(
+            sample_scope, channel_message_id="msg-root-no-incr"
+        )
+        store.submit_task(env)
+        result = store.claim_next(
+            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
+        )
+        assert result.claimed is not None
+        assert result.claimed.record.root_attempt_count == 1
+
+        reclaim = store.reclaim_expired(now_ms=2_060_001, limit=10)
+        assert reclaim.reclaimed_count == 1
+
+        task = store.read_task(result.claimed.claim.task_id)
+        assert task is not None
+        assert task.state == "QUEUED"
+        assert task.recovery_pending == 1
+        # Reclaim must NOT increment; still 1.
+        assert task.root_attempt_count == 1
+
+    def test_initial_plus_two_recovery_claims_then_fourth_fails(
+        self, store, sample_scope, make_inbound_envelope
+    ) -> None:
+        """With ``max_root_attempts=3``: initial claim + 2 recovery claims
+        are allowed; the 4th charged claim fails terminally."""
+        env = make_inbound_envelope(
+            sample_scope, channel_message_id="msg-root-3", available_at_ms=0
+        )
+        store.submit_task(env)
+
+        scheduler = Scheduler(store, lease_ms=1_000, max_root_attempts=3)
+
+        # Claim 1 (initial): root_attempt_count 0 -> 1.
+        c1 = scheduler.claim_next("w-1", now_ms=1_000)
+        assert c1.claimed is not None
+        assert c1.claimed.record.root_attempt_count == 1
+
+        # Lease expires; reclaim sets recovery_pending=1 without incrementing.
+        reclaim = scheduler.reclaim_expired(now_ms=2_001)
+        assert reclaim.reclaimed_count == 1
+
+        # Claim 2 (recovery): root_attempt_count 1 -> 2.
+        c2 = scheduler.claim_next("w-2", now_ms=3_000)
+        assert c2.claimed is not None
+        assert c2.claimed.record.root_attempt_count == 2
+
+        # Lease expires; reclaim.
+        scheduler.reclaim_expired(now_ms=4_001)
+
+        # Claim 3 (recovery): root_attempt_count 2 -> 3.
+        c3 = scheduler.claim_next("w-3", now_ms=5_000)
+        assert c3.claimed is not None
+        assert c3.claimed.record.root_attempt_count == 3
+
+        # Lease expires; reclaim.
+        scheduler.reclaim_expired(now_ms=6_001)
+
+        # Claim 4 (recovery): root_attempt_count 3 -> 4 > 3, fails terminally.
+        c4 = scheduler.claim_next("w-4", now_ms=7_000)
+        assert c4.claimed is None
+
+        task = store.read_task(c1.claimed.claim.task_id)
+        assert task is not None
+        assert task.state == "FAILED"
+        assert task.error_code == "TASK_ATTEMPTS_EXHAUSTED"

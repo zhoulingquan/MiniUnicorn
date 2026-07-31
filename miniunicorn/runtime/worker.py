@@ -44,6 +44,7 @@ from miniunicorn.runtime.containment import (
 from miniunicorn.runtime.contracts import (
     ClaimedTask,
     CompletionResult,
+    LeaseLostError,
     StaleLeaseError,
     WorkerLedger,
 )
@@ -179,6 +180,13 @@ class AgentTaskWorker:
 
             try:
                 await self._execute_task(outcome.claimed)
+            except LeaseLostError as exc:
+                logger.warning(
+                    "worker {} heartbeat lease lost for task {}: {}",
+                    self._worker_id,
+                    exc.task_id,
+                    exc,
+                )
             except StaleLeaseError as exc:
                 logger.warning(
                     "worker {} lost lease for task {}: {}",
@@ -266,8 +274,30 @@ class AgentTaskWorker:
             # Get the session base revision after INBOUND commit.
             session_base_revision = inbound_result.revision
 
-            # Execute the Agent turn.
-            result = await self._execution_callback(payload, session_base_revision)
+            # Race the Agent execution against lease loss: a rejected
+            # heartbeat must cancel execution before it can reach session
+            # or completion writes (Task 2 Step 7).
+            execution_task = asyncio.create_task(
+                self._execution_callback(payload, session_base_revision),
+                name=f"execute-{task_id}",
+            )
+            done, _pending = await asyncio.wait(
+                [execution_task, heartbeat_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            if heartbeat_task in done:
+                # Heartbeat raised LeaseLostError (or returned). Cancel the
+                # in-flight execution before any commit can happen.
+                execution_task.cancel()
+                with suppress_exception(asyncio.CancelledError):
+                    await execution_task
+                exc = heartbeat_task.exception()
+                if isinstance(exc, LeaseLostError):
+                    raise exc
+                raise LeaseLostError(task_id)
+
+            result = execution_task.result()
 
             if result.error is not None:
                 self._fail_task(claim, task_id, result.error.error_code, result.error.error_summary)
@@ -288,6 +318,15 @@ class AgentTaskWorker:
                 task_id,
                 record.session_key,
             )
+        except LeaseLostError as exc:
+            logger.warning(
+                "worker {} lease lost for task {}: {}",
+                self._worker_id,
+                task_id,
+                exc,
+            )
+            self._fail_task(claim, task_id, "LEASE_LOST", str(exc))
+            raise
         except StaleLeaseError as exc:
             logger.warning("worker {} fenced during task {}: {}", self._worker_id, task_id, exc)
             raise
@@ -461,7 +500,12 @@ class AgentTaskWorker:
     # ------------------------------------------------------------------
 
     async def _heartbeat_loop(self, claim: Any, task_id: str) -> None:
-        """Renew the lease periodically while the task is running (design §6.11)."""
+        """Renew the lease periodically while the task is running (design §6.11).
+
+        Raises :class:`LeaseLostError` when a renewal is rejected so the
+        active Agent execution is cancelled before it can reach session or
+        completion writes (Task 2 Step 7).
+        """
         try:
             while True:
                 await asyncio.sleep(self._heartbeat_interval_s)
@@ -471,7 +515,7 @@ class AgentTaskWorker:
                         self._worker_id,
                         task_id,
                     )
-                    return
+                    raise LeaseLostError(task_id)
         except asyncio.CancelledError:
             return
 

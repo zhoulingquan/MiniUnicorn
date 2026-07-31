@@ -195,7 +195,9 @@ RESOURCE_HOLDER_KINDS: tuple[str, ...] = (
 
 # Allowed transitions (design §14.2). Source state -> set of target states.
 TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
-    "QUEUED": frozenset({"LEASED", "CANCELLED"}),
+    # QUEUED -> FAILED is permitted at recovery claim time when the root
+    # attempt budget is exhausted (design §15.3 step 7, Task 2 Step 6).
+    "QUEUED": frozenset({"LEASED", "FAILED", "CANCELLED"}),
     # LEASED -> FAILED is permitted by the reaper when the root attempt
     # budget is exhausted during lease reclaim (design §24.2 step 5).
     "LEASED": frozenset({"RUNNING", "QUEUED", "FAILED", "CANCELLED"}),

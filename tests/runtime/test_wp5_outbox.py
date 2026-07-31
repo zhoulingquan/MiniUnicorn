@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import time
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -97,14 +98,18 @@ def _write_payload_blob(store: Any, content: str, scope_key: str = "test") -> st
 
 def _claim_and_run_task(store: Any, sample_scope: Any, make_inbound_envelope: Any):
     """Submit, claim, and mark-running a task. Returns (record, claim)."""
+    # Use real-time now_ms so the lease deadline is in the future for
+    # downstream mutations that call _validate_lease with real-time
+    # _now_ms() (Task 2 Step 5 deadline fencing).
+    now_ms = int(time.time() * 1000)
     env = make_inbound_envelope(sample_scope)
     submit = store.submit_task(env)
     assert submit.status == "ACCEPTED"
     result = store.claim_next(
-        ClaimRequest(worker_id="test-worker", now_ms=2_000_000, lease_ms=60_000)
+        ClaimRequest(worker_id="test-worker", now_ms=now_ms, lease_ms=60_000)
     )
     assert result.claimed is not None
-    record = store.mark_running(result.claimed.claim, now_ms=2_000_001)
+    record = store.mark_running(result.claimed.claim, now_ms=now_ms + 1)
     return record, result.claimed.claim
 
 
