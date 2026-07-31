@@ -11,6 +11,10 @@
 # 配置持久化:宿主机 ~/.miniunicorn/ 挂载到容器内 /home/miniunicorn/.miniunicorn/
 # 首次启动后,在 WebUI 的"设置 → 模型配置"里填入 LLM API Key 即可对话。
 #
+# 运行时调参(租约、心跳、Outbox、Worker 回收等)不通过 .env,而是在挂载的
+# 配置文件 config.json/yaml 的 `runtime` 段落里设置;完整字段列表见 .env.example
+# 与 miniunicorn.config.runtime.RuntimeConfig(设计 §27)。
+#
 # 自定义端口:复制 .env.example 为 .env 修改端口,或直接 export WEBUI_PORT=9000
 
 x-common-config: &common-config

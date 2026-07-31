@@ -167,6 +167,9 @@ ignore = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# `slow` covers the 1,000-task load gate (tests/runtime/test_runtime_load.py)
+# and the crash/fault-injection suite; run the full gate explicitly with
+# `python -m pytest -m slow` or `python -m pytest tests/runtime/test_runtime_load.py`.
 markers = [
     "core: fast correctness gate for orchestration, sessions, providers, config, and security",
     "integration: multi-component integration test",
