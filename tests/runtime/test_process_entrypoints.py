@@ -18,6 +18,7 @@ Validates that:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import pickle
 import time
 from typing import Any
@@ -180,3 +181,100 @@ def test_shutdown_signal_is_handled_by_entrypoint_signature() -> None:
     assert any(
         p.kind == inspect.Parameter.VAR_KEYWORD for p in sig_worker.parameters.values()
     )
+
+
+# ---------------------------------------------------------------------------
+# Event-loop liveness while recv_child_envelope waits (Task 1 Step 7)
+# ---------------------------------------------------------------------------
+
+
+async def test_recv_child_envelope_does_not_starve_event_loop() -> None:
+    """While ``recv_child_envelope`` waits on a blocking pipe poll, other
+    asyncio tasks on the same loop keep running.
+
+    Before the Task 1 fix: ``child_poll`` ran on the event-loop thread and
+    blocked every other task for the full poll interval.
+    """
+    from miniunicorn.runtime.process_entrypoints import recv_child_envelope
+
+    ch = ProcessIpcChannel.new_pipe()
+    tick_count = 0
+
+    async def background_tick() -> None:
+        nonlocal tick_count
+        for _ in range(10):
+            await asyncio.sleep(0.05)
+            tick_count += 1
+
+    tick_task = asyncio.create_task(background_tick())
+    try:
+        # Wait long enough for recv_child_envelope to block on the pipe
+        # (0.5s poll). The background tick must make progress during that
+        # wait — it would not if child_poll ran on the loop thread.
+        result = await recv_child_envelope(ch, timeout_s=0.5)
+        assert result is None  # No data on the pipe.
+        # The background tick ran at least a few times during the 0.5s wait.
+        # If child_poll blocked the loop, tick_count would be 0.
+        assert tick_count > 0
+        assert not tick_task.done()
+    finally:
+        tick_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await tick_task
+        ch.parent_close()
+        ch.child_close()
+
+
+# ---------------------------------------------------------------------------
+# Surface round-trip (Task 1 Step 7)
+# ---------------------------------------------------------------------------
+
+
+def test_supervised_surface_preserves_caller_overrides() -> None:
+    """``build_supervised_runtime`` merges the caller-provided surface with
+    runtime defaults so ``webui_runtime_surface``, ``webui_static_dist``,
+    and capability overrides reach ``_build_channel_manager`` inside the
+    Control Plane child process."""
+    from miniunicorn.config.schema import Config
+    from miniunicorn.runtime.bootstrap import build_supervised_runtime
+
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = Config.model_validate(
+            {
+                "agents": {
+                    "defaults": {
+                        "workspace": str(Path(tmp) / "workspace"),
+                        "provider": "custom",
+                        "model": "stub-model",
+                        "contextWindowTokens": 8192,
+                    },
+                },
+                "providers": {
+                    "custom": {
+                        "apiKey": "test-key",
+                        "apiBase": "http://127.0.0.1:1/v1",
+                        "apiType": "chat_completions",
+                    },
+                },
+                "runtime": {
+                    "mode": "supervised",
+                    "workerCount": 3,
+                },
+            }
+        )
+        caller_surface = {
+            "webui_runtime_surface": True,
+            "webui_static_dist": "/custom/dist",
+            "capability_overrides": {"max_file_size": 12345},
+        }
+        resources = build_supervised_runtime(config, surface=caller_surface)
+
+        payload = resources.host._supervisor._config  # type: ignore[attr-defined]
+        assert payload.surface["mode"] == "supervised"
+        assert payload.surface["worker_count"] == 3
+        assert payload.surface["webui_runtime_surface"] is True
+        assert payload.surface["webui_static_dist"] == "/custom/dist"
+        assert payload.surface["capability_overrides"]["max_file_size"] == 12345

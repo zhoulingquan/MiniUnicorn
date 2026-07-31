@@ -674,13 +674,15 @@ def build_supervised_runtime(
 
     resolved = resolve_runtime_paths(config.runtime, config.workspace_path)
     worker_count = resolved.worker_count
+    child_surface = dict(surface or {})
+    child_surface.update(
+        mode="supervised",
+        worker_count=worker_count,
+        database_path=str(resolved.database_path_resolved or resolved.database_path),
+    )
     payload = ChildBootstrapPayload(
         config_json=config.model_dump_json(),
-        surface={
-            "mode": "supervised",
-            "worker_count": worker_count,
-            "database_path": str(resolved.database_path_resolved or resolved.database_path),
-        },
+        surface=child_surface,
     )
 
     host = SupervisedHost(

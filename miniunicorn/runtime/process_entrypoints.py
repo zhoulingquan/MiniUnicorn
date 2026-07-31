@@ -22,6 +22,7 @@ The functions are top-level (not closures) and picklable so
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -36,6 +37,53 @@ from miniunicorn.runtime.ipc import (
     agent_event,
 )
 from miniunicorn.runtime.realtime import RealtimeSubscriptionHub
+
+
+# ---------------------------------------------------------------------------
+# Async IPC helpers — keep blocking pipe polls off the event-loop thread
+# (Task 1 Step 4)
+# ---------------------------------------------------------------------------
+
+
+async def recv_child_envelope(
+    channel: ProcessIpcChannel,
+    timeout_s: float = 0.5,
+) -> IpcEnvelope | None:
+    """Poll the child IPC pipe off the event-loop thread (Task 1 Step 4).
+
+    ``child_poll`` is a blocking call (``multiprocessing.Connection.poll``).
+    Running it directly on the event-loop thread starves every asyncio task
+    — including the Worker's ``run()`` coroutine — for the full poll
+    interval. ``asyncio.to_thread`` moves the blocking poll to a worker
+    thread so the event loop stays free to run Agent turns, heartbeats, and
+    Outbox delivery.
+    """
+    ready = await asyncio.to_thread(channel.child_poll, timeout_s)
+    if not ready:
+        return None
+    return channel.child_recv()
+
+
+async def stop_worker_gracefully(
+    worker: Any,
+    task: asyncio.Task[Any],
+    grace_s: float,
+) -> None:
+    """Stop the Worker and give its active task the configured grace period
+    (Task 1 Step 5).
+
+    ``worker.stop()`` signals the Worker loop to exit. ``asyncio.shield``
+    lets the Worker finish any in-flight work within ``grace_s``. If the
+    grace period expires the task is cancelled so shutdown is not
+    unbounded.
+    """
+    worker.stop()
+    try:
+        await asyncio.wait_for(asyncio.shield(task), timeout=grace_s)
+    except asyncio.TimeoutError:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 
 
 # ---------------------------------------------------------------------------
@@ -355,24 +403,21 @@ async def _worker_async(
     try:
         # Run the Worker until KIND_SHUTDOWN. The AgentTaskWorker polls
         # the Store directly; wake hints only reduce poll latency.
+        # The blocking child_poll is moved off the event-loop thread via
+        # recv_child_envelope so worker.run() is not starved (Task 1 Step 4).
         while True:
-            if ipc_channel.child_poll(timeout_s=0.5):
-                env = ipc_channel.child_recv()
-                if env is not None and env.kind == KIND_SHUTDOWN:
-                    break
+            env = await recv_child_envelope(ipc_channel, timeout_s=0.5)
+            if env is None:
+                continue
+            if env.kind == KIND_SHUTDOWN:
+                break
             # Wake hints reduce poll latency; correctness does not depend
             # on them (Workers poll the Store directly — design §23.2).
         return 0
     except (EOFError, OSError):
         return 0
     finally:
-        worker.stop()
-        if not worker_task.done():
-            worker_task.cancel()
-            try:
-                await asyncio.wait_for(worker_task, timeout=5.0)
-            except (asyncio.CancelledError, asyncio.TimeoutError):
-                pass
+        await stop_worker_gracefully(worker, worker_task, resolved.shutdown_grace_s)
         await emitter.stop()
         try:
             await agent.close_mcp()
@@ -405,6 +450,13 @@ async def _control_plane_async(
     from miniunicorn.runtime.sqlite import open_connection, run_migrations
     from pathlib import Path
 
+    # Capture the caller-provided surface before reconstructing the
+    # config so it reaches build_control_plane_runtime (Task 1 Step 6).
+    # Never replace it with {} — the surface carries webui_runtime_surface,
+    # webui_static_dist, and capability overrides from the launcher.
+    child_surface: dict[str, Any] = {}
+    if isinstance(config, ChildBootstrapPayload):
+        child_surface = dict(config.surface)
     cfg = _reconstruct_config(config)
     resolved = resolve_runtime_paths(cfg.runtime, cfg.workspace_path)
 
@@ -416,7 +468,7 @@ async def _control_plane_async(
     run_migrations(connection)
 
     resources = build_control_plane_runtime(
-        cfg, connection, surface={}
+        cfg, connection, surface=child_surface
     )
     await resources.start()
 
@@ -432,16 +484,18 @@ async def _control_plane_async(
         # terminates the loop. Wake hints on submit are sent the other
         # direction (Control Plane → Supervisor) and are wired with ingress
         # in Task 9.
+        # The blocking child_poll is moved off the event-loop thread via
+        # recv_child_envelope so Outbox delivery and ingress stay live
+        # (Task 1 Step 4).
         while True:
-            if ipc_channel.child_poll(timeout_s=0.5):
-                env = ipc_channel.child_recv()
-                if env is None:
-                    continue
-                if env.kind == KIND_SHUTDOWN:
-                    break
-                if env.kind in (KIND_AGENT_EVENT, KIND_TASK_PROGRESS):
-                    resources.realtime.publish_envelope(env)
-                    continue
+            env = await recv_child_envelope(ipc_channel, timeout_s=0.5)
+            if env is None:
+                continue
+            if env.kind == KIND_SHUTDOWN:
+                break
+            if env.kind in (KIND_AGENT_EVENT, KIND_TASK_PROGRESS):
+                resources.realtime.publish_envelope(env)
+                continue
         return 0
     except (EOFError, OSError):
         return 0
