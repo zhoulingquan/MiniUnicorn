@@ -44,6 +44,7 @@ from miniunicorn.agent.ports import (
 )
 
 if TYPE_CHECKING:
+    from miniunicorn.agent.ports import TurnJournalPort
     from miniunicorn.runtime.contracts import ExecutionJournal, WorkerLedger
 
 
@@ -69,7 +70,7 @@ class DurableTurnJournalAdapter:
     # Restore point (design §17.4, §18.2 RESTORE)
     # ------------------------------------------------------------------
 
-    def load_restore_point(self, task: TaskIdentity) -> RestorePoint | None:
+    async def load_restore_point(self, task: TaskIdentity) -> RestorePoint | None:
         """Load the latest durable restore point for ``task``."""
         if self._journal is None:
             return None
@@ -323,7 +324,7 @@ class JournalProviderObserver:
     through this adapter into the Runtime Store via the journal.
     """
 
-    def __init__(self, journal: "TurnJournalPort") -> None:  # type: ignore[name-defined]
+    def __init__(self, journal: "TurnJournalPort") -> None:
         self._journal = journal
         # Per-run monotonic counters (design §19: logical_call_id derives
         # from task_id + run_segment + inner_loop_iteration + ordinal).
@@ -346,10 +347,7 @@ class JournalProviderObserver:
         return self._logical_call_id
 
     async def started(self, value: Any) -> str:
-        from miniunicorn.agent.ports import (
-            AttemptIdentity,
-            ModelAttemptStarted,
-        )
+        from miniunicorn.agent.ports import ModelAttemptStarted
 
         self._attempt_no += 1
         call = ModelAttemptStarted(
