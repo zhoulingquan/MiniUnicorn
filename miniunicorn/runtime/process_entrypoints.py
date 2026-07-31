@@ -349,11 +349,21 @@ async def _worker_async(
 
     sessions = SessionManager(cfg.workspace_path)
     bus = MessageBus()
+
+    from miniunicorn.runtime.ingress import local_request_scope
+    from miniunicorn.runtime.maintenance import make_maintenance_enqueue_callback
+    from miniunicorn.runtime.task_service import TaskService
+
+    _task_service = TaskService(store)
+    _scope = local_request_scope(cfg)
+    _maintenance_enqueue = make_maintenance_enqueue_callback(_task_service, _scope)
+
     agent = AgentLoop.from_config(
         cfg,
         bus,
         session_manager=sessions,
         vector_memory_factory=create_vector_store,
+        maintenance_enqueue=_maintenance_enqueue,
     )
 
     session_committer = SessionCommitter(store, sessions)

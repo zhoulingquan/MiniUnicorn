@@ -184,6 +184,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         runtime_model_publisher: Callable[[str, str | None], None] | None = None,
         telemetry_sink: TelemetrySink | None = None,
         vector_memory_factory: Callable[..., Any] | None = None,
+        maintenance_enqueue: Callable[..., Any] | None = None,
     ):
         from miniunicorn.config.schema import ToolsConfig
 
@@ -195,6 +196,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         self._provider_snapshot_loader = provider_snapshot_loader
         self._preset_snapshot_loader = preset_snapshot_loader
         self._runtime_model_publisher = runtime_model_publisher
+        self._maintenance_enqueue = maintenance_enqueue
         self._provider_signature = provider_signature
         self._default_selection_signature = preset_helpers.default_selection_signature(
             provider_signature

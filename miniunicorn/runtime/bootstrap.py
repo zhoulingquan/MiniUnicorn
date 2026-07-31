@@ -22,8 +22,8 @@ from typing import Any, Protocol, runtime_checkable
 from loguru import logger
 
 from miniunicorn.config.runtime import RuntimeConfig, resolve_runtime_paths
-from miniunicorn.runtime.application import RuntimeApplication
 from miniunicorn.runtime.agent_adapter import AgentExecutionCallback
+from miniunicorn.runtime.application import RuntimeApplication
 from miniunicorn.runtime.durable_journal import DurableTurnJournalAdapter
 from miniunicorn.runtime.hosts.lightweight import LightweightHost
 from miniunicorn.runtime.message_delivery import DurableMessageDelivery, LocalResultSender
@@ -31,7 +31,6 @@ from miniunicorn.runtime.outbox import OutboxSender
 from miniunicorn.runtime.realtime import LocalProgressPort, RealtimeSubscriptionHub
 from miniunicorn.runtime.session_committer import SessionCommitter
 from miniunicorn.runtime.tool_gateway import ToolGateway
-
 
 # ---------------------------------------------------------------------------
 # Closeable protocol (design Task 5 Step 3)
@@ -164,6 +163,7 @@ def _build_channel_manager(
     to the ``TaskService`` instead of the legacy bus.
     """
     import time as _time
+
     from miniunicorn.channels.manager import ChannelManager
     from miniunicorn.runtime.application import RuntimeInboundRequest
     from miniunicorn.runtime.ingress import build_inbound_envelope, local_request_scope
@@ -389,12 +389,21 @@ def build_lightweight_runtime(
     sessions = SessionManager(config.workspace_path)
     bus = MessageBus()
 
+    from miniunicorn.runtime.ingress import local_request_scope
+    from miniunicorn.runtime.maintenance import make_maintenance_enqueue_callback
+    from miniunicorn.runtime.task_service import TaskService
+
+    _task_service = TaskService(store)
+    _scope = local_request_scope(config)
+    _maintenance_enqueue = make_maintenance_enqueue_callback(_task_service, _scope)
+
     agent = AgentLoop.from_config(
         config,
         bus,
         session_manager=sessions,
         provider=provider_override,
         vector_memory_factory=create_vector_store,
+        maintenance_enqueue=_maintenance_enqueue,
     )
 
     session_committer = SessionCommitter(store, sessions)

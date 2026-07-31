@@ -318,37 +318,41 @@ async def cmd_model(ctx: CommandContext) -> OutboundMessage:
 
 
 async def cmd_dream(ctx: CommandContext) -> OutboundMessage:
-    """Manually trigger a Dream consolidation run."""
-    import time
+    """Manually trigger a Dream consolidation run.
 
+    Submits a durable DREAM task through the runtime maintenance enqueue
+    path (design §22.3, Task 13 Step 2). The task is durable: it survives
+    restarts and is dispatched by a Worker through MaintenanceExecutor.
+    The final result is delivered through the durable Outbox, not by an
+    untracked coroutine publishing directly to the MessageBus.
+    """
     loop = ctx.loop
     msg = ctx.msg
 
-    async def _run_dream():
-        t0 = time.monotonic()
-        try:
-            did_work = await loop.dream.run()
-            elapsed = time.monotonic() - t0
-            if did_work:
-                content = f"Dream completed in {elapsed:.1f}s."
-            else:
-                content = "Dream: nothing to process."
-        except Exception as e:
-            elapsed = time.monotonic() - t0
-            content = f"Dream failed after {elapsed:.1f}s: {e}"
-        await loop.bus.publish_outbound(
-            OutboundMessage(
-                channel=msg.channel,
-                chat_id=msg.chat_id,
-                content=content,
-            )
+    enqueue = getattr(loop, "_maintenance_enqueue", None)
+    if enqueue is None:
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content="Dream requires the durable runtime. Start the gateway in supervised or lightweight mode.",
         )
 
-    asyncio.create_task(_run_dream())
+    try:
+        task_id = await enqueue(
+            task_kind="DREAM",
+            payload={},
+        )
+    except Exception as e:
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=f"Failed to enqueue Dream task: {e}",
+        )
+
     return OutboundMessage(
         channel=msg.channel,
         chat_id=msg.chat_id,
-        content="Dreaming...",
+        content=f"Dream task enqueued (task_id: {task_id}). The result will be delivered when it completes.",
     )
 
 

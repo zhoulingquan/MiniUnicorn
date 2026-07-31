@@ -14,8 +14,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-import pytest
-
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _AGENT = _REPO_ROOT / "miniunicorn" / "agent"
 _RUNNER = _AGENT / "runner.py"
@@ -31,6 +29,7 @@ _TASK_SUPERVISOR = _REPO_ROOT / "miniunicorn" / "utils" / "task_supervisor.py"
 # DirectToolExecutionPort or call tool.execute() outside approved helpers.
 _SUBAGENT = _AGENT / "subagent.py"
 _AGENT_RUN_ADAPTER = _AGENT / "agent_run_adapter.py"
+_COMMAND_BUILTIN = _REPO_ROOT / "miniunicorn" / "command" / "builtin.py"
 
 
 def _read(path: Path) -> str:
@@ -340,6 +339,68 @@ class TestMaintenanceCreateTaskInventory:
         assert "def _handle_dream_job" not in source, (
             "_gateway_runner.py still defines _handle_dream_job; Task 9 "
             "Step 6 removed direct Dream execution."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Task 13: command handlers must not bypass durable maintenance dispatch
+# ---------------------------------------------------------------------------
+
+
+class TestCommandDirectMaintenanceInventory:
+    """Command handlers (e.g. ``/dream``) must submit durable maintenance
+    tasks through TaskService, not call ``loop.dream.run()`` in an untracked
+    coroutine or publish results directly to the MessageBus (Task 13 Step 2).
+    """
+
+    def test_command_builtin_does_not_call_dream_run_directly(self) -> None:
+        source = _read(_COMMAND_BUILTIN)
+        assert "loop.dream.run()" not in source, (
+            "command/builtin.py still calls loop.dream.run() directly; "
+            "Task 13 must submit a durable DREAM task through the "
+            "maintenance_enqueue callback."
+        )
+
+    def test_command_builtin_does_not_create_untracked_dream_task(self) -> None:
+        """The ``/dream`` command must not launch ``asyncio.create_task``
+        for Dream execution. The only ``asyncio.create_task`` remaining
+        in builtin.py is the ``/restart`` one-shot (line-level exception).
+        """
+        source = _read(_COMMAND_BUILTIN)
+        dream_section = source
+        # Find the cmd_dream function body and verify no create_task in it.
+        if "async def cmd_dream" in dream_section:
+            start = dream_section.index("async def cmd_dream")
+            # Find the next top-level def/class after cmd_dream
+            rest = dream_section[start + len("async def cmd_dream"):]
+            next_def = rest.find("\ndef ")
+            if next_def == -1:
+                next_def = rest.find("\nasync def ")
+            if next_def != -1:
+                dream_section = dream_section[start : start + len("async def cmd_dream") + next_def]
+        assert "asyncio.create_task" not in dream_section, (
+            "cmd_dream still uses asyncio.create_task for Dream; "
+            "Task 13 must submit through the durable maintenance_enqueue callback."
+        )
+
+    def test_command_builtin_does_not_publish_dream_result_to_bus(self) -> None:
+        """The ``/dream`` command must not publish the Dream result
+        directly to the MessageBus. The durable Outbox owns final delivery.
+        """
+        source = _read(_COMMAND_BUILTIN)
+        # Find the cmd_dream function body
+        start = source.index("async def cmd_dream")
+        rest = source[start + len("async def cmd_dream"):]
+        next_def = rest.find("\ndef ")
+        if next_def == -1:
+            next_def = rest.find("\nasync def ")
+        if next_def != -1:
+            dream_body = source[start : start + len("async def cmd_dream") + next_def]
+        else:
+            dream_body = source[start:]
+        assert "bus.publish_outbound" not in dream_body, (
+            "cmd_dream still publishes Dream results to bus.publish_outbound; "
+            "Task 13 must let the durable Outbox deliver the final result."
         )
 
 

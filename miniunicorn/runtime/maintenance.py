@@ -25,14 +25,11 @@ from __future__ import annotations
 import hashlib
 import json
 import time
-from typing import TYPE_CHECKING
-
-from loguru import logger
+from typing import TYPE_CHECKING, Any, Callable
 
 from miniunicorn.runtime.models import (
     InternalTaskEnvelope,
     RequestScope,
-    RetentionBatch,
     RetentionPolicy,
     RetentionResult,
 )
@@ -186,6 +183,44 @@ async def enqueue_maintenance(
     )
     handle = await task_service.submit_internal(envelope)
     return handle.task_id
+
+
+def make_maintenance_enqueue_callback(
+    task_service: "TaskService",
+    scope: RequestScope,
+) -> Callable[..., Any]:
+    """Create a maintenance-enqueue callback for AgentLoop (Task 13 Step 2).
+
+    Returns an ``async def(*, task_kind, payload=None) -> str`` that
+    wraps :func:`enqueue_maintenance` with a deterministic dedup key and
+    priority. This lets the ``/dream`` command submit a durable DREAM
+    task through TaskService instead of calling ``loop.dream.run()``
+    in an untracked coroutine.
+    """
+
+    async def _enqueue(
+        *,
+        task_kind: str,
+        payload: dict | None = None,
+    ) -> str:
+        import time as _time
+
+        priority = (
+            PRIORITY_REFLECTION_DREAM
+            if task_kind == "DREAM"
+            else PRIORITY_RETENTION_CLEANUP
+        )
+        dedup_key = f"cmd:{task_kind}:{int(_time.time() * 1000)}"
+        return await enqueue_maintenance(
+            task_service,
+            task_kind=task_kind,
+            scope=scope,
+            dedup_key=dedup_key,
+            priority=priority,
+            payload=payload or {},
+        )
+
+    return _enqueue
 
 
 # ---------------------------------------------------------------------------
