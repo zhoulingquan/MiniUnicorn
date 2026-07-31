@@ -290,6 +290,13 @@ class TestToolGateway:
     async def test_failed_attempt_is_journaled(
         self, store: Any, sample_scope: Any, make_inbound_envelope: Any
     ) -> None:
+        """A READ tool that fails mid-invocation is a definite FAILED (Task 6 Step 4).
+
+        READ tools cannot leave external effects, so any exception is a
+        definite pre-invocation-or-runtime failure that may be safely
+        recorded as FAILED and retried. Effectful tools that fail
+        mid-invocation are covered separately as OUTCOME_UNKNOWN.
+        """
         claim = _claim_running_task(store, sample_scope, make_inbound_envelope)
         set_active_claim(claim.task_id, claim)
 
@@ -303,15 +310,26 @@ class TestToolGateway:
                     self.invocations += 1
                     raise RuntimeError("boom")
 
-            tool = _BoomTool("write_file", read_only=False)
-            registry = _StubRegistry({"write_file": tool})
+            tool = _BoomTool("read_file", read_only=True)
+            registry = _StubRegistry({"read_file": tool})
             gateway = ToolGateway(registry, store, store)
 
+            # Pass an explicit READ policy so effect_may_have_happened
+            # returns False (READ tools cannot leave external effects).
+            read_policy = EffectiveToolPolicy(
+                effect_class="READ",
+                risk_class="LOW",
+                idempotency_mode="REPLAY_SAFE",
+                approval_policy="NEVER",
+                recovery_policy="REPLAY",
+                concurrency_scope="NONE",
+            )
             request = build_tool_execution_request(
                 task_id=claim.task_id,
                 tool_call_id="call-2",
-                tool_name="write_file",
-                arguments={"path": "/y", "content": "z"},
+                tool_name="read_file",
+                arguments={"path": "/y"},
+                policy=read_policy,
             )
             result = await gateway.execute(request)
 
@@ -329,6 +347,63 @@ class TestToolGateway:
             reset_turn_runtime(token)
             clear_active_claim(claim.task_id)
 
+    @pytest.mark.asyncio
+    async def test_effectful_failure_becomes_outcome_unknown(
+        self, store: Any, sample_scope: Any, make_inbound_envelope: Any
+    ) -> None:
+        """An effectful tool that fails mid-invocation is OUTCOME_UNKNOWN (Task 6 Step 4).
+
+        ``effect_may_have_happened`` returns True for non-READ tools raising
+        anything other than the pre-invocation exceptions. The attempt must
+        be marked OUTCOME_UNKNOWN (not FAILED) and the task enters
+        WAITING_USER for manual recovery.
+        """
+        claim = _claim_running_task(store, sample_scope, make_inbound_envelope)
+        set_active_claim(claim.task_id, claim)
+
+        from miniunicorn.agent.turn_runtime import TurnRuntime, bind_turn_runtime, reset_turn_runtime
+
+        runtime = TurnRuntime(turn_id="t1", session_key="wp4-session", task_id=claim.task_id)
+        token = bind_turn_runtime(runtime)
+        try:
+            class _BoomEffectTool(_StubTool):
+                async def execute(self, **kwargs: Any) -> Any:
+                    self.invocations += 1
+                    raise RuntimeError("effect maybe happened")
+
+            tool = _BoomEffectTool("write_file", read_only=False)
+            registry = _StubRegistry({"write_file": tool})
+            gateway = ToolGateway(registry, store, store)
+
+            request = build_tool_execution_request(
+                task_id=claim.task_id,
+                tool_call_id="call-effect",
+                tool_name="write_file",
+                arguments={"path": "/y", "content": "z"},
+            )
+            result = await gateway.execute(request)
+
+            assert result.state == "OUTCOME_UNKNOWN"
+            assert result.error is not None
+            assert result.error.error_code == "TOOL_OUTCOME_UNKNOWN"
+            assert tool.invocations == 1
+
+            rows = store._conn.execute(
+                "SELECT state FROM tool_calls WHERE tool_call_id = ?",
+                ("call-effect",),
+            ).fetchall()
+            assert [tuple(r) for r in rows] == [("OUTCOME_UNKNOWN",)]
+
+            # Task must be in WAITING_USER for manual recovery.
+            row = store._conn.execute(
+                "SELECT state FROM tasks WHERE task_id=?",
+                (claim.task_id,),
+            ).fetchone()
+            assert row["state"] == "WAITING_USER"
+        finally:
+            reset_turn_runtime(token)
+            clear_active_claim(claim.task_id)
+
     def test_idempotency_key_is_stable(self) -> None:
         args = {"path": "/a", "n": 1}
         h = compute_arguments_hash(args)
@@ -338,6 +413,463 @@ class TestToolGateway:
         # Different tool name -> different key.
         k3 = compute_idempotency_key("t1", "c1", "write_file", h)
         assert k1 != k3
+
+
+# ---------------------------------------------------------------------------
+# Recovery decision matrix (Task 6 Step 1)
+# ---------------------------------------------------------------------------
+
+
+def _seed_tool_call_state(
+    store: Any,
+    claim: Any,
+    *,
+    tool_call_id: str,
+    state: str,
+    policy: EffectiveToolPolicy,
+    args: dict[str, Any] | None = None,
+) -> None:
+    """Seed a durable tool_calls row in ``state`` for recovery-matrix tests.
+
+    Drives the store through the same methods the gateway uses so the
+    resulting row matches a real prior attempt the gateway must observe.
+    """
+    from miniunicorn.runtime.models import (
+        BlobWrite,
+        PreparedToolWrite,
+        ToolAttemptWrite,
+        ToolResultWrite,
+    )
+
+    args = args or {"path": "/x"}
+    args_bytes = __import__("json").dumps(args, sort_keys=True).encode("utf-8")
+    args_hash = __import__("hashlib").sha256(args_bytes).hexdigest()
+    blob = store.write_blob(
+        BlobWrite(
+            scope_key=f"task/{claim.task_id}",
+            blob_kind="TOOL_ARGUMENTS",
+            content_hash=args_hash,
+            encoding="RAW_BYTES",
+            inline_content=args_bytes,
+            size_bytes=len(args_bytes),
+        )
+    )
+
+    write = PreparedToolWrite(
+        tool_call_id=tool_call_id,
+        tool_name="read_file",
+        arguments_blob_id=blob.blob_id,
+        arguments_hash=args_hash,
+        effect_class=policy.effect_class,
+        risk_class=policy.risk_class,
+        idempotency_mode=policy.idempotency_mode,
+        idempotency_key=f"key:{tool_call_id}",
+        approval_policy=policy.approval_policy,
+        recovery_policy=policy.recovery_policy,
+        concurrency_scope=policy.concurrency_scope,
+        created_at_ms=1_000_000,
+    )
+    record = store.prepare_tool_call(claim, write)
+
+    if state == "WAITING_APPROVAL":
+        # The default approval_policy=NEVER produces PREPARED on insert.
+        # Force the row into WAITING_APPROVAL so the gateway observes it
+        # on lookup (Task 6 Step 1 matrix).
+        store._conn.execute(
+            "UPDATE tool_calls SET state='WAITING_APPROVAL', updated_at_ms=? "
+            "WHERE task_id=? AND tool_call_id=?",
+            (1_000_002, claim.task_id, tool_call_id),
+        )
+        return
+
+    attempt = store.begin_tool_attempt(
+        claim,
+        ToolAttemptWrite(
+            tool_call_id=tool_call_id,
+            attempt_no=record.attempt_count + 1,
+            resource_token=None,
+            started_at_ms=1_000_001,
+        ),
+    )
+
+    if state == "RUNNING":
+        return  # leave the attempt open
+
+    if state == "OUTCOME_UNKNOWN":
+        store.mark_tool_unknown(
+            claim,
+            attempt.tool_attempt_id,
+            SafeError(error_code="TOOL_OUTCOME_UNKNOWN", error_summary="ambiguous"),
+            1_000_002,
+        )
+        return
+
+    if state == "REJECTED":
+        # ``tool_attempts.state`` does not allow REJECTED (only
+        # STARTED/SUCCEEDED/FAILED/OUTCOME_UNKNOWN). Mark the logical
+        # tool_calls row REJECTED directly and leave the attempt FAILED
+        # so the gateway observes the rejection on lookup.
+        store.finish_tool_attempt(
+            claim,
+            attempt.tool_attempt_id,
+            ToolResultWrite(
+                state="FAILED",
+                error=SafeError(error_code="TOOL_REJECTED", error_summary="seeded"),
+                finished_at_ms=1_000_002,
+            ),
+        )
+        store._conn.execute(
+            "UPDATE tool_calls SET state='REJECTED', "
+            "error_code='TOOL_REJECTED', error_summary='seeded', "
+            "updated_at_ms=? WHERE task_id=? AND tool_call_id=?",
+            (1_000_002, claim.task_id, tool_call_id),
+        )
+        return
+
+    if state in ("SUCCEEDED", "FAILED"):
+        result_blob_id = ""
+        result_hash = ""
+        error: SafeError | None = None
+        if state == "SUCCEEDED":
+            result_bytes = b'"file contents"'
+            result_hash = __import__("hashlib").sha256(result_bytes).hexdigest()
+            result_blob = store.write_blob(
+                BlobWrite(
+                    scope_key=f"task/{claim.task_id}",
+                    blob_kind="TOOL_RESULT",
+                    content_hash=result_hash,
+                    encoding="RAW_BYTES",
+                    inline_content=result_bytes,
+                    size_bytes=len(result_bytes),
+                )
+            )
+            result_blob_id = result_blob.blob_id
+        else:
+            error = SafeError(
+                error_code="TOOL_PRIOR_FAILURE",
+                error_summary="seeded",
+            )
+        store.finish_tool_attempt(
+            claim,
+            attempt.tool_attempt_id,
+            ToolResultWrite(
+                state=state,
+                result_blob_id=result_blob_id or None,
+                result_hash=result_hash or None,
+                error=error,
+                finished_at_ms=1_000_002,
+            ),
+        )
+
+
+class TestToolGatewayRecoveryMatrix:
+    """Design §20.4: existing durable state decides reuse / retry / unknown.
+
+    Each row matches the table in Task 6 Step 1. Non-invocation rows must
+    not call ``tool.execute``; the gateway returns the prior terminal
+    state (or surfaces ``WAITING_USER`` for ambiguous states).
+    """
+
+    @pytest.mark.parametrize(
+        "existing_state,policy_kwargs,expected_state,expected_invocations",
+        [
+            ("SUCCEEDED", {}, "SUCCEEDED", 0),
+            ("FAILED", {"idempotency_mode": "REPLAY_SAFE", "recovery_policy": "REPLAY"}, "SUCCEEDED", 1),
+            ("RUNNING", {"idempotency_mode": "NATIVE_KEY", "recovery_policy": "REUSE_RESULT"}, "SUCCEEDED", 1),
+            ("RUNNING", {"idempotency_mode": "NONE", "recovery_policy": "MANUAL"}, "OUTCOME_UNKNOWN", 0),
+            ("OUTCOME_UNKNOWN", {}, "OUTCOME_UNKNOWN", 0),
+            ("WAITING_APPROVAL", {}, "WAITING_APPROVAL", 0),
+            ("REJECTED", {}, "REJECTED", 0),
+        ],
+        ids=[
+            "succeeded-reuse",
+            "failed-retry-safe",
+            "running-native-idempotent",
+            "running-manual-unknown",
+            "outcome-unknown-waiting",
+            "waiting-approval",
+            "rejected-return",
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_recovery_matrix(
+        self,
+        store: Any,
+        sample_scope: Any,
+        make_inbound_envelope: Any,
+        existing_state: str,
+        policy_kwargs: dict[str, Any],
+        expected_state: str,
+        expected_invocations: int,
+    ) -> None:
+        from unittest.mock import AsyncMock
+
+        claim = _claim_running_task(store, sample_scope, make_inbound_envelope)
+        set_active_claim(claim.task_id, claim)
+
+        from miniunicorn.agent.turn_runtime import (
+            TurnRuntime,
+            bind_turn_runtime,
+            reset_turn_runtime,
+        )
+
+        runtime = TurnRuntime(turn_id="t1", session_key="wp4-session", task_id=claim.task_id)
+        token = bind_turn_runtime(runtime)
+        try:
+            base_policy: dict[str, Any] = dict(
+                effect_class="READ",
+                risk_class="LOW",
+                idempotency_mode="REPLAY_SAFE",
+                approval_policy="NEVER",
+                recovery_policy="REPLAY",
+                concurrency_scope="NONE",
+            )
+            base_policy.update(policy_kwargs)
+            policy = EffectiveToolPolicy(**base_policy)
+
+            # Seed the durable row in the existing state.
+            _seed_tool_call_state(
+                store,
+                claim,
+                tool_call_id="call-matrix",
+                state=existing_state,
+                policy=policy,
+            )
+
+            tool = _StubTool("read_file", result="replayed", read_only=True)
+            tool.execute = AsyncMock(return_value="replayed")  # type: ignore[assignment]
+            registry = _StubRegistry({"read_file": tool})
+            gateway = ToolGateway(registry, store, store)
+
+            request = build_tool_execution_request(
+                task_id=claim.task_id,
+                tool_call_id="call-matrix",
+                tool_name="read_file",
+                arguments={"path": "/x"},
+                policy=policy,
+            )
+            result = await gateway.execute(request)
+
+            assert result.state == expected_state, (
+                f"state={result.state!r} expected={expected_state!r} "
+                f"existing={existing_state!r}"
+            )
+            assert tool.execute.await_count == expected_invocations, (
+                f"await_count={tool.execute.await_count} expected={expected_invocations} "
+                f"existing={existing_state!r}"
+            )
+
+            # WAITING_USER rows: the task must be marked WAITING_USER when
+            # the gateway surfaces OUTCOME_UNKNOWN for an unrecoverable state.
+            if existing_state in ("OUTCOME_UNKNOWN",) or (
+                existing_state == "RUNNING" and expected_state == "OUTCOME_UNKNOWN"
+            ):
+                row = store._conn.execute(
+                    "SELECT state, waiting_reason FROM tasks WHERE task_id=?",
+                    (claim.task_id,),
+                ).fetchone()
+                assert row["state"] == "WAITING_USER", (
+                    f"task should be WAITING_USER for {existing_state!r}, got {row['state']!r}"
+                )
+        finally:
+            reset_turn_runtime(token)
+            clear_active_claim(claim.task_id)
+
+
+# ---------------------------------------------------------------------------
+# Subagent effect recovery (Task 6 Step 9)
+# ---------------------------------------------------------------------------
+
+
+class TestSubagentEffectRecovery:
+    """Task 6 Step 9: subagent tool calls that crash after the external
+    effect but before result commit must surface OUTCOME_UNKNOWN with
+    exactly one invocation (no automatic replay).
+
+    The subagent's derived port routes through the root task's
+    ``ToolGateway`` so the same durable safety layer applies. The
+    post-invoke hook simulates a Worker crash between the external
+    effect and the durable result commit.
+    """
+
+    @pytest.mark.asyncio
+    async def test_subagent_crash_after_effect_is_outcome_unknown(
+        self, store: Any, sample_scope: Any, make_inbound_envelope: Any
+    ) -> None:
+        claim = _claim_running_task(store, sample_scope, make_inbound_envelope)
+        set_active_claim(claim.task_id, claim)
+
+        from miniunicorn.agent.turn_runtime import (
+            TurnRuntime,
+            bind_turn_runtime,
+            reset_turn_runtime,
+        )
+
+        runtime = TurnRuntime(
+            turn_id="t1",
+            session_key="wp4-session",
+            task_id=claim.task_id,
+        )
+        token = bind_turn_runtime(runtime)
+        try:
+            # Effectful tool that succeeds — the external effect happens
+            # during tool.execute(), before the crash hook fires.
+            tool = _StubTool("write_file", result="written", read_only=False)
+            registry = _StubRegistry({"write_file": tool})
+            gateway = ToolGateway(registry, store, store)
+
+            # Inject a crash after the tool returns its value but before
+            # finish_tool_attempt commits (Task 6 Step 9). The hook fires
+            # inside the try block, so the except path classifies the
+            # crash via effect_may_have_happened.
+            crash_calls: list[str] = []
+
+            def _crash_hook(request: Any, attempt_id: str) -> None:
+                crash_calls.append(attempt_id)
+                raise RuntimeError("simulated crash after effect")
+
+            gateway._post_invoke_hook = _crash_hook
+
+            # Bind the gateway as the root task's tool_execution_port so
+            # SubagentManager._resolve_tool_execution_port would derive
+            # from it. Here we call derive() directly to test the
+            # derived port path in isolation.
+            runtime.tool_execution_port = gateway
+
+            # Derive a subagent port (Task 6 Step 6). The lineage
+            # namespaces call IDs so root and subagent attempts cannot
+            # collide.
+            subagent_port = gateway.derive("sub:sub1")
+
+            # Build an effectful request through the derived port. The
+            # policy is non-idempotent (NONE) and effectful
+            # (EXTERNAL_WRITE) so the crash is ambiguous.
+            effect_policy = EffectiveToolPolicy(
+                effect_class="EXTERNAL_WRITE",
+                risk_class="HIGH",
+                idempotency_mode="NONE",
+                approval_policy="NEVER",
+                recovery_policy="MANUAL",
+                concurrency_scope="NONE",
+            )
+            request = build_tool_execution_request(
+                task_id=claim.task_id,
+                tool_call_id="provider-call-1",
+                tool_name="write_file",
+                arguments={"path": "/y", "content": "z"},
+                policy=effect_policy,
+            )
+            result = await subagent_port.execute(request)
+
+            # Exactly one external effect — the tool ran once, the crash
+            # happened after, and the gateway must not auto-replay.
+            assert tool.invocations == 1, (
+                f"expected exactly 1 invocation (one external effect), "
+                f"got {tool.invocations}"
+            )
+            assert len(crash_calls) == 1, (
+                f"expected exactly 1 crash injection, got {len(crash_calls)}"
+            )
+
+            # Result is OUTCOME_UNKNOWN (not FAILED, not SUCCEEDED).
+            assert result.state == "OUTCOME_UNKNOWN"
+            assert result.error is not None
+            assert result.error.error_code == "TOOL_OUTCOME_UNKNOWN"
+
+            # The durable tool_calls row for the derived (namespaced)
+            # call ID must be OUTCOME_UNKNOWN.
+            rows = store._conn.execute(
+                "SELECT state FROM tool_calls WHERE task_id=? AND state='OUTCOME_UNKNOWN'",
+                (claim.task_id,),
+            ).fetchall()
+            assert rows, (
+                "expected at least one OUTCOME_UNKNOWN tool_calls row for the "
+                "derived subagent call"
+            )
+
+            # Task must be in WAITING_USER for manual recovery.
+            row = store._conn.execute(
+                "SELECT state FROM tasks WHERE task_id=?",
+                (claim.task_id,),
+            ).fetchone()
+            assert row["state"] == "WAITING_USER", (
+                f"expected WAITING_USER for manual recovery, got {row['state']!r}"
+            )
+        finally:
+            reset_turn_runtime(token)
+            clear_active_claim(claim.task_id)
+
+    @pytest.mark.asyncio
+    async def test_subagent_reuse_after_crash_does_not_reinvoke(
+        self, store: Any, sample_scope: Any, make_inbound_envelope: Any
+    ) -> None:
+        """Resuming after a crash must not re-invoke the tool (Task 6 Step 9).
+
+        When the root task resumes and the subagent port is called again
+        with the same call ID, the gateway must observe the existing
+        OUTCOME_UNKNOWN row and surface it without re-invoking — the
+        effect may or may not have happened, and automatic replay is
+        forbidden for non-idempotent tools.
+        """
+        claim = _claim_running_task(store, sample_scope, make_inbound_envelope)
+        set_active_claim(claim.task_id, claim)
+
+        from miniunicorn.agent.turn_runtime import (
+            TurnRuntime,
+            bind_turn_runtime,
+            reset_turn_runtime,
+        )
+
+        runtime = TurnRuntime(
+            turn_id="t1",
+            session_key="wp4-session",
+            task_id=claim.task_id,
+        )
+        token = bind_turn_runtime(runtime)
+        try:
+            tool = _StubTool("write_file", result="written", read_only=False)
+            registry = _StubRegistry({"write_file": tool})
+            gateway = ToolGateway(registry, store, store)
+
+            # First call: crash after effect.
+            def _crash_hook(request: Any, attempt_id: str) -> None:
+                raise RuntimeError("simulated crash after effect")
+
+            gateway._post_invoke_hook = _crash_hook
+            runtime.tool_execution_port = gateway
+
+            subagent_port = gateway.derive("sub:sub2")
+            effect_policy = EffectiveToolPolicy(
+                effect_class="EXTERNAL_WRITE",
+                risk_class="HIGH",
+                idempotency_mode="NONE",
+                approval_policy="NEVER",
+                recovery_policy="MANUAL",
+                concurrency_scope="NONE",
+            )
+            request = build_tool_execution_request(
+                task_id=claim.task_id,
+                tool_call_id="provider-call-2",
+                tool_name="write_file",
+                arguments={"path": "/z", "content": "w"},
+                policy=effect_policy,
+            )
+            first = await subagent_port.execute(request)
+            assert first.state == "OUTCOME_UNKNOWN"
+            assert tool.invocations == 1
+
+            # Second call (resume): the gateway must observe the existing
+            # OUTCOME_UNKNOWN row and return without re-invoking.
+            gateway._post_invoke_hook = None  # Remove the crash hook.
+            second = await subagent_port.execute(request)
+            assert second.state == "OUTCOME_UNKNOWN"
+            assert tool.invocations == 1, (
+                "resume must not re-invoke the tool; the existing "
+                "OUTCOME_UNKNOWN row must be reused"
+            )
+        finally:
+            reset_turn_runtime(token)
+            clear_active_claim(claim.task_id)
 
 
 # ---------------------------------------------------------------------------

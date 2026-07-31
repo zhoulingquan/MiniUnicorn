@@ -344,6 +344,14 @@ class ExecutionJournal(Protocol):
     ) -> None:
         ...
 
+    def read_tool_call(
+        self, task_id: str, tool_call_id: str
+    ) -> ToolCallRecord | None:
+        ...
+
+    def read_tool_result_content(self, result_blob_id: str) -> Any:
+        ...
+
     def list_pending_controls(
         self, claim: TaskClaim, after_control_seq: int
     ) -> list[TaskControlRecord]:

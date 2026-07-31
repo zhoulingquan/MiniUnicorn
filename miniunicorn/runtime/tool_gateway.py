@@ -30,6 +30,7 @@ from loguru import logger
 
 from miniunicorn.agent.ports import (
     SafeError,
+    ToolExecutionPort,
     ToolExecutionRequest,
     ToolExecutionResult,
 )
@@ -41,7 +42,37 @@ from miniunicorn.runtime.models import (
 
 if TYPE_CHECKING:
     from miniunicorn.agent.tools.registry import ToolRegistry
-    from miniunicorn.runtime.contracts import ExecutionJournal, ResourceLedger
+    from miniunicorn.runtime.contracts import ExecutionJournal, ResourceLedger, WorkerLedger
+
+
+# ---------------------------------------------------------------------------
+# Tool policy classification exceptions (Task 6 Step 4)
+# ---------------------------------------------------------------------------
+
+
+class ToolValidationError(Exception):
+    """Tool arguments failed schema validation (definite pre-invocation)."""
+
+
+class ToolNotFoundError(Exception):
+    """The requested tool name is not registered (definite pre-invocation)."""
+
+
+class ToolPreflightError(Exception):
+    """A tool preflight check refused the call (definite pre-invocation)."""
+
+
+def effect_may_have_happened(exc: BaseException, policy: Any) -> bool:
+    """Decide whether an exception may have left an external effect (Task 6 Step 4).
+
+    Pre-invocation failures (validation, not-found, preflight refusal) are
+    definite — no effect happened. READ-only tools cannot have side
+    effects. Anything else is ambiguous and must surface as
+    ``OUTCOME_UNKNOWN`` rather than an ordinary retryable failure.
+    """
+    return policy.effect_class != "READ" and not isinstance(
+        exc, (ToolValidationError, ToolNotFoundError, ToolPreflightError)
+    )
 
 
 class ToolGateway:
@@ -60,10 +91,19 @@ class ToolGateway:
         tool_registry: "ToolRegistry",
         execution_journal: "ExecutionJournal",
         resource_ledger: "ResourceLedger | None" = None,
+        worker_ledger: "WorkerLedger | None" = None,
     ) -> None:
         self._registry = tool_registry
         self._journal = execution_journal
         self._resources = resource_ledger
+        # WorkerLedger is required to enter WAITING_USER when a tool's
+        # outcome is ambiguous (Task 6 Step 4). Falls back to the journal
+        # when it also implements WorkerLedger (single-façade store).
+        self._worker_ledger = worker_ledger
+        # Test-only fault hook: if set, called after the tool returns its
+        # value but before finish_tool_attempt commits. Simulates a crash
+        # between external effect and result commit (Task 6 Step 9).
+        self._post_invoke_hook: Any = None
 
     async def execute(self, request: ToolExecutionRequest) -> ToolExecutionResult:
         """Execute one logical tool call through the durable path.
@@ -77,10 +117,10 @@ class ToolGateway:
         if existing is not None:
             return existing
 
-        # Step 2: Prepare the logical tool call durably.
+        # Step 2: Prepare the logical tool call durably (idempotent).
         tool_record = self._prepare_call(request)
 
-        # Step 3: Check approval policy.
+        # Step 3: Check approval policy after prepare (re-checked state).
         if tool_record.state == "WAITING_APPROVAL":
             return ToolExecutionResult(
                 state="WAITING_APPROVAL",
@@ -90,36 +130,54 @@ class ToolGateway:
                 ),
             )
 
-        # Step 4: Check for a durable result to reuse (idempotency).
-        if tool_record.state == "SUCCEEDED" and tool_record.result_blob_id:
-            return ToolExecutionResult(
-                state="SUCCEEDED",
-                result_blob_id=tool_record.result_blob_id,
-                result_hash=tool_record.result_hash,
-                effect_receipt_ref=tool_record.effect_receipt_ref,
-            )
-
-        if tool_record.state in ("REJECTED", "FAILED"):
-            return ToolExecutionResult(
-                state=tool_record.state,
-                error=tool_record.error or SafeError(
-                    error_code="TOOL_POLICY_DENIED",
-                    error_summary=f"Tool {request.tool_name} was {tool_record.state}",
-                ),
-            )
-
-        # Step 5: Acquire resource lease if needed.
+        # Step 4: Acquire resource lease if needed.
         resource_token = self._acquire_resource(request)
 
-        # Step 6: Begin attempt.
+        # Step 5: Begin attempt.
         attempt_no = tool_record.attempt_count + 1
         attempt = self._begin_attempt(request, attempt_no, resource_token)
 
-        # Step 7: Execute the tool.
+        # Step 6: Execute the tool with try/finally for resource release.
+        # Resource is released only after the terminal write commits
+        # (Task 6 Step 5). On ambiguous effectful failure, the attempt is
+        # marked OUTCOME_UNKNOWN and the task enters WAITING_USER (Step 4).
         try:
             result_value = await self._invoke_tool(request)
+            # Test-only crash injection (Task 6 Step 9). The hook fires
+            # after the tool has produced its effect but before the
+            # result is durably committed.
+            if self._post_invoke_hook is not None:
+                self._post_invoke_hook(request, attempt.tool_attempt_id)
+            # Step 7: Finish attempt with result (terminal commit first).
+            result = self._build_result(request, result_value)
+            self._finish_attempt(request, attempt.tool_attempt_id, result)
+            return ToolExecutionResult(
+                state=result.state,
+                result_blob_id=result.result_blob_id,
+                result_hash=result.result_hash,
+                effect_receipt_ref=result.effect_receipt_ref,
+                error=result.error,
+                # Ephemeral in-memory echo for the Agent Core (design §20). The
+                # durable fact is the blob reference committed above.
+                content=result_value,
+            )
         except Exception as exc:
-            # Mark the attempt as failed.
+            ambiguous = effect_may_have_happened(exc, request.policy)
+            if ambiguous:
+                # Ambiguous effectful failure: mark OUTCOME_UNKNOWN and
+                # surface WAITING_USER so the user decides whether the
+                # effect happened (Task 6 Step 4).
+                self._mark_outcome_unknown_and_wait(
+                    request, attempt.tool_attempt_id, exc
+                )
+                return ToolExecutionResult(
+                    state="OUTCOME_UNKNOWN",
+                    error=SafeError(
+                        error_code="TOOL_OUTCOME_UNKNOWN",
+                        error_summary=str(exc)[:500],
+                    ),
+                )
+            # Definite pre-invocation failure: record as FAILED.
             self._finish_attempt(
                 request,
                 attempt.tool_attempt_id,
@@ -131,7 +189,6 @@ class ToolGateway:
                     ),
                 ),
             )
-            self._release_resource(request, resource_token)
             return ToolExecutionResult(
                 state="FAILED",
                 error=SafeError(
@@ -139,40 +196,249 @@ class ToolGateway:
                     error_summary=str(exc)[:500],
                 ),
             )
-
-        # Step 8: Finish attempt with result.
-        result = self._build_result(request, result_value)
-        self._finish_attempt(request, attempt.tool_attempt_id, result)
-        self._release_resource(request, resource_token)
-
-        return ToolExecutionResult(
-            state=result.state,
-            result_blob_id=result.result_blob_id,
-            result_hash=result.result_hash,
-            effect_receipt_ref=result.effect_receipt_ref,
-            error=result.error,
-            # Ephemeral in-memory echo for the Agent Core (design §20). The
-            # durable fact is the blob reference committed above.
-            content=result_value,
-        )
+        finally:
+            # Resource release is deferred until after the terminal write
+            # commits so a cancelled Worker leaves the durable attempt
+            # recoverable instead of writing a false FAILED (Task 6 Step 5).
+            self._release_resource(request, resource_token)
 
     # ------------------------------------------------------------------
-    # Recovery: check existing durable tool call state
+    # Recovery: check existing durable tool call state (Task 6 Step 3)
     # ------------------------------------------------------------------
 
     def _check_existing_call(
         self, request: ToolExecutionRequest
     ) -> ToolExecutionResult | None:
-        """Check if a durable tool_calls row already exists for this call.
+        """Inspect the durable ``tool_calls`` row and decide recovery action.
 
-        Returns a :class:`ToolExecutionResult` if the call is already
-        terminal (reuse/deny), or ``None`` if the call is new or needs
-        execution.
+        Returns a :class:`ToolExecutionResult` for terminal / unrecoverable
+        states, or ``None`` when the call is new or safe to retry.
         """
-        # The journal's prepare_tool_call is idempotent — it will return
-        # the existing row. We don't need a separate read here because
-        # prepare_tool_call handles the INSERT OR IGNORE + verification.
+        record = self._journal.read_tool_call(request.task_id, request.tool_call_id)
+        if record is None:
+            return None  # New call — proceed to prepare.
+
+        state = record.state
+
+        if state == "SUCCEEDED" and record.result_blob_id:
+            content = self._journal.read_tool_result_content(record.result_blob_id)
+            return ToolExecutionResult(
+                state="SUCCEEDED",
+                result_blob_id=record.result_blob_id,
+                result_hash=record.result_hash,
+                effect_receipt_ref=record.effect_receipt_ref,
+                content=content,
+            )
+
+        if state == "WAITING_APPROVAL":
+            return ToolExecutionResult(
+                state="WAITING_APPROVAL",
+                error=SafeError(
+                    error_code="TOOL_APPROVAL_REQUIRED",
+                    error_summary=f"Tool {request.tool_name} requires approval",
+                ),
+            )
+
+        if state == "REJECTED":
+            return ToolExecutionResult(
+                state="REJECTED",
+                error=record.error
+                or SafeError(
+                    error_code="TOOL_REJECTED",
+                    error_summary=f"Tool {request.tool_name} was rejected",
+                ),
+            )
+
+        if state == "OUTCOME_UNKNOWN":
+            # Already ambiguous from a prior run — surface WAITING_USER
+            # without re-invoking. The tool_calls row is already terminal.
+            self._enter_waiting_user(request, request.tool_call_id, "TOOL_OUTCOME_UNKNOWN")
+            return ToolExecutionResult(
+                state="OUTCOME_UNKNOWN",
+                error=record.error
+                or SafeError(
+                    error_code="TOOL_OUTCOME_UNKNOWN",
+                    error_summary="Tool outcome is unknown; manual recovery required",
+                ),
+            )
+
+        if state == "FAILED":
+            # Retry-safe policies proceed to a new attempt.
+            if self._is_retry_safe(request.policy):
+                return None
+            return ToolExecutionResult(
+                state="FAILED",
+                error=record.error
+                or SafeError(
+                    error_code="TOOL_PRIOR_FAILURE",
+                    error_summary=f"Tool {request.tool_name} previously failed",
+                ),
+            )
+
+        if state == "RUNNING":
+            # Native idempotency (and other safe modes) may retry with
+            # the same idempotency key. Non-idempotent / manual policies
+            # cannot retry safely — mark OUTCOME_UNKNOWN and surface
+            # WAITING_USER (Task 6 Step 1 matrix).
+            if self._is_retry_safe(request.policy) and request.policy.idempotency_mode != "NONE":
+                return None  # Retry with the same idempotency key.
+            self._mark_running_unknown_and_wait(request, record)
+            return ToolExecutionResult(
+                state="OUTCOME_UNKNOWN",
+                error=SafeError(
+                    error_code="TOOL_OUTCOME_UNKNOWN",
+                    error_summary="Tool was RUNNING; manual recovery required",
+                ),
+            )
+
+        # PREPARED: proceed to invoke.
         return None
+
+    # ------------------------------------------------------------------
+    # Recovery helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _is_retry_safe(policy: Any) -> bool:
+        """A policy is retry-safe when idempotency or recovery policy allows replay."""
+        return policy.idempotency_mode in ("REPLAY_SAFE", "NATIVE_KEY", "RUNTIME_RESULT") or (
+            policy.recovery_policy in ("REPLAY", "REUSE_RESULT", "QUERY_THEN_RETRY")
+        )
+
+    def _mark_outcome_unknown_and_wait(
+        self, request: ToolExecutionRequest, attempt_id: str, exc: BaseException
+    ) -> None:
+        """Mark the current attempt OUTCOME_UNKNOWN and enter WAITING_USER.
+
+        Used when an effectful tool raises mid-invocation: the attempt is
+        terminal (we cannot retry safely) and the user must decide whether
+        the effect happened (Task 6 Step 4).
+        """
+        claim = self._get_claim()
+        if claim is None:
+            return  # Nothing durable to write without a claim.
+        try:
+            self._journal.mark_tool_unknown(
+                claim,
+                attempt_id,
+                SafeError(
+                    error_code="TOOL_OUTCOME_UNKNOWN",
+                    error_summary=str(exc)[:500],
+                ),
+                _now_ms(),
+            )
+        except Exception:
+            logger.exception("mark_tool_unknown failed for attempt {}", attempt_id)
+        self._enter_waiting_user(request, request.tool_call_id, "TOOL_OUTCOME_UNKNOWN")
+
+    def _mark_running_unknown_and_wait(
+        self, request: ToolExecutionRequest, record: Any
+    ) -> None:
+        """Mark a previously-RUNNING call OUTCOME_UNKNOWN and enter WAITING_USER.
+
+        Used when a recovered RUNNING call cannot be retried safely. The
+        previous attempt is left as STARTED (lease/containment will reap
+        it) and the logical tool_calls row is marked OUTCOME_UNKNOWN via
+        ``mark_tool_unknown`` on the most recent attempt.
+        """
+        claim = self._get_claim()
+        if claim is None:
+            self._enter_waiting_user(request, record.tool_call_id, "TOOL_OUTCOME_UNKNOWN")
+            return
+        # Find the open attempt (if any) to mark OUTCOME_UNKNOWN. If the
+        # row was left in RUNNING without an attempt, just enter WAITING_USER.
+        attempt_id = self._find_open_attempt(claim.task_id, record.tool_call_id)
+        if attempt_id is not None:
+            try:
+                self._journal.mark_tool_unknown(
+                    claim,
+                    attempt_id,
+                    SafeError(
+                        error_code="TOOL_OUTCOME_UNKNOWN",
+                        error_summary="Recovered RUNNING call; manual recovery required",
+                    ),
+                    _now_ms(),
+                )
+            except Exception:
+                logger.exception("mark_tool_unknown failed for running call {}", record.tool_call_id)
+        self._enter_waiting_user(request, record.tool_call_id, "TOOL_OUTCOME_UNKNOWN")
+
+    def _find_open_attempt(self, task_id: str, tool_call_id: str) -> str | None:
+        """Return the most recent STARTED attempt id for a tool call, if any."""
+        try:
+            row = self._journal._conn.execute(  # type: ignore[attr-defined]
+                "SELECT tool_attempt_id FROM tool_attempts "
+                "WHERE task_id=? AND tool_call_id=? AND state='STARTED' "
+                "ORDER BY attempt_no DESC LIMIT 1",
+                (task_id, tool_call_id),
+            ).fetchone()
+            return row["tool_attempt_id"] if row else None
+        except Exception:
+            return None
+
+    def _enter_waiting_user(
+        self, request: ToolExecutionRequest, ref: str, reason: str
+    ) -> None:
+        """Transition the task to ``WAITING_USER`` with a recovery prompt.
+
+        Best-effort: if no WorkerLedger is bound or the transition fails
+        (e.g. stale lease), the tool_calls row remains in its terminal
+        state and the caller still receives the OUTCOME_UNKNOWN result.
+        """
+        ledger = self._worker_ledger
+        if ledger is None:
+            # Fall back to the journal if it implements WorkerLedger
+            # (single-façade store).
+            ledger = self._journal if hasattr(self._journal, "enter_waiting_user") else None
+        if ledger is None:
+            return
+        claim = self._get_claim()
+        if claim is None:
+            return
+        prompt = (
+            f"Tool '{request.tool_name}' requires manual recovery: {reason}. "
+            "Confirm whether the effect happened before retrying."
+        ).encode("utf-8")
+        prompt_hash = hashlib.sha256(prompt).hexdigest()
+        try:
+            from miniunicorn.runtime.models import BlobWrite, WaitDecision
+
+            blob = self._journal.write_blob(  # type: ignore[attr-defined]
+                BlobWrite(
+                    scope_key=f"task/{request.task_id}",
+                    blob_kind="RECOVERY_PROMPT",
+                    content_hash=prompt_hash,
+                    encoding="RAW_BYTES",
+                    inline_content=prompt,
+                    size_bytes=len(prompt),
+                )
+            )
+            wait = WaitDecision(
+                waiting_reason=reason,
+                waiting_ref=ref,
+                wait_until_ms=None,
+                prompt_blob_id=blob.blob_id,
+                prompt_hash=prompt_hash,
+                prompt_dedup_key=f"recover:{ref}",
+                control_token=uuid.uuid4().hex,
+            )
+            ledger.enter_waiting_user(claim, wait)
+        except Exception:
+            logger.exception("enter_waiting_user failed for tool call {}", ref)
+
+    # ------------------------------------------------------------------
+    # Subagent derivation (Task 6 Step 6)
+    # ------------------------------------------------------------------
+
+    def derive(self, lineage: str) -> ToolExecutionPort:
+        """Return a derived port scoped to ``lineage`` (Task 6 Step 6).
+
+        Subagents call this on the root task's port to obtain a gateway
+        that namespaces ``tool_call_id`` by lineage. The derived port
+        shares the durable store and registry; only the call ID is
+        prefixed so root and subagent attempts cannot collide.
+        """
+        return _DerivedToolGateway(self, lineage)
 
     # ------------------------------------------------------------------
     # Preparation
@@ -347,7 +613,9 @@ class ToolGateway:
 
         tool = self._registry.get(request.tool_name)
         if tool is None:
-            raise RuntimeError(f"Tool not found: {request.tool_name}")
+            # Definite pre-invocation failure (Task 6 Step 4): a missing
+            # tool cannot have produced an effect.
+            raise ToolNotFoundError(f"Tool not found: {request.tool_name}")
         set_active_tool_call_id(request.task_id, request.tool_call_id)
         try:
             return await tool.execute(**request.normalized_arguments)
@@ -485,8 +753,50 @@ def build_tool_execution_request(
     )
 
 
+class _DerivedToolGateway:
+    """ToolExecutionPort derived from a :class:`ToolGateway` for subagents.
+
+    Shares the parent gateway's registry, journal, and resource ledger.
+    Only the ``tool_call_id`` is namespaced by lineage so root and
+    subagent attempts cannot collide (Task 6 Step 6). Derived call IDs
+    are stable per ``(root_task_id, lineage, provider_tool_call_id)``.
+    """
+
+    def __init__(self, parent: "ToolGateway", lineage: str) -> None:
+        self._parent = parent
+        self._lineage = lineage
+
+    async def execute(self, request: ToolExecutionRequest) -> ToolExecutionResult:
+        from dataclasses import replace
+
+        derived_id = _derived_tool_call_id(
+            request.task_id, self._lineage, request.tool_call_id
+        )
+        derived_request = replace(request, tool_call_id=derived_id)
+        return await self._parent.execute(derived_request)
+
+    def derive(self, lineage: str) -> "_DerivedToolGateway":
+        return _DerivedToolGateway(self._parent, f"{self._lineage}:{lineage}")
+
+
+def _derived_tool_call_id(
+    root_task_id: str, lineage: str, tool_call_id: str
+) -> str:
+    """Stable derived call id: ``sha256(root_task_id:lineage:tool_call_id)``.
+
+    Uses a colon-separated digest so collisions between root and subagent
+    call IDs are cryptographically impossible (Task 6 Step 6).
+    """
+    raw = f"{root_task_id}:{lineage}:{tool_call_id}".encode("utf-8")
+    return "sub:" + hashlib.sha256(raw).hexdigest()[:32]
+
+
 __all__ = [
     "ToolGateway",
+    "ToolValidationError",
+    "ToolNotFoundError",
+    "ToolPreflightError",
+    "effect_may_have_happened",
     "compute_idempotency_key",
     "compute_arguments_hash",
     "build_tool_execution_request",

@@ -263,6 +263,32 @@ class SubagentManager:
                 filtered.register(tool)
         return filtered
 
+    def _resolve_tool_execution_port(self, task_id: str, tools: ToolRegistry) -> Any:
+        """Resolve the ToolExecutionPort for a subagent (Task 6 Step 6).
+
+        When the parent turn is running under the durable runtime, the
+        root task's ``ToolExecutionPort`` is bound on the current
+        ``TurnRuntime``. The subagent derives from it via
+        ``derive(f"sub:{task_id}")`` so tool calls are routed through
+        the same ``ToolGateway`` with namespaced call IDs (root and
+        subagent attempts cannot collide).
+
+        Falls back to :class:`DirectToolExecutionPort` for legacy
+        (non-durable) turns where no ``TurnRuntime`` is bound. This
+        keeps existing unit tests working without a durable host.
+        """
+        from miniunicorn.agent.turn_runtime import current_turn_runtime
+
+        runtime = current_turn_runtime()
+        root_port = (
+            runtime.tool_execution_port
+            if runtime is not None
+            else None
+        )
+        if root_port is not None:
+            return root_port.derive(f"sub:{task_id}")
+        return DirectToolExecutionPort(tools)
+
     def set_provider(self, provider: LLMProvider, model: str) -> None:
         self.provider = provider
         self.model = model
@@ -429,7 +455,7 @@ class SubagentManager:
                         AgentRunSpec(
                             initial_messages=messages,
                             tools=tools,
-                            tool_execution_port=DirectToolExecutionPort(tools),
+                            tool_execution_port=self._resolve_tool_execution_port(task_id, tools),
                             model=self.model,
                             temperature=temperature,
                             max_iterations=self.max_iterations,
@@ -575,7 +601,7 @@ class SubagentManager:
                     AgentRunSpec(
                         initial_messages=messages,
                         tools=tools,
-                        tool_execution_port=DirectToolExecutionPort(tools),
+                        tool_execution_port=self._resolve_tool_execution_port(task_id, tools),
                         model=use_model,
                         temperature=temperature,
                         max_iterations=self.max_iterations,

@@ -542,6 +542,15 @@ class ToolExecutionPort(Protocol):
     async def execute(self, request: ToolExecutionRequest) -> ToolExecutionResult:
         ...
 
+    def derive(self, lineage: str) -> "ToolExecutionPort":
+        """Return a derived port scoped to ``lineage`` (Task 6 Step 6).
+
+        Subagents use this to obtain a tool-execution port that shares
+        the durable gateway but namespaces call IDs by lineage so the
+        root task and subagent attempts cannot collide.
+        """
+        ...
+
 
 @runtime_checkable
 class SessionCommitPort(Protocol):

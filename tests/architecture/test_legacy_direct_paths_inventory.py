@@ -27,6 +27,10 @@ _CHANNELS_MANAGER = _REPO_ROOT / "miniunicorn" / "channels" / "manager.py"
 _DREAM_TRIGGER = _AGENT / "dream_trigger.py"
 _CRON_SERVICE = _REPO_ROOT / "miniunicorn" / "cron" / "service.py"
 _TASK_SUPERVISOR = _REPO_ROOT / "miniunicorn" / "utils" / "task_supervisor.py"
+# Task 6 Step 8: production Agent modules that must not instantiate
+# DirectToolExecutionPort or call tool.execute() outside approved helpers.
+_SUBAGENT = _AGENT / "subagent.py"
+_AGENT_RUN_ADAPTER = _AGENT / "agent_run_adapter.py"
 
 
 def _read(path: Path) -> str:
@@ -105,7 +109,10 @@ class TestDirectToolExecutionInventory:
     """The runner invokes tools directly today (design §29.6, §20).
 
     WP4 replaces both forms with ``ToolExecutionPort.execute()`` routed
-    through ``ToolGateway``.
+    through ``ToolGateway``. Task 6 Step 8 adds architecture gates so
+    ``DirectToolExecutionPort(`` cannot reappear in production Agent or
+    subagent modules outside the approved ``_resolve_tool_execution_port``
+    fallback helper.
     """
 
     def test_runner_does_not_call_tool_execute_directly(self) -> None:
@@ -120,6 +127,117 @@ class TestDirectToolExecutionInventory:
         assert "spec.tools.execute(" not in source, (
             "AgentRunner still calls spec.tools.execute(); WP4 must route "
             "through ToolExecutionPort.execute() and the ToolGateway."
+        )
+
+    @staticmethod
+    def _direct_port_call_sites(source: str) -> set[str]:
+        """Return enclosing function names where ``DirectToolExecutionPort(...)`` is called."""
+        tree = ast.parse(source)
+        sites: set[str] = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for child in ast.walk(node):
+                if (
+                    isinstance(child, ast.Call)
+                    and isinstance(child.func, ast.Name)
+                    and child.func.id == "DirectToolExecutionPort"
+                ):
+                    sites.add(node.name)
+        return sites
+
+    def test_subagent_direct_port_only_in_approved_helper(self) -> None:
+        """SubagentManager must derive from the root ToolGateway (Task 6 Step 6).
+
+        ``DirectToolExecutionPort(...)`` may appear only inside
+        ``_resolve_tool_execution_port`` — the explicit legacy/test
+        fallback. Any other call site bypasses the durable safety layer.
+        """
+        source = _read(_SUBAGENT)
+        sites = self._direct_port_call_sites(source)
+        assert sites <= {"_resolve_tool_execution_port"}, (
+            "SubagentManager instantiates DirectToolExecutionPort outside "
+            "_resolve_tool_execution_port; Task 6 Step 6 requires derived "
+            f"ports from the root ToolGateway. Found in: {sites}"
+        )
+
+    def test_adapter_direct_port_only_in_approved_helper(self) -> None:
+        """AgentRunAdapter must raise DURABLE_TOOL_PORT_MISSING in durable mode (Task 6 Step 7).
+
+        ``DirectToolExecutionPort(...)`` may appear only inside
+        ``_resolve_tool_execution_port`` — the explicit legacy/test
+        fallback for non-durable turns.
+        """
+        source = _read(_AGENT_RUN_ADAPTER)
+        sites = self._direct_port_call_sites(source)
+        assert sites <= {"_resolve_tool_execution_port"}, (
+            "AgentRunAdapter instantiates DirectToolExecutionPort outside "
+            "_resolve_tool_execution_port; Task 6 Step 7 requires "
+            "DURABLE_TOOL_PORT_MISSING for durable turns. Found in: "
+            f"{sites}"
+        )
+
+    @staticmethod
+    def _tool_execute_call_sites_outside_direct_port(source: str) -> set[str]:
+        """Return enclosing function names where ``tool.execute(`` is called
+        outside the approved ``DirectToolExecutionPort`` class.
+        """
+        tree = ast.parse(source)
+        # Find the line range of the DirectToolExecutionPort class so we
+        # can skip ``tool.execute(`` calls inside it (the approved helper).
+        direct_port_ranges: list[tuple[int, int]] = []
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.ClassDef)
+                and node.name == "DirectToolExecutionPort"
+            ):
+                direct_port_ranges.append((node.lineno, node.end_lineno or node.lineno))
+        sites: set[str] = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for child in ast.walk(node):
+                if not (isinstance(child, ast.Await) and isinstance(child.value, ast.Call)):
+                    continue
+                call = child.value
+                if not (
+                    isinstance(call.func, ast.Attribute)
+                    and call.func.attr == "execute"
+                    and isinstance(call.func.value, ast.Name)
+                    and call.func.value.id == "tool"
+                ):
+                    continue
+                # Skip if the call is inside the DirectToolExecutionPort class.
+                if any(
+                    start <= child.lineno <= end
+                    for start, end in direct_port_ranges
+                ):
+                    continue
+                sites.add(node.name)
+        return sites
+
+    def test_subagent_does_not_call_tool_execute_directly(self) -> None:
+        """SubagentManager must route tool calls through the ToolExecutionPort."""
+        source = _read(_SUBAGENT)
+        sites = self._tool_execute_call_sites_outside_direct_port(source)
+        assert not sites, (
+            "SubagentManager still calls tool.execute() directly outside "
+            "DirectToolExecutionPort; Task 6 must route through "
+            f"ToolExecutionPort.execute(). Found in: {sites}"
+        )
+
+    def test_adapter_does_not_call_tool_execute_directly(self) -> None:
+        """AgentRunAdapter must route tool calls through the ToolExecutionPort.
+
+        ``tool.execute()`` is allowed only inside the
+        :class:`DirectToolExecutionPort` fake/test helper class.
+        """
+        source = _read(_AGENT_RUN_ADAPTER)
+        sites = self._tool_execute_call_sites_outside_direct_port(source)
+        assert not sites, (
+            "AgentRunAdapter still calls tool.execute() directly outside "
+            "DirectToolExecutionPort; Task 6 must route through "
+            f"ToolExecutionPort.execute(). Found in: {sites}"
         )
 
 

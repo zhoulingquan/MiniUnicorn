@@ -2120,6 +2120,39 @@ class SqliteRuntimeStore:
         ).fetchall()
         return tuple(_row_to_completed_tool_decision(r) for r in rows)
 
+    def read_tool_call(
+        self, task_id: str, tool_call_id: str
+    ) -> ToolCallRecord | None:
+        """Read a single logical tool call by id (Task 6 Step 3).
+
+        Used by :class:`ToolGateway._check_existing_call` to decide
+        reuse / retry / unknown without invoking the tool again.
+        """
+        row = self._conn.execute(
+            "SELECT * FROM tool_calls WHERE task_id=? AND tool_call_id=?",
+            (task_id, tool_call_id),
+        ).fetchone()
+        return _row_to_tool_call(row) if row else None
+
+    def read_tool_result_content(self, result_blob_id: str) -> Any:
+        """Decode a previously-stored tool result blob (Task 6 Step 3).
+
+        Returns the original Python value (str or deserialized JSON) so
+        the gateway can echo it as the in-memory ``content`` on reuse.
+        Returns ``None`` when the blob is missing or externally stored.
+        """
+        raw = self.read_blob_content(result_blob_id)
+        if raw is None:
+            return None
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+        try:
+            return json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            return text
+
     def begin_model_attempt(
         self, claim: TaskClaim, value: ModelAttemptWrite
     ) -> str:

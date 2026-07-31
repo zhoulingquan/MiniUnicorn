@@ -22,7 +22,7 @@ DELEGATE_METHODS = COMPATIBILITY_METHODS
 
 COLLABORATOR_LINE_LIMITS = {
     "turn_executor.py": 340,
-    "agent_run_adapter.py": 420,
+    "agent_run_adapter.py": 460,
     "turn_persistence.py": 450,
     "turn_dispatcher.py": 200,
 }

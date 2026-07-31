@@ -61,15 +61,45 @@ def _durable_runtime_port(attr: str) -> Any:
     return getattr(runtime, attr, None)
 
 
+def _resolve_tool_execution_port(tools: Any) -> Any:
+    """Resolve the ToolExecutionPort for the parent Agent turn (Task 6 Step 7).
+
+    A durable turn (``runtime.task_id`` is set) must have a real
+    :class:`ToolGateway` bound on the ``TurnRuntime``. If it does not,
+    raise ``DURABLE_TOOL_PORT_MISSING`` rather than silently instantiating
+    :class:`DirectToolExecutionPort` — the direct port bypasses the
+    durable safety layer and must never run in production.
+
+    Legacy (non-durable) turns and unit tests with no bound
+    ``TurnRuntime`` fall back to :class:`DirectToolExecutionPort`.
+    """
+    runtime = current_turn_runtime()
+    is_durable = runtime is not None and runtime.task_id is not None
+    port = (
+        runtime.tool_execution_port
+        if runtime is not None
+        else None
+    )
+    if port is None:
+        if is_durable:
+            raise RuntimeError(
+                "DURABLE_TOOL_PORT_MISSING: durable runtime mode requires a "
+                "ToolExecutionPort bound on TurnRuntime; the Worker Adapter "
+                "must construct a ToolGateway before invoking the Agent."
+            )
+        return DirectToolExecutionPort(tools)
+    return port
+
+
 class DirectToolExecutionPort:
     """Legacy/test fallback that executes tools directly via the registry.
 
-    Used when no durable ToolGateway is bound (legacy/test mode). Mirrors
-    the former in-process execution path: resolve the tool via the
-    registry, call ``tool.execute(**params)`` for real ToolRegistry
-    instances, or fall back to ``tools.execute(name, params)`` for mocks.
-    Exceptions are re-raised so the Runner's gateway exception handler
-    can apply violation classification and soft-error semantics.
+    Used only by tests that need a non-durable :class:`ToolExecutionPort`.
+    Production Agent execution must NOT use this port: when the durable
+    runtime is enabled, the Worker Adapter binds a real
+    :class:`ToolGateway` to the :class:`TurnRuntime`. If no port is
+    bound in durable mode, the adapter raises ``DURABLE_TOOL_PORT_MISSING``
+    (Task 6 Step 7) instead of silently instantiating this class.
     """
 
     def __init__(self, tools: Any) -> None:
@@ -92,6 +122,13 @@ class DirectToolExecutionPort:
                 request.tool_name, request.normalized_arguments
             )
         return ToolExecutionResult(state="SUCCEEDED", content=result)
+
+    def derive(self, lineage: str) -> "DirectToolExecutionPort":
+        """Test helper: derived ports share the same registry (Task 6 Step 6).
+
+        Production code routes through :meth:`ToolGateway.derive` instead.
+        """
+        return self
 
 
 class AgentRunHost(Protocol):
@@ -341,10 +378,10 @@ class AgentRunAdapter:
                     # up from the bound TurnRuntime when running under the
                     # durable runtime; fall back to DirectToolExecutionPort
                     # for legacy/test turns where no TurnRuntime is bound.
-                    tool_execution_port=(
-                        _durable_runtime_port("tool_execution_port")
-                        or DirectToolExecutionPort(tools)
-                    ),
+                    # Task 6 Step 7: a durable turn with no bound
+                    # ToolExecutionPort is a composition error — never
+                    # silently instantiate the direct port in production.
+                    tool_execution_port=_resolve_tool_execution_port(tools),
                     turn_journal=_durable_runtime_port("turn_journal"),
                     # Task 5 Step 3: the observer is constructed by the
                     # runtime adapter and bound to the TurnRuntime. The
