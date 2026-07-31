@@ -148,6 +148,7 @@ class AgentTaskWorker:
         heartbeat_interval_s: float = 15.0,
         containment_factory: Callable[[str], ContainmentScope] | None = None,
         maintenance_executor: MaintenanceExecutor | None = None,
+        fault_hook: Callable[[str], None] | None = None,
     ) -> None:
         self._worker_id = worker_id
         self._scheduler = scheduler
@@ -160,6 +161,10 @@ class AgentTaskWorker:
         # kinds (DREAM, MEMORY_CONSOLIDATION, etc.). When absent,
         # non-USER_TURN tasks fail with a stable safe error code.
         self._maintenance_executor = maintenance_executor
+        # Task 14 Step 1: optional fault-injection hook used only by
+        # tests to raise at named durable boundaries. Production default
+        # is ``None`` and adds no behavior (design §30 Task 14 Step 1).
+        self._fault_hook = fault_hook
         self._running = False
 
     @property
@@ -281,9 +286,20 @@ class AgentTaskWorker:
             name=f"heartbeat-{task_id}",
         )
 
+        # execution_task is created after the INBOUND commit succeeds.
+        # Initialized to ``None`` so the ``finally`` block can safely
+        # cancel it only if it was actually started (design §17.7).
+        execution_task: asyncio.Task[WorkerExecutionResult] | None = None
+
         try:
             # Decode payload.
             payload = self._decode_payload(record)
+
+            # Task 14 Step 1: fault injection at the claim boundary.
+            # Production default ``self._fault_hook is None`` so this is
+            # a no-op unless a test installs a :class:`FaultInjector`.
+            if self._fault_hook is not None:
+                self._fault_hook("after_task_claim")
 
             # Check if INBOUND commit already happened (crash recovery).
             inbound_result = await self._commit_inbound(claim, record, payload)
@@ -296,6 +312,11 @@ class AgentTaskWorker:
 
             # Get the session base revision after INBOUND commit.
             session_base_revision = inbound_result.revision
+
+            # Task 14 Step 1: fault injection after INBOUND session
+            # prepare (the user message is durably committed).
+            if self._fault_hook is not None:
+                self._fault_hook("after_session_prepare")
 
             # Race the Agent execution against lease loss: a rejected
             # heartbeat must cancel execution before it can reach session
@@ -335,8 +356,17 @@ class AgentTaskWorker:
                 self._enter_session_retry(claim, task_id, final_result)
                 return
 
+            # Task 14 Step 1: fault injection after FINAL session confirm.
+            if self._fault_hook is not None:
+                self._fault_hook("after_session_confirm")
+
             # Complete the task (design §17.8).
             self._complete_task(claim, record, result, final_result.revision)
+
+            # Task 14 Step 1: fault injection after the Outbox row is
+            # enqueued atomically with task completion.
+            if self._fault_hook is not None:
+                self._fault_hook("after_outbox_enqueue")
 
             logger.info(
                 "worker {} completed task {} (session={})",
@@ -367,6 +397,13 @@ class AgentTaskWorker:
             heartbeat_task.cancel()
             with suppress_exception(asyncio.CancelledError):
                 await heartbeat_task
+            # Cancel any in-flight execution task so an orphaned Agent
+            # callback cannot continue running after the Worker has
+            # released the task (design §17.7, Task 14 crash recovery).
+            if execution_task is not None and not execution_task.done():
+                execution_task.cancel()
+                with suppress_exception(asyncio.CancelledError):
+                    await execution_task
             # Terminate the task's child-process tree before releasing
             # the lease (design §20.7).
             try:

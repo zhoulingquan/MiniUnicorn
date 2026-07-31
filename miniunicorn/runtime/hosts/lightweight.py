@@ -55,6 +55,7 @@ class LightweightHost:
         max_root_attempts: int = 3,
         maintenance_executor: Any = None,
         containment_factory: Any = None,
+        fault_hook: Any = None,
     ) -> None:
         self._store = store
         self._session_committer = session_committer
@@ -71,6 +72,10 @@ class LightweightHost:
         self._containment_factory = containment_factory or (
             lambda task_id: ProcessContainmentScope(task_id)
         )
+        # Task 14 Step 1: optional fault-injection hook forwarded to every
+        # Worker so tests can raise at named durable boundaries. Production
+        # default is ``None`` and adds no behavior (design §30 Task 14).
+        self._fault_hook = fault_hook
 
         self._task_service = TaskService(store)
         self._scheduler = Scheduler(
@@ -117,6 +122,7 @@ class LightweightHost:
                 heartbeat_interval_s=self._heartbeat_interval_s,
                 maintenance_executor=self._maintenance_executor,
                 containment_factory=self._containment_factory,
+                fault_hook=self._fault_hook,
             )
             self._workers.append(worker)
             task = asyncio.create_task(worker.run(), name=f"worker-{worker_id}")

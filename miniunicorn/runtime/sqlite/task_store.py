@@ -1150,6 +1150,13 @@ class TaskStoreMixin:
             self._conn.execute("ROLLBACK")
             raise
 
+        # Task 14 Step 7: expose recovery metrics. Increment only after
+        # the transaction commits so partial reclaims are not counted.
+        if reclaimed:
+            from miniunicorn.runtime.observability import get_runtime_metrics
+
+            get_runtime_metrics().inc("task_lease_reclaims_total", reclaimed)
+
         return ReclaimResult(
             reclaimed_count=reclaimed,
             failed_count=failed,

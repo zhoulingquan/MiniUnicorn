@@ -172,6 +172,10 @@ class OutboxSender:
         )
         if not claims:
             return False
+        # Task 14 Step 7: expose recovery metrics for expired sends.
+        from miniunicorn.runtime.observability import get_runtime_metrics
+
+        get_runtime_metrics().inc("outbox_expired_sending_total", len(claims))
         for claim in claims:
             try:
                 self._apply_recovery_policy(claim)
@@ -220,6 +224,10 @@ class OutboxSender:
                         error_summary="expired lease; queryable receipt inconclusive",
                     ),
                 )
+                # Task 14 Step 7: expose recovery metrics.
+                from miniunicorn.runtime.observability import get_runtime_metrics
+
+                get_runtime_metrics().inc("outbox_outcome_unknown_total")
                 logger.warning(
                     "OutboxSender recovered outbox_id={} as OUTCOME_UNKNOWN (queryable)",
                     claim.outbox_id,
@@ -233,6 +241,10 @@ class OutboxSender:
                     error_summary="expired lease; channel has no recovery capability",
                 ),
             )
+            # Task 14 Step 7: expose recovery metrics.
+            from miniunicorn.runtime.observability import get_runtime_metrics
+
+            get_runtime_metrics().inc("outbox_outcome_unknown_total")
             logger.warning(
                 "OutboxSender recovered outbox_id={} as OUTCOME_UNKNOWN (no recovery)",
                 claim.outbox_id,

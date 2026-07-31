@@ -170,6 +170,10 @@ class ToolGateway:
                 self._mark_outcome_unknown_and_wait(
                     request, attempt.tool_attempt_id, exc
                 )
+                # Task 14 Step 7: expose recovery metrics.
+                from miniunicorn.runtime.observability import get_runtime_metrics
+
+                get_runtime_metrics().inc("tool_outcome_unknown_total")
                 return ToolExecutionResult(
                     state="OUTCOME_UNKNOWN",
                     error=SafeError(
@@ -253,6 +257,10 @@ class ToolGateway:
             # Already ambiguous from a prior run — surface WAITING_USER
             # without re-invoking. The tool_calls row is already terminal.
             self._enter_waiting_user(request, request.tool_call_id, "TOOL_OUTCOME_UNKNOWN")
+            # Task 14 Step 7: expose recovery metrics.
+            from miniunicorn.runtime.observability import get_runtime_metrics
+
+            get_runtime_metrics().inc("tool_outcome_unknown_total")
             return ToolExecutionResult(
                 state="OUTCOME_UNKNOWN",
                 error=record.error

@@ -214,6 +214,12 @@ class DurableTurnJournalAdapter:
             raise RuntimeError(
                 f"model response blob not found: {response_blob_id}"
             )
+        # Task 14 Step 7: expose recovery metrics. This method is only
+        # called when a completed model decision is reused after crash
+        # recovery, so each call represents one reused decision.
+        from miniunicorn.runtime.observability import get_runtime_metrics
+
+        get_runtime_metrics().inc("model_decisions_reused_total")
         return deserialize_model_decision(content)
 
     async def record_model_failed(

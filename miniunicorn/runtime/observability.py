@@ -15,12 +15,87 @@ Design references:
 from __future__ import annotations
 
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from miniunicorn.runtime.contracts import RuntimeStore
+
+
+# ---------------------------------------------------------------------------
+# Recovery metrics counters (Task 14 Step 7)
+# ---------------------------------------------------------------------------
+
+
+_METRIC_NAMES: tuple[str, ...] = (
+    "task_lease_reclaims_total",
+    "stale_mutations_rejected_total",
+    "model_decisions_reused_total",
+    "tool_outcome_unknown_total",
+    "outbox_expired_sending_total",
+    "outbox_outcome_unknown_total",
+)
+
+
+class RuntimeMetrics:
+    """Thread-safe recovery metric counters (Task 14 Step 7).
+
+    Counters are cumulative since process start. No metric label contains
+    task ID, session content, user identity, or unbounded error strings
+    (design Task 14 Step 7). Counters are incremented from production
+    code paths (reclaim, lease validation, model restore, tool gateway,
+    outbox recovery) and exposed through :func:`collect_metrics_text`.
+    """
+
+    __slots__ = (
+        "_lock",
+        "task_lease_reclaims_total",
+        "stale_mutations_rejected_total",
+        "model_decisions_reused_total",
+        "tool_outcome_unknown_total",
+        "outbox_expired_sending_total",
+        "outbox_outcome_unknown_total",
+    )
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.task_lease_reclaims_total = 0
+        self.stale_mutations_rejected_total = 0
+        self.model_decisions_reused_total = 0
+        self.tool_outcome_unknown_total = 0
+        self.outbox_expired_sending_total = 0
+        self.outbox_outcome_unknown_total = 0
+
+    def inc(self, name: str, amount: int = 1) -> None:
+        """Increment a named counter by *amount* (default 1).
+
+        Raises :class:`ValueError` if *name* is not a known metric.
+        """
+        if name not in _METRIC_NAMES:
+            raise ValueError(f"unknown runtime metric: {name}")
+        with self._lock:
+            setattr(self, name, getattr(self, name) + amount)
+
+    def snapshot(self) -> dict[str, int]:
+        """Return a snapshot of all counter values."""
+        with self._lock:
+            return {name: getattr(self, name) for name in _METRIC_NAMES}
+
+    def reset(self) -> None:
+        """Reset all counters to zero (test-only helper)."""
+        with self._lock:
+            for name in _METRIC_NAMES:
+                setattr(self, name, 0)
+
+
+_metrics_singleton = RuntimeMetrics()
+
+
+def get_runtime_metrics() -> RuntimeMetrics:
+    """Return the process-wide :class:`RuntimeMetrics` singleton."""
+    return _metrics_singleton
 
 
 # ---------------------------------------------------------------------------
@@ -320,6 +395,41 @@ def collect_metrics_text(
             f'miniunicorn_runtime_outbox_by_state{{state="{state}"}} {count}'
         )
 
+    # Recovery metrics counters (Task 14 Step 7). Cumulative since
+    # process start; no labels carry task IDs, session content, user
+    # identity, or unbounded error strings.
+    metrics = get_runtime_metrics().snapshot()
+    _counter_help = {
+        "task_lease_reclaims_total": "Total expired task leases reclaimed",
+        "stale_mutations_rejected_total": "Total mutations rejected by stale lease validation",
+        "model_decisions_reused_total": "Total completed model decisions reused after crash recovery",
+        "tool_outcome_unknown_total": "Total tool calls resolved as OUTCOME_UNKNOWN",
+        "outbox_expired_sending_total": "Total expired Outbox SENDING rows reclaimed",
+        "outbox_outcome_unknown_total": "Total Outbox rows resolved as OUTCOME_UNKNOWN",
+    }
+    for name, value in metrics.items():
+        lines.append(f"# HELP miniunicorn_runtime_{name} {_counter_help[name]}")
+        lines.append(f"# TYPE miniunicorn_runtime_{name} counter")
+        lines.append(f"miniunicorn_runtime_{name} {value}")
+
+    # Aggregate supervisor restarts in window (Task 14 Step 7).
+    if snap.get("children"):
+        total_restarts = sum(
+            c.get("restarts_in_window", 0)
+            for c in snap["children"]
+            if c.get("role") == "worker"
+        )
+        lines.append(
+            "# HELP miniunicorn_runtime_supervisor_restarts_in_window "
+            "Total worker restarts in the rolling window"
+        )
+        lines.append(
+            "# TYPE miniunicorn_runtime_supervisor_restarts_in_window gauge"
+        )
+        lines.append(
+            f"miniunicorn_runtime_supervisor_restarts_in_window {total_restarts}"
+        )
+
     return "\n".join(lines) + "\n"
 
 
@@ -336,8 +446,10 @@ def _get_conn(store: "RuntimeStore") -> sqlite3.Connection:
 
 __all__ = [
     "RuntimeHealth",
+    "RuntimeMetrics",
     "RuntimeStatus",
     "check_health",
     "collect_status",
     "collect_metrics_text",
+    "get_runtime_metrics",
 ]

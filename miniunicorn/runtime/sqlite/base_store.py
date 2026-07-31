@@ -313,6 +313,9 @@ class SqliteStoreBase:
             (claim.task_id,),
         ).fetchone()
         if row is None:
+            from miniunicorn.runtime.observability import get_runtime_metrics
+
+            get_runtime_metrics().inc("stale_mutations_rejected_total")
             raise StaleLeaseError(claim.task_id, claim.lease_epoch, "task not found")
         if check_deadline:
             deadline_ok = (
@@ -327,6 +330,9 @@ class SqliteStoreBase:
             or row["lease_epoch"] != claim.lease_epoch
             or not deadline_ok
         ):
+            from miniunicorn.runtime.observability import get_runtime_metrics
+
+            get_runtime_metrics().inc("stale_mutations_rejected_total")
             raise StaleLeaseError(
                 claim.task_id,
                 claim.lease_epoch,

@@ -27,13 +27,23 @@ class OpenAIStubServer:
     Construct with a list of response dicts; each POST pops the next
     response in order. ``requests`` records every received body under a
     lock so tests can assert exactly one Provider call.
+
+    ``delay_s`` adds an artificial delay before each response so tests
+    can exercise in-flight crash recovery (the task stays RUNNING while
+    the Provider call is delayed).
     """
 
-    def __init__(self, responses: list[dict[str, Any]]) -> None:
+    def __init__(
+        self,
+        responses: list[dict[str, Any]],
+        *,
+        delay_s: float = 0.0,
+    ) -> None:
         self._responses = list(responses)
         self.requests: list[dict[str, Any]] = []
         self._lock = threading.Lock()
         self._request_count = 0
+        self._delay_s = delay_s
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -52,6 +62,9 @@ class OpenAIStubServer:
                         if owner._responses
                         else chat_completion("fallback")
                     )
+                # Optional delay to keep the task in-flight for crash tests.
+                if owner._delay_s:
+                    time.sleep(owner._delay_s)
 
                 if body.get("stream"):
                     chunks = _stream_chunks(response)
