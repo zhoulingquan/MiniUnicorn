@@ -931,6 +931,9 @@ class LLMProvider(ABC):
             # The observer stores the response durably and returns; the
             # Runner may consume the response only after completed() succeeds
             # (design §19). The blob write is the observer's responsibility.
+            # Task 5 Step 4: pass the complete response (tool_calls,
+            # reasoning_content) so the observer can persist the full
+            # NormalizedModelDecision, not only content.
             response_hash = hashlib.sha256(
                 (response.content or "").encode("utf-8")
             ).hexdigest()
@@ -945,6 +948,11 @@ class LLMProvider(ABC):
                     finish_reason=response.finish_reason,
                     latency_ms=latency_ms,
                     content=response.content,
+                    tool_calls=tuple(
+                        {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
+                        for tc in response.tool_calls
+                    ),
+                    reasoning_content=response.reasoning_content,
                 ),
             )
         return response

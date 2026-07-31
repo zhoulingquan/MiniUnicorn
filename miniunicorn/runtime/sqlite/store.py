@@ -266,6 +266,7 @@ def _row_to_model_attempt(row: sqlite3.Row) -> CompletedModelDecision:
         attempt_no=row["attempt_no"],
         response_blob_id=row["response_blob_id"],
         response_hash=row["response_hash"],
+        request_hash=row["request_hash"] or "",
         input_tokens=row["input_tokens"] or 0,
         output_tokens=row["output_tokens"] or 0,
         finish_reason=row["finish_reason"],

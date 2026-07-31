@@ -33,10 +33,14 @@ from miniunicorn.agent.ports import (
     ModelAttemptResult,
     ModelAttemptStarted,
     ModelDecision,
+    NormalizedModelDecision,
     RestorePoint,
     SafeError,
     TaskIdentity,
     TurnCheckpoint,
+    compute_model_decision_hash,
+    deserialize_model_decision,
+    serialize_model_decision,
 )
 
 if TYPE_CHECKING:
@@ -56,6 +60,10 @@ class DurableTurnJournalAdapter:
     ) -> None:
         self._ledger = worker_ledger
         self._journal = execution_journal
+        # Test-only fault hook: if set, called after record_model_completed
+        # commits but before the method returns. Simulates a crash between
+        # journal write and Runner response consumption (Task 5 Step 7).
+        self._post_record_model_completed_hook: "Any" = None
 
     # ------------------------------------------------------------------
     # Restore point (design §17.4, §18.2 RESTORE)
@@ -126,6 +134,11 @@ class DurableTurnJournalAdapter:
                 attempt.model_attempt_id,
                 write,
             )
+        # Task 5 Step 7: test-only crash injection. The journal write has
+        # committed; a crash here leaves a COMPLETED model_attempt that the
+        # restore point will surface on retry.
+        if self._post_record_model_completed_hook is not None:
+            self._post_record_model_completed_hook(attempt.model_attempt_id)
         return ModelDecision(
             attempt=attempt,
             response_blob_id=result.response_blob_id,
@@ -156,6 +169,52 @@ class DurableTurnJournalAdapter:
             )
         )
         return blob.blob_id
+
+    def write_decision_blob(self, decision: NormalizedModelDecision) -> tuple[str, str]:
+        """Write a canonical :class:`NormalizedModelDecision` blob (Task 5 Step 4).
+
+        Returns ``(blob_id, response_hash)`` where ``response_hash`` is the
+        SHA-256 over the full canonical serialization — not only
+        ``response.content`` — so the durable record can be verified on
+        recovery.
+        """
+        from miniunicorn.runtime.models import BlobWrite
+
+        serialized = serialize_model_decision(decision)
+        response_hash = compute_model_decision_hash(decision)
+        if self._journal is None:
+            return f"inline:{response_hash[:16]}", response_hash
+        blob = self._journal.write_blob(  # type: ignore[attr-defined]
+            BlobWrite(
+                scope_key=f"task/{_task_id_from_context()}",
+                blob_kind="MODEL_RESPONSE",
+                content_hash=response_hash,
+                encoding="RAW_BYTES",
+                inline_content=serialized,
+                size_bytes=len(serialized),
+            )
+        )
+        return blob.blob_id, response_hash
+
+    async def read_model_response(self, response_blob_id: str) -> NormalizedModelDecision:
+        """Read a previously-journaled model decision from a protected blob.
+
+        Task 5 Step 6: decodes the canonical ``NormalizedModelDecision``
+        stored by :meth:`JournalProviderObserver.completed` so the Runner
+        can reuse a completed model decision after a crash without another
+        network request.
+        """
+        if self._journal is None:
+            raise RuntimeError(
+                "read_model_response requires an execution journal; "
+                "no journal is bound to this adapter"
+            )
+        content = self._journal.read_blob_content(response_blob_id)  # type: ignore[attr-defined]
+        if content is None:
+            raise RuntimeError(
+                f"model response blob not found: {response_blob_id}"
+            )
+        return deserialize_model_decision(content)
 
     async def record_model_failed(
         self, attempt: AttemptIdentity, error: SafeError
@@ -268,12 +327,17 @@ class JournalProviderObserver:
         # Map provider attempt_id -> (AttemptIdentity) for completed/failed.
         self._attempts: dict[str, Any] = {}
 
-    def begin_logical_call(self) -> None:
-        """Start a new logical model call (called by Runner before _request_model)."""
+    def begin_logical_call(self) -> str:
+        """Start a new logical model call (called by Runner before _request_model).
+
+        Returns the ``logical_call_id`` so the Runner can check the durable
+        restore point for a previously-completed decision (Task 5 Step 6).
+        """
         self._call_ordinal += 1
         self._attempt_no = 0
         task_id = _task_id_from_context()
         self._logical_call_id = f"{task_id}:{self._call_ordinal}"
+        return self._logical_call_id
 
     async def started(self, value: Any) -> str:
         from miniunicorn.agent.ports import (
@@ -295,20 +359,38 @@ class JournalProviderObserver:
         return attempt.model_attempt_id
 
     async def completed(self, attempt_id: str, value: Any) -> None:
-        from miniunicorn.agent.ports import ModelAttemptResult
+        from miniunicorn.agent.ports import ModelAttemptResult, NormalizedModelDecision
 
         attempt = self._attempts.get(attempt_id)
         if attempt is None:
             return
-        # Write the raw response into a protected blob so the model attempt's
-        # response_blob_id FK resolves (design §19). The provider does not
-        # write SQLite directly; the observer owns the blob write.
+        # Task 5 Step 4: persist the *complete* model decision — not only
+        # ``content`` — so a crash-recovery replay can reuse the full
+        # response (tool_calls, reasoning_content, usage) without another
+        # network request. The observer serializes the canonical
+        # NormalizedModelDecision, hashes the full serialization, and
+        # writes it into a protected blob before calling record_model_completed.
+        # The Provider response may be consumed by Runner only after this
+        # method returns successfully (design §19).
+        decision = NormalizedModelDecision(
+            content=value.content,
+            reasoning_content=value.reasoning_content,
+            tool_calls=tuple(value.tool_calls) if value.tool_calls else (),
+            finish_reason=value.finish_reason or "stop",
+            usage={
+                "prompt_tokens": value.input_tokens,
+                "completion_tokens": value.output_tokens,
+            },
+        )
         blob_id = value.response_blob_id
-        if value.content is not None and hasattr(self._journal, "write_response_blob"):
+        response_hash = value.response_hash
+        if hasattr(self._journal, "write_decision_blob"):
+            blob_id, response_hash = self._journal.write_decision_blob(decision)
+        elif value.content is not None and hasattr(self._journal, "write_response_blob"):
             blob_id = self._journal.write_response_blob(value.content, value.response_hash)
         result = ModelAttemptResult(
             response_blob_id=blob_id,
-            response_hash=value.response_hash,
+            response_hash=response_hash,
             input_tokens=value.input_tokens,
             output_tokens=value.output_tokens,
             finish_reason=value.finish_reason,

@@ -418,6 +418,37 @@ class AgentRunner:
         _observer_token = _provider_attempt_observer.set(
             spec.provider_attempt_observer
         )
+        # Task 5 Step 5: load the durable restore point before the Agent
+        # loop so completed model decisions can be reused without another
+        # network request after a crash/reclaim (design §17.4, §19).
+        restored_models: dict[str, Any] = {}
+        if spec.turn_journal is not None:
+            _runtime_for_restore = current_turn_runtime()
+            if _runtime_for_restore is not None and _runtime_for_restore.task_id:
+                from miniunicorn.agent.ports import TaskIdentity
+
+                _task_identity = TaskIdentity(
+                    task_id=_runtime_for_restore.task_id,
+                    turn_id=_runtime_for_restore.turn_id,
+                    session_key=_runtime_for_restore.session_key,
+                    session_sequence=_runtime_for_restore.session_sequence,
+                    run_segment=_runtime_for_restore.run_segment,
+                    lease_epoch=_runtime_for_restore.lease_epoch,
+                )
+                try:
+                    _restore_point = await spec.turn_journal.load_restore_point(
+                        _task_identity
+                    )
+                except Exception:
+                    logger.exception("load_restore_point failed; starting fresh")
+                    _restore_point = None
+                if _restore_point is not None:
+                    for _m in _restore_point.completed_models:
+                        restored_models[_m.logical_call_id] = _m
+                    logger.info(
+                        "Loaded restore point: {} completed model decisions",
+                        len(restored_models),
+                    )
         # Per-turn throttle for repeated attempts against the same outside target.
         workspace_violation_counts: dict[str, int] = {}
         empty_content_retries = 0
@@ -524,9 +555,73 @@ class AgentRunner:
             context = AgentHookContext(iteration=iteration, messages=messages)
             await hook.before_iteration(context)
             _observer = current_provider_attempt_observer()
+            _logical_call_id: str | None = None
             if _observer is not None:
-                _observer.begin_logical_call()
-            response = await self._request_model(spec, messages_for_model, hook, context)
+                _logical_call_id = _observer.begin_logical_call()
+            # Task 5 Step 6: check the restore point for a previously
+            # completed model decision. If the logical_call_id matches a
+            # completed attempt whose request_hash also matches, decode the
+            # response blob into an LLMResponse and continue without network
+            # I/O. If request_hash differs, fail closed (design §19).
+            response: LLMResponse | None = None
+            if (
+                _logical_call_id is not None
+                and _logical_call_id in restored_models
+                and spec.turn_journal is not None
+            ):
+                _restored = restored_models[_logical_call_id]
+                # Compute request hash from current messages using the same
+                # formula as Provider._invoke_with_observer so the
+                # comparison is exact.
+                import hashlib as _hashlib
+                import json as _json
+
+                _current_hash = _hashlib.sha256(
+                    _json.dumps(
+                        messages_for_model, default=str, ensure_ascii=False
+                    ).encode("utf-8")
+                ).hexdigest()
+                if _current_hash != _restored.request_hash:
+                    raise RuntimeError(
+                        f"MODEL_RESTORE_HASH_MISMATCH: logical_call_id="
+                        f"{_logical_call_id}"
+                    )
+                try:
+                    _decision = await spec.turn_journal.read_model_response(
+                        _restored.response_blob_id
+                    )
+                    # Reconstruct the LLMResponse from the stored decision.
+                    from miniunicorn.providers.base import ToolCallRequest
+
+                    _tool_calls = [
+                        ToolCallRequest(
+                            id=tc.get("id", ""),
+                            name=tc.get("name", ""),
+                            arguments=tc.get("arguments", {}),
+                        )
+                        for tc in _decision.tool_calls
+                    ]
+                    response = LLMResponse(
+                        content=_decision.content,
+                        tool_calls=_tool_calls,
+                        finish_reason=_decision.finish_reason,
+                        usage=_decision.usage,
+                        reasoning_content=_decision.reasoning_content,
+                    )
+                    logger.info(
+                        "Reusing restored model decision for logical_call_id={}",
+                        _logical_call_id,
+                    )
+                except RuntimeError:
+                    raise
+                except Exception:
+                    logger.exception(
+                        "Failed to read restored model decision for {}; making new request",
+                        _logical_call_id,
+                    )
+                    response = None
+            if response is None:
+                response = await self._request_model(spec, messages_for_model, hook, context)
             raw_usage = self._usage_dict(response.usage)
             context.response = response
             context.usage = dict(raw_usage)

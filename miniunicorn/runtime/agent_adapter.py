@@ -124,6 +124,19 @@ class AgentExecutionCallback:
                 # attempts through TurnJournalPort (design §11.1, §19, §20).
                 turn_runtime.tool_execution_port = self._tool_execution_port
                 turn_runtime.turn_journal = self._turn_journal
+                # Task 5 Step 3: construct the provider attempt observer
+                # from the bound TurnJournalPort so every Provider network
+                # attempt is journaled durably before Runner consumes the
+                # response. The observer is per-task (not shared) because
+                # it tracks per-run model-call ordinals and in-flight
+                # attempt identities.
+                if self._turn_journal is not None:
+                    from miniunicorn.runtime.durable_journal import (
+                        JournalProviderObserver,
+                    )
+
+                    observer = JournalProviderObserver(self._turn_journal)
+                    turn_runtime.provider_attempt_observer = observer
                 # Per-task ports (design Task 5 Step 5): the Worker binds
                 # the active claim/delivery ledger and containment scope via
                 # ContextVars before calling this callback; the callback

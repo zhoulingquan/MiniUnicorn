@@ -346,6 +346,13 @@ class AgentRunAdapter:
                         or DirectToolExecutionPort(tools)
                     ),
                     turn_journal=_durable_runtime_port("turn_journal"),
+                    # Task 5 Step 3: the observer is constructed by the
+                    # runtime adapter and bound to the TurnRuntime. The
+                    # runner reads it here and binds it via ContextVar so
+                    # the Provider calls started/completed/failed (design §19).
+                    provider_attempt_observer=_durable_runtime_port(
+                        "provider_attempt_observer"
+                    ),
                 )
             )
         finally:

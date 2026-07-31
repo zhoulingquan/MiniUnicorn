@@ -165,6 +165,7 @@ class CompletedModelDecision:
     attempt_no: int
     response_blob_id: str
     response_hash: str
+    request_hash: str
     input_tokens: int
     output_tokens: int
     finish_reason: str | None
@@ -235,6 +236,71 @@ class ModelDecision:
     input_tokens: int
     output_tokens: int
     finish_reason: str | None
+
+
+@dataclass(slots=True, frozen=True)
+class NormalizedModelDecision:
+    """Canonical, fully-restorable model decision (Task 5 Step 2).
+
+    The complete Provider response — not only ``content`` — is serialized
+    with canonical JSON, hashed, and stored as a protected runtime blob.
+    On crash-recovery, the Runner reads the blob back and reconstructs
+    the ``LLMResponse`` without making another network request (design §19).
+    """
+
+    content: str | None
+    reasoning_content: str | None
+    tool_calls: tuple[dict[str, Any], ...]
+    finish_reason: str
+    usage: dict[str, int]
+
+
+def serialize_model_decision(decision: NormalizedModelDecision) -> bytes:
+    """Canonical JSON serialization of a :class:`NormalizedModelDecision`.
+
+    ``sort_keys=True`` and compact separators ensure the byte stream is
+    stable across processes and Python versions so the ``response_hash``
+    is reproducible on recovery (Task 5 Step 2).
+    """
+    return json.dumps(
+        {
+            "content": decision.content,
+            "reasoning_content": decision.reasoning_content,
+            "tool_calls": list(decision.tool_calls),
+            "finish_reason": decision.finish_reason,
+            "usage": dict(decision.usage),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def deserialize_model_decision(data: bytes) -> NormalizedModelDecision:
+    """Inverse of :func:`serialize_model_decision` (Task 5 Step 2)."""
+    obj = json.loads(data.decode("utf-8"))
+    raw_tool_calls = obj.get("tool_calls", [])
+    tool_calls: tuple[dict[str, Any], ...] = ()
+    if isinstance(raw_tool_calls, list):
+        tool_calls = tuple(tc for tc in raw_tool_calls if isinstance(tc, dict))
+    raw_usage = obj.get("usage", {})
+    usage: dict[str, int] = (
+        {str(k): int(v) for k, v in raw_usage.items()}
+        if isinstance(raw_usage, dict)
+        else {}
+    )
+    return NormalizedModelDecision(
+        content=obj.get("content"),
+        reasoning_content=obj.get("reasoning_content"),
+        tool_calls=tool_calls,
+        finish_reason=str(obj.get("finish_reason") or "stop"),
+        usage=usage,
+    )
+
+
+def compute_model_decision_hash(decision: NormalizedModelDecision) -> str:
+    """SHA-256 over the canonical serialization (Task 5 Step 2)."""
+    return hashlib.sha256(serialize_model_decision(decision)).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -447,6 +513,14 @@ class TurnJournalPort(Protocol):
         """Durable-record a failed Provider attempt."""
         ...
 
+    async def read_model_response(self, response_blob_id: str) -> "NormalizedModelDecision":
+        """Read a previously-journaled model decision from a protected blob.
+
+        Used by the Runner to reuse a completed model decision after a
+        crash without making another network request (Task 5 Step 6).
+        """
+        ...
+
     async def save_checkpoint(self, checkpoint: TurnCheckpoint) -> CheckpointIdentity:
         """Persist a checkpoint at a safe boundary."""
         ...
@@ -533,6 +607,11 @@ class ProviderAttemptCompleted:
     can write it into a protected runtime blob; it is NOT stored in task
     events or logs (design §19: "raw response content stay in protected
     blobs").
+
+    ``tool_calls`` and ``reasoning_content`` (Task 5 Step 2) extend the
+    normalized decision so the observer can persist the *complete* response
+    — not only ``content`` — enabling crash-recovery reuse of a finished
+    model call without another network request.
     """
 
     response_blob_id: str
@@ -542,6 +621,8 @@ class ProviderAttemptCompleted:
     finish_reason: str | None = None
     latency_ms: int = 0
     content: str | None = None
+    tool_calls: tuple[dict[str, Any], ...] = ()
+    reasoning_content: str | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -799,6 +880,10 @@ __all__ = [
     "ModelAttemptStarted",
     "ModelAttemptResult",
     "ModelDecision",
+    "NormalizedModelDecision",
+    "serialize_model_decision",
+    "deserialize_model_decision",
+    "compute_model_decision_hash",
     "TurnCheckpoint",
     "DurableProgress",
     "EffectiveToolPolicy",
