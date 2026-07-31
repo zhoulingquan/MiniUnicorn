@@ -167,10 +167,24 @@ class TestDependencyDirection:
             assert "miniunicorn.agent.runner" not in imported
 
     def test_runtime_store_must_not_import_agent_loop(self) -> None:
-        runtime_store = _RUNTIME_PKG / "store.py"
-        if not runtime_store.exists():
-            pytest.skip("WP1: runtime/store.py not yet created")
-        tree = ast.parse(runtime_store.read_text(encoding="utf-8"))
-        for imported in _imports(tree):
-            assert "miniunicorn.agent.loop" not in imported
-            assert "miniunicorn.agent.runner" not in imported
+        """The SQLite Store façade and every responsibility mixin must
+        not import ``miniunicorn.agent.loop`` or ``miniunicorn.agent.runner``.
+
+        The store lives at ``miniunicorn/runtime/sqlite/`` (design §7.3,
+        Task 12). After the internal split, every ``*_store.py`` module
+        under that subpackage is inspected so a new mixin cannot silently
+        reintroduce an Agent-loop dependency.
+        """
+        sqlite_pkg = _RUNTIME_PKG / "sqlite"
+        assert sqlite_pkg.exists(), "miniunicorn/runtime/sqlite/ must exist"
+        store_modules = sorted(sqlite_pkg.glob("*_store.py"))
+        assert store_modules, "expected at least one *_store.py module"
+        for module_path in store_modules:
+            tree = ast.parse(module_path.read_text(encoding="utf-8"))
+            for imported in _imports(tree):
+                assert "miniunicorn.agent.loop" not in imported, (
+                    f"{module_path.name} imports miniunicorn.agent.loop"
+                )
+                assert "miniunicorn.agent.runner" not in imported, (
+                    f"{module_path.name} imports miniunicorn.agent.runner"
+                )
