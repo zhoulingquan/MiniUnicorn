@@ -133,7 +133,14 @@ def _build_internal_envelope(
     session_key: str | None = None,
     available_at_ms: int | None = None,
 ) -> InternalTaskEnvelope:
-    """Build an :class:`InternalTaskEnvelope` with a deterministic payload hash."""
+    """Build an :class:`InternalTaskEnvelope` with a deterministic payload hash.
+
+    Task 9 Step 3: store the serialized payload bytes inline so the Worker
+    can recover them via ``read_blob_content`` without a separate artifact
+    store (design §13.1, §16.15). Previously the bytes were discarded
+    after hashing, leaving the blob with only an ``external_ref`` that
+    ``read_blob_content`` cannot resolve.
+    """
     payload_bytes = json.dumps(payload or {}, ensure_ascii=False, sort_keys=True).encode("utf-8")
     payload_hash = hashlib.sha256(payload_bytes).hexdigest()
     return InternalTaskEnvelope(
@@ -147,6 +154,7 @@ def _build_internal_envelope(
         payload_hash=payload_hash,
         received_at_ms=int(time.time() * 1000),
         available_at_ms=available_at_ms,
+        payload_content=payload_bytes,
     )
 
 

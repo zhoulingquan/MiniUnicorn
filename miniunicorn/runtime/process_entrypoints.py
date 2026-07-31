@@ -384,6 +384,14 @@ async def _worker_async(
         progress_port_factory=_progress_factory,
     )
 
+    # Task 9 Step 5: compose a MaintenanceExecutor from the Agent's
+    # existing Dream/Consolidator functions so durable maintenance tasks
+    # claimed by this Worker dispatch in-process (design §22.3). No
+    # second CronService or ChannelManager is constructed here.
+    from miniunicorn.runtime.bootstrap import _build_maintenance_executor
+
+    maintenance_executor = _build_maintenance_executor(store=store, agent=agent)
+
     worker = AgentTaskWorker(
         worker_id=instance_id,
         scheduler=scheduler,
@@ -391,6 +399,7 @@ async def _worker_async(
         session_committer=session_committer,
         execution_callback=callback,
         heartbeat_interval_s=resolved.heartbeat_interval_s,
+        maintenance_executor=maintenance_executor,
     )
 
     # Signal readiness to the Supervisor only after all process-local

@@ -9,8 +9,9 @@ heavy lifting has been split into three sibling modules:
   ``_print_interactive_progress_line`` …).
 - ``_heartbeat.py`` — heartbeat preamble text, cached HEARTBEAT.md template
   loader, and the heartbeat-specific provider builder.
-- ``_gateway_runner.py`` — the shared ``_run_gateway`` runtime plus the
-  cron-job dispatcher (``on_cron_job``) and its branch helpers.
+- ``_gateway_runner.py`` — the shared ``_run_gateway`` thin launcher
+  (cron-job dispatch was removed in Task 9 Step 6; maintenance now
+  enqueues durable tasks through ``_wire_maintenance_callbacks``).
 
 A few names are looked up by tests via ``unittest.mock.patch`` on this
 module's namespace (e.g. ``patch("miniunicorn.cli.commands.PromptSession",

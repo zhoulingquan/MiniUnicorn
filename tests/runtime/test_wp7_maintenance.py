@@ -1011,3 +1011,269 @@ class TestCronSystemEnqueueCallback:
         await cron._execute_job(job)
         assert on_job_called == ["agent"], "agent_turn job must use on_job"
         assert enqueue_called == [], "agent_turn job must not use enqueue callback"
+
+
+# ---------------------------------------------------------------------------
+# Task 9: internal payload round-trip + Worker dispatch (design §22.3, §13.1)
+# ---------------------------------------------------------------------------
+
+
+class TestInternalPayloadRoundTrip:
+    """The protected payload blob of an internal task is recoverable (Task 9 Step 1).
+
+    Before the fix ``_build_internal_envelope`` discarded the payload bytes
+    after hashing, leaving the blob with only an ``external_ref`` that
+    ``read_blob_content`` cannot resolve. The Worker must be able to read
+    the payload back to dispatch maintenance tasks.
+    """
+
+    @pytest.mark.asyncio
+    async def test_internal_payload_blob_is_readable(
+        self,
+        store: Any,
+        sample_scope: RequestScope,
+    ) -> None:
+        from miniunicorn.runtime.task_service import TaskService
+
+        task_service = TaskService(store)
+        payload = {"job_id": "cron-1", "job_name": "dream"}
+        task_id = await enqueue_maintenance(
+            task_service,
+            task_kind="DREAM",
+            scope=sample_scope,
+            dedup_key=dedup_key_for_dream(source_revision="rev-payload-1"),
+            priority=PRIORITY_REFLECTION_DREAM,
+            payload=payload,
+        )
+        record = store.read_task(task_id)
+        assert record is not None
+        # The payload blob must contain the original JSON bytes.
+        blob_content = store.read_blob_content(record.payload_blob_id)
+        assert blob_content is not None, "payload blob must be inline-readable"
+        assert json.loads(blob_content) == payload
+
+
+# ---------------------------------------------------------------------------
+# Task 9 Step 2: real DREAM dispatch through a lightweight Worker
+# ---------------------------------------------------------------------------
+
+
+class _NoopExecutionCallback:
+    """Execution callback that records calls and never runs the Agent.
+
+    Maintenance tasks must NOT reach the USER_TURN execution path; if this
+    callback is invoked the routing is wrong.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[Any] = []
+
+    async def __call__(self, payload: Any, session_base_revision: int) -> Any:
+        self.calls.append(payload)
+        from miniunicorn.runtime.worker import WorkerExecutionResult
+
+        return WorkerExecutionResult(final_content="should-not-happen", messages=[])
+
+
+class TestMaintenanceWorkerDispatch:
+    """A lightweight Worker dispatches maintenance tasks through MaintenanceExecutor."""
+
+    @pytest.mark.asyncio
+    async def test_dream_task_dispatches_to_runner(
+        self,
+        store: Any,
+        sample_scope: RequestScope,
+        tmp_path,
+    ) -> None:
+        """A DREAM task is dispatched to the dream_runner and completes internally.
+
+        Asserts (Task 9 Step 2):
+        - dream_runner called exactly once;
+        - task reaches COMPLETED;
+        - no user session message was written (no INBOUND/FINAL commit);
+        - no final-reply Outbox row was created.
+        """
+        from miniunicorn.runtime.hosts.lightweight import LightweightHost
+        from miniunicorn.runtime.maintenance_executor import MaintenanceExecutor
+        from miniunicorn.runtime.session_committer import SessionCommitter
+        from miniunicorn.session.manager import SessionManager
+
+        dream_calls: list[bool] = []
+
+        async def dream_runner() -> bool:
+            dream_calls.append(True)
+            return True
+
+        executor = MaintenanceExecutor(store, dream_runner=dream_runner)
+        callback = _NoopExecutionCallback()
+        sessions = SessionManager(tmp_path / "ws")
+        committer = SessionCommitter(store, sessions)
+        host = LightweightHost(
+            store,
+            committer,
+            callback,
+            worker_count=1,
+            lease_ms=60_000,
+            heartbeat_interval_s=5.0,
+            maintenance_executor=executor,
+        )
+        await host.start()
+        try:
+            task_id = await enqueue_maintenance(
+                host.task_service,
+                task_kind="DREAM",
+                scope=sample_scope,
+                dedup_key=dedup_key_for_dream(source_revision="rev-dispatch-1"),
+                priority=PRIORITY_REFLECTION_DREAM,
+            )
+            snapshot = await host.task_service.wait_terminal(
+                sample_scope, task_id, timeout_s=10.0
+            )
+            assert snapshot.state == "COMPLETED"
+            assert dream_calls == [True]
+            # The USER_TURN execution callback must not have been called.
+            assert callback.calls == []
+
+            # No user-session message was written: the system session key
+            # has no transcript file (no INBOUND/FINAL commit happened).
+            record = store.read_task(task_id)
+            assert record is not None
+            assert record.session_key == "system:dream"
+
+            # No final-reply Outbox row was created for this task.
+            outbox_rows = store._conn.execute(
+                "SELECT outbox_id FROM outbox WHERE task_id=?", (task_id,)
+            ).fetchall()
+            assert len(outbox_rows) == 0, "maintenance task must not create an outbox row"
+        finally:
+            await host.stop()
+
+    @pytest.mark.asyncio
+    async def test_maintenance_executor_not_configured_fails_task(
+        self,
+        store: Any,
+        sample_scope: RequestScope,
+        tmp_path,
+    ) -> None:
+        """Without a MaintenanceExecutor the task fails with a stable error code."""
+        from miniunicorn.runtime.hosts.lightweight import LightweightHost
+        from miniunicorn.runtime.session_committer import SessionCommitter
+        from miniunicorn.session.manager import SessionManager
+
+        callback = _NoopExecutionCallback()
+        sessions = SessionManager(tmp_path / "ws")
+        committer = SessionCommitter(store, sessions)
+        # No maintenance_executor wired.
+        host = LightweightHost(
+            store,
+            committer,
+            callback,
+            worker_count=1,
+            lease_ms=60_000,
+            heartbeat_interval_s=5.0,
+        )
+        await host.start()
+        try:
+            task_id = await enqueue_maintenance(
+                host.task_service,
+                task_kind="DREAM",
+                scope=sample_scope,
+                dedup_key=dedup_key_for_dream(source_revision="rev-no-exec-1"),
+                priority=PRIORITY_REFLECTION_DREAM,
+            )
+            snapshot = await host.task_service.wait_terminal(
+                sample_scope, task_id, timeout_s=10.0
+            )
+            assert snapshot.state == "FAILED"
+            assert snapshot.error is not None
+            assert snapshot.error.error_code == "MAINTENANCE_EXECUTOR_NOT_CONFIGURED"
+        finally:
+            await host.stop()
+
+
+# ---------------------------------------------------------------------------
+# Task 9 Step 7: every maintenance kind dispatches to exactly one callback
+# ---------------------------------------------------------------------------
+
+
+class TestMaintenanceKindParameterization:
+    """Each maintenance kind dispatches to its configured callback (Task 9 Step 7).
+
+    Unsupported configuration must fail with a stable safe error code.
+    """
+
+    @pytest.mark.parametrize(
+        "task_kind,payload,runner_attr",
+        [
+            ("DREAM", {}, "dream_runner"),
+            ("MEMORY_CONSOLIDATION", {"session_key": "s-1"}, "consolidation_runner"),
+            ("MEMORY_INDEX", {}, "index_runner"),
+            ("REFLECTION", {}, "reflection_runner"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_each_kind_dispatches_to_one_callback(
+        self, store: Any, task_kind: str, payload: dict, runner_attr: str
+    ) -> None:
+        from miniunicorn.runtime.maintenance_executor import MaintenanceExecutor
+
+        called: list[bool] = []
+
+        async def _dream() -> bool:
+            called.append(True)
+            return True
+
+        async def _consolidation(key: str) -> str | None:
+            called.append(True)
+            return "summary"
+
+        async def _index(p: dict) -> int:
+            called.append(True)
+            return 1
+
+        async def _reflection(p: dict) -> bool:
+            called.append(True)
+            return True
+
+        runners = {
+            "dream_runner": _dream,
+            "consolidation_runner": _consolidation,
+            "index_runner": _index,
+            "reflection_runner": _reflection,
+        }
+        kwargs = {runner_attr: runners[runner_attr]}
+        executor = MaintenanceExecutor(store, **kwargs)
+        result = await executor.execute(task_kind=task_kind, payload=payload)
+        assert result.success is True
+        assert called == [True], f"{task_kind} must dispatch to {runner_attr}"
+
+    @pytest.mark.parametrize(
+        "op,payload",
+        [
+            ("retention", {"op": "retention"}),
+            ("blob_gc", {"op": "blob_gc"}),
+            ("wal_checkpoint", {"op": "wal_checkpoint"}),
+            ("backup", {"op": "backup", "dest_path": ""}),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_maintenance_op_dispatches(
+        self, store: Any, tmp_path, op: str, payload: dict
+    ) -> None:
+        from miniunicorn.runtime.maintenance_executor import MaintenanceExecutor
+
+        executor = MaintenanceExecutor(store)
+        if op == "backup":
+            dest = str(tmp_path / "bk.db")
+            payload = {"op": "backup", "dest_path": dest}
+        result = await executor.execute(task_kind="MAINTENANCE", payload=payload)
+        assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_unsupported_kind_fails_with_stable_error(self, store: Any) -> None:
+        from miniunicorn.runtime.maintenance_executor import MaintenanceExecutor
+
+        executor = MaintenanceExecutor(store)
+        result = await executor.execute(task_kind="BOGUS_KIND", payload={})
+        assert result.success is False
+        assert "unsupported" in result.detail

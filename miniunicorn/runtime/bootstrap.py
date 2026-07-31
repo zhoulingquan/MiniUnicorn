@@ -201,6 +201,44 @@ def _build_channel_manager(
 
 
 # ---------------------------------------------------------------------------
+# MaintenanceExecutor composition (Task 9 Step 5)
+# ---------------------------------------------------------------------------
+
+
+def _build_maintenance_executor(
+    *,
+    store: Any,
+    agent: Any,
+) -> Any:
+    """Compose a :class:`MaintenanceExecutor` from existing Agent functions.
+
+    Reuses the Agent's already-constructed Dream, Consolidator, and memory
+    index operations — no second CronService or ChannelManager is built in
+    the Worker (design §22.3, Task 9 Step 5). Retention, blob GC, WAL
+    checkpoint, and backup fall back to the module-level functions in
+    :mod:`miniunicorn.runtime.maintenance`, which call the same Store façade.
+
+    Reflection and index runners are wired only when the Agent exposes
+    them; an unconfigured kind fails with a stable safe error code via the
+    Worker's ``MAINTENANCE_EXECUTOR_NOT_CONFIGURED`` / executor
+    ``not configured`` path.
+    """
+    from miniunicorn.runtime.maintenance_executor import MaintenanceExecutor
+
+    async def _dream_runner() -> bool:
+        return await agent.dream.run()
+
+    async def _consolidation_runner(session_key: str) -> str | None:
+        return await agent.consolidator.compact_idle_session(session_key)
+
+    return MaintenanceExecutor(
+        store,
+        dream_runner=_dream_runner,
+        consolidation_runner=_consolidation_runner,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Maintenance callback wiring (design §22.3, WP7 hard cutover)
 # ---------------------------------------------------------------------------
 
@@ -389,6 +427,7 @@ def build_lightweight_runtime(
         lease_ms=resolved.lease_timeout_s * 1000,
         heartbeat_interval_s=resolved.heartbeat_interval_s,
         max_root_attempts=resolved.task_max_attempts,
+        maintenance_executor=_build_maintenance_executor(store=store, agent=agent),
     )
 
     if channel_sender is not None:

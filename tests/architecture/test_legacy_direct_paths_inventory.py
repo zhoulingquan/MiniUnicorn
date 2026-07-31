@@ -316,6 +316,32 @@ class TestMaintenanceCreateTaskInventory:
             "WP7 must submit durable USER_TURN or internal tasks instead."
         )
 
+    def test_gateway_does_not_call_dream_run_directly(self) -> None:
+        """Gateway production handlers must not call ``agent.dream.run()``.
+
+        Task 9 Step 6 removed the legacy ``_handle_dream_job`` /
+        ``on_cron_job`` direct-dispatch helpers. Dream and other
+        maintenance work must be enqueued as durable internal tasks and
+        dispatched through :class:`MaintenanceExecutor` inside the Worker
+        (design §22.3). A direct ``agent.dream.run()`` call in the
+        Gateway bypasses durability and recovery.
+        """
+        gateway = _REPO_ROOT / "miniunicorn" / "cli" / "_gateway_runner.py"
+        source = _read(gateway)
+        assert "agent.dream.run()" not in source, (
+            "_gateway_runner.py still calls agent.dream.run() directly; "
+            "Task 9 must enqueue a durable DREAM task and dispatch through "
+            "MaintenanceExecutor."
+        )
+        assert "def on_cron_job" not in source, (
+            "_gateway_runner.py still defines on_cron_job; Task 9 Step 6 "
+            "removed direct Cron-job dispatch in favor of durable enqueue."
+        )
+        assert "def _handle_dream_job" not in source, (
+            "_gateway_runner.py still defines _handle_dream_job; Task 9 "
+            "Step 6 removed direct Dream execution."
+        )
+
 
 # ---------------------------------------------------------------------------
 # Inventory totals — documented so migration progress is measurable

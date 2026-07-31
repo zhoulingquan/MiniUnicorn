@@ -24,7 +24,10 @@ import json
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Protocol
+
+if TYPE_CHECKING:
+    from miniunicorn.runtime.maintenance_executor import MaintenanceExecutor
 
 from loguru import logger
 
@@ -144,6 +147,7 @@ class AgentTaskWorker:
         *,
         heartbeat_interval_s: float = 15.0,
         containment_factory: Callable[[str], ContainmentScope] | None = None,
+        maintenance_executor: MaintenanceExecutor | None = None,
     ) -> None:
         self._worker_id = worker_id
         self._scheduler = scheduler
@@ -152,6 +156,10 @@ class AgentTaskWorker:
         self._execution_callback = execution_callback
         self._heartbeat_interval_s = heartbeat_interval_s
         self._containment_factory = containment_factory
+        # Task 9 Step 4: optional MaintenanceExecutor for internal task
+        # kinds (DREAM, MEMORY_CONSOLIDATION, etc.). When absent,
+        # non-USER_TURN tasks fail with a stable safe error code.
+        self._maintenance_executor = maintenance_executor
         self._running = False
 
     @property
@@ -223,12 +231,13 @@ class AgentTaskWorker:
         task_id = record.task_id
 
         logger.info(
-            "worker {} claimed task {} (session={}, seq={}, phase={})",
+            "worker {} claimed task {} (session={}, seq={}, phase={}, kind={})",
             self._worker_id,
             task_id,
             record.session_key,
             record.session_sequence,
             record.checkpoint_phase,
+            record.task_kind,
         )
 
         # Mark RUNNING (design §17.3).
@@ -237,6 +246,14 @@ class AgentTaskWorker:
             self._ledger.mark_running(claim, now_ms)
         except StaleLeaseError:
             logger.warning("worker {} lost lease before mark_running for {}", self._worker_id, task_id)
+            return
+
+        # Task 9 Step 4: route internal task kinds through the
+        # MaintenanceExecutor. Internal tasks do not perform
+        # INBOUND/FINAL session commits and complete with
+        # ``complete_internal`` (design §17.10).
+        if record.task_kind != "USER_TURN":
+            await self._execute_maintenance_task(claim, record)
             return
 
         # Set the active claim for SessionCommitter (design §17.7).
@@ -444,6 +461,103 @@ class AgentTaskWorker:
             content_hash=content_hash,
         )
         return await self._committer.commit_turn(request)
+
+    # ------------------------------------------------------------------
+    # Maintenance dispatch (Task 9 Step 4)
+    # ------------------------------------------------------------------
+
+    async def _execute_maintenance_task(self, claim: Any, record: Any) -> None:
+        """Dispatch an internal task through the MaintenanceExecutor (Task 9).
+
+        Internal task kinds (DREAM, MEMORY_CONSOLIDATION, etc.) do not
+        perform INBOUND/FINAL session commits and do not produce an
+        Outbox row. They complete with ``complete_internal``
+        (design §17.10).
+
+        If no ``MaintenanceExecutor`` is wired, the task fails with a
+        stable safe error code so the operator can diagnose the wiring
+        gap without the Worker attempting an Agent turn on an internal
+        payload.
+        """
+        task_id = record.task_id
+        if self._maintenance_executor is None:
+            self._fail_task(
+                claim,
+                task_id,
+                "MAINTENANCE_EXECUTOR_NOT_CONFIGURED",
+                f"no MaintenanceExecutor wired for task kind {record.task_kind}",
+            )
+            return
+
+        # Decode the internal payload (a JSON dict, not the user
+        # ``{content, media, metadata}`` envelope).
+        from miniunicorn.runtime.contracts import BlobStore
+
+        blob_store: BlobStore = self._ledger  # type: ignore[assignment]
+        content_bytes = blob_store.read_blob_content(record.payload_blob_id)
+        if content_bytes is None:
+            self._fail_task(
+                claim,
+                task_id,
+                "MAINTENANCE_PAYLOAD_UNREADABLE",
+                f"payload blob not readable: {record.payload_blob_id}",
+            )
+            return
+        try:
+            payload_dict = json.loads(content_bytes.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            self._fail_task(
+                claim,
+                task_id,
+                "MAINTENANCE_PAYLOAD_DECODE_FAILED",
+                str(exc)[:200],
+            )
+            return
+
+        # Dispatch through the executor.
+        try:
+            result = await self._maintenance_executor.execute(
+                task_kind=record.task_kind,
+                payload=payload_dict,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._fail_task(
+                claim,
+                task_id,
+                "MAINTENANCE_EXECUTOR_EXCEPTION",
+                str(exc)[:200],
+            )
+            return
+
+        if not result.success:
+            self._fail_task(
+                claim,
+                task_id,
+                "MAINTENANCE_EXECUTOR_FAILED",
+                result.detail or "maintenance executor returned failure",
+            )
+            return
+
+        # Complete without an Outbox row (design §17.10).
+        completion = InternalCompletionWrite(
+            result_ref=f"maintenance:{record.task_kind}",
+            completed_at_ms=_now_ms(),
+        )
+        try:
+            self._ledger.complete_internal(claim, completion)
+            logger.info(
+                "worker {} completed maintenance task {} (kind={}, items={})",
+                self._worker_id,
+                task_id,
+                record.task_kind,
+                result.items_processed,
+            )
+        except StaleLeaseError:
+            logger.warning(
+                "worker {} lost lease completing maintenance task {}",
+                self._worker_id,
+                task_id,
+            )
 
     # ------------------------------------------------------------------
     # Completion

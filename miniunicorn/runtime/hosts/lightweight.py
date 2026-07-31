@@ -58,12 +58,17 @@ class LightweightHost:
         lease_ms: int = 180_000,
         heartbeat_interval_s: float = 15.0,
         max_root_attempts: int = 3,
+        maintenance_executor: Any = None,
     ) -> None:
         self._store = store
         self._session_committer = session_committer
         self._execution_callback = execution_callback
         self._worker_count = max(1, min(worker_count, 3))
         self._heartbeat_interval_s = heartbeat_interval_s
+        # Task 9 Step 5: optional MaintenanceExecutor dispatched to every
+        # Worker so internal task kinds (DREAM, MEMORY_CONSOLIDATION, etc.)
+        # run in-process instead of failing with MAINTENANCE_EXECUTOR_NOT_CONFIGURED.
+        self._maintenance_executor = maintenance_executor
 
         self._task_service = TaskService(store)
         self._scheduler = Scheduler(
@@ -108,6 +113,7 @@ class LightweightHost:
                 session_committer=self._session_committer,
                 execution_callback=self._execution_callback,
                 heartbeat_interval_s=self._heartbeat_interval_s,
+                maintenance_executor=self._maintenance_executor,
             )
             self._workers.append(worker)
             task = asyncio.create_task(worker.run(), name=f"worker-{worker_id}")
