@@ -23,7 +23,7 @@ from miniunicorn.agent.ports import (
     SessionCommitRequest,
     SessionMutation,
 )
-from miniunicorn.runtime.contracts import ClaimRequest
+from miniunicorn.runtime.contracts import ClaimRequest, SessionCommitMismatchError
 from miniunicorn.runtime.models import SessionCommitWrite
 from miniunicorn.runtime.session_committer import (
     SessionCommitter,
@@ -111,6 +111,37 @@ class TestSessionCommitLedger:
         r2 = store.prepare_session_commit(claim, write)
         assert r1.session_commit_id == r2.session_commit_id
         assert r2.state == "PREPARED"
+
+    def test_prepare_rejects_mismatched_retry(
+        self, store: SqliteRuntimeStore, claim_and_run
+    ) -> None:
+        """A retry with different immutable fields must be rejected (Task 3 Step 7)."""
+        record, claim = claim_and_run()
+        write1 = SessionCommitWrite(
+            session_key=record.session_key,
+            commit_kind="INBOUND",
+            base_revision=0,
+            target_revision=1,
+            content_hash="hash-1",
+            payload_blob_id="",
+            created_at_ms=1_000_000,
+            session_commit_id="commit-1",
+        )
+        store.prepare_session_commit(claim, write1)
+
+        write2 = SessionCommitWrite(
+            session_key=record.session_key,
+            commit_kind="INBOUND",
+            base_revision=0,
+            target_revision=1,
+            content_hash="different-hash",  # changed
+            payload_blob_id="",
+            created_at_ms=1_000_000,
+            session_commit_id="commit-1",
+        )
+        with pytest.raises(SessionCommitMismatchError) as exc_info:
+            store.prepare_session_commit(claim, write2)
+        assert "content_hash" in exc_info.value.field_names
 
     def test_confirm_marks_committed(
         self, store: SqliteRuntimeStore, claim_and_run

@@ -98,6 +98,15 @@ class SessionCommitter:
         self._ledger = ledger
         self._session_manager = session_manager
 
+    def current_revision(self, session_key: str) -> int:
+        """Read the fresh filesystem revision for ``session_key`` (Task 3 Step 4).
+
+        The Worker must not import or construct ``SessionManager``; it
+        uses this boundary to obtain the current revision before building
+        an INBOUND commit request (design §17.7).
+        """
+        return self._session_manager.load_fresh(session_key).revision
+
     async def commit_turn(self, request: SessionCommitRequest) -> SessionCommitResult:
         """Execute the 5-step prepare/apply/confirm protocol.
 

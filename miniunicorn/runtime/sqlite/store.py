@@ -45,6 +45,7 @@ from miniunicorn.runtime.contracts import (
     CompletionResult,
     ControlResult,
     ReclaimResult,
+    SessionCommitMismatchError,
     StaleLeaseError,
     SubmitResult,
     TaskClaim,
@@ -1868,6 +1869,31 @@ class SqliteRuntimeStore:
                 (claim.task_id, value.commit_kind),
             ).fetchone()
             if existing is not None:
+                # A COMMITTED row means the work is already durably done.
+                # The retry's request fields may legitimately differ
+                # (e.g. base_revision advanced after INBOUND committed);
+                # return the committed row so the caller sees
+                # ALREADY_COMMITTED (design §17.7 step 5 crash recovery).
+                if existing["state"] == "COMMITTED":
+                    self._conn.execute("COMMIT")
+                    return self._row_to_session_commit(existing)
+                # For a PREPARED row, verify immutable fields match
+                # (Task 3 Step 7). A retry with different fields is a
+                # bug, not an idempotent retry of the same operation.
+                mismatched: list[str] = []
+                if existing["session_commit_id"] != commit_id:
+                    mismatched.append("session_commit_id")
+                if existing["session_key"] != value.session_key:
+                    mismatched.append("session_key")
+                if existing["base_revision"] != value.base_revision:
+                    mismatched.append("base_revision")
+                if existing["target_revision"] != value.target_revision:
+                    mismatched.append("target_revision")
+                if existing["content_hash"] != value.content_hash:
+                    mismatched.append("content_hash")
+                if mismatched:
+                    # Let the except handler own ROLLBACK exactly once.
+                    raise SessionCommitMismatchError(commit_id, mismatched)
                 self._conn.execute("COMMIT")
                 return self._row_to_session_commit(existing)
 
@@ -1980,15 +2006,18 @@ class SqliteRuntimeStore:
     def mark_session_conflict(
         self, claim: TaskClaim, commit_id: str, error: SafeError
     ) -> SessionCommitRecord:
-        """Mark a session commit ``CONFLICT`` (design §17.7, §21.4).
+        """Mark a session commit ``CONFLICT`` (design §17.7, §21.4; Task 3 Step 8).
 
-        Records the conflict for operational alerting. The task lease is
-        not required to be valid (the Worker may have been fenced), so we
-        do not validate the lease here.
+        Records the conflict for operational alerting. Requires the
+        current task claim so a stale Worker cannot mark a replacement
+        attempt's commit conflicted. Uses ``check_deadline=False``
+        because this is a voluntary release — the token/epoch check is
+        sufficient fencing.
         """
         now_ms = _now_ms()
         self._conn.execute("BEGIN IMMEDIATE")
         try:
+            self._validate_lease(claim, now_ms=now_ms, check_deadline=False)
             self._conn.execute(
                 """
                 UPDATE session_commits

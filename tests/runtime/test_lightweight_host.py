@@ -248,9 +248,15 @@ class TestSameSessionOrdering:
         self,
         store: SqliteRuntimeStore,
         committer: SessionCommitter,
+        session_manager: SessionManager,
         sample_scope: RequestScope,
     ) -> None:
-        """Two tasks for the same session execute in submission order."""
+        """Two tasks for the same session execute in submission order.
+
+        The session transcript must contain exactly four messages in
+        order: user, assistant, user, assistant (design §17.1, Task 3
+        Step 1).
+        """
         callback = StubExecutionCallback(delay_s=0.05)
         host = LightweightHost(store, committer, callback, worker_count=1)
         await host.start()
@@ -283,6 +289,21 @@ class TestSameSessionOrdering:
 
             # session_sequence must be strictly increasing.
             assert snap1.session_sequence < snap2.session_sequence
+
+            # The session transcript must contain exactly four messages
+            # in order: user, assistant, user, assistant (Task 3 Step 1).
+            snapshot = session_manager.load_fresh("session-A")
+            transcript = [
+                (m.get("role"), m.get("content"))
+                for m in snapshot.messages
+            ]
+            assert transcript == [
+                ("user", "first"),
+                ("assistant", "response to: first"),
+                ("user", "second"),
+                ("assistant", "response to: second"),
+            ]
+            assert snapshot.revision == 4
         finally:
             await host.stop()
 
@@ -555,6 +576,103 @@ class TestSessionCommitIntegration:
             contents = [m.get("content") for m in snapshot.messages]
             assert "hello world" in contents  # INBOUND user message
             assert any("response to: hello world" in (c or "") for c in contents)  # FINAL
+        finally:
+            await host.stop()
+
+
+# ---------------------------------------------------------------------------
+# Tests: session revision conflict enters bounded retry (Task 3 Step 2)
+# ---------------------------------------------------------------------------
+
+
+class ConflictInjectingCommitter:
+    """Wraps a real SessionCommitter and injects REVISION_CONFLICT.
+
+    Used to verify that the Worker enters bounded retry wait (not
+    completion) when a session commit conflicts (Task 3 Step 2).
+    """
+
+    def __init__(self, real: SessionCommitter, *, conflict_kind: str) -> None:
+        self._real = real
+        self._conflict_kind = conflict_kind
+
+    def current_revision(self, session_key: str) -> int:
+        return self._real.current_revision(session_key)
+
+    async def commit_turn(self, request: Any) -> Any:
+        from miniunicorn.agent.ports import SessionCommitResult
+
+        if request.commit_kind == self._conflict_kind:
+            return SessionCommitResult(
+                state="REVISION_CONFLICT",
+                revision=7,
+            )
+        return await self._real.commit_turn(request)
+
+
+class TestSessionRevisionConflict:
+    """A REVISION_CONFLICT must enter bounded retry, never completion."""
+
+    @pytest.mark.asyncio
+    async def test_inbound_conflict_enters_retry_wait(
+        self,
+        store: SqliteRuntimeStore,
+        committer: SessionCommitter,
+        sample_scope: RequestScope,
+    ) -> None:
+        """INBOUND REVISION_CONFLICT → RETRY_WAIT, not COMPLETED."""
+        fake_committer = ConflictInjectingCommitter(
+            committer, conflict_kind="INBOUND"
+        )
+        callback = StubExecutionCallback()
+        host = LightweightHost(store, fake_committer, callback, worker_count=1)
+        await host.start()
+        try:
+            envelope = _make_envelope(
+                sample_scope,
+                session_key="conflict-inbound",
+                content="conflict test",
+            )
+            handle = await host.task_service.submit(envelope)
+
+            # Poll for RETRY_WAIT (not terminal, so wait_terminal times out).
+            snap = await host.task_service.wait_terminal(
+                sample_scope, handle.task_id, timeout_s=5.0
+            )
+            assert snap.state == "RETRY_WAIT"
+            assert snap.error is not None
+            assert snap.error.error_code == "SESSION_REVISION_CONFLICT"
+        finally:
+            await host.stop()
+
+    @pytest.mark.asyncio
+    async def test_final_conflict_enters_retry_wait(
+        self,
+        store: SqliteRuntimeStore,
+        committer: SessionCommitter,
+        sample_scope: RequestScope,
+    ) -> None:
+        """FINAL REVISION_CONFLICT → RETRY_WAIT, not COMPLETED."""
+        fake_committer = ConflictInjectingCommitter(
+            committer, conflict_kind="FINAL"
+        )
+        callback = StubExecutionCallback()
+        host = LightweightHost(store, fake_committer, callback, worker_count=1)
+        await host.start()
+        try:
+            envelope = _make_envelope(
+                sample_scope,
+                session_key="conflict-final",
+                content="conflict test",
+            )
+            handle = await host.task_service.submit(envelope)
+
+            snap = await host.task_service.wait_terminal(
+                sample_scope, handle.task_id, timeout_s=5.0
+            )
+            assert snap.state == "RETRY_WAIT"
+            assert snap.error is not None
+            assert snap.error.error_code == "SESSION_REVISION_CONFLICT"
         finally:
             await host.stop()
 

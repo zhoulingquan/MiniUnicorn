@@ -52,6 +52,7 @@ from miniunicorn.runtime.models import (
     BlobWrite,
     CompletionWrite,
     InternalCompletionWrite,
+    RetryDecision,
     TaskFailure,
 )
 from miniunicorn.runtime.scheduler import Scheduler
@@ -270,6 +271,9 @@ class AgentTaskWorker:
             if inbound_result.state == "IO_FAILURE":
                 self._fail_task(claim, task_id, "INBOUND_COMMIT_IO_FAILURE", str(inbound_result.error))
                 return
+            if not _session_commit_succeeded(inbound_result):
+                self._enter_session_retry(claim, task_id, inbound_result)
+                return
 
             # Get the session base revision after INBOUND commit.
             session_base_revision = inbound_result.revision
@@ -307,6 +311,9 @@ class AgentTaskWorker:
             final_result = await self._commit_final(claim, record, result, session_base_revision)
             if final_result.state == "IO_FAILURE":
                 self._fail_task(claim, task_id, "FINAL_COMMIT_IO_FAILURE", str(final_result.error))
+                return
+            if not _session_commit_succeeded(final_result):
+                self._enter_session_retry(claim, task_id, final_result)
                 return
 
             # Complete the task (design §17.8).
@@ -379,13 +386,17 @@ class AgentTaskWorker:
         if payload.metadata:
             user_message["metadata"] = payload.metadata
 
+        # Read the actual filesystem revision so the INBOUND commit targets
+        # the correct next revision (Task 3 Step 5). A hardcoded 0 would
+        # conflict on the second turn of the same session.
+        base_revision = self._committer.current_revision(record.session_key)
         request = SessionCommitRequest(
             task_id=record.task_id,
             session_key=record.session_key,
             commit_id=commit_id,
             commit_kind="INBOUND",
-            base_revision=0,  # Will be determined by SessionCommitter
-            target_revision=0,  # Will be determined by SessionCommitter
+            base_revision=base_revision,
+            target_revision=base_revision + 1,
             mutation=SessionMutation(
                 messages=[user_message],
                 metadata_updates={},
@@ -495,6 +506,34 @@ class AgentTaskWorker:
         except StaleLeaseError:
             logger.warning("worker {} could not fail task {} (stale lease)", self._worker_id, task_id)
 
+    def _enter_session_retry(
+        self, claim: Any, task_id: str, result: SessionCommitResult
+    ) -> None:
+        """Enter bounded RETRY_WAIT after a session commit conflict (Task 3 Step 6).
+
+        A ``REVISION_CONFLICT`` means the session changed before the
+        commit could land. The task enters a short bounded retry so the
+        next attempt re-reads the fresh revision (design §17.7, §23.4).
+        """
+        try:
+            self._ledger.enter_retry_wait(
+                claim,
+                RetryDecision(
+                    kind="TRANSIENT",
+                    available_at_ms=_now_ms() + 250,
+                    error=SafeError(
+                        error_code="SESSION_REVISION_CONFLICT",
+                        error_summary="session changed before commit; retry from fresh revision",
+                    ),
+                ),
+            )
+        except StaleLeaseError:
+            logger.warning(
+                "worker {} could not enter retry for task {} (stale lease)",
+                self._worker_id,
+                task_id,
+            )
+
     # ------------------------------------------------------------------
     # Heartbeat
     # ------------------------------------------------------------------
@@ -578,6 +617,15 @@ def _derive_commit_id(task_id: str, commit_kind: str) -> str:
 def _hash_content(content: str) -> str:
     """SHA-256 hex of content (design §16.15)."""
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def _session_commit_succeeded(result: SessionCommitResult) -> bool:
+    """Return ``True`` only for ``COMMITTED`` or ``ALREADY_COMMITTED`` (Task 3 Step 6).
+
+    A ``REVISION_CONFLICT`` or ``IO_FAILURE`` is not a success; the
+    Worker must enter bounded retry or fail rather than complete.
+    """
+    return result.state in {"COMMITTED", "ALREADY_COMMITTED"}
 
 
 class suppress_exception:

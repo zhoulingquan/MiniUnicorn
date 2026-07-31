@@ -94,6 +94,23 @@ class LeaseLostError(RuntimeError):
         self.task_id = task_id
 
 
+class SessionCommitMismatchError(RuntimeError):
+    """Raised when a prepared session commit is retried with different fields (Task 3 Step 7).
+
+    The ``(task_id, commit_kind)`` pair is the idempotency key. If a
+    retry provides different ``session_key``, ``base_revision``,
+    ``target_revision``, or ``content_hash``, the store must reject
+    rather than silently return the existing row (design §17.7).
+    """
+
+    def __init__(self, commit_id: str, field_names: list[str]) -> None:
+        super().__init__(
+            f"session commit mismatch: commit_id={commit_id} fields={field_names}"
+        )
+        self.commit_id = commit_id
+        self.field_names = field_names
+
+
 # ---------------------------------------------------------------------------
 # Result DTOs used directly by Protocol signatures
 # ---------------------------------------------------------------------------
@@ -536,6 +553,8 @@ class RuntimeStore(
 
 __all__ = [
     "StaleLeaseError",
+    "LeaseLostError",
+    "SessionCommitMismatchError",
     "SubmitResult",
     "ControlResult",
     "ClaimRequest",
