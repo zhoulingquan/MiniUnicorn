@@ -108,6 +108,14 @@ class Session:
     # 每次 commit_turn 成功后递增;legacy 文件无此字段时按 0 加载。
     # save() 不会自动递增 revision,只有 commit_turn() 会。
     revision: int = 0
+    # Reserved storage metadata (Task 4 Step 3). Holds the bounded commit
+    # index that is written atomically with the session file replacement so
+    # a crash after the replace still leaves a recoverable commit-id record
+    # (design §21.2 crash recovery). Excluded from Agent-visible metadata,
+    # WebUI payloads, and caller-provided ``mutation_metadata_updates``.
+    _runtime: dict[str, Any] = field(
+        default_factory=lambda: {"format_version": 1, "applied_commits": []}
+    )
 
     @staticmethod
     def _annotate_message_time(message: dict[str, Any], content: Any) -> Any:
@@ -505,6 +513,13 @@ class SessionManager:
         # 防止两个不同 key(在旧命名规则下碰撞到同一 stem)都认领同一 legacy 文件,
         # 导致数据被错误复制到另一个会话。
         self._legacy_claims: dict[str, str] = {}
+        # Fault injection hook used only by tests (Task 4 Step 1). When set,
+        # called with a named fault point immediately after the durable
+        # session file replace and before any sidecar write or cache
+        # refresh. A raised exception simulates a crash between the atomic
+        # session file replacement and the now-removed sidecar write.
+        # Production default is ``None`` and adds no behavior.
+        self._commit_fault_hook: Callable[[str], None] | None = None
 
     def set_on_evict(self, cb: Callable[[str], None]) -> None:
         """注册 evict 回调，AgentLoop 在此清理 _session_locks/_pending_queues 等。"""
@@ -641,6 +656,10 @@ class SessionManager:
             updated_at = None
             last_consolidated = 0
             revision = 0  # legacy 文件无此字段,按 0 读取 (design §21.1)。
+            runtime_meta: dict[str, Any] = {
+                "format_version": 1,
+                "applied_commits": [],
+            }
 
             with open(path, encoding="utf-8") as f:
                 for line in f:
@@ -664,6 +683,13 @@ class SessionManager:
                         )
                         last_consolidated = data.get("last_consolidated", 0)
                         revision = data.get("revision", 0)
+                        # Embedded commit index (Task 4 Step 3). Corrupt or
+                        # legacy files without ``_runtime`` keep the default
+                        # empty index; the sidecar merge in ``load_fresh``
+                        # recovers any older entries (Task 4 Step 4).
+                        runtime_meta = self._normalize_runtime_meta(
+                            data.get("_runtime")
+                        )
                     else:
                         messages.append(data)
 
@@ -683,6 +709,7 @@ class SessionManager:
                 last_consolidated=last_consolidated,
                 generation=gen,
                 revision=revision,
+                _runtime=runtime_meta,
             )
         except Exception as e:
             logger.warning("Failed to load session {}: {}", key, e)
@@ -743,6 +770,10 @@ class SessionManager:
             updated_at: datetime | None = None
             last_consolidated = 0
             revision = 0  # legacy 文件无此字段,按 0 读取 (design §21.1)。
+            runtime_meta: dict[str, Any] = {
+                "format_version": 1,
+                "applied_commits": [],
+            }
             skipped = 0
             stored_key: str | None = None
 
@@ -768,6 +799,9 @@ class SessionManager:
                         last_consolidated = data.get("last_consolidated", 0)
                         stored_key = data.get("key")
                         revision = data.get("revision", 0)
+                        runtime_meta = self._normalize_runtime_meta(
+                            data.get("_runtime")
+                        )
                     else:
                         messages.append(data)
 
@@ -786,6 +820,7 @@ class SessionManager:
                 metadata=metadata,
                 last_consolidated=last_consolidated,
                 revision=revision,
+                _runtime=runtime_meta,
             )
         except Exception as e:
             logger.warning("Repair failed for session {}: {}", resolved_key, e)
@@ -879,8 +914,13 @@ class SessionManager:
                     "metadata": session.metadata,
                     "last_consolidated": session.last_consolidated,
                     # revision 持久化以支持跨进程乐观并发控制 (design §21.1)。
-                    # legacy 文件无此字段,_load 按 0 读取。
+                    # legacy 文件无该字段,_load 按 0 读取。
                     "revision": session.revision,
+                    # Reserved storage metadata (Task 4 Step 3): the bounded
+                    # commit index embedded in the same atomically-replaced
+                    # session file so a crash after the replace still leaves
+                    # a recoverable commit-id record.
+                    "_runtime": session._runtime,
                 }
                 f.write(json.dumps(metadata_line, ensure_ascii=False) + "\n")
                 for msg in session.messages:
@@ -950,6 +990,48 @@ class SessionManager:
         """Per-session commit-id index sidecar path (design §21.3)."""
         return self._get_session_path(key).with_suffix(".jsonl.commits")
 
+    @staticmethod
+    def _normalize_runtime_meta(raw: Any) -> dict[str, Any]:
+        """Return a valid ``_runtime`` dict, ignoring corrupt fields (Task 4 Step 6).
+
+        A corrupt ``_runtime`` (non-dict, missing ``applied_commits``, or
+        entries with non-string ``commit_id``) must never lose session
+        messages — the bad metadata is replaced with the empty default
+        and the sidecar merge in :meth:`load_fresh` recovers valid
+        entries when present.
+        """
+        default: dict[str, Any] = {
+            "format_version": 1,
+            "applied_commits": [],
+        }
+        if not isinstance(raw, dict):
+            return default
+        raw_commits = raw.get("applied_commits")
+        if not isinstance(raw_commits, list):
+            return default
+        cleaned: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for entry in raw_commits:
+            if not isinstance(entry, dict):
+                continue
+            cid = entry.get("commit_id")
+            if not isinstance(cid, str) or cid in seen:
+                continue
+            seen.add(cid)
+            cleaned.append(
+                {
+                    "commit_id": cid,
+                    "content_hash": str(entry.get("content_hash", "")),
+                    "revision": int(entry.get("revision", 0) or 0),
+                    "commit_kind": str(entry.get("commit_kind", "")),
+                    "committed_at_ms": int(entry.get("committed_at_ms", 0) or 0),
+                }
+            )
+        # FIFO bound (newest retained).
+        if len(cleaned) > _COMMIT_INDEX_MAX:
+            cleaned = cleaned[-_COMMIT_INDEX_MAX:]
+        return {"format_version": 1, "applied_commits": cleaned}
+
     def _read_commit_index(self, key: str) -> "OrderedDict[str, dict[str, Any]]":
         """Read the bounded commit-id index sidecar.
 
@@ -1015,6 +1097,16 @@ class SessionManager:
 
         This is the read path used by the Session Committer before applying
         a mutation. It never returns cached data.
+
+        Commit-index merge (Task 4 Step 4):
+        1. Prefer the embedded ``_runtime.applied_commits`` written
+           atomically with the session file.
+        2. Fall back to the legacy ``.jsonl.commits`` sidecar when the
+           embedded index is absent or older (migration from pre-Task-4
+           files). Valid unique sidecar entries not present in the embedded
+           index are merged in memory; they are persisted into the session
+           file on the next successful session write.
+        3. The sidecar is NOT deleted in this task.
         """
         # Bypass cache: read directly from disk.
         session = self._load(session_key)
@@ -1025,11 +1117,18 @@ class SessionManager:
                 messages=[],
                 applied_commit_ids={},
             )
-        commit_index = self._read_commit_index(session_key)
-        applied = {
-            cid: entry.get("content_hash", "")
-            for cid, entry in commit_index.items()
-        }
+        # Start with the embedded index (authoritative after Task 4).
+        embedded = session._runtime.get("applied_commits", [])
+        applied: dict[str, str] = {}
+        for entry in embedded:
+            cid = entry.get("commit_id")
+            if isinstance(cid, str):
+                applied[cid] = str(entry.get("content_hash", ""))
+        # Merge legacy sidecar entries not already present.
+        sidecar = self._read_commit_index(session_key)
+        for cid, entry in sidecar.items():
+            if cid not in applied:
+                applied[cid] = str(entry.get("content_hash", ""))
         return SessionSnapshot(
             session_key=session_key,
             revision=session.revision,
@@ -1077,11 +1176,21 @@ class SessionManager:
                 if session is None:
                     session = Session(key=session_key)
 
-                # Steps 3-4: check commit-id idempotency.
-                commit_index = self._read_commit_index(session_key)
-                existing = commit_index.get(commit_id)
-                if existing is not None:
-                    existing_hash = existing.get("content_hash", "")
+                # Steps 3-4: check commit-id idempotency. Prefer the
+                # embedded index (authoritative after Task 4); merge the
+                # legacy sidecar for migration from pre-Task-4 files.
+                embedded_commits = session._runtime.get("applied_commits", [])
+                existing_hash: str | None = None
+                for entry in embedded_commits:
+                    if entry.get("commit_id") == commit_id:
+                        existing_hash = str(entry.get("content_hash", ""))
+                        break
+                if existing_hash is None:
+                    sidecar = self._read_commit_index(session_key)
+                    sidecar_entry = sidecar.get(commit_id)
+                    if sidecar_entry is not None:
+                        existing_hash = str(sidecar_entry.get("content_hash", ""))
+                if existing_hash is not None:
                     if existing_hash == content_hash:
                         # Step 3: same commit_id + hash → already committed.
                         return SessionCommitOutcome(
@@ -1114,24 +1223,47 @@ class SessionManager:
                 # Step 7: increment revision exactly once.
                 session.revision += 1
 
-                # Steps 8-11: atomic save with fsync (reuse _save_impl).
-                self._save_impl(session, fsync=True)
-
-                # Step 12: refresh process-local cache.
-                with self._cache_lock:
-                    self._cache[session_key] = session
-                    self._touch(session_key)
-                    self._enforce_max()
-
-                # Update the commit-id index sidecar.
-                commit_index[commit_id] = {
+                # Step 7b (Task 4 Step 3): append the commit entry to the
+                # embedded ``_runtime.applied_commits`` index BEFORE the
+                # atomic session file replace. The append, message append,
+                # and revision increment all occur before the single
+                # ``_save_impl(fsync=True)`` call, so the commit identity is
+                # crash-atomic with the session content.
+                new_entry = {
                     "commit_id": commit_id,
                     "content_hash": content_hash,
                     "revision": session.revision,
                     "commit_kind": commit_kind,
                     "committed_at_ms": int(time.time() * 1000),
                 }
-                self._write_commit_index(session_key, commit_index)
+                applied_commits = list(embedded_commits)
+                applied_commits.append(new_entry)
+                # FIFO bound (newest retained).
+                if len(applied_commits) > _COMMIT_INDEX_MAX:
+                    applied_commits = applied_commits[-_COMMIT_INDEX_MAX:]
+                session._runtime = {
+                    "format_version": 1,
+                    "applied_commits": applied_commits,
+                }
+
+                # Steps 8-11: atomic save with fsync (reuse _save_impl).
+                self._save_impl(session, fsync=True)
+
+                # Fault injection (Task 4 Step 1): the session file has been
+                # durably replaced at this point. If a hook is registered,
+                # call it with ``after_session_replace``; a raised exception
+                # simulates a crash between the atomic session file
+                # replacement and any non-durable post-replace work.
+                if self._commit_fault_hook is not None:
+                    self._commit_fault_hook("after_session_replace")
+
+                # Step 12: refresh process-local cache. No required
+                # persistence operation follows the atomic session replace
+                # (Task 4 Step 5) — the commit index is already embedded.
+                with self._cache_lock:
+                    self._cache[session_key] = session
+                    self._touch(session_key)
+                    self._enforce_max()
 
                 return SessionCommitOutcome(
                     state="COMMITTED",

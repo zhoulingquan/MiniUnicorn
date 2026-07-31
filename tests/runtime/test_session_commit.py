@@ -275,6 +275,67 @@ class TestCommitTurnCrashRecovery:
         assert r2.state == "ALREADY_COMMITTED"
         assert r2.revision == 1
 
+    def test_crash_after_session_replace_returns_already_committed(
+        self, manager: SessionManager
+    ) -> None:
+        """Crash immediately after the durable session file replace (Task 4 Step 2).
+
+        The atomic session file replacement succeeds, but a crash prevents
+        the (now-removed) sidecar write. On retry with a fresh SessionManager
+        constructed over the same workspace, the same ``commit_id`` and
+        ``content_hash`` must return ``ALREADY_COMMITTED`` and the message
+        must not be duplicated (design §17.7, §21.2 crash recovery).
+        """
+        key = "test:crash-after-replace:1"
+
+        def crash(_point: str) -> None:
+            raise OSError("injected crash after session replace")
+
+        manager._commit_fault_hook = crash  # noqa: SLF001
+
+        # First commit: session file is replaced durably, then the hook
+        # raises before the sidecar is written. The OSError is caught by
+        # commit_turn's handler and surfaced as IO_FAILURE.
+        r1 = manager.commit_turn(
+            session_key=key,
+            commit_id="commit-1",
+            commit_kind="INBOUND",
+            base_revision=0,
+            mutation_messages=[{"role": "user", "content": "hello"}],
+            mutation_metadata_updates={},
+            content_hash="hash-1",
+        )
+        assert r1.state == "IO_FAILURE"
+
+        # A fresh SessionManager simulates a Worker restart over the same
+        # workspace. The sidecar does NOT contain commit-1.
+        manager_b = SessionManager(manager.workspace)
+
+        # Retry the same commit. Expected before the fix: REVISION_CONFLICT
+        # because the session file advanced to revision 1 but the sidecar
+        # lacks commit-1. Expected after the fix: ALREADY_COMMITTED because
+        # the commit index is embedded in the atomically-replaced session
+        # file metadata.
+        retry = manager_b.commit_turn(
+            session_key=key,
+            commit_id="commit-1",
+            commit_kind="INBOUND",
+            base_revision=0,
+            mutation_messages=[{"role": "user", "content": "hello"}],
+            mutation_metadata_updates={},
+            content_hash="hash-1",
+        )
+        assert retry.state == "ALREADY_COMMITTED", (
+            f"crash after session replace must be idempotent; got {retry.state}: "
+            f"{retry.error}"
+        )
+        assert retry.revision == 1
+
+        snapshot = manager_b.load_fresh(key)
+        assert [m.get("content") for m in snapshot.messages] == ["hello"], (
+            "the inbound message must appear exactly once after retry"
+        )
+
     def test_crash_after_prepare_before_filesystem(self, manager: SessionManager) -> None:
         """Simulate crash after SQLite prepare but before filesystem commit.
 
@@ -380,7 +441,14 @@ class TestFsyncBehavior:
         path = manager._get_session_path(key)  # noqa: SLF001
         assert path.exists()
 
-    def test_commit_sidecar_exists_after_commit(self, manager: SessionManager) -> None:
+    def test_commit_embeds_runtime_index_after_commit(self, manager: SessionManager) -> None:
+        """The bounded commit index is embedded in the session file (Task 4 Step 3).
+
+        After Task 4 the legacy ``.jsonl.commits`` sidecar is no longer
+        written by ``commit_turn``; the index lives in the session file's
+        metadata line under ``_runtime.applied_commits`` so it is atomic
+        with the session content replace.
+        """
         key = "test:sidecar:1"
         manager.commit_turn(
             session_key=key,
@@ -391,14 +459,21 @@ class TestFsyncBehavior:
             mutation_metadata_updates={},
             content_hash="hash-1",
         )
+        path = manager._get_session_path(key)  # noqa: SLF001
+        with open(path, encoding="utf-8") as f:
+            meta = json.loads(f.readline())
+        assert meta["_type"] == "metadata"
+        runtime = meta["_runtime"]
+        assert runtime["format_version"] == 1
+        applied = runtime["applied_commits"]
+        assert len(applied) == 1
+        assert applied[0]["commit_id"] == "commit-1"
+        assert applied[0]["content_hash"] == "hash-1"
+        assert applied[0]["revision"] == 1
+        assert applied[0]["commit_kind"] == "INBOUND"
+        # The legacy sidecar is no longer written by commit_turn.
         commits_path = manager._get_commits_path(key)  # noqa: SLF001
-        assert commits_path.exists()
-        with open(commits_path, encoding="utf-8") as f:
-            data = json.load(f)
-        assert len(data["commits"]) == 1
-        assert data["commits"][0]["commit_id"] == "commit-1"
-        assert data["commits"][0]["content_hash"] == "hash-1"
-        assert data["commits"][0]["revision"] == 1
+        assert not commits_path.exists()
 
 
 class TestOSLockSidecar:
@@ -472,11 +547,113 @@ class TestDeleteCleansUpSidecars:
             content_hash="hash-1",
         )
         lock_path = manager._get_lock_path(key)  # noqa: SLF001
-        commits_path = manager._get_commits_path(key)  # noqa: SLF001
+        session_path = manager._get_session_path(key)  # noqa: SLF001
         assert lock_path.exists()
-        assert commits_path.exists()
+        assert session_path.exists()
 
         manager.delete_session(key)
 
         assert not lock_path.exists(), "lock sidecar must be deleted"
-        assert not commits_path.exists(), "commit index sidecar must be deleted"
+        assert not session_path.exists(), (
+            "session file (carrying the embedded commit index) must be deleted"
+        )
+
+
+class TestEmbeddedRuntimeIndexRobustness:
+    """Corrupt ``_runtime`` metadata and bounded-index behavior (Task 4 Step 6)."""
+
+    def test_corrupt_runtime_metadata_ignored_without_losing_messages(
+        self, manager: SessionManager
+    ) -> None:
+        """A corrupt ``_runtime`` field must not lose session messages."""
+        key = "test:corrupt-runtime:1"
+        manager.commit_turn(
+            session_key=key,
+            commit_id="commit-1",
+            commit_kind="INBOUND",
+            base_revision=0,
+            mutation_messages=[{"role": "user", "content": "hello"}],
+            mutation_metadata_updates={},
+            content_hash="hash-1",
+        )
+        # Overwrite the session file with a corrupt ``_runtime`` block.
+        path = manager._get_session_path(key)  # noqa: SLF001
+        with open(path, encoding="utf-8") as f:
+            lines = f.readlines()
+        meta = json.loads(lines[0])
+        meta["_runtime"] = {"format_version": 1, "applied_commits": "not-a-list"}
+        lines[0] = json.dumps(meta, ensure_ascii=False) + "\n"
+        with open(path, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+
+        snapshot = manager.load_fresh(key)
+        # Messages preserved despite corrupt metadata.
+        assert len(snapshot.messages) == 1
+        assert snapshot.messages[0]["content"] == "hello"
+        assert snapshot.revision == 1
+        # Corrupt index dropped (no valid applied_commit_ids).
+        assert snapshot.applied_commit_ids == {}
+
+    def test_corrupt_runtime_entry_dropped_safely(self, manager: SessionManager) -> None:
+        """Individual corrupt entries are dropped; valid ones survive."""
+        key = "test:corrupt-entry:1"
+        manager.commit_turn(
+            session_key=key,
+            commit_id="commit-good",
+            commit_kind="INBOUND",
+            base_revision=0,
+            mutation_messages=[{"role": "user", "content": "ok"}],
+            mutation_metadata_updates={},
+            content_hash="hash-good",
+        )
+        path = manager._get_session_path(key)  # noqa: SLF001
+        with open(path, encoding="utf-8") as f:
+            lines = f.readlines()
+        meta = json.loads(lines[0])
+        # Mix one valid entry with corrupt ones.
+        meta["_runtime"] = {
+            "format_version": 1,
+            "applied_commits": [
+                {"commit_id": "commit-good", "content_hash": "hash-good",
+                 "revision": 1, "commit_kind": "INBOUND", "committed_at_ms": 1},
+                {"commit_id": "bad-no-content", "revision": 2},  # missing hash ok
+                "not-a-dict",  # dropped
+                {"commit_id": ""},  # dropped (empty id)
+                {"commit_id": "commit-good", "content_hash": "dup"},  # dedup
+            ],
+        }
+        lines[0] = json.dumps(meta, ensure_ascii=False) + "\n"
+        with open(path, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+
+        snapshot = manager.load_fresh(key)
+        # The valid commit-good entry is retained.
+        assert "commit-good" in snapshot.applied_commit_ids
+        assert snapshot.applied_commit_ids["commit-good"] == "hash-good"
+        # Messages intact.
+        assert len(snapshot.messages) == 1
+
+    def test_embedded_index_bounded_to_max(self, manager: SessionManager) -> None:
+        """201 unique commits retain exactly ``_COMMIT_INDEX_MAX`` newest entries."""
+        from miniunicorn.session.manager import _COMMIT_INDEX_MAX
+
+        key = "test:bounded-embedded:1"
+        for i in range(_COMMIT_INDEX_MAX + 1):
+            outcome = manager.commit_turn(
+                session_key=key,
+                commit_id=f"commit-{i}",
+                commit_kind="INBOUND",
+                base_revision=i,
+                mutation_messages=[{"role": "user", "content": f"msg-{i}"}],
+                mutation_metadata_updates={},
+                content_hash=f"hash-{i}",
+            )
+            assert outcome.state == "COMMITTED", f"commit {i} failed: {outcome.error}"
+
+        snapshot = manager.load_fresh(key)
+        # Exactly _COMMIT_INDEX_MAX entries retained (oldest evicted).
+        assert len(snapshot.applied_commit_ids) == _COMMIT_INDEX_MAX
+        assert "commit-0" not in snapshot.applied_commit_ids, (
+            "oldest entry must be evicted by FIFO bound"
+        )
+        assert f"commit-{_COMMIT_INDEX_MAX}" in snapshot.applied_commit_ids
