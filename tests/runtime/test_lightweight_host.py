@@ -101,6 +101,8 @@ def _make_envelope(
         received_at_ms=1_000_000,
         available_at_ms=available_at_ms,
         payload_content=payload_bytes,
+        # Task 7: immutable delivery target for CLI sessions (design §17.8).
+        target_key="direct",
     )
 
 

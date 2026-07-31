@@ -122,6 +122,12 @@ async def test_supervised_processes_real_turn_after_readiness(
                     channel_account="test-user",
                     channel_message_id=None,
                     scope=scope,
+                    # Task 7: immutable delivery target copied into the
+                    # FINAL_REPLY Outbox row (design §17.8). "direct"
+                    # denotes an interactive CLI session; the Worker
+                    # copies this verbatim so the Agent's final text
+                    # cannot alter routing.
+                    target_key="direct",
                 )
                 envelope = build_inbound_envelope(
                     request, now_ms=int(time.time() * 1000)

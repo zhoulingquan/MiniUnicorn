@@ -891,6 +891,9 @@ class TestCompletion:
                 completed_at_ms=2_000_002,
                 cumulative_input_tokens=100,
                 cumulative_output_tokens=50,
+                channel="test-channel",
+                channel_account="test-account",
+                target_key="test-target",
             ),
         )
         assert completion.status == "COMPLETED"

@@ -82,6 +82,8 @@ class WorkerTaskPayload:
     content: str
     media: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Task 7 Step 2: immutable delivery target for the final reply.
+    target_key: str = ""
 
 
 @dataclass(slots=True, frozen=True)
@@ -466,8 +468,12 @@ class AgentTaskWorker:
             return
 
         # Write the final reply as a protected blob, then complete with outbox.
+        # Task 7 Step 6: the payload is the versioned Outbox codec envelope
+        # (not raw UTF-8 bytes) so OutboxSender can decode content+media+metadata.
         final_content = result.final_content or ""
-        final_bytes = final_content.encode("utf-8")
+        from miniunicorn.runtime.outbox_payload import encode_outbox_payload
+
+        final_bytes = encode_outbox_payload(content=final_content)
         final_hash = hashlib.sha256(final_bytes).hexdigest()
         scope_key = f"{record.tenant_id}/{record.principal_id}"
         blob = self._ledger.write_blob(
@@ -481,12 +487,18 @@ class AgentTaskWorker:
                 created_at_ms=now_ms,
             )
         )
+        # Task 7 Step 3: durable delivery routing copied verbatim from the
+        # immutable claimed TaskRecord (design §17.8). The Agent's final
+        # text cannot choose or alter channel/account/target.
         completion = CompletionWrite(
             final_reply_blob_id=blob.blob_id,
             final_reply_hash=final_hash,
             final_reply_dedup_key=None,
             suppress_final=False,
             completed_at_ms=now_ms,
+            channel=record.channel or "",
+            channel_account=record.channel_account or "",
+            target_key=record.target_key or "",
         )
         self._ledger.complete_with_outbox(claim, completion)
 
@@ -596,6 +608,7 @@ class AgentTaskWorker:
             content=payload_data.get("content", ""),
             media=payload_data.get("media", []),
             metadata=payload_data.get("metadata", {}),
+            target_key=record.target_key or "",
         )
 
 

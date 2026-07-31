@@ -15,7 +15,6 @@ results — the sender is only invoked after the Outbox claims the row.
 from __future__ import annotations
 
 import hashlib
-import json
 import time
 from typing import Any
 
@@ -70,16 +69,15 @@ class DurableMessageDelivery:
             )
 
         # Build the payload blob (design §16.15).
-        payload = {
-            "content": request.content,
-            "media": list(request.media),
-        }
-        payload_bytes = json.dumps(
-            payload,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
+        # Task 7 Step 6: use the versioned Outbox codec envelope so the
+        # OutboxSender decodes content+media+metadata instead of receiving
+        # raw JSON bytes that drop media on the floor (design §20.6).
+        from miniunicorn.runtime.outbox_payload import encode_outbox_payload
+
+        payload_bytes = encode_outbox_payload(
+            content=request.content,
+            media=tuple(request.media),
+        )
         payload_hash = hashlib.sha256(payload_bytes).hexdigest()
 
         from miniunicorn.runtime.models import BlobWrite

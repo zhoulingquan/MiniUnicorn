@@ -402,6 +402,21 @@ CREATE INDEX IF NOT EXISTS ix_runtime_blobs_created
 """
 
 
+# ---------------------------------------------------------------------------
+# Migration 002: add immutable delivery target to tasks (Task 7 Step 2)
+# ---------------------------------------------------------------------------
+
+_MIGRATION_002_SQL = """-- Task 7 Step 2: immutable delivery target for final replies.
+-- The Outbox already stores (channel, channel_account, target_key) for
+-- each delivery row, but the tasks table only carried channel and
+-- channel_account. Final replies therefore lost the original inbound
+-- chat/thread target and fell back to empty strings (design §17.8).
+-- Existing rows default to '' so the migration is backwards-compatible;
+-- new production submissions must populate target_key at ingress.
+ALTER TABLE tasks ADD COLUMN target_key TEXT NOT NULL DEFAULT '';
+"""
+
+
 @dataclass(slots=True, frozen=True)
 class Migration:
     """One numbered, checksummed migration (design §16.3)."""
@@ -421,6 +436,11 @@ MIGRATIONS: tuple[Migration, ...] = (
         version=1,
         name="initial_schema",
         sql=_MIGRATION_001_SQL,
+    ),
+    Migration(
+        version=2,
+        name="add_tasks_target_key",
+        sql=_MIGRATION_002_SQL,
     ),
 )
 

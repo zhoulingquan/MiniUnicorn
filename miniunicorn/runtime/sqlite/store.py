@@ -135,6 +135,21 @@ def _content_hash(data: bytes | str) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _column_value(row: sqlite3.Row, name: str, default: Any = None) -> Any:
+    """Return ``row[name]`` if present, otherwise ``default``.
+
+    The Runtime Store validates schema version before any query, so
+    migration-added columns always exist on a migrated connection. The
+    helper exists for ``_row_to_task_record`` so a row produced by an
+    explicit ``SELECT`` that predates a migration column does not raise
+    ``IndexError`` — it falls back to the column default instead.
+    """
+    try:
+        return row[name]
+    except (IndexError, KeyError):
+        return default
+
+
 # ---------------------------------------------------------------------------
 # Row mappers
 # ---------------------------------------------------------------------------
@@ -155,6 +170,7 @@ def _row_to_task_record(row: sqlite3.Row) -> TaskRecord:
         channel_account=row["channel_account"],
         channel_message_id=row["channel_message_id"],
         dedup_key=row["dedup_key"],
+        target_key=_column_value(row, "target_key", ""),
         task_kind=row["task_kind"],
         priority=row["priority"],
         payload_blob_id=row["payload_blob_id"],
@@ -647,11 +663,12 @@ class SqliteRuntimeStore:
                     task_id, turn_id, protocol_version, tenant_id, principal_id,
                     agent_id, workspace_id, session_key, session_sequence,
                     channel, channel_account, channel_message_id, dedup_key,
+                    target_key,
                     task_kind, priority, payload_blob_id, payload_hash,
                     state, checkpoint_phase, run_segment, root_attempt_count,
                     max_root_attempts, recovery_pending, available_at_ms,
                     state_version, created_at_ms, updated_at_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'QUEUED', 'ACCEPTED', 0, 0, ?, 0, ?, 0, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'QUEUED', 'ACCEPTED', 0, 0, ?, 0, ?, 0, ?, ?)
                 """,
                 (
                     task_id,
@@ -667,6 +684,7 @@ class SqliteRuntimeStore:
                     envelope.channel_account,
                     envelope.channel_message_id,
                     envelope.dedup_key,
+                    envelope.target_key or "",
                     envelope.task_kind,
                     priority,
                     blob.blob_id,
@@ -1415,6 +1433,15 @@ class SqliteRuntimeStore:
 
             outbox_id: int | None = None
             if completion.final_reply_blob_id and not completion.suppress_final:
+                # Task 7 Step 4: the final Outbox row must carry durable
+                # delivery routing copied from the immutable claimed
+                # TaskRecord. Empty channel/target is allowed only for
+                # explicitly local/suppressed completions (design §17.8).
+                if not completion.channel or not completion.target_key:
+                    raise ValueError(
+                        "final reply requires durable delivery routing "
+                        "(channel and target_key must be non-empty)"
+                    )
                 dedup_key = completion.final_reply_dedup_key or _dedup_key_hash(
                     f"{claim.task_id}:final-reply"
                 )
@@ -1425,10 +1452,13 @@ class SqliteRuntimeStore:
                         message_kind, payload_blob_id, payload_hash, dedup_key,
                         state, max_attempts, available_at_ms, lease_epoch,
                         created_at_ms
-                    ) VALUES (?, '', '', '', 'FINAL_REPLY', ?, ?, ?, 'PENDING', ?, ?, 0, ?)
+                    ) VALUES (?, ?, ?, ?, 'FINAL_REPLY', ?, ?, ?, 'PENDING', ?, ?, 0, ?)
                     """,
                     (
                         claim.task_id,
+                        completion.channel,
+                        completion.channel_account,
+                        completion.target_key,
                         completion.final_reply_blob_id,
                         completion.final_reply_hash,
                         dedup_key,
@@ -3044,19 +3074,26 @@ class SqliteRuntimeStore:
 
         Joins ``tasks`` to the task's ``FINAL_REPLY`` Outbox row and
         ``runtime_blobs``. Verifies tenant, principal, agent, and workspace
-        scope before returning content. Decodes only ``RAW_BYTES``.
+        scope before returning content.
+
+        Task 7 Step 7: reply reads are independent from delivery state.
+        The protected final payload may be read for any Outbox state
+        (including ``SENDING``, ``FAILED``, and ``OUTCOME_UNKNOWN``) so a
+        stuck Channel cannot hide a completed reply. The Outbox state is
+        surfaced in returned metadata as ``delivery_state`` so callers
+        can distinguish delivered from in-flight/failed replies.
         Returns ``None`` when no final-reply Outbox row exists.
         """
         row = self._conn.execute(
             """
             SELECT t.state AS task_state,
                    o.outbox_id AS outbox_id,
+                   o.state AS outbox_state,
                    b.inline_content AS inline_content,
                    b.encoding AS encoding
             FROM tasks t
             JOIN outbox o ON o.task_id = t.task_id
                 AND o.message_kind = 'FINAL_REPLY'
-                AND o.state IN ('PENDING', 'DELIVERED', 'RETRY_WAIT')
             LEFT JOIN runtime_blobs b ON b.blob_id = o.payload_blob_id
             WHERE t.task_id = ?
               AND t.tenant_id = ?
@@ -3078,7 +3115,14 @@ class SqliteRuntimeStore:
             return None
         content = ""
         if row["inline_content"] is not None and row["encoding"] == "RAW_BYTES":
-            content = bytes(row["inline_content"]).decode("utf-8")
+            # Task 7 Step 6: decode the versioned Outbox codec envelope.
+            # Legacy raw-text FINAL_REPLY blobs fall back to the literal
+            # UTF-8 string via decode_outbox_payload's FINAL_REPLY path.
+            from miniunicorn.runtime.outbox_payload import decode_outbox_payload
+
+            content = decode_outbox_payload(
+                "FINAL_REPLY", bytes(row["inline_content"])
+            ).content
         return DurableReply(
             content=content,
             outbox_id=int(row["outbox_id"]),
@@ -3086,6 +3130,7 @@ class SqliteRuntimeStore:
                 "task_id": task_id,
                 "state": row["task_state"],
                 "outbox_id": int(row["outbox_id"]),
+                "delivery_state": row["outbox_state"],
             },
         )
 

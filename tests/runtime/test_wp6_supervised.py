@@ -773,6 +773,9 @@ class TestStaleWorkerFencingViaSqlite:
             final_reply_dedup_key=None,
             suppress_final=False,
             completed_at_ms=2_100_001,
+            channel="test-channel",
+            channel_account="test-account",
+            target_key="test-target",
         )
         result = store.complete_with_outbox(claim, completion)
         assert result.status == "STALE_LEASE"
@@ -957,6 +960,9 @@ class TestGoldenFlowParity:
             final_reply_dedup_key=None,
             suppress_final=False,
             completed_at_ms=2_000_003,
+            channel="test-channel",
+            channel_account="test-account",
+            target_key="test-target",
         )
         result = store.complete_with_outbox(claim, completion)
         assert result.status == "COMPLETED"

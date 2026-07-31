@@ -353,6 +353,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
             channel_account="local-user",
             channel_message_id=None,
             scope=scope,
+            target_key=session_key,
         )
 
         # -- streaming path --

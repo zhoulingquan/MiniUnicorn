@@ -38,6 +38,9 @@ class RuntimeInboundRequest:
     channel_account: str
     channel_message_id: str | None
     scope: RequestScope
+    # Task 7 Step 2: immutable delivery target for the final reply.
+    # CLI: "direct"; OpenAI API: request/session target; Channel: chat_id.
+    target_key: str = ""
 
 
 @dataclass(slots=True, frozen=True)

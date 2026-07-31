@@ -83,6 +83,7 @@ def make_inbound_envelope():
         available_at_ms: int | None = None,
         turn_id: str | None = None,
         media_refs: tuple[MediaRef, ...] = (),
+        target_key: str = "test-target",
     ) -> InboundTaskEnvelope:
         return InboundTaskEnvelope(
             protocol_version=1,
@@ -100,6 +101,7 @@ def make_inbound_envelope():
             received_at_ms=received_at_ms,
             available_at_ms=available_at_ms,
             turn_id=turn_id,
+            target_key=target_key,
         )
 
     return _make

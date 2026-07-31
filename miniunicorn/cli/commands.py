@@ -743,6 +743,7 @@ def agent(
                         channel_account="local-user",
                         channel_message_id=None,
                         scope=scope,
+                        target_key="direct",
                     ),
                     timeout_s=float(config.api.timeout),
                 )
@@ -800,6 +801,7 @@ def agent(
                     channel_account="local-user",
                     channel_message_id=None,
                     scope=scope,
+                    target_key="direct",
                 )
             )
             wait_task = asyncio.create_task(

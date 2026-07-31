@@ -354,6 +354,9 @@ class TestRetention:
             final_reply_dedup_key=None,
             suppress_final=False,
             completed_at_ms=2_000_003,
+            channel="test-channel",
+            channel_account="test-account",
+            target_key="test-target",
         )
         store.complete_with_outbox(claim, completion)
 

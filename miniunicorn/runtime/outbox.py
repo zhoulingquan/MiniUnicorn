@@ -175,24 +175,32 @@ class OutboxSender:
         self._record_result(claim, receipt)
         return True
 
-    def _read_payload(self, claim: OutboxClaim) -> str | None:
-        """Read the payload blob content from the store."""
+    def _read_payload(self, claim: OutboxClaim) -> bytes | None:
+        """Read the payload blob bytes from the store (Task 7 Step 6)."""
         if not hasattr(self._store, "read_blob_content"):
             return None
         return self._store.read_blob_content(claim.payload_blob_id)
 
     @staticmethod
-    def _build_outbound_message(claim: OutboxClaim, content: str) -> Any:
-        """Build an OutboundMessage from the claim and payload."""
-        from miniunicorn.bus.events import OutboundMessage
+    def _build_outbound_message(claim: OutboxClaim, payload: bytes) -> Any:
+        """Build an OutboundMessage from the claim and decoded payload.
 
+        Task 7 Step 6: the payload blob is a versioned Outbox codec
+        envelope. Decode by ``message_kind`` so the Channel receives
+        ``str`` content and decoded media/metadata instead of raw JSON
+        bytes (design §17.8, §20.6).
+        """
+        from miniunicorn.bus.events import OutboundMessage
+        from miniunicorn.runtime.outbox_payload import decode_outbox_payload
+
+        decoded = decode_outbox_payload(claim.message_kind, payload)
         return OutboundMessage(
             channel=claim.channel,
             chat_id=claim.target_key,
-            content=content,
+            content=decoded.content,
             reply_to=None,
-            media=None,
-            metadata={},
+            media=list(decoded.media),
+            metadata=dict(decoded.metadata),
             buttons=None,
         )
 

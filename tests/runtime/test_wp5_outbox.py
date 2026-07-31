@@ -96,13 +96,33 @@ def _write_payload_blob(store: Any, content: str, scope_key: str = "test") -> st
     return blob.blob_id
 
 
-def _claim_and_run_task(store: Any, sample_scope: Any, make_inbound_envelope: Any):
-    """Submit, claim, and mark-running a task. Returns (record, claim)."""
+def _claim_and_run_task(
+    store: Any,
+    sample_scope: Any,
+    make_inbound_envelope: Any,
+    *,
+    channel: str | None = None,
+    channel_account: str | None = None,
+    target_key: str | None = None,
+):
+    """Submit, claim, and mark-running a task. Returns (record, claim).
+
+    Task 7: optionally overrides the inbound routing fields so the
+    TaskRecord carries durable delivery routing the Worker can copy
+    verbatim into the FINAL_REPLY Outbox row (design §17.8).
+    """
     # Use real-time now_ms so the lease deadline is in the future for
     # downstream mutations that call _validate_lease with real-time
     # _now_ms() (Task 2 Step 5 deadline fencing).
     now_ms = int(time.time() * 1000)
-    env = make_inbound_envelope(sample_scope)
+    envelope_kwargs: dict[str, Any] = {}
+    if channel is not None:
+        envelope_kwargs["channel"] = channel
+    if channel_account is not None:
+        envelope_kwargs["channel_account"] = channel_account
+    if target_key is not None:
+        envelope_kwargs["target_key"] = target_key
+    env = make_inbound_envelope(sample_scope, **envelope_kwargs)
     submit = store.submit_task(env)
     assert submit.status == "ACCEPTED"
     result = store.claim_next(
@@ -130,6 +150,9 @@ def _enqueue_final_reply(
         final_reply_dedup_key=None,
         suppress_final=False,
         completed_at_ms=2_000_002,
+        channel=channel,
+        channel_account=channel_account,
+        target_key=target_key,
     )
     result = store.complete_with_outbox(claim, completion)
     assert result.status == "COMPLETED"
@@ -900,4 +923,319 @@ class TestNoDirectFinalChannelSend:
 
         source = inspect.getsource(AgentExecutionCallback.__call__)
         assert "runtime_mode=True" in source
+
+
+# ---------------------------------------------------------------------------
+# Task 7: Preserve final-reply routing and decode Outbox payloads
+# ---------------------------------------------------------------------------
+
+
+class TestFinalReplyRoutingAndPayload:
+    """Task 7: final Outbox row preserves inbound routing and decodes payloads."""
+
+    def test_final_reply_outbox_preserves_inbound_routing(
+        self, store: Any, sample_scope: Any, make_inbound_envelope: Any
+    ) -> None:
+        """The final Outbox row copies channel/account/target from the task.
+
+        Before Task 7: ``complete_with_outbox`` inserted empty strings for
+        ``channel``/``channel_account``/``target_key``, so the final reply
+        lost its durable delivery route (design §17.8).
+        """
+        record, claim = _claim_and_run_task(
+            store,
+            sample_scope,
+            make_inbound_envelope,
+            channel="websocket",
+            channel_account="account-1",
+            target_key="chat-42",
+        )
+        outbox_id = _enqueue_final_reply(
+            store,
+            claim,
+            content="final answer",
+            channel="websocket",
+            channel_account="account-1",
+            target_key="chat-42",
+        )
+
+        row = store.read_outbox_record(outbox_id)
+        assert row is not None
+        assert row.channel == "websocket"
+        assert row.channel_account == "account-1"
+        assert row.target_key == "chat-42"
+        assert row.message_kind == "FINAL_REPLY"
+
+    def test_complete_with_outbox_rejects_missing_routing(
+        self, store: Any, sample_scope: Any, make_inbound_envelope: Any
+    ) -> None:
+        """A final reply without durable routing raises (Task 7 Step 4).
+
+        Empty ``channel`` or ``target_key`` is allowed only for explicitly
+        suppressed completions, not for enqueued final replies.
+        """
+        record, claim = _claim_and_run_task(store, sample_scope, make_inbound_envelope)
+        blob_id = _write_payload_blob(store, "no route")
+        completion = CompletionWrite(
+            final_reply_blob_id=blob_id,
+            final_reply_hash=hashlib.sha256(b"no route").hexdigest(),
+            final_reply_dedup_key=None,
+            suppress_final=False,
+            completed_at_ms=2_000_002,
+            channel="",
+            channel_account="",
+            target_key="",
+        )
+        with pytest.raises(ValueError, match="durable delivery routing"):
+            store.complete_with_outbox(claim, completion)
+
+    def test_outbox_sender_delivers_str_content_and_empty_media(
+        self, store: Any, sample_scope: Any, make_inbound_envelope: Any
+    ) -> None:
+        """OutboxSender decodes the versioned payload to str content (Task 7 Step 6).
+
+        Before Task 7: the sender forwarded raw bytes/JSON to the Channel,
+        so ``message.content`` was a JSON string instead of the reply text.
+        """
+        from miniunicorn.runtime.outbox_payload import encode_outbox_payload
+
+        record, claim = _claim_and_run_task(
+            store,
+            sample_scope,
+            make_inbound_envelope,
+            channel="websocket",
+            channel_account="account-1",
+            target_key="chat-42",
+        )
+        # Write a versioned-codec FINAL_REPLY blob, then enqueue.
+        payload_bytes = encode_outbox_payload(content="final answer")
+        blob = store.write_blob(
+            BlobWrite(
+                scope_key="test",
+                blob_kind="OUTBOX_PAYLOAD",
+                content_hash=hashlib.sha256(payload_bytes).hexdigest(),
+                encoding="RAW_BYTES",
+                inline_content=payload_bytes,
+                size_bytes=len(payload_bytes),
+                created_at_ms=1_000_000,
+            )
+        )
+        completion = CompletionWrite(
+            final_reply_blob_id=blob.blob_id,
+            final_reply_hash=hashlib.sha256(payload_bytes).hexdigest(),
+            final_reply_dedup_key=None,
+            suppress_final=False,
+            completed_at_ms=2_000_002,
+            channel="websocket",
+            channel_account="account-1",
+            target_key="chat-42",
+        )
+        result = store.complete_with_outbox(claim, completion)
+        assert result.outbox_id is not None
+
+        sender = StubChannelSender()
+        outbox_sender = OutboxSender(
+            store,
+            sender,
+            sender_id="test-sender",
+            poll_interval_s=0.01,
+            lease_ms=60_000,
+            send_timeout_s=5,
+        )
+        delivered = asyncio.run(outbox_sender._deliver_one())
+        assert delivered is True
+
+        assert len(sender.sent_messages) == 1
+        message = sender.sent_messages[0]
+        assert isinstance(message.content, str)
+        assert message.content == "final answer"
+        assert message.media == []
+        assert message.chat_id == "chat-42"
+
+    def test_message_tool_payload_decodes_content_and_media(
+        self, store: Any, sample_scope: Any, make_inbound_envelope: Any
+    ) -> None:
+        """Message Tool sends content "proactive" and media ["image.png"].
+
+        Before Task 7: the OutboxSender received raw JSON bytes and
+        ``message.content`` was the JSON envelope string, with media
+        lost entirely (design §20.6).
+        """
+        from miniunicorn.agent.tools.message import MessageTool
+        from miniunicorn.agent.turn_runtime import (
+            TurnRuntime,
+            bind_turn_runtime,
+            reset_turn_runtime,
+        )
+        from miniunicorn.runtime.message_delivery import DurableMessageDelivery
+        from miniunicorn.runtime.session_committer import (
+            clear_active_claim,
+            clear_active_delivery_ledger,
+            clear_active_tool_call_id,
+            set_active_claim,
+            set_active_delivery_ledger,
+            set_active_tool_call_id,
+        )
+
+        record, claim = _claim_and_run_task(
+            store,
+            sample_scope,
+            make_inbound_envelope,
+            channel="test-channel",
+            channel_account="test-account",
+            target_key="test-target",
+        )
+        set_active_claim(record.task_id, claim)
+        set_active_delivery_ledger(record.task_id, store)
+        set_active_tool_call_id(record.task_id, "tool-call-media")
+
+        rt = TurnRuntime(
+            turn_id="test-turn",
+            session_key="test-session",
+            task_id=record.task_id,
+            outbound_port=DurableMessageDelivery(record.task_id),
+        )
+        token = bind_turn_runtime(rt)
+
+        tool = MessageTool(
+            default_channel="test-channel",
+            default_chat_id="test-target",
+        )
+
+        try:
+            # Use an HTTP URL so MessageTool does not resolve it against
+            # the workspace directory; the test verifies codec decoding,
+            # not local path resolution (design §20.6).
+            result = asyncio.run(
+                tool.execute(content="proactive", media=["https://example.com/image.png"])
+            )
+        finally:
+            reset_turn_runtime(token)
+            clear_active_tool_call_id(record.task_id)
+            clear_active_delivery_ledger(record.task_id)
+            clear_active_claim(record.task_id)
+
+        outbox_id_str = result.split("outbox_id=")[1].rstrip(")")
+        outbox_id = int(outbox_id_str)
+
+        # Claim and deliver through OutboxSender to verify decoding.
+        sender = StubChannelSender()
+        outbox_sender = OutboxSender(
+            store,
+            sender,
+            sender_id="test-sender",
+            poll_interval_s=0.01,
+            lease_ms=60_000,
+            send_timeout_s=5,
+        )
+        # Deliver exactly the message-tool row we just enqueued.
+        delivered = asyncio.run(outbox_sender._deliver_one())
+        assert delivered is True
+
+        assert len(sender.sent_messages) == 1
+        message = sender.sent_messages[0]
+        assert isinstance(message.content, str)
+        assert message.content == "proactive"
+        assert message.media == ["https://example.com/image.png"]
+
+    def test_read_final_reply_works_for_sending_state(
+        self, store: Any, sample_scope: Any, make_inbound_envelope: Any
+    ) -> None:
+        """read_final_reply returns content for any Outbox state (Task 7 Step 7).
+
+        Before Task 7: replies in SENDING/FAILED/OUTCOME_UNKNOWN were hidden,
+        so a stuck Channel could mask a completed reply from the API.
+        """
+        from miniunicorn.runtime.outbox_payload import encode_outbox_payload
+
+        record, claim = _claim_and_run_task(
+            store,
+            sample_scope,
+            make_inbound_envelope,
+            channel="websocket",
+            channel_account="account-1",
+            target_key="chat-42",
+        )
+        payload_bytes = encode_outbox_payload(content="reply while sending")
+        blob = store.write_blob(
+            BlobWrite(
+                scope_key="test",
+                blob_kind="OUTBOX_PAYLOAD",
+                content_hash=hashlib.sha256(payload_bytes).hexdigest(),
+                encoding="RAW_BYTES",
+                inline_content=payload_bytes,
+                size_bytes=len(payload_bytes),
+                created_at_ms=1_000_000,
+            )
+        )
+        completion = CompletionWrite(
+            final_reply_blob_id=blob.blob_id,
+            final_reply_hash=hashlib.sha256(payload_bytes).hexdigest(),
+            final_reply_dedup_key=None,
+            suppress_final=False,
+            completed_at_ms=2_000_002,
+            channel="websocket",
+            channel_account="account-1",
+            target_key="chat-42",
+        )
+        result = store.complete_with_outbox(claim, completion)
+        assert result.outbox_id is not None
+
+        # Force the outbox row into SENDING to simulate an in-flight delivery.
+        store._conn.execute(
+            "UPDATE outbox SET state='SENDING' WHERE outbox_id=?",
+            (result.outbox_id,),
+        )
+        store._conn.commit()
+
+        reply = store.read_final_reply(sample_scope, record.task_id)
+        assert reply is not None
+        assert reply.content == "reply while sending"
+        assert reply.metadata.get("delivery_state") == "SENDING"
+
+    def test_legacy_raw_text_final_reply_still_decodes(
+        self, store: Any, sample_scope: Any, make_inbound_envelope: Any
+    ) -> None:
+        """Legacy raw-text FINAL_REPLY blobs decode to their UTF-8 text.
+
+        Rows written before the codec existed stored plain UTF-8 bytes.
+        ``decode_outbox_payload`` falls back to the literal text for
+        FINAL_REPLY rows so historical replies remain readable.
+        """
+        record, claim = _claim_and_run_task(
+            store,
+            sample_scope,
+            make_inbound_envelope,
+            channel="websocket",
+            channel_account="account-1",
+            target_key="chat-42",
+        )
+        legacy_bytes = "legacy reply text".encode("utf-8")
+        blob = store.write_blob(
+            BlobWrite(
+                scope_key="test",
+                blob_kind="OUTBOX_PAYLOAD",
+                content_hash=hashlib.sha256(legacy_bytes).hexdigest(),
+                encoding="RAW_BYTES",
+                inline_content=legacy_bytes,
+                size_bytes=len(legacy_bytes),
+                created_at_ms=1_000_000,
+            )
+        )
+        completion = CompletionWrite(
+            final_reply_blob_id=blob.blob_id,
+            final_reply_hash=hashlib.sha256(legacy_bytes).hexdigest(),
+            final_reply_dedup_key=None,
+            suppress_final=False,
+            completed_at_ms=2_000_002,
+            channel="websocket",
+            channel_account="account-1",
+            target_key="chat-42",
+        )
+        result = store.complete_with_outbox(claim, completion)
+        assert result.outbox_id is not None
+
+        reply = store.read_final_reply(sample_scope, record.task_id)
+        assert reply is not None
+        assert reply.content == "legacy reply text"
 

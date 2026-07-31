@@ -54,6 +54,13 @@ def build_inbound_envelope(
         if request.channel_message_id
         else None
     )
+    # Task 7 Step 2: populate the immutable delivery target at ingress
+    # (design §17.8). CLI sessions use "direct"; OpenAI API and Channel
+    # sessions carry their chat/thread target. Callers that already set
+    # a non-empty target_key keep it verbatim.
+    target_key = request.target_key or ""
+    if not target_key and request.channel == "cli":
+        target_key = "direct"
     return InboundTaskEnvelope(
         protocol_version=1,
         task_kind="USER_TURN",
@@ -70,6 +77,7 @@ def build_inbound_envelope(
         received_at_ms=now_ms,
         turn_id=None,
         payload_content=payload_bytes,
+        target_key=target_key,
     )
 
 

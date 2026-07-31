@@ -182,6 +182,7 @@ def _build_channel_manager(
             channel_account=msg.sender_id,
             channel_message_id=(msg.metadata or {}).get("message_id"),
             scope=scope,
+            target_key=msg.chat_id or "",
         )
         envelope = build_inbound_envelope(request, now_ms=int(_time.time() * 1000))
         await task_service.submit(envelope)
@@ -283,6 +284,7 @@ def _wire_maintenance_callbacks(
                 channel_account=chat_id,
                 channel_message_id=None,
                 scope=scope,
+                target_key=chat_id,
             )
             envelope = build_inbound_envelope(
                 request, now_ms=int(_time.time() * 1000)

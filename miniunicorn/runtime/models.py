@@ -286,6 +286,10 @@ class InboundTaskEnvelope:
     # of just recording the external_ref. This lets the Worker decode the
     # payload without a separate artifact store (design §13.1, §16.15).
     payload_content: bytes | None = None
+    # Task 7 Step 2: immutable delivery target for the final reply. The
+    # Worker copies this verbatim into the FINAL_REPLY Outbox row so the
+    # Agent's final text cannot alter routing (design §17.8).
+    target_key: str = ""
 
 
 @dataclass(slots=True, frozen=True)
@@ -356,6 +360,9 @@ class TaskRecord:
     payload_hash: str
     state: TaskState
     checkpoint_phase: str
+    # Task 7 Step 2: immutable delivery target copied from the inbound
+    # envelope. Empty string for legacy rows migrated from schema v1.
+    target_key: str = ""
     run_segment: int = 0
     root_attempt_count: int = 0
     max_root_attempts: int = 3
@@ -679,6 +686,13 @@ class CompletionWrite:
     completed_at_ms: int = 0
     cumulative_input_tokens: int = 0
     cumulative_output_tokens: int = 0
+    # Task 7 Step 3: durable delivery routing for the final reply. Copied
+    # verbatim from the immutable claimed TaskRecord so the Agent's final
+    # text cannot choose or alter them. Empty strings are allowed only
+    # for explicitly local/suppressed completions (design §17.8).
+    channel: str = ""
+    channel_account: str = ""
+    target_key: str = ""
 
 
 @dataclass(slots=True, frozen=True)
