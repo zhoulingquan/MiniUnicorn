@@ -36,8 +36,6 @@ from miniunicorn.runtime.ipc import (
     ProcessIpcChannel,
     agent_event,
 )
-from miniunicorn.runtime.realtime import RealtimeSubscriptionHub
-
 
 # ---------------------------------------------------------------------------
 # Async IPC helpers — keep blocking pipe polls off the event-loop thread
@@ -309,20 +307,26 @@ async def _worker_async(
     spawn the Supervisor only spawns Workers after the Control Plane is
     ready, so a ``None`` event is set immediately.
     """
+    from pathlib import Path
+
     from miniunicorn.agent.loop import AgentLoop
     from miniunicorn.bus.queue import MessageBus
     from miniunicorn.config.runtime import resolve_runtime_paths
     from miniunicorn.runtime.agent_adapter import AgentExecutionCallback
+    from miniunicorn.runtime.containment import ProcessContainmentScope
     from miniunicorn.runtime.durable_journal import DurableTurnJournalAdapter
     from miniunicorn.runtime.message_delivery import DurableMessageDelivery
     from miniunicorn.runtime.scheduler import Scheduler
     from miniunicorn.runtime.session_committer import SessionCommitter
-    from miniunicorn.runtime.sqlite import SqliteRuntimeStore, open_connection, validate_schema_version
+    from miniunicorn.runtime.sqlite import (
+        SqliteRuntimeStore,
+        open_connection,
+        validate_schema_version,
+    )
     from miniunicorn.runtime.sqlite.vector_memory_store import create_vector_store
     from miniunicorn.runtime.tool_gateway import ToolGateway
     from miniunicorn.runtime.worker import AgentTaskWorker
     from miniunicorn.session.manager import SessionManager
-    from pathlib import Path
 
     cfg = _reconstruct_config(config)
     resolved = resolve_runtime_paths(cfg.runtime, cfg.workspace_path)
@@ -400,6 +404,7 @@ async def _worker_async(
         execution_callback=callback,
         heartbeat_interval_s=resolved.heartbeat_interval_s,
         maintenance_executor=maintenance_executor,
+        containment_factory=lambda task_id: ProcessContainmentScope(task_id),
     )
 
     # Signal readiness to the Supervisor only after all process-local
@@ -454,10 +459,11 @@ async def _control_plane_async(
     Owns ingress, Outbox, Channels, Cron, API/WebUI, and the realtime
     hub but creates no Agent and no Worker coroutine.
     """
+    from pathlib import Path
+
     from miniunicorn.config.runtime import resolve_runtime_paths
     from miniunicorn.runtime.bootstrap import build_control_plane_runtime
     from miniunicorn.runtime.sqlite import open_connection, run_migrations
-    from pathlib import Path
 
     # Capture the caller-provided surface before reconstructing the
     # config so it reaches build_control_plane_runtime (Task 1 Step 6).

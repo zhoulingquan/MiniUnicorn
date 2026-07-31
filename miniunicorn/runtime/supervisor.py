@@ -45,18 +45,16 @@ from miniunicorn.runtime.containment import (
 )
 from miniunicorn.runtime.ipc import (
     IPC_PROTOCOL_VERSION,
-    IpcEnvelope,
-    ProcessIpcChannel,
     KIND_AGENT_EVENT,
     KIND_CHILD_READY,
-    KIND_SHUTDOWN,
     KIND_TASK_PROGRESS,
     KIND_WAKE_HINT,
     KIND_WORKER_READY,
+    IpcEnvelope,
+    ProcessIpcChannel,
     child_ready,
     shutdown_signal,
 )
-
 
 # ---------------------------------------------------------------------------
 # Child entry-point protocol
@@ -302,13 +300,15 @@ class Supervisor:
             self._min_workers,
         )
         # Spawn Control Plane first and wait for its ready signal.
-        self._spawn_child("control", "control")
+        self._start_child_instance(self._create_child_record("control", "control"))
         self._await_control_ready()
         # Start the relay thread now that the Control Plane exists.
         self._start_relay_thread()
         # Spawn Workers only after the Control Plane is ready.
         for i in range(self._worker_count):
-            self._spawn_child("worker", f"worker-{i}")
+            self._start_child_instance(
+                self._create_child_record("worker", f"worker-{i}")
+            )
         # Wait for combined readiness.
         self._await_readiness()
 
@@ -350,43 +350,40 @@ class Supervisor:
             f"{self._ready_timeout_s}s — aborting supervised start"
         )
 
-    def _spawn_child(self, role: str, child_id: str) -> _ChildRecord:
-        """Spawn (or respawn) one child process."""
-        self._instance_counter += 1
-        instance_id = f"{child_id}#{self._instance_counter}"
-        channel = ProcessIpcChannel.new_pipe()
-        entrypoint = (
-            self._control_entrypoint if role == "control" else self._worker_entrypoint
-        )
+    def _create_child_record(self, role: str, child_id: str) -> _ChildRecord:
+        """Create a stable ``_ChildRecord`` for one child (Task 10 Step 2).
 
-        # NOTE: All args must be picklable for ``multiprocessing.spawn``
-        # (design §24.6, §32.5). The ready-signal callback is built inside
-        # the trampoline from the raw ``instance_id``/``child_id`` args
-        # and the child-end connection — a closure here would fail to
-        # pickle on Windows.
-        process = self._ctx.Process(
-            target=_child_trampoline,
-            name=child_id,
-            args=(
-                entrypoint,
-                role,
-                instance_id,
-                child_id,
-                self._config,
-                channel.child_end,
-            ),
-            daemon=False,
-        )
-        record = _ChildRecord(
+        On first spawn this creates a fresh record. On respawn the caller
+        passes the **existing** record so that ``restart_history`` and
+        stable child identity are preserved (design §24.4).
+        """
+        existing = self._children.get(child_id)
+        if existing is not None:
+            return existing
+        return _ChildRecord(
             role=role,
             child_id=child_id,
-            instance_id=instance_id,
-            channel=channel,
-            process=process,
+            instance_id="",
+            channel=ProcessIpcChannel.new_pipe(),
+            process=None,
         )
-        # Register with OS containment before start so the Job Object
-        # assignment races with neither spawn nor first syscall.
-        self._children[child_id] = record
+
+    def _start_child_instance(self, record: _ChildRecord) -> _ChildRecord:
+        """Start (or restart) the process for an existing ``_ChildRecord``.
+
+        Updates only the per-instance fields, preserving
+        ``restart_history`` and stable ``child_id`` (design §24.4,
+        Task 10 Step 2).
+        """
+        self._instance_counter += 1
+        record.instance_id = f"{record.child_id}#{self._instance_counter}"
+        record.channel = ProcessIpcChannel.new_pipe()
+        record.ready = False
+        record.last_exit_code = None
+        record.backoff_until_ms = 0
+        record.process = self._build_process(record)
+        self._children[record.child_id] = record
+        process = record.process
         process.start()
         # After start, record the PID and (POSIX) PGID.
         pid = process.pid
@@ -396,8 +393,42 @@ class Supervisor:
             # the PGID equals the child PID.
             pgid = pid
         self._containment.register(pid, pgid=pgid)
-        logger.info("Supervisor spawned {} pid={} instance={}", child_id, pid, instance_id)
+        logger.info(
+            "Supervisor spawned {} pid={} instance={}",
+            record.child_id,
+            pid,
+            record.instance_id,
+        )
         return record
+
+    def _build_process(self, record: _ChildRecord) -> Any:
+        """Build the ``multiprocessing.Process`` for a child record.
+
+        Extracted from the former ``_spawn_child`` unchanged (Task 10
+        Step 2). All args must be picklable for ``multiprocessing.spawn``
+        (design §24.6, §32.5). The ready-signal callback is built inside
+        the trampoline from the raw ``instance_id``/``child_id`` args
+        and the child-end connection — a closure here would fail to
+        pickle on Windows.
+        """
+        entrypoint = (
+            self._control_entrypoint
+            if record.role == "control"
+            else self._worker_entrypoint
+        )
+        return self._ctx.Process(
+            target=_child_trampoline,
+            name=record.child_id,
+            args=(
+                entrypoint,
+                record.role,
+                record.instance_id,
+                record.child_id,
+                self._config,
+                record.channel.child_end,
+            ),
+            daemon=False,
+        )
 
     def _await_readiness(self) -> None:
         """Wait up to ``ready_timeout_s`` for the required children to be ready."""
@@ -576,10 +607,11 @@ class Supervisor:
                 continue
             if now < record.backoff_until_ms:
                 continue
-            # Backoff elapsed — respawn.
+            # Backoff elapsed — respawn, preserving the stable record
+            # so restart_history persists across respawns (Task 10 Step 2).
             logger.info("Supervisor respawning {} after backoff", record.child_id)
             record.backoff_until_ms = 0
-            self._spawn_child(record.role, record.child_id)
+            self._start_child_instance(record)
 
     def reap(self, *, timeout_s: float = 0.0) -> None:
         """Convenience: drain IPC, reap exits, restart due children."""

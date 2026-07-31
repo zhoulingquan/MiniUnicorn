@@ -28,7 +28,7 @@ import os
 import signal
 import sys
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from loguru import logger
 
@@ -124,7 +124,9 @@ class ProcessContainmentScope:
 
     task_id: str = field(default="")
     _pids: set[int] = field(default_factory=set)
+    _pgids: set[int] = field(default_factory=set)
     _closed: bool = field(default=False)
+    _term_grace_s: float = field(default=0.3)
 
     def register(self, pid: int, *, pgid: int | None = None) -> None:
         """Register a spawned child PID (and optional POSIX process-group id)."""
@@ -136,9 +138,10 @@ class ProcessContainmentScope:
             )
             return
         self._pids.add(pid)
-        # pgid is tracked by SupervisorContainment; ProcessContainmentScope
-        # terminates by PID tree (taskkill /T on Windows, PID list on POSIX).
-        # Accepting pgid keeps this class conformant with ContainmentPort.
+        # Task 10 Step 5: track PGIDs so close() can kill the entire
+        # process group on POSIX, not just individual PIDs.
+        if pgid is not None and not _IS_WINDOWS:
+            self._pgids.add(pgid)
 
     def close(self) -> None:
         """Terminate the entire child tree (idempotent)."""
@@ -146,7 +149,8 @@ class ProcessContainmentScope:
             return
         self._closed = True
         pids = sorted(self._pids)
-        if not pids:
+        pgids = sorted(self._pgids)
+        if not pids and not pgids:
             return
         logger.info(
             "containment: terminating {} child process(es) for task={}",
@@ -156,8 +160,9 @@ class ProcessContainmentScope:
         if _IS_WINDOWS:
             self._kill_windows(pids)
         else:
-            self._kill_posix(pids)
+            self._kill_posix(pids, pgids, self._term_grace_s)
         self._pids.clear()
+        self._pgids.clear()
 
     # ------------------------------------------------------------------
     # Platform-specific kill
@@ -178,10 +183,33 @@ class ProcessContainmentScope:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("containment: taskkill failed for PID {}: {}", pid, exc)
 
-    @staticmethod
-    def _kill_posix(pids: list[int]) -> None:
-        """Send SIGTERM then SIGKILL to each tracked PID."""
+    @classmethod
+    def _kill_posix(
+        cls, pids: list[int], pgids: list[int], term_grace_s: float
+    ) -> None:
+        """Send SIGTERM to process groups, wait grace, then SIGKILL survivors.
+
+        Task 10 Step 5: kill POSIX process groups when a PGID is available,
+        falling back to individual PIDs only when no PGID exists.
+        """
+        import time
+
+        # SIGTERM each registered process group.
+        for pgid in pgids:
+            try:
+                os.killpg(pgid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError):
+                pass
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "containment: killpg SIGTERM failed for PGID {}: {}", pgid, exc
+                )
+
+        # Fall back to SIGTERM on individual PIDs that have no PGID.
+        pgid_pids = set(pgids)
         for pid in pids:
+            if pid in pgid_pids:
+                continue
             try:
                 os.kill(pid, signal.SIGTERM)
             except ProcessLookupError:
@@ -189,12 +217,26 @@ class ProcessContainmentScope:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("containment: SIGTERM failed for PID {}: {}", pid, exc)
 
-        # Brief grace period, then SIGKILL survivors.
-        import time
+        # Wait the grace period for processes to exit cleanly.
+        deadline = time.monotonic() + term_grace_s
+        while time.monotonic() < deadline and _any_process_group_exists(pgids):
+            time.sleep(0.05)
 
-        time.sleep(0.3)
+        # SIGKILL any surviving process groups.
+        for pgid in pgids:
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "containment: killpg SIGKILL failed for PGID {}: {}", pgid, exc
+                )
 
+        # SIGKILL any surviving individual PIDs.
         for pid in pids:
+            if pid in pgid_pids:
+                continue
             try:
                 os.kill(pid, signal.SIGKILL)
             except ProcessLookupError:
@@ -206,6 +248,26 @@ class ProcessContainmentScope:
 # ---------------------------------------------------------------------------
 # Supervisor-level OS containment (design §20.7, §24.6, WP6 task 6)
 # ---------------------------------------------------------------------------
+
+
+def _process_group_exists(pgid: int) -> bool:
+    """Return ``True`` if any process in the POSIX process group *pgid* exists.
+
+    Uses ``os.killpg(pgid, 0)`` (signal 0 = existence probe). On Windows
+    or when the call fails for any reason, returns ``False``.
+    """
+    if _IS_WINDOWS:
+        return False
+    try:
+        os.killpg(pgid, 0)
+        return True
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
+
+
+def _any_process_group_exists(pgids: list[int]) -> bool:
+    """Return ``True`` if any of the given POSIX process groups still has members."""
+    return any(_process_group_exists(pgid) for pgid in pgids)
 
 
 class SupervisorContainment:

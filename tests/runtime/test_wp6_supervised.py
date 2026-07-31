@@ -29,13 +29,9 @@ a full Agent Core.
 from __future__ import annotations
 
 import asyncio
-import multiprocessing as mp
-import os
 import sys
 import time
-from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -48,17 +44,15 @@ from miniunicorn.runtime.containment import (
 )
 from miniunicorn.runtime.ipc import (
     IPC_PROTOCOL_VERSION,
-    IpcEnvelope,
-    ProcessIpcChannel,
     KIND_AGENT_EVENT,
     KIND_CHILD_READY,
     KIND_SHUTDOWN,
     KIND_WAKE_HINT,
     KIND_WORKER_READY,
+    IpcEnvelope,
+    ProcessIpcChannel,
     agent_event,
-    child_ready,
     fan_out_wake_hints,
-    shutdown_signal,
     wake_hint,
     worker_ready,
 )
@@ -67,7 +61,6 @@ from miniunicorn.runtime.supervisor import (
     Supervisor,
     _ChildRecord,
 )
-
 
 # ---------------------------------------------------------------------------
 # Module-level stub entrypoints (must be picklable for spawn)
@@ -517,6 +510,230 @@ class TestSupervisorRestartBackoff:
 
 
 # ---------------------------------------------------------------------------
+# Restart-history preservation tests (Task 10 Step 1 & 3)
+# ---------------------------------------------------------------------------
+
+
+class _FakeDeadProcess:
+    """A fake process object that reports as already exited (Task 10)."""
+
+    _pid_counter = 20000
+
+    def __init__(self) -> None:
+        _FakeDeadProcess._pid_counter += 1
+        self.pid = _FakeDeadProcess._pid_counter
+        self.exitcode = 2
+
+    def is_alive(self) -> bool:
+        return False
+
+    def start(self) -> None:
+        pass
+
+    def kill(self) -> None:
+        pass
+
+    def terminate(self) -> None:
+        pass
+
+    def join(self, timeout: float | None = None) -> None:
+        pass
+
+
+class _FakeSpawnContext:
+    """Spawn context whose Process() returns a dead fake process."""
+
+    def Process(self, **kwargs: Any) -> _FakeDeadProcess:  # noqa: N802
+        return _FakeDeadProcess()
+
+
+class _TrackingRestartPolicy:
+    """Wraps a RestartPolicy to track backoff calls (Task 10).
+
+    ``RestartPolicy`` is a slots dataclass, so its methods cannot be
+    monkeypatched on the instance. This wrapper delegates to the real
+    policy while recording every backoff value returned.
+    """
+
+    def __init__(self, policy: RestartPolicy) -> None:
+        self._policy = policy
+        self.backoffs: list[int] = []
+
+    def next_backoff_ms(self, record: _ChildRecord) -> int:
+        b = self._policy.next_backoff_ms(record)
+        self.backoffs.append(b)
+        return b
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._policy, name)
+
+
+class TestSupervisorRestartHistoryPreserved:
+    """Task 10 Step 1: restart_history must persist across respawns.
+
+    Before the fix: ``_spawn_child`` creates a fresh ``_ChildRecord`` on
+    every respawn, overwriting the stable record and resetting
+    ``restart_history``. Every backoff is the initial 500 ms and
+    ``restarts_in_window`` never exceeds 1.
+    """
+
+    def test_three_crashes_grow_backoff_exponentially(self, monkeypatch: Any) -> None:
+        """Fake child crashes 3 times; backoffs must be [500, 1000, 2000]."""
+        import miniunicorn.runtime.supervisor as sup_mod
+
+        policy = RestartPolicy(
+            initial_backoff_ms=500,
+            max_backoff_ms=30_000,
+            backoff_multiplier=2.0,
+            window_ms=5 * 60 * 1000,
+            max_restarts_per_window=5,
+        )
+        sup = Supervisor(
+            config=None,
+            control_entrypoint=_ready_then_block_entrypoint,
+            worker_entrypoint=_crash_immediately_entrypoint,
+            worker_count=2,
+            min_workers=1,
+            ready_timeout_s=1.0,
+            restart_policy=policy,
+        )
+        # Replace the spawn context so _spawn_child creates fake dead processes.
+        sup._ctx = _FakeSpawnContext()
+        sup._started = True
+
+        # Wrap the policy to track backoffs.
+        tracker = _TrackingRestartPolicy(policy)
+        sup._restart_policy = tracker
+
+        # Fake clock starting at a fixed epoch.
+        clock = [1_000_000]
+        monkeypatch.setattr(sup_mod, "_now_ms", lambda: clock[0])
+
+        # Seed one crashed worker child.
+        ch = ProcessIpcChannel.new_pipe()
+        record = _ChildRecord(
+            role="worker",
+            child_id="worker-0",
+            instance_id="worker-0#1",
+            channel=ch,
+            process=_FakeDeadProcess(),
+        )
+        sup._children["worker-0"] = record
+
+        try:
+            # Crash cycle: reap crashed child → schedule backoff → advance
+            # clock past backoff → reap again to trigger respawn via
+            # _maybe_restart_due (the respawned fake child is already dead
+            # and will be reaped on the next reap_once).
+            advance = policy.max_backoff_ms + 1
+            for _ in range(3):
+                sup.reap_once(restart=True)
+                clock[0] += advance  # Advance past any backoff up to max.
+                sup.reap_once(restart=True)
+
+            backoffs = tracker.backoffs
+            assert backoffs == [500, 1000, 2000], (
+                f"expected exponential backoffs [500, 1000, 2000], got {backoffs}"
+            )
+
+            snap = sup.snapshot()
+            worker0 = next(c for c in snap["children"] if c["id"] == "worker-0")
+            assert worker0["restarts_in_window"] == 3, (
+                f"expected 3 restarts in window, got {worker0['restarts_in_window']}"
+            )
+        finally:
+            for r in list(sup._children.values()):
+                try:
+                    r.channel.parent_close()
+                    r.channel.child_close()
+                except Exception:  # noqa: BLE001
+                    pass
+            sup._children.clear()
+
+
+class TestSupervisorRestartBudgetEnforced:
+    """Task 10 Step 3: rolling-window restart budget is enforced.
+
+    After ``max_restarts_per_window`` crashes the next restart must wait
+    the remainder of the window. Readiness stays false and the suppressed
+    restart is visible in metrics.
+    """
+
+    def test_sixth_crash_is_suppressed_by_window_budget(
+        self, monkeypatch: Any
+    ) -> None:
+        """Six crashes inside the window; the sixth restart is suppressed."""
+        import miniunicorn.runtime.supervisor as sup_mod
+
+        policy = RestartPolicy(
+            initial_backoff_ms=500,
+            max_backoff_ms=30_000,
+            backoff_multiplier=2.0,
+            window_ms=5 * 60 * 1000,
+            max_restarts_per_window=5,
+        )
+        sup = Supervisor(
+            config=None,
+            control_entrypoint=_ready_then_block_entrypoint,
+            worker_entrypoint=_crash_immediately_entrypoint,
+            worker_count=2,
+            min_workers=1,
+            ready_timeout_s=1.0,
+            restart_policy=policy,
+        )
+        sup._ctx = _FakeSpawnContext()
+        sup._started = True
+
+        tracker = _TrackingRestartPolicy(policy)
+        sup._restart_policy = tracker
+
+        clock = [1_000_000]
+        monkeypatch.setattr(sup_mod, "_now_ms", lambda: clock[0])
+
+        ch = ProcessIpcChannel.new_pipe()
+        record = _ChildRecord(
+            role="worker",
+            child_id="worker-0",
+            instance_id="worker-0#1",
+            channel=ch,
+            process=_FakeDeadProcess(),
+        )
+        sup._children["worker-0"] = record
+
+        try:
+            advance = policy.max_backoff_ms + 1
+            for _ in range(6):
+                sup.reap_once(restart=True)
+                clock[0] += advance
+                sup.reap_once(restart=True)
+
+            backoffs = tracker.backoffs
+            # The first 5 backoffs grow exponentially; the 6th is suppressed.
+            assert len(backoffs) == 6
+            assert backoffs[:5] == [500, 1000, 2000, 4000, 8000]
+            sixth = backoffs[5]
+            # The 6th backoff must wait at least max_backoff_ms (the floor).
+            assert sixth >= 30_000, (
+                f"6th restart should be suppressed (>= max_backoff_ms), got {sixth}"
+            )
+
+            snap = sup.snapshot()
+            worker0 = next(c for c in snap["children"] if c["id"] == "worker-0")
+            # restart_history was NOT incremented on the 6th (budget exhausted).
+            assert worker0["restarts_in_window"] == 5
+            # The child is in backoff — readiness must be false.
+            assert snap["ready"] is False
+        finally:
+            for r in list(sup._children.values()):
+                try:
+                    r.channel.parent_close()
+                    r.channel.child_close()
+                except Exception:  # noqa: BLE001
+                    pass
+            sup._children.clear()
+
+
+# ---------------------------------------------------------------------------
 # Graceful shutdown tests (real subprocess)
 # ---------------------------------------------------------------------------
 
@@ -579,7 +796,6 @@ def _assert_no_inherited_objects_entrypoint(
     Control Plane stays alive while Workers report ready under the
     Task 7 Control-Plane-first startup ordering.
     """
-    import sys
 
     # The child must have a fresh interpreter with no pre-bound runtime
     # objects. We assert a few invariants that hold for spawn.
@@ -738,7 +954,7 @@ class TestStaleWorkerFencingViaSqlite:
     ) -> None:
         import hashlib
 
-        from miniunicorn.runtime.contracts import ClaimRequest, StaleLeaseError
+        from miniunicorn.runtime.contracts import ClaimRequest
         from miniunicorn.runtime.models import BlobWrite, CompletionWrite
 
         env = make_inbound_envelope(sample_scope)
@@ -972,3 +1188,155 @@ class TestGoldenFlowParity:
         snap = store.read_task_snapshot(sample_scope, record.task_id)
         assert snap is not None
         assert snap.state == "COMPLETED"
+
+
+# ---------------------------------------------------------------------------
+# Graceful Worker shutdown tests (Task 10 Step 7)
+# ---------------------------------------------------------------------------
+
+
+class _BlockingExecutionCallback:
+    """Execution callback that blocks until a release event is set.
+
+    Records when execution starts so the test can coordinate shutdown
+    timing (Task 10 Step 7).
+    """
+
+    def __init__(self, release_event: asyncio.Event) -> None:
+        self._release_event = release_event
+        self.started = asyncio.Event()
+
+    async def __call__(
+        self, payload: Any, session_base_revision: int
+    ) -> Any:
+        from miniunicorn.runtime.worker import WorkerExecutionResult
+
+        self.started.set()
+        await self._release_event.wait()
+        return WorkerExecutionResult(
+            final_content="done",
+            messages=[{"role": "assistant", "content": "done"}],
+        )
+
+
+@pytest.fixture
+def _committer(store: Any, tmp_path: Any) -> Any:
+    from miniunicorn.runtime.session_committer import SessionCommitter
+    from miniunicorn.session.manager import SessionManager
+
+    sessions = SessionManager(tmp_path / "ws")
+    return SessionCommitter(store, sessions)
+
+
+def _make_grace_envelope(scope: Any, content: str = "hello") -> Any:
+    import hashlib
+    import json
+
+    from miniunicorn.runtime.models import InboundTaskEnvelope
+
+    payload = {"content": content, "media": [], "metadata": {}}
+    payload_bytes = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    payload_hash = hashlib.sha256(payload_bytes).hexdigest()
+    return InboundTaskEnvelope(
+        protocol_version=1,
+        task_kind="USER_TURN",
+        priority=100,
+        scope=scope,
+        session_key="grace-session",
+        channel="cli",
+        channel_account="test-user",
+        channel_message_id=None,
+        dedup_key=None,
+        normalized_payload_ref=f"inline:{payload_hash[:16]}",
+        payload_hash=payload_hash,
+        received_at_ms=1_000_000,
+        available_at_ms=None,
+        payload_content=payload_bytes,
+        target_key="direct",
+    )
+
+
+class TestGracefulWorkerShutdown:
+    """Task 10 Step 7: graceful Worker shutdown with blocked callbacks.
+
+    Test 1: a blocked callback released inside ``shutdown_grace_s``
+    completes normally.
+
+    Test 2: a blocked callback never released is cancelled only after
+    the configured grace.
+    """
+
+    @pytest.mark.asyncio
+    async def test_blocked_task_completes_when_released_within_grace(
+        self, store: Any, sample_scope: Any, _committer: Any
+    ) -> None:
+        from miniunicorn.runtime.hosts.lightweight import LightweightHost
+
+        release_event = asyncio.Event()
+        callback = _BlockingExecutionCallback(release_event)
+        host = LightweightHost(store, _committer, callback, worker_count=1)
+        await host.start()
+        try:
+            envelope = _make_grace_envelope(sample_scope)
+            handle = await host.task_service.submit(envelope)
+
+            # Wait for the Worker to pick up the task and block.
+            await asyncio.wait_for(callback.started.wait(), timeout=5.0)
+
+            # Start graceful shutdown.
+            stop_task = asyncio.create_task(host.stop(grace_s=5))
+
+            # Release the callback inside the grace window.
+            await asyncio.sleep(0.5)
+            release_event.set()
+
+            # Shutdown should complete promptly.
+            await asyncio.wait_for(stop_task, timeout=6.0)
+
+            # The task should have completed normally.
+            snapshot = store.read_task_snapshot(sample_scope, handle.task_id)
+            assert snapshot is not None
+            assert snapshot.state == "COMPLETED"
+        finally:
+            release_event.set()
+            if host._running:
+                await host.stop()
+
+    @pytest.mark.asyncio
+    async def test_blocked_task_cancelled_after_grace_expiry(
+        self, store: Any, sample_scope: Any, _committer: Any
+    ) -> None:
+        from miniunicorn.runtime.hosts.lightweight import LightweightHost
+
+        release_event = asyncio.Event()
+        callback = _BlockingExecutionCallback(release_event)
+        host = LightweightHost(store, _committer, callback, worker_count=1)
+        await host.start()
+        try:
+            envelope = _make_grace_envelope(sample_scope)
+            handle = await host.task_service.submit(envelope)
+
+            # Wait for the Worker to pick up the task and block.
+            await asyncio.wait_for(callback.started.wait(), timeout=5.0)
+
+            # Shutdown with a short grace — the callback is never released.
+            start = time.monotonic()
+            await host.stop(grace_s=1)
+            elapsed = time.monotonic() - start
+
+            # Cancellation should occur only after the grace period.
+            assert elapsed >= 0.8, (
+                f"shutdown should wait at least ~1s grace, took {elapsed:.2f}s"
+            )
+            assert elapsed < 5.0, (
+                f"shutdown should not hang, took {elapsed:.2f}s"
+            )
+
+            # The task was not completed (still RUNNING or FAILED).
+            snapshot = store.read_task_snapshot(sample_scope, handle.task_id)
+            assert snapshot is not None
+            assert snapshot.state != "COMPLETED"
+        finally:
+            release_event.set()
+            if host._running:
+                await host.stop()

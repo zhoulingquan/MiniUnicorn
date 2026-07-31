@@ -12,25 +12,20 @@ CLI, tests, and development launchers default to lightweight mode
 from __future__ import annotations
 
 import asyncio
-import json
-import uuid
-from pathlib import Path
 from typing import Any
 
 from loguru import logger
 
+from miniunicorn.runtime.containment import ProcessContainmentScope
 from miniunicorn.runtime.contracts import RuntimeStore
 from miniunicorn.runtime.models import (
     InboundTaskEnvelope,
-    RequestScope,
 )
 from miniunicorn.runtime.scheduler import Scheduler
 from miniunicorn.runtime.session_committer import SessionCommitter
 from miniunicorn.runtime.task_service import TaskService
 from miniunicorn.runtime.worker import (
     AgentTaskWorker,
-    WorkerExecutionResult,
-    WorkerTaskPayload,
 )
 
 
@@ -59,6 +54,7 @@ class LightweightHost:
         heartbeat_interval_s: float = 15.0,
         max_root_attempts: int = 3,
         maintenance_executor: Any = None,
+        containment_factory: Any = None,
     ) -> None:
         self._store = store
         self._session_committer = session_committer
@@ -69,6 +65,12 @@ class LightweightHost:
         # Worker so internal task kinds (DREAM, MEMORY_CONSOLIDATION, etc.)
         # run in-process instead of failing with MAINTENANCE_EXECUTOR_NOT_CONFIGURED.
         self._maintenance_executor = maintenance_executor
+        # Task 10 Step 4: production containment factory so each task's
+        # spawned child processes are terminated when the task completes,
+        # is cancelled, or loses its lease (design §20.7).
+        self._containment_factory = containment_factory or (
+            lambda task_id: ProcessContainmentScope(task_id)
+        )
 
         self._task_service = TaskService(store)
         self._scheduler = Scheduler(
@@ -114,6 +116,7 @@ class LightweightHost:
                 execution_callback=self._execution_callback,
                 heartbeat_interval_s=self._heartbeat_interval_s,
                 maintenance_executor=self._maintenance_executor,
+                containment_factory=self._containment_factory,
             )
             self._workers.append(worker)
             task = asyncio.create_task(worker.run(), name=f"worker-{worker_id}")

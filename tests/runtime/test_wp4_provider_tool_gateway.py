@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -31,23 +30,19 @@ from miniunicorn.agent.ports import (
     ProviderAttemptFailed,
     ProviderAttemptStarted,
     SafeError,
-    ToolExecutionRequest,
-    ToolExecutionResult,
 )
 from miniunicorn.runtime.contracts import ClaimRequest
 from miniunicorn.runtime.durable_journal import JournalProviderObserver
 from miniunicorn.runtime.models import (
-    ModelAttemptWrite,
     ResourceLeaseRequest,
 )
-from miniunicorn.runtime.session_committer import set_active_claim, clear_active_claim
+from miniunicorn.runtime.session_committer import clear_active_claim, set_active_claim
 from miniunicorn.runtime.tool_gateway import (
     ToolGateway,
     build_tool_execution_request,
     compute_arguments_hash,
     compute_idempotency_key,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -184,8 +179,11 @@ class TestProviderAttemptObserver:
         claim = _claim_running_task(store, sample_scope, make_inbound_envelope)
         set_active_claim(claim.task_id, claim)
 
-        from miniunicorn.agent.ports import TaskIdentity
-        from miniunicorn.agent.turn_runtime import TurnRuntime, bind_turn_runtime, reset_turn_runtime
+        from miniunicorn.agent.turn_runtime import (
+            TurnRuntime,
+            bind_turn_runtime,
+            reset_turn_runtime,
+        )
 
         runtime = TurnRuntime(turn_id="t1", session_key="wp4-session", task_id=claim.task_id)
         token = bind_turn_runtime(runtime)
@@ -253,7 +251,11 @@ class TestToolGateway:
         claim = _claim_running_task(store, sample_scope, make_inbound_envelope)
         set_active_claim(claim.task_id, claim)
 
-        from miniunicorn.agent.turn_runtime import TurnRuntime, bind_turn_runtime, reset_turn_runtime
+        from miniunicorn.agent.turn_runtime import (
+            TurnRuntime,
+            bind_turn_runtime,
+            reset_turn_runtime,
+        )
 
         runtime = TurnRuntime(turn_id="t1", session_key="wp4-session", task_id=claim.task_id)
         token = bind_turn_runtime(runtime)
@@ -300,7 +302,11 @@ class TestToolGateway:
         claim = _claim_running_task(store, sample_scope, make_inbound_envelope)
         set_active_claim(claim.task_id, claim)
 
-        from miniunicorn.agent.turn_runtime import TurnRuntime, bind_turn_runtime, reset_turn_runtime
+        from miniunicorn.agent.turn_runtime import (
+            TurnRuntime,
+            bind_turn_runtime,
+            reset_turn_runtime,
+        )
 
         runtime = TurnRuntime(turn_id="t1", session_key="wp4-session", task_id=claim.task_id)
         token = bind_turn_runtime(runtime)
@@ -361,7 +367,11 @@ class TestToolGateway:
         claim = _claim_running_task(store, sample_scope, make_inbound_envelope)
         set_active_claim(claim.task_id, claim)
 
-        from miniunicorn.agent.turn_runtime import TurnRuntime, bind_turn_runtime, reset_turn_runtime
+        from miniunicorn.agent.turn_runtime import (
+            TurnRuntime,
+            bind_turn_runtime,
+            reset_turn_runtime,
+        )
 
         runtime = TurnRuntime(turn_id="t1", session_key="wp4-session", task_id=claim.task_id)
         token = bind_turn_runtime(runtime)
@@ -972,7 +982,11 @@ class TestStaleLeaseFencing:
         claim = _claim_running_task(store, sample_scope, make_inbound_envelope)
         set_active_claim(claim.task_id, claim)
 
-        from miniunicorn.agent.turn_runtime import TurnRuntime, bind_turn_runtime, reset_turn_runtime
+        from miniunicorn.agent.turn_runtime import (
+            TurnRuntime,
+            bind_turn_runtime,
+            reset_turn_runtime,
+        )
         from miniunicorn.runtime.contracts import StaleLeaseError
         from miniunicorn.runtime.models import PreparedToolWrite
 
@@ -1081,8 +1095,6 @@ class TestContainmentScope:
         """
         import sys
 
-        import asyncio
-
         from miniunicorn.runtime.containment import (
             ProcessContainmentScope,
             bind_containment_scope,
@@ -1125,6 +1137,101 @@ class TestContainmentScope:
 
                 # The child should no longer be running.
                 assert proc.returncode is not None
+            finally:
+                reset_containment_scope(token)
+
+        asyncio.run(_run())
+
+    def test_grandchild_process_tree_dies_on_close(self, tmp_path: Any) -> None:
+        """Grandchild processes are terminated when the scope closes (Task 10 Step 6).
+
+        Spawns a child that itself spawns a grandchild, then closes the
+        containment scope. Both processes must be terminated.
+        """
+        import os
+        import sys
+
+        from miniunicorn.runtime.containment import (
+            ProcessContainmentScope,
+            bind_containment_scope,
+            reset_containment_scope,
+        )
+
+        gc_pid_file = tmp_path / "gc_pid.txt"
+
+        # Child script: spawn a long-sleeping grandchild, write its PID
+        # to a file, then block so the parent can close the scope.
+        child_script = (
+            f"import subprocess, sys, time\n"
+            f"gc = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+            f"open(r'{gc_pid_file}', 'w').write(str(gc.pid))\n"
+            f"time.sleep(60)\n"
+        )
+
+        def _process_exists(pid: int) -> bool:
+            if sys.platform == "win32":
+                import ctypes
+
+                PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+                handle = ctypes.windll.kernel32.OpenProcess(
+                    PROCESS_QUERY_LIMITED_INFORMATION, False, pid
+                )
+                if handle:
+                    ctypes.windll.kernel32.CloseHandle(handle)
+                    return True
+                return False
+            try:
+                os.kill(pid, 0)
+                return True
+            except (ProcessLookupError, PermissionError):
+                return False
+
+        async def _run() -> None:
+            scope = ProcessContainmentScope(task_id="test-grandchild")
+            token = bind_containment_scope(scope)
+            try:
+                # Spawn the child process.
+                if sys.platform == "win32":
+                    proc = await asyncio.create_subprocess_exec(
+                        sys.executable, "-c", child_script,
+                        stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.DEVNULL,
+                    )
+                else:
+                    proc = await asyncio.create_subprocess_exec(
+                        sys.executable, "-c", child_script,
+                        stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.DEVNULL,
+                        start_new_session=True,
+                    )
+
+                # Wait for the grandchild PID to be written.
+                for _ in range(50):
+                    if gc_pid_file.exists():
+                        break
+                    await asyncio.sleep(0.1)
+                else:
+                    raise AssertionError("grandchild PID file was never written")
+
+                gc_pid = int(gc_pid_file.read_text().strip())
+
+                # Register the child PID (and PGID on POSIX).
+                pgid = proc.pid if sys.platform != "win32" else None
+                scope.register(proc.pid, pgid=pgid)
+
+                # Verify both child and grandchild are alive.
+                assert proc.returncode is None
+                assert _process_exists(gc_pid), "grandchild should be alive before close"
+
+                # Close the scope — should terminate both.
+                scope.close()
+
+                # Give the OS a moment to reap.
+                await asyncio.sleep(1.0)
+
+                # Both child and grandchild should be gone.
+                assert proc.returncode is not None, "child should be terminated"
+                assert not _process_exists(gc_pid), "grandchild should be terminated"
             finally:
                 reset_containment_scope(token)
 
