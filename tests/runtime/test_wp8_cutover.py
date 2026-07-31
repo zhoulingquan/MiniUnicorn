@@ -604,3 +604,160 @@ class TestAcceptanceCriteriaSpotChecks:
                 assert "import sqlite3" not in source, (
                     f"{mod_name} imports sqlite3 (violates §34.23)"
                 )
+
+
+# ---------------------------------------------------------------------------
+# Cross-scope authorization at API boundaries (Task 11 Step 5)
+# ---------------------------------------------------------------------------
+
+
+class TestCrossScopeApiBoundary:
+    """Unauthorized task IDs return the existing not-found response (Task 11).
+
+    A task ID that exists under another agent/workspace must be
+    indistinguishable from a nonexistent task at the application surface:
+    ``get_status`` raises ``KeyError`` and ``read_reply`` returns the empty
+    not-found reply. No authorization oracle is added — the Runtime Store's
+    four-field scope filter is the only gate (design §11.3, Task 11 Step 5).
+    """
+
+    @pytest.mark.asyncio
+    async def test_cross_scope_get_status_raises_keyerror(
+        self,
+        store: Any,
+        sample_scope: RequestScope,
+        make_inbound_envelope: Any,
+    ) -> None:
+        import hashlib
+
+        from miniunicorn.runtime.contracts import ClaimRequest
+        from miniunicorn.runtime.models import BlobWrite, CompletionWrite
+        from miniunicorn.runtime.outbox_payload import encode_outbox_payload
+        from miniunicorn.runtime.task_service import TaskService
+
+        # Submit + complete a task under scope A with a FINAL_REPLY row.
+        env = make_inbound_envelope(sample_scope, channel_message_id="api-msg-1")
+        submit = store.submit_task(env)
+        now_ms = 1_000_000
+        result = store.claim_next(
+            ClaimRequest(worker_id="w-1", now_ms=now_ms, lease_ms=60_000)
+        )
+        store.mark_running(result.claimed.claim, now_ms=now_ms + 1)
+        payload_bytes = encode_outbox_payload(content="secret reply")
+        blob = store.write_blob(
+            BlobWrite(
+                scope_key="test",
+                blob_kind="OUTBOX_PAYLOAD",
+                content_hash=hashlib.sha256(payload_bytes).hexdigest(),
+                encoding="RAW_BYTES",
+                inline_content=payload_bytes,
+                size_bytes=len(payload_bytes),
+                created_at_ms=now_ms,
+            )
+        )
+        store.complete_with_outbox(
+            result.claimed.claim,
+            CompletionWrite(
+                final_reply_blob_id=blob.blob_id,
+                final_reply_hash=hashlib.sha256(payload_bytes).hexdigest(),
+                final_reply_dedup_key=None,
+                suppress_final=False,
+                completed_at_ms=now_ms + 2,
+                channel="websocket",
+                channel_account="account-1",
+                target_key="chat-x",
+            ),
+        )
+
+        task_service = TaskService(store)
+
+        # A nonexistent task raises KeyError.
+        with pytest.raises(KeyError):
+            await task_service.get_status(sample_scope, "does-not-exist")
+
+        # Scope B (different agent) must behave identically: KeyError, not
+        # a leak that the task exists under another agent.
+        wrong_scope = RequestScope(
+            tenant_id=sample_scope.tenant_id,
+            principal_id=sample_scope.principal_id,
+            agent_id="other-agent",
+            workspace_id=sample_scope.workspace_id,
+        )
+        with pytest.raises(KeyError):
+            await task_service.get_status(wrong_scope, submit.task_id)
+
+    @pytest.mark.asyncio
+    async def test_cross_scope_read_reply_indistinguishable_from_not_found(
+        self,
+        store: Any,
+        sample_scope: RequestScope,
+        make_inbound_envelope: Any,
+    ) -> None:
+        import hashlib
+
+        from miniunicorn.runtime.application import RuntimeApplication
+        from miniunicorn.runtime.contracts import ClaimRequest
+        from miniunicorn.runtime.models import BlobWrite, CompletionWrite
+        from miniunicorn.runtime.outbox_payload import encode_outbox_payload
+        from miniunicorn.runtime.realtime import RealtimeSubscriptionHub
+        from miniunicorn.runtime.task_service import TaskService
+
+        # Submit + complete a task under scope A with a FINAL_REPLY row.
+        env = make_inbound_envelope(sample_scope, channel_message_id="api-msg-2")
+        submit = store.submit_task(env)
+        now_ms = 1_000_000
+        result = store.claim_next(
+            ClaimRequest(worker_id="w-1", now_ms=now_ms, lease_ms=60_000)
+        )
+        store.mark_running(result.claimed.claim, now_ms=now_ms + 1)
+        payload_bytes = encode_outbox_payload(content="private content")
+        blob = store.write_blob(
+            BlobWrite(
+                scope_key="test",
+                blob_kind="OUTBOX_PAYLOAD",
+                content_hash=hashlib.sha256(payload_bytes).hexdigest(),
+                encoding="RAW_BYTES",
+                inline_content=payload_bytes,
+                size_bytes=len(payload_bytes),
+                created_at_ms=now_ms,
+            )
+        )
+        store.complete_with_outbox(
+            result.claimed.claim,
+            CompletionWrite(
+                final_reply_blob_id=blob.blob_id,
+                final_reply_hash=hashlib.sha256(payload_bytes).hexdigest(),
+                final_reply_dedup_key=None,
+                suppress_final=False,
+                completed_at_ms=now_ms + 2,
+                channel="websocket",
+                channel_account="account-1",
+                target_key="chat-y",
+            ),
+        )
+
+        runtime = RuntimeApplication(
+            task_service=TaskService(store),
+            result_store=store,
+            realtime=RealtimeSubscriptionHub(capacity=16),
+        )
+
+        wrong_scope = RequestScope(
+            tenant_id=sample_scope.tenant_id,
+            principal_id=sample_scope.principal_id,
+            agent_id=sample_scope.agent_id,
+            workspace_id="other-workspace",
+        )
+
+        # The cross-scope reply must equal the not-found reply exactly —
+        # no content, no outbox id, empty metadata — so the API cannot
+        # reveal that the task exists under another workspace.
+        cross_scope_reply = runtime.read_reply(wrong_scope, submit.task_id)
+        not_found_reply = runtime.read_reply(wrong_scope, "does-not-exist")
+        assert cross_scope_reply.content == ""
+        assert cross_scope_reply.outbox_id is None
+        assert cross_scope_reply == not_found_reply
+
+        # The owning scope still reads the real content (sanity).
+        owning_reply = runtime.read_reply(sample_scope, submit.task_id)
+        assert owning_reply.content == "private content"

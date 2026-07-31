@@ -441,3 +441,165 @@ class TestDurableReply:
         assert reply.content == ""
         assert reply.outbox_id is None
         assert reply.metadata == {}
+
+
+# ---------------------------------------------------------------------------
+# Tests: submit_and_wait result determinism (Task 11 Step 4)
+# ---------------------------------------------------------------------------
+
+
+def _complete_task_with_reply(
+    store: Any,
+    scope: RequestScope,
+    make_inbound_envelope: Any,
+    *,
+    content: str,
+    channel_message_id: str,
+) -> str:
+    """Submit, claim, mark-running, and complete a task with a FINAL_REPLY row.
+
+    Returns the task_id. Used by the determinism race test so a reply
+    exists for the racing OutboxSender to claim (Task 11 Step 4).
+    """
+    import hashlib
+    import time
+
+    from miniunicorn.runtime.contracts import ClaimRequest
+    from miniunicorn.runtime.models import BlobWrite, CompletionWrite
+    from miniunicorn.runtime.outbox_payload import encode_outbox_payload
+
+    now_ms = int(time.time() * 1000)
+    env = make_inbound_envelope(scope, channel_message_id=channel_message_id)
+    submit = store.submit_task(env)
+    assert submit.status == "ACCEPTED"
+    result = store.claim_next(
+        ClaimRequest(worker_id="test-worker", now_ms=now_ms, lease_ms=60_000)
+    )
+    assert result.claimed is not None
+    claim = result.claimed.claim
+    store.mark_running(claim, now_ms=now_ms + 1)
+
+    payload_bytes = encode_outbox_payload(content=content)
+    blob = store.write_blob(
+        BlobWrite(
+            scope_key="test",
+            blob_kind="OUTBOX_PAYLOAD",
+            content_hash=hashlib.sha256(payload_bytes).hexdigest(),
+            encoding="RAW_BYTES",
+            inline_content=payload_bytes,
+            size_bytes=len(payload_bytes),
+            created_at_ms=now_ms,
+        )
+    )
+    completion = CompletionWrite(
+        final_reply_blob_id=blob.blob_id,
+        final_reply_hash=hashlib.sha256(payload_bytes).hexdigest(),
+        final_reply_dedup_key=None,
+        suppress_final=False,
+        completed_at_ms=now_ms + 2,
+        channel="websocket",
+        channel_account="account-1",
+        target_key="chat-race",
+    )
+    result = store.complete_with_outbox(claim, completion)
+    assert result.outbox_id is not None
+    return submit.task_id
+
+
+class TestSubmitAndWaitResultDeterminism:
+    """``submit_and_wait`` result retrieval stays deterministic against a
+    racing OutboxSender (Task 11 Step 4).
+
+    After a task becomes terminal, ``RuntimeApplication.submit_and_wait``
+    (via ``read_reply`` → ``read_final_reply``) must return the durable
+    final-reply content regardless of whether the OutboxSender claims the
+    FINAL_REPLY row concurrently. Reply reads are independent from the
+    Outbox delivery state (design §17.8, Task 7 Step 7), so a racing
+    sender flipping the row through PENDING/SENDING/DELIVERED cannot mask
+    a completed reply.
+    """
+
+    @pytest.mark.asyncio
+    async def test_read_reply_returns_durable_content_across_100_races(
+        self, store: Any, sample_scope: RequestScope, make_inbound_envelope: Any
+    ) -> None:
+        from miniunicorn.runtime.application import RuntimeApplication
+        from miniunicorn.runtime.contracts import ClaimRequest  # noqa: F401
+        from miniunicorn.runtime.models import DeliveryReceipt
+        from miniunicorn.runtime.outbox import OutboxSender
+        from miniunicorn.runtime.realtime import RealtimeSubscriptionHub
+        from miniunicorn.runtime.task_service import TaskService
+
+        runtime = RuntimeApplication(
+            task_service=TaskService(store),
+            result_store=store,
+            realtime=RealtimeSubscriptionHub(capacity=16),
+        )
+
+        # Pre-create 100 completed tasks, each with a FINAL_REPLY outbox row.
+        expected: dict[str, str] = {}
+        for i in range(100):
+            content = f"reply-{i}"
+            task_id = _complete_task_with_reply(
+                store,
+                sample_scope,
+                make_inbound_envelope,
+                content=content,
+                channel_message_id=f"race-msg-{i}",
+            )
+            expected[task_id] = content
+
+        class _FastFakeSender:
+            """ChannelSender that delivers immediately, racing read_reply."""
+
+            async def send_with_receipt(self, channel_name: str, msg: Any) -> DeliveryReceipt:
+                # A tiny delay spreads deliveries across the read window so
+                # the 100 reads observe a mix of PENDING and DELIVERED rows.
+                await asyncio.sleep(0.001)
+                return DeliveryReceipt(status="DELIVERED")
+
+            def get_channel_recovery(self, channel_name: str) -> str:
+                return "NONE"
+
+        sender = OutboxSender(
+            store,
+            _FastFakeSender(),
+            sender_id="race-sender",
+            poll_interval_s=0.001,
+            lease_ms=60_000,
+            send_timeout_s=5,
+        )
+        await sender.start()
+        try:
+            # Let the sender deliver a portion of the rows (~30ms), then
+            # stop it so the outbox is frozen with a mix of DELIVERED and
+            # PENDING rows — a snapshot of a mid-race outbox.
+            await asyncio.sleep(0.03)
+        finally:
+            await sender.stop()
+
+        # Now read every reply. Reads observe a mix of delivery_state
+        # values (DELIVERED for rows the sender reached, PENDING for the
+        # rest). Every read must return the durable content regardless of
+        # the row's delivery state — this is the determinism guarantee
+        # (design §17.8, Task 7 Step 7, Task 11 Step 4).
+        observed_states: set[str] = set()
+        for task_id, content in expected.items():
+            reply = runtime.read_reply(sample_scope, task_id)
+            assert reply.content == content, (
+                f"reply content mismatch for {task_id}: "
+                f"got {reply.content!r}, want {content!r}"
+            )
+            observed_states.add(reply.metadata.get("delivery_state", ""))
+
+        # The race must be real: reads must have observed both untouched
+        # (PENDING) and sender-advanced (DELIVERED) rows, proving the
+        # determinism assertion is exercised across delivery states —
+        # not only against untouched PENDING rows.
+        assert "PENDING" in observed_states, (
+            f"race did not leave any PENDING rows: {observed_states}"
+        )
+        assert "DELIVERED" in observed_states, (
+            f"sender did not deliver any rows during race window: "
+            f"{observed_states}"
+        )

@@ -930,12 +930,40 @@ class SqliteRuntimeStore:
         ).fetchone()
         return _row_to_task_record(row) if row else None
 
+    def _task_scope_predicate(
+        self, scope: RequestScope, *, alias: str = ""
+    ) -> tuple[str, tuple[str, str, str, str]]:
+        """Four-field task-scope authorization predicate (design §11.3, Task 11).
+
+        Returns a SQL ``AND``-joined predicate and bound parameters
+        enforcing tenant, principal, agent, and workspace scope on the
+        ``tasks`` table. Shared by ``read_task_snapshot`` and
+        ``read_final_reply`` so the two authorization checks cannot drift
+        apart (Task 11 Step 2).
+
+        ``alias`` is the optional table alias prefix (e.g. ``"t"``); an
+        empty string addresses the un-aliased ``tasks`` table.
+        """
+        prefix = f"{alias}." if alias else ""
+        predicate = (
+            f"{prefix}tenant_id = ? AND {prefix}principal_id = ? "
+            f"AND {prefix}agent_id = ? AND {prefix}workspace_id = ?"
+        )
+        params = (
+            scope.tenant_id,
+            scope.principal_id,
+            scope.agent_id,
+            scope.workspace_id,
+        )
+        return predicate, params
+
     def read_task_snapshot(
         self, scope: RequestScope, task_id: str
     ) -> TaskSnapshot | None:
+        predicate, scope_params = self._task_scope_predicate(scope)
         row = self._conn.execute(
-            "SELECT * FROM tasks WHERE task_id=? AND tenant_id=? AND principal_id=?",
-            (task_id, scope.tenant_id, scope.principal_id),
+            f"SELECT * FROM tasks WHERE task_id = ? AND {predicate}",
+            (task_id, *scope_params),
         ).fetchone()
         return _task_snapshot(_row_to_task_record(row)) if row else None
 
@@ -3152,8 +3180,9 @@ class SqliteRuntimeStore:
         can distinguish delivered from in-flight/failed replies.
         Returns ``None`` when no final-reply Outbox row exists.
         """
+        scope_predicate, scope_params = self._task_scope_predicate(scope, alias="t")
         row = self._conn.execute(
-            """
+            f"""
             SELECT t.state AS task_state,
                    o.outbox_id AS outbox_id,
                    o.state AS outbox_state,
@@ -3164,20 +3193,11 @@ class SqliteRuntimeStore:
                 AND o.message_kind = 'FINAL_REPLY'
             LEFT JOIN runtime_blobs b ON b.blob_id = o.payload_blob_id
             WHERE t.task_id = ?
-              AND t.tenant_id = ?
-              AND t.principal_id = ?
-              AND t.agent_id = ?
-              AND t.workspace_id = ?
+              AND {scope_predicate}
             ORDER BY o.outbox_id DESC
             LIMIT 1
             """,
-            (
-                task_id,
-                scope.tenant_id,
-                scope.principal_id,
-                scope.agent_id,
-                scope.workspace_id,
-            ),
+            (task_id, *scope_params),
         ).fetchone()
         if row is None:
             return None
@@ -3196,9 +3216,9 @@ class SqliteRuntimeStore:
             outbox_id=int(row["outbox_id"]),
             metadata={
                 "task_id": task_id,
-                "state": row["task_state"],
-                "outbox_id": int(row["outbox_id"]),
+                "task_state": row["task_state"],
                 "delivery_state": row["outbox_state"],
+                "outbox_id": int(row["outbox_id"]),
             },
         )
 

@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
+import time
+from typing import Any
+
 import pytest
 
+from miniunicorn.runtime.contracts import ClaimRequest
 from miniunicorn.runtime.models import (
+    BlobWrite,
+    CompletionWrite,
     RequestScope,
     TaskControlRequest,
 )
@@ -410,3 +417,141 @@ class TestReadTaskSnapshot:
         assert snap is not None
         assert snap.state == "CANCELLED"
         assert snap.error is not None
+
+
+# ---------------------------------------------------------------------------
+# Request-scope isolation: cross-agent / cross-workspace denial (Task 11 Step 1)
+# ---------------------------------------------------------------------------
+
+
+def _complete_task_with_reply(
+    store: Any,
+    scope: RequestScope,
+    make_inbound_envelope: Any,
+    *,
+    content: str = "final reply",
+) -> str:
+    """Submit, claim, mark-running, and complete a task with a FINAL_REPLY row.
+
+    Returns the task_id. Used by the cross-scope denial tests so a reply
+    exists to query against the wrong scope (design §11.3, Task 11).
+    """
+    from miniunicorn.runtime.outbox_payload import encode_outbox_payload
+
+    now_ms = int(time.time() * 1000)
+    env = make_inbound_envelope(scope, channel_message_id="msg-scope-reply")
+    submit = store.submit_task(env)
+    assert submit.status == "ACCEPTED"
+    result = store.claim_next(
+        ClaimRequest(worker_id="test-worker", now_ms=now_ms, lease_ms=60_000)
+    )
+    assert result.claimed is not None
+    claim = result.claimed.claim
+    store.mark_running(claim, now_ms=now_ms + 1)
+
+    payload_bytes = encode_outbox_payload(content=content)
+    blob = store.write_blob(
+        BlobWrite(
+            scope_key="test",
+            blob_kind="OUTBOX_PAYLOAD",
+            content_hash=hashlib.sha256(payload_bytes).hexdigest(),
+            encoding="RAW_BYTES",
+            inline_content=payload_bytes,
+            size_bytes=len(payload_bytes),
+            created_at_ms=now_ms,
+        )
+    )
+    completion = CompletionWrite(
+        final_reply_blob_id=blob.blob_id,
+        final_reply_hash=hashlib.sha256(payload_bytes).hexdigest(),
+        final_reply_dedup_key=None,
+        suppress_final=False,
+        completed_at_ms=now_ms + 2,
+        channel="websocket",
+        channel_account="account-1",
+        target_key="chat-scope",
+    )
+    result = store.complete_with_outbox(claim, completion)
+    assert result.outbox_id is not None
+    return submit.task_id
+
+
+class TestRequestScopeIsolation:
+    """Cross-agent and cross-workspace denial (design §11.3, Task 11 Step 1).
+
+    Two scopes share tenant/principal but differ in agent_id or
+    workspace_id. A task submitted under scope A must not be visible to
+    scope B — neither its snapshot nor its final reply.
+    """
+
+    def test_snapshot_wrong_agent_returns_none(
+        self, store, sample_scope, make_inbound_envelope
+    ) -> None:
+        env = make_inbound_envelope(sample_scope, channel_message_id="msg-iso-1")
+        submit = store.submit_task(env)
+
+        wrong_scope = RequestScope(
+            tenant_id=sample_scope.tenant_id,
+            principal_id=sample_scope.principal_id,
+            agent_id="other-agent",
+            workspace_id=sample_scope.workspace_id,
+        )
+        assert store.read_task_snapshot(wrong_scope, submit.task_id) is None
+
+    def test_snapshot_wrong_workspace_returns_none(
+        self, store, sample_scope, make_inbound_envelope
+    ) -> None:
+        env = make_inbound_envelope(sample_scope, channel_message_id="msg-iso-2")
+        submit = store.submit_task(env)
+
+        wrong_scope = RequestScope(
+            tenant_id=sample_scope.tenant_id,
+            principal_id=sample_scope.principal_id,
+            agent_id=sample_scope.agent_id,
+            workspace_id="other-workspace",
+        )
+        assert store.read_task_snapshot(wrong_scope, submit.task_id) is None
+
+    def test_final_reply_wrong_agent_returns_none(
+        self, store, sample_scope, make_inbound_envelope
+    ) -> None:
+        task_id = _complete_task_with_reply(
+            store, sample_scope, make_inbound_envelope
+        )
+
+        wrong_scope = RequestScope(
+            tenant_id=sample_scope.tenant_id,
+            principal_id=sample_scope.principal_id,
+            agent_id="other-agent",
+            workspace_id=sample_scope.workspace_id,
+        )
+        assert store.read_final_reply(wrong_scope, task_id) is None
+
+    def test_final_reply_wrong_workspace_returns_none(
+        self, store, sample_scope, make_inbound_envelope
+    ) -> None:
+        task_id = _complete_task_with_reply(
+            store, sample_scope, make_inbound_envelope
+        )
+
+        wrong_scope = RequestScope(
+            tenant_id=sample_scope.tenant_id,
+            principal_id=sample_scope.principal_id,
+            agent_id=sample_scope.agent_id,
+            workspace_id="other-workspace",
+        )
+        assert store.read_final_reply(wrong_scope, task_id) is None
+
+    def test_correct_scope_can_read_snapshot_and_reply(
+        self, store, sample_scope, make_inbound_envelope
+    ) -> None:
+        """Sanity: the owning scope can still read both (design §11.3)."""
+        task_id = _complete_task_with_reply(
+            store, sample_scope, make_inbound_envelope
+        )
+        snap = store.read_task_snapshot(sample_scope, task_id)
+        assert snap is not None
+        assert snap.state == "COMPLETED"
+        reply = store.read_final_reply(sample_scope, task_id)
+        assert reply is not None
+        assert reply.content == "final reply"
