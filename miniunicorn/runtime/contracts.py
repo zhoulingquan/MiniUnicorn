@@ -432,6 +432,30 @@ class DeliveryLedger(Protocol):
     ) -> None:
         ...
 
+    def claim_expired_deliveries(
+        self,
+        sender_id: str,
+        now_ms: int,
+        lease_ms: int,
+        limit: int = 10,
+    ) -> tuple[OutboxClaim, ...]:
+        """Claim expired SENDING rows for recovery (Task 8, design §17.13).
+
+        Selects bounded rows in state SENDING whose lease_until_ms has
+        expired. Each row is fenced by its current lease_token and
+        lease_epoch so only the recovery caller may write the result.
+        """
+        ...
+
+    def mark_delivery_outcome_unknown(
+        self, claim: OutboxClaim, error: SafeError
+    ) -> None:
+        """Transition a claimed SENDING row to OUTCOME_UNKNOWN (Task 8).
+
+        Fenced by the recovery claim's lease token and epoch.
+        """
+        ...
+
     def read_outbox_record(self, outbox_id: int) -> OutboxRecord | None:
         ...
 

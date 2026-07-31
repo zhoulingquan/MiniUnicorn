@@ -2901,14 +2901,10 @@ class SqliteRuntimeStore:
                 ),
             )
             if cur.rowcount == 0:
-                self._conn.execute("ROLLBACK")
                 raise StaleLeaseError(
                     str(claim.outbox_id), claim.lease_epoch, "delivery lease stale"
                 )
             self._conn.execute("COMMIT")
-        except StaleLeaseError:
-            self._conn.execute("ROLLBACK")
-            raise
         except Exception:
             self._conn.execute("ROLLBACK")
             raise
@@ -2923,7 +2919,6 @@ class SqliteRuntimeStore:
                 (claim.outbox_id, claim.lease_token, claim.lease_epoch),
             ).fetchone()
             if row is None:
-                self._conn.execute("ROLLBACK")
                 raise StaleLeaseError(
                     str(claim.outbox_id), claim.lease_epoch, "delivery lease stale"
                 )
@@ -2959,9 +2954,6 @@ class SqliteRuntimeStore:
                     ),
                 )
             self._conn.execute("COMMIT")
-        except StaleLeaseError:
-            self._conn.execute("ROLLBACK")
-            raise
         except Exception:
             self._conn.execute("ROLLBACK")
             raise
@@ -2982,14 +2974,10 @@ class SqliteRuntimeStore:
                 (error.error_code, error.error_summary, claim.outbox_id, claim.lease_token, claim.lease_epoch),
             )
             if cur.rowcount == 0:
-                self._conn.execute("ROLLBACK")
                 raise StaleLeaseError(
                     str(claim.outbox_id), claim.lease_epoch, "delivery lease stale"
                 )
             self._conn.execute("COMMIT")
-        except StaleLeaseError:
-            self._conn.execute("ROLLBACK")
-            raise
         except Exception:
             self._conn.execute("ROLLBACK")
             raise
@@ -3014,10 +3002,8 @@ class SqliteRuntimeStore:
                 "SELECT state FROM outbox WHERE outbox_id=?", (outbox_id,)
             ).fetchone()
             if row is None:
-                self._conn.execute("ROLLBACK")
                 raise ValueError(f"outbox row {outbox_id} not found")
             if row["state"] != "OUTCOME_UNKNOWN":
-                self._conn.execute("ROLLBACK")
                 raise ValueError(
                     f"outbox row {outbox_id} is {row['state']}, not OUTCOME_UNKNOWN"
                 )
@@ -3052,8 +3038,90 @@ class SqliteRuntimeStore:
                     (now_ms, outbox_id),
                 )
             self._conn.execute("COMMIT")
-        except ValueError:
+        except Exception:
+            self._conn.execute("ROLLBACK")
             raise
+
+    def claim_expired_deliveries(
+        self,
+        sender_id: str,
+        now_ms: int,
+        lease_ms: int,
+        limit: int = 10,
+    ) -> tuple[OutboxClaim, ...]:
+        """Claim expired ``SENDING`` rows for recovery (Task 8, design §17.13).
+
+        Selects bounded rows whose lease has expired and re-fences them
+        with a fresh lease token and epoch so only the recovery caller
+        may write the result. The row stays in ``SENDING`` so no other
+        sender can claim it concurrently.
+        """
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            rows = self._conn.execute(
+                """
+                SELECT * FROM outbox
+                WHERE state='SENDING'
+                  AND lease_until_ms IS NOT NULL
+                  AND lease_until_ms < ?
+                ORDER BY outbox_id
+                LIMIT ?
+                """,
+                (now_ms, limit),
+            ).fetchall()
+            claims: list[OutboxClaim] = []
+            for row in rows:
+                lease_token = _new_lease_token()
+                lease_epoch = row["lease_epoch"] + 1
+                lease_until_ms = now_ms + lease_ms
+                self._conn.execute(
+                    """
+                    UPDATE outbox SET
+                        leased_by=?,
+                        lease_token=?,
+                        lease_epoch=?,
+                        lease_until_ms=?
+                    WHERE outbox_id=?
+                    """,
+                    (sender_id, lease_token, lease_epoch, lease_until_ms, row["outbox_id"]),
+                )
+                updated = self._conn.execute(
+                    "SELECT * FROM outbox WHERE outbox_id=?", (row["outbox_id"],)
+                ).fetchone()
+                claims.append(_row_to_outbox_claim(updated))
+            self._conn.execute("COMMIT")
+            return tuple(claims)
+        except Exception:
+            self._conn.execute("ROLLBACK")
+            raise
+
+    def mark_delivery_outcome_unknown(
+        self, claim: OutboxClaim, error: SafeError
+    ) -> None:
+        """Transition a claimed delivery to ``OUTCOME_UNKNOWN`` (Task 8, design §17.13).
+
+        Used by the recovery path when the Channel recovery policy is
+        ``NONE`` or a ``QUERYABLE_RECEIPT`` query cannot reconcile the
+        send. Fenced by the recovery claim's lease token and epoch.
+        """
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            cur = self._conn.execute(
+                """
+                UPDATE outbox SET
+                    state='OUTCOME_UNKNOWN',
+                    error_code=?,
+                    error_summary=?,
+                    lease_until_ms=NULL
+                WHERE outbox_id=? AND lease_token=? AND lease_epoch=?
+                """,
+                (error.error_code, error.error_summary, claim.outbox_id, claim.lease_token, claim.lease_epoch),
+            )
+            if cur.rowcount == 0:
+                raise StaleLeaseError(
+                    str(claim.outbox_id), claim.lease_epoch, "delivery lease stale"
+                )
+            self._conn.execute("COMMIT")
         except Exception:
             self._conn.execute("ROLLBACK")
             raise

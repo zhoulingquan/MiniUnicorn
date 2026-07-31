@@ -40,7 +40,12 @@ from miniunicorn.agent.ports import SafeError
 
 @runtime_checkable
 class ChannelSender(Protocol):
-    """Minimal interface for sending a message with receipt (design §23.5)."""
+    """Minimal interface for sending a message with receipt (design §23.5).
+
+    Task 8: ``query_delivery_receipt`` is optional — channels that
+    declare ``QUERYABLE_RECEIPT`` recovery should implement it so the
+    recovery loop can reconcile an interrupted send.
+    """
 
     async def send_with_receipt(
         self, channel_name: str, msg: Any
@@ -50,6 +55,15 @@ class ChannelSender(Protocol):
     def get_channel_recovery(self, channel_name: str) -> str:
         """Return the delivery recovery capability for a channel."""
         ...
+
+
+class DeliveryLeaseLost(Exception):
+    """Raised when the delivery lease is lost during an in-progress send (Task 8 Step 6).
+
+    The OutboxSender must **not** call ``_record_result`` with the stale
+    claim. The row remains ``SENDING`` until the recovery loop reclaims
+    it and applies the channel recovery policy (design §17.13).
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -125,12 +139,18 @@ class OutboxSender:
                 return
 
     async def _run_loop(self) -> None:
-        """Main poll-and-deliver loop."""
+        """Main poll-and-deliver loop.
+
+        Task 8: each iteration first recovers expired SENDING rows, then
+        delivers the next pending row. Recovery runs before delivery so
+        a wedged target is unblocked before a later row is attempted.
+        """
         logger.info("OutboxSender {} started", self._sender_id)
         while self._running:
             try:
+                recovered = await self._recover_expired()
                 delivered = await self._deliver_one()
-                if not delivered:
+                if not delivered and not recovered:
                     await asyncio.sleep(self._poll_interval_s)
             except asyncio.CancelledError:
                 raise
@@ -138,6 +158,103 @@ class OutboxSender:
                 logger.exception("OutboxSender {} error in loop", self._sender_id)
                 await asyncio.sleep(self._poll_interval_s)
         logger.info("OutboxSender {} stopped", self._sender_id)
+
+    async def _recover_expired(self) -> bool:
+        """Recover expired SENDING rows according to channel policy (Task 8 Step 4).
+
+        Claims expired SENDING rows durably, then — outside the SQLite
+        transaction — asks the Channel for its recovery capability and
+        writes PENDING/RETRY_WAIT, DELIVERED, or OUTCOME_UNKNOWN.
+        """
+        now_ms = _now_ms()
+        claims = self._store.claim_expired_deliveries(
+            self._sender_id, now_ms, self._lease_ms, limit=10
+        )
+        if not claims:
+            return False
+        for claim in claims:
+            try:
+                self._apply_recovery_policy(claim)
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "OutboxSender recovery error outbox_id={}", claim.outbox_id
+                )
+        return True
+
+    def _apply_recovery_policy(self, claim: OutboxClaim) -> None:
+        """Apply the channel recovery policy to one expired claim (Task 8 Step 4).
+
+        - ``NATIVE_IDEMPOTENCY``: safe to retry — schedule RETRY_WAIT.
+        - ``QUERYABLE_RECEIPT``: query the Channel receipt; if delivered,
+          mark DELIVERED, else mark OUTCOME_UNKNOWN.
+        - ``NONE``: mark OUTCOME_UNKNOWN.
+        """
+        recovery = self._channels.get_channel_recovery(claim.channel)
+        if recovery == "NATIVE_IDEMPOTENCY":
+            retry = RetryDecision(
+                kind="TRANSIENT",
+                available_at_ms=_now_ms(),
+                error=SafeError(
+                    error_code="DELIVERY_RECOVERED",
+                    error_summary="expired lease recovered for native-idempotent retry",
+                ),
+            )
+            self._store.retry_delivery(claim, retry)
+            logger.info(
+                "OutboxSender recovered outbox_id={} as RETRY_WAIT (native idempotency)",
+                claim.outbox_id,
+            )
+        elif recovery == "QUERYABLE_RECEIPT":
+            receipt = self._query_channel_receipt(claim)
+            if receipt is not None and receipt.status == "DELIVERED":
+                self._store.mark_delivered(claim, receipt)
+                logger.info(
+                    "OutboxSender recovered outbox_id={} as DELIVERED (queryable receipt)",
+                    claim.outbox_id,
+                )
+            else:
+                self._store.mark_delivery_outcome_unknown(
+                    claim,
+                    SafeError(
+                        error_code="DELIVERY_OUTCOME_UNKNOWN",
+                        error_summary="expired lease; queryable receipt inconclusive",
+                    ),
+                )
+                logger.warning(
+                    "OutboxSender recovered outbox_id={} as OUTCOME_UNKNOWN (queryable)",
+                    claim.outbox_id,
+                )
+        else:
+            # NONE or unknown — the outcome cannot be reconciled.
+            self._store.mark_delivery_outcome_unknown(
+                claim,
+                SafeError(
+                    error_code="DELIVERY_OUTCOME_UNKNOWN",
+                    error_summary="expired lease; channel has no recovery capability",
+                ),
+            )
+            logger.warning(
+                "OutboxSender recovered outbox_id={} as OUTCOME_UNKNOWN (no recovery)",
+                claim.outbox_id,
+            )
+
+    def _query_channel_receipt(self, claim: OutboxClaim) -> DeliveryReceipt | None:
+        """Query the Channel for a delivery receipt (Task 8 Step 4).
+
+        Optional: only channels that declare ``QUERYABLE_RECEIPT`` and
+        implement ``query_delivery_receipt`` can reconcile. Returns
+        ``None`` when the Channel cannot be queried.
+        """
+        query_fn = getattr(self._channels, "query_delivery_receipt", None)
+        if query_fn is None:
+            return None
+        try:
+            return query_fn(claim.channel, claim.dedup_key)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "OutboxSender receipt query failed for outbox_id={}", claim.outbox_id
+            )
+            return None
 
     async def _deliver_one(self) -> bool:
         """Claim and deliver one outbox row. Returns True if a row was processed."""
@@ -169,7 +286,13 @@ class OutboxSender:
         msg = self._build_outbound_message(claim, payload_content)
 
         # Send with lease renewal.
-        receipt = await self._send_with_lease_renewal(claim, msg)
+        try:
+            receipt = await self._send_with_lease_renewal(claim, msg)
+        except DeliveryLeaseLost:
+            # Lease was lost during the send — do NOT record a result.
+            # The row stays SENDING and will be recovered by the
+            # recovery loop on the next iteration (Task 8 Step 6).
+            return True
 
         # Record the result.
         self._record_result(claim, receipt)
@@ -207,7 +330,18 @@ class OutboxSender:
     async def _send_with_lease_renewal(
         self, claim: OutboxClaim, msg: Any
     ) -> DeliveryReceipt:
-        """Send the message with concurrent lease renewal (design §17.9)."""
+        """Send the message with concurrent lease renewal (design §17.9).
+
+        Task 8 Step 5: timeout handling is now channel-policy aware:
+        - ``NATIVE_IDEMPOTENCY``: safe to retry with the same dedup key.
+        - ``QUERYABLE_RECEIPT``: the outcome is unknown until the
+          recovery loop reconciles the receipt.
+        - ``NONE``: the outcome is unknown and cannot be reconciled.
+
+        Task 8 Step 6: if the lease is lost during the send, raise
+        ``DeliveryLeaseLost`` so the caller does not record a result
+        with a stale claim.
+        """
         renew_task = asyncio.create_task(
             self._renew_loop(claim), name=f"outbox-renew-{claim.outbox_id}"
         )
@@ -218,14 +352,18 @@ class OutboxSender:
             )
             return receipt
         except asyncio.TimeoutError:
-            return DeliveryReceipt(
-                status="RETRYABLE_FAILURE",
-                safe_error_code="DELIVERY_TIMEOUT",
-                retry_after_ms=2000,
+            return self._timeout_receipt(claim)
+        except DeliveryLeaseLost:
+            # Lease was lost — do NOT record a result. The row stays
+            # SENDING until the recovery loop reclaims it.
+            logger.warning(
+                "OutboxSender lease lost for outbox_id={}, deferring to recovery",
+                claim.outbox_id,
             )
+            raise
         except asyncio.CancelledError:
             raise
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             return DeliveryReceipt(
                 status="RETRYABLE_FAILURE",
                 safe_error_code="DELIVERY_RETRYABLE",
@@ -236,8 +374,30 @@ class OutboxSender:
             async with suppress_cancelled():
                 await renew_task
 
+    def _timeout_receipt(self, claim: OutboxClaim) -> DeliveryReceipt:
+        """Build a timeout receipt based on channel recovery policy (Task 8 Step 5)."""
+        recovery = self._channels.get_channel_recovery(claim.channel)
+        if recovery == "NATIVE_IDEMPOTENCY":
+            return DeliveryReceipt(
+                status="RETRYABLE_FAILURE",
+                safe_error_code="DELIVERY_TIMEOUT",
+                retry_after_ms=2000,
+            )
+        # QUERYABLE_RECEIPT and NONE both defer to OUTCOME_UNKNOWN.
+        # QUERYABLE_RECEIPT rows will be reconciled by the recovery
+        # loop; NONE rows stay OUTCOME_UNKNOWN until manual resolution.
+        return DeliveryReceipt(
+            status="OUTCOME_UNKNOWN",
+            safe_error_code="DELIVERY_TIMEOUT",
+        )
+
     async def _renew_loop(self, claim: OutboxClaim) -> None:
-        """Renew the delivery lease while the send is in progress."""
+        """Renew the delivery lease while the send is in progress (design §17.9).
+
+        Task 8 Step 6: raises ``DeliveryLeaseLost`` when the lease
+        cannot be renewed, so the send is cancelled and no stale
+        result is recorded.
+        """
         while True:
             await asyncio.sleep(self._renew_interval_s)
             until_ms = _now_ms() + self._lease_ms
@@ -246,10 +406,14 @@ class OutboxSender:
                     "OutboxSender lost delivery lease for outbox_id={}",
                     claim.outbox_id,
                 )
-                return
+                raise DeliveryLeaseLost(claim.outbox_id)
 
     def _record_result(self, claim: OutboxClaim, receipt: DeliveryReceipt) -> None:
-        """Record the delivery result to the store (design §17.9 finish transaction)."""
+        """Record the delivery result to the store (design §17.9 finish transaction).
+
+        Task 8: ``OUTCOME_UNKNOWN`` transitions the row to
+        ``OUTCOME_UNKNOWN`` for explicit resolution (design §17.13).
+        """
         if receipt.status == "DELIVERED":
             self._store.mark_delivered(claim, receipt)
             logger.info(
@@ -282,6 +446,17 @@ class OutboxSender:
             self._store.fail_delivery(claim, error)
             logger.error(
                 "OutboxSender permanent failure outbox_id={} task={}",
+                claim.outbox_id,
+                claim.task_id,
+            )
+        elif receipt.status == "OUTCOME_UNKNOWN":
+            error = SafeError(
+                error_code=receipt.safe_error_code or "DELIVERY_OUTCOME_UNKNOWN",
+                error_summary="delivery outcome unknown",
+            )
+            self._store.mark_delivery_outcome_unknown(claim, error)
+            logger.warning(
+                "OutboxSender outcome unknown outbox_id={} task={}",
                 claim.outbox_id,
                 claim.task_id,
             )

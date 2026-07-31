@@ -821,9 +821,20 @@ class OutboxRecord:
 
 @dataclass(slots=True, frozen=True)
 class DeliveryReceipt:
-    """Channel send result (design §23.5)."""
+    """Channel send result (design §23.5).
 
-    status: Literal["DELIVERED", "RETRYABLE_FAILURE", "PERMANENT_FAILURE"]
+    Task 8: ``OUTCOME_UNKNOWN`` is returned when the send may or may not
+    have reached the Channel and the recovery policy cannot reconcile it
+    (design §17.13). The Outbox row transitions to ``OUTCOME_UNKNOWN``
+    and awaits explicit resolution.
+    """
+
+    status: Literal[
+        "DELIVERED",
+        "RETRYABLE_FAILURE",
+        "PERMANENT_FAILURE",
+        "OUTCOME_UNKNOWN",
+    ]
     provider_message_id: str | None = None
     safe_error_code: str | None = None
     retry_after_ms: int | None = None
