@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from miniunicorn.agent.hook import AgentHookContext
+from miniunicorn.bus.agent_events import ToolProgressEvent
 
 
 def on_progress_accepts(cb: Callable[..., Any], name: str) -> bool:
@@ -60,17 +61,12 @@ async def invoke_file_edit_progress(
 
 
 def build_tool_event_start_payload(tool_call: Any) -> dict[str, Any]:
-    return {
-        "version": 1,
-        "phase": "start",
-        "call_id": str(getattr(tool_call, "id", "") or ""),
-        "name": getattr(tool_call, "name", ""),
-        "arguments": getattr(tool_call, "arguments", {}) or {},
-        "result": None,
-        "error": None,
-        "files": [],
-        "embeds": [],
-    }
+    return ToolProgressEvent(
+        phase="start",
+        call_id=str(getattr(tool_call, "id", "") or ""),
+        name=getattr(tool_call, "name", ""),
+        arguments=getattr(tool_call, "arguments", {}) or {},
+    ).model_dump(mode="json")
 
 
 def tool_event_result_extras(result: Any) -> tuple[list[Any], list[Any]]:
@@ -91,21 +87,21 @@ def build_tool_event_finish_payloads(context: AgentHookContext) -> list[dict[str
         status = event.get("status")
         phase = "end" if status == "ok" else "error"
         files, embeds = tool_event_result_extras(result)
-        payload = {
-            "version": 1,
-            "phase": phase,
-            "call_id": str(getattr(tool_call, "id", "") or ""),
-            "name": getattr(tool_call, "name", ""),
-            "arguments": getattr(tool_call, "arguments", {}) or {},
-            "result": result if phase == "end" else None,
-            "error": None,
-            "files": files,
-            "embeds": embeds,
-        }
+        error: str | None = None
         if phase == "error":
             if isinstance(result, str) and result.strip():
-                payload["error"] = result.strip()
+                error = result.strip()
             else:
-                payload["error"] = str(event.get("detail") or "Tool execution failed")
+                error = str(event.get("detail") or "Tool execution failed")
+        payload = ToolProgressEvent(
+            phase=phase,
+            call_id=str(getattr(tool_call, "id", "") or ""),
+            name=getattr(tool_call, "name", ""),
+            arguments=getattr(tool_call, "arguments", {}) or {},
+            result=result if phase == "end" else None,
+            error=error,
+            files=files,
+            embeds=embeds,
+        ).model_dump(mode="json")
         payloads.append(payload)
     return payloads

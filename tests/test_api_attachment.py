@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from contextlib import asynccontextmanager
 from io import BytesIO
 from unittest.mock import AsyncMock, MagicMock
 
@@ -15,6 +16,8 @@ from miniunicorn.api.server import (
     _save_base64_data_url,
     create_app,
 )
+from miniunicorn.runtime.application import RuntimeTurnResult
+from miniunicorn.runtime.models import DurableReply, TaskSnapshot
 from miniunicorn.utils.document import extract_documents
 
 try:
@@ -27,12 +30,57 @@ except ImportError:
 pytest_plugins = ("pytest_asyncio",)
 
 
+def _make_snapshot(state: str = "COMPLETED") -> TaskSnapshot:
+    return TaskSnapshot(
+        task_id="test-task",
+        state=state,
+        checkpoint_phase="done",
+        run_segment=0,
+        root_attempt_count=1,
+        max_root_attempts=3,
+        recovery_pending=0,
+    )
+
+
 def _make_mock_agent(response_text: str = "mock response") -> MagicMock:
-    agent = MagicMock()
-    agent.process_direct = AsyncMock(return_value=response_text)
-    agent._connect_mcp = AsyncMock()
-    agent.close_mcp = AsyncMock()
-    return agent
+    """Return a mock RuntimeApplication for the API server.
+
+    The server calls ``submit_and_wait(inbound, timeout_s=...)`` where
+    ``inbound`` is a ``RuntimeInboundRequest`` carrying ``content`` and
+    ``media``. Tests assert on ``submit_and_wait.call_args`` to verify the
+    server forwarded the right text and file paths.
+    """
+    runtime = MagicMock()
+    snapshot = _make_snapshot()
+    reply = DurableReply(content=response_text, outbox_id=1, metadata={})
+
+    async def _submit_and_wait(request, timeout_s=None):
+        return RuntimeTurnResult(snapshot=snapshot, reply=reply)
+
+    async def _submit(request):
+        handle = MagicMock()
+        handle.task_id = "test-task"
+        return handle
+
+    async def _wait(scope, task_id, timeout_s):
+        return snapshot
+
+    def _read_reply(scope, task_id):
+        return reply
+
+    @asynccontextmanager
+    async def _subscribe(task_id):
+        import asyncio
+
+        queue: asyncio.Queue = asyncio.Queue()
+        yield queue
+
+    runtime.submit_and_wait = AsyncMock(side_effect=_submit_and_wait)
+    runtime.submit = AsyncMock(side_effect=_submit)
+    runtime.wait = AsyncMock(side_effect=_wait)
+    runtime.read_reply = MagicMock(side_effect=_read_reply)
+    runtime.subscribe = _subscribe
+    return runtime
 
 
 @pytest.fixture
@@ -213,9 +261,9 @@ async def test_multipart_upload_saves_file(aiohttp_client, mock_agent, tmp_path)
             data={"message": "analyze this", "files": data},
         )
         assert resp.status == 200
-        call_kwargs = mock_agent.process_direct.call_args.kwargs
-        assert call_kwargs["content"] == "analyze this"
-        assert len(call_kwargs.get("media") or []) == 1
+        inbound = mock_agent.submit_and_wait.call_args.args[0]
+        assert inbound.content == "analyze this"
+        assert len(inbound.media or []) == 1
     finally:
         os.chdir(original_cwd)
 
@@ -294,8 +342,8 @@ async def test_multipart_defaults_text_when_missing(aiohttp_client, mock_agent, 
             data={"files": data},
         )
         assert resp.status == 200
-        call_kwargs = mock_agent.process_direct.call_args.kwargs
-        assert call_kwargs["content"] == "请分析上传的文件"
+        inbound = mock_agent.submit_and_wait.call_args.args[0]
+        assert inbound.content == "请分析上传的文件"
     finally:
         os.chdir(original_cwd)
 
@@ -321,8 +369,8 @@ async def test_multipart_with_session_id(aiohttp_client, mock_agent, tmp_path) -
             data={"message": "hello", "session_id": "my-session", "files": data},
         )
         assert resp.status == 200
-        call_kwargs = mock_agent.process_direct.call_args.kwargs
-        assert call_kwargs["session_key"] == "api:my-session"
+        inbound = mock_agent.submit_and_wait.call_args.args[0]
+        assert inbound.session_key == "api:my-session"
     finally:
         os.chdir(original_cwd)
 
@@ -345,9 +393,9 @@ async def test_plain_text_backward_compat(aiohttp_client, mock_agent) -> None:
     assert resp.status == 200
     body = await resp.json()
     assert body["choices"][0]["message"]["content"] == "mock response"
-    call_kwargs = mock_agent.process_direct.call_args.kwargs
-    assert call_kwargs["content"] == "hello world"
-    assert call_kwargs.get("media") is None
+    inbound = mock_agent.submit_and_wait.call_args.args[0]
+    assert inbound.content == "hello world"
+    assert not inbound.media
 
 
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
@@ -384,9 +432,9 @@ async def test_json_base64_image_upload(aiohttp_client, mock_agent, tmp_path) ->
             },
         )
         assert resp.status == 200
-        call_kwargs = mock_agent.process_direct.call_args.kwargs
-        assert call_kwargs["content"] == "what is this"
-        assert len(call_kwargs.get("media", [])) == 1
+        inbound = mock_agent.submit_and_wait.call_args.args[0]
+        assert inbound.content == "what is this"
+        assert len(inbound.media or []) == 1
     finally:
         os.chdir(original_cwd)
 
@@ -519,9 +567,9 @@ async def test_docx_upload_passes_media_path(aiohttp_client, tmp_path) -> None:
 
         resp = await client.post("/v1/chat/completions", data=data)
         assert resp.status == 200
-        call_kwargs = agent.process_direct.call_args.kwargs
-        assert call_kwargs["content"] == "summarize the report"
-        media = call_kwargs.get("media", [])
+        inbound = agent.submit_and_wait.call_args.args[0]
+        assert inbound.content == "summarize the report"
+        media = list(inbound.media or [])
         assert len(media) == 1
         assert "report.docx" in media[0]
     finally:

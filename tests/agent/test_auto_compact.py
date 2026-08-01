@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from miniunicorn.agent.loop import AgentLoop
+from miniunicorn.agent.turn_runtime import AgentLoopRunResult
 from miniunicorn.bus.events import InboundMessage
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.command import CommandContext
@@ -169,7 +170,15 @@ class TestAgentLoopTTLParam:
         session = loop.sessions.get_or_create("cli:direct")
         session.get_history = MagicMock(return_value=[])
         loop.context.build_messages = MagicMock(return_value=[])
-        loop._run_agent_loop = AsyncMock(return_value=("ok", [], [], "stop", False))
+        loop._run_agent_loop = AsyncMock(
+            return_value=AgentLoopRunResult(
+                final_content="ok",
+                tools_used=[],
+                messages=[],
+                stop_reason="stop",
+                had_injections=False,
+            )
+        )
         loop._save_turn = MagicMock()
 
         msg = InboundMessage(
@@ -487,7 +496,6 @@ class TestAutoCompactIdleDetection:
         assert session_after.messages[0].get("_command") is True
         assert session_after.messages[1]["role"] == "assistant"
         assert session_after.messages[1].get("_command") is True
-        assert AgentLoop._PENDING_USER_TURN_KEY not in session_after.metadata
         await loop.close_mcp()
 
     @pytest.mark.asyncio
@@ -582,15 +590,10 @@ class TestAutoCompactEdgeCases:
         await loop.close_mcp()
 
     @pytest.mark.asyncio
-    async def test_auto_compact_preserves_runtime_checkpoint_before_check(self, tmp_path):
-        """Short expired sessions keep recent messages; checkpoint restore still works on resume."""
+    async def test_auto_compact_preserves_short_session_before_check(self, tmp_path):
+        """Short expired sessions keep recent messages on resume."""
         loop = _make_loop(tmp_path, session_ttl_minutes=15)
         session = loop.sessions.get_or_create("cli:test")
-        session.metadata[AgentLoop._RUNTIME_CHECKPOINT_KEY] = {
-            "assistant_message": {"role": "assistant", "content": "interrupted response"},
-            "completed_tool_results": [],
-            "pending_tool_calls": [],
-        }
         session.add_message("user", "previous message")
         session.updated_at = datetime.now() - timedelta(minutes=20)
         loop.sessions.save(session)
@@ -610,7 +613,6 @@ class TestAutoCompactEdgeCases:
         session_after = loop.sessions.get_or_create("cli:test")
         assert archived_messages == []
         assert any(m["content"] == "previous message" for m in session_after.messages)
-        assert any(m["content"] == "interrupted response" for m in session_after.messages)
 
         await loop.close_mcp()
 

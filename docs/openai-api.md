@@ -9,6 +9,26 @@ miniunicorn serve
 
 By default, the API binds to `127.0.0.1:8900`. You can change this in `config.json`.
 
+To expose the API on a public interface, set a bearer token:
+
+```yaml
+api:
+  host: "0.0.0.0"
+  api_key: "${MINIUNICORN_API_KEY}"
+```
+
+> **Danger:** binding to a non-loopback address without `api_key` is rejected.
+> Only set `api.allow_insecure_public_bind: true` to accept unauthenticated
+> exposure when the risk is explicitly understood (e.g. behind a trusted
+> reverse proxy that handles auth). The CLI `--host` override is checked
+> against the same rule.
+>
+> ```yaml
+> api:
+>   host: "0.0.0.0"
+>   allow_insecure_public_bind: true
+> ```
+
 ## Behavior
 
 - Session isolation: pass `"session_id"` in the request body to isolate conversations; omit for a shared default session (`api:default`)

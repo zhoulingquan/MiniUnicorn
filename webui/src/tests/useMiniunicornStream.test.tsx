@@ -290,11 +290,13 @@ describe("useMiniunicornStream", () => {
         tool_events: [
           {
             phase: "start",
+            call_id: "call-1",
             name: "read_file",
             arguments: { path: "NousResearch/hermes-agent/README.md" },
           },
           {
             phase: "start",
+            call_id: "call-2",
             name: "read_file",
             arguments: { path: "hermes-agent/stars.txt" },
           },

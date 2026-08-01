@@ -9,7 +9,6 @@ through multiple inheritance (see :class:`McpLifecycleMixin`).
 
 from __future__ import annotations
 
-import asyncio
 from typing import TYPE_CHECKING
 
 from loguru import logger
@@ -24,11 +23,11 @@ if TYPE_CHECKING:
 class McpLifecycleMixin:
     """Default-tool registration and MCP server lifecycle for :class:`AgentLoop`.
 
-    Reads several ``self`` attributes that are owned by :class:`AgentLoop``
+    Reads several ``self`` attributes that are owned by :class:`AgentLoop`
     (``tools``, ``tools_config``, ``workspace``, ``bus``, ``subagents``,
     ``cron_service``, ``sessions``, ``_provider_snapshot_loader``,
     ``workspace_scopes``, ``_vector_recall``, ``context``,
-    ``subagent_registry``, ``_mcp_stacks``, ``_background_tasks``).
+    ``subagent_registry``, ``_mcp_stacks``, ``_background_supervisor``).
     """
 
     def _register_default_tools(self: "AgentLoop") -> None:
@@ -67,9 +66,11 @@ class McpLifecycleMixin:
 
     async def close_mcp(self: "AgentLoop") -> None:
         """Drain pending background archives, then close MCP connections."""
-        if self._background_tasks:
-            await asyncio.gather(*self._background_tasks, return_exceptions=True)
-            self._background_tasks.clear()
+        # Drain supervised background jobs (archives/consolidation) with a
+        # bounded timeout so a stuck job cannot block shutdown indefinitely.
+        await self._background_supervisor.close(cancel=False, timeout_s=30)
+        # Give the runner's reflection supervisor a chance to flush too.
+        await self.runner.aclose()
         for name, stack in self._mcp_stacks.items():
             try:
                 await stack.aclose()

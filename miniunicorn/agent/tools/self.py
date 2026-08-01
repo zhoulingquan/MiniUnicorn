@@ -73,13 +73,11 @@ class MyTool(Tool, ContextAware):
             "auto_compact",
             "context",
             "commands",
-            # Sensitive runtime state (credentials, message routing, task tracking)
+            # Sensitive runtime state (credentials, message routing)
             "_mcp_servers",
             "_mcp_stacks",
-            "_pending_queues",
             "_session_locks",
-            "_active_tasks",
-            "_background_tasks",
+            "_background_supervisor",
             # Security boundaries (inspect + modify both blocked)
             "restrict_to_workspace",
             "channels_config",
@@ -93,6 +91,7 @@ class MyTool(Tool, ContextAware):
         {
             "subagents",  # observable but replacing it would break the system
             "_current_iteration",  # updated by runner only
+            "_last_usage",  # cumulative usage from the bound TurnRuntime
             "exec_config",  # inspect allowed (e.g. check sandbox), modify blocked
             "workspace_sandbox",  # read-only view of workspace enforcement level
         }

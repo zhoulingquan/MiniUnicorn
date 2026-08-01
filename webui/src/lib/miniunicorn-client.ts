@@ -451,15 +451,19 @@ export class MiniunicornClient {
     }
 
     if (parsed.event === "session_updated") {
-      this.emitSessionUpdate(parsed.chat_id, parsed.scope, parsed.workspace_scope);
+      this.emitSessionUpdate(
+        parsed.chat_id,
+        parsed.scope ?? undefined,
+        parsed.workspace_scope ?? undefined,
+      );
       return;
     }
 
     if (parsed.event === "error" && parsed.detail === "workspace_scope_rejected") {
       this.emitError({
         kind: "workspace_scope_rejected",
-        reason: parsed.reason,
-        chatId: parsed.chat_id,
+        reason: parsed.reason ?? undefined,
+        chatId: parsed.chat_id ?? undefined,
       });
       if (this.pendingNewChat) {
         clearTimeout(this.pendingNewChat.timer);

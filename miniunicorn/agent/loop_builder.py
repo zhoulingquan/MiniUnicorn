@@ -144,6 +144,19 @@ class AgentLoopBuilder:
         self._kwargs["embedding_model"] = embedding_model
         return self
 
+    def with_vector_memory_factory(
+        self, vector_memory_factory: Any | None
+    ) -> AgentLoopBuilder:
+        """Inject the Runtime-owned vector memory factory (design §22.2).
+
+        Production wiring passes
+        :func:`miniunicorn.runtime.sqlite.vector_memory_store.create_vector_store`;
+        unit tests inject a fake or ``NoOpVectorStore`` factory. Required
+        when ``vector_recall=True``; ignored otherwise.
+        """
+        self._kwargs["vector_memory_factory"] = vector_memory_factory
+        return self
+
     def with_hooks(self, hooks: list[AgentHook] | None) -> AgentLoopBuilder:
         self._kwargs["hooks"] = hooks
         return self

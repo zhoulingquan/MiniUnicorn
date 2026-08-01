@@ -9,6 +9,7 @@ from miniunicorn.agent.tools.cron import CronTool
 from miniunicorn.agent.tools.message import MessageTool
 from miniunicorn.agent.tools.spawn import SpawnTool
 from miniunicorn.cron.service import CronService
+from tests.conftest import bind_fake_outbound
 
 
 @pytest.mark.asyncio
@@ -21,7 +22,7 @@ async def test_message_tool_keeps_task_local_context() -> None:
         seen.append((msg.channel, msg.chat_id, msg.content))
         return None
 
-    tool = MessageTool(send_callback=send_callback)
+    tool = MessageTool()
 
     async def task_one() -> str:
         tool.set_context(RequestContext(channel="feishu", chat_id="chat-a"))
@@ -35,10 +36,13 @@ async def test_message_tool_keeps_task_local_context() -> None:
         release.set()
         return await tool.execute(content="two")
 
-    result_one, result_two = await asyncio.gather(task_one(), task_two())
+    with bind_fake_outbound(send_callback):
+        result_one, result_two = await asyncio.gather(task_one(), task_two())
 
-    assert result_one == "Message sent to feishu:chat-a"
-    assert result_two == "Message sent to email:chat-b"
+    assert "queued for delivery" in result_one
+    assert "feishu:chat-a" in result_one
+    assert "queued for delivery" in result_two
+    assert "email:chat-b" in result_two
     assert ("feishu", "chat-a", "one") in seen
     assert ("email", "chat-b", "two") in seen
 
@@ -131,11 +135,13 @@ async def test_message_tool_basic_set_context_and_execute() -> None:
     async def send_callback(msg):
         seen.append((msg.channel, msg.chat_id, msg.content))
 
-    tool = MessageTool(send_callback=send_callback)
+    tool = MessageTool()
     tool.set_context(RequestContext(channel="telegram", chat_id="chat-123", message_id="msg-456"))
 
-    result = await tool.execute(content="hello")
-    assert result == "Message sent to telegram:chat-123"
+    with bind_fake_outbound(send_callback):
+        result = await tool.execute(content="hello")
+    assert "queued for delivery" in result
+    assert "telegram:chat-123" in result
     assert seen == [("telegram", "chat-123", "hello")]
 
 
@@ -148,13 +154,14 @@ async def test_message_tool_default_values_without_set_context() -> None:
         seen.append((msg.channel, msg.chat_id, msg.content))
 
     tool = MessageTool(
-        send_callback=send_callback,
         default_channel="discord",
         default_chat_id="general",
     )
 
-    result = await tool.execute(content="hi")
-    assert result == "Message sent to discord:general"
+    with bind_fake_outbound(send_callback):
+        result = await tool.execute(content="hi")
+    assert "queued for delivery" in result
+    assert "discord:general" in result
     assert seen == [("discord", "general", "hi")]
 
 

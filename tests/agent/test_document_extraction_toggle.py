@@ -137,15 +137,15 @@ async def test_pending_followup_references_documents_when_extraction_disabled(
         )
     )
 
-    final_content, _, _, _, had_injections = await loop._run_agent_loop(
+    result = await loop._run_agent_loop(
         [{"role": "user", "content": "hello"}],
         channel="cli",
         chat_id="c",
         pending_queue=pending_queue,
     )
 
-    assert final_content == "answer-2"
-    assert had_injections is True
+    assert result.final_content == "answer-2"
+    assert result.had_injections is True
     injected_user_content = [
         message["content"]
         for message in captured_messages[-1]

@@ -69,7 +69,7 @@ export function WorkspaceProjectPicker({
   }, [error, visible]);
 
   const applyProjectPath = useCallback(
-    (projectPath: string, projectName?: string) => {
+    (projectPath: string, projectName?: string | null) => {
       const base = scope ?? defaultScope;
       const trimmed = projectPath.trim();
       if (!base || !onChange) return;

@@ -245,23 +245,36 @@ class TestPathAppendPlatform:
 
 class TestSandboxPlatform:
     @pytest.mark.asyncio
-    async def test_bwrap_skipped_on_windows(self):
-        """bwrap must be silently skipped on Windows, not crash."""
-        mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (b"ok", b"")
-        mock_proc.returncode = 0
-
+    async def test_sandbox_fails_closed_on_windows(self, tmp_path):
         with (
             patch("miniunicorn.agent.tools.shell._IS_WINDOWS", True),
-            patch.object(ExecTool, "_spawn", return_value=mock_proc) as mock_spawn,
+            patch.object(ExecTool, "_spawn", new_callable=AsyncMock) as spawn,
             patch.object(ExecTool, "_guard_command", return_value=None),
         ):
-            tool = ExecTool(sandbox="bwrap")
-            result = await tool.execute(command="dir")
+            tool = ExecTool(working_dir=str(tmp_path), sandbox="bwrap")
+            result = await tool.execute(command="echo safe")
+        assert result.startswith("Error: sandbox 'bwrap' is not supported on Windows")
+        assert "allow_unsandboxed_fallback" in result
+        spawn.assert_not_awaited()
 
+    @pytest.mark.asyncio
+    async def test_explicit_windows_unsandboxed_fallback_runs(self, tmp_path):
+        process = AsyncMock()
+        process.communicate.return_value = (b"ok\n", b"")
+        process.returncode = 0
+        with (
+            patch("miniunicorn.agent.tools.shell._IS_WINDOWS", True),
+            patch.object(ExecTool, "_spawn", return_value=process) as spawn,
+            patch.object(ExecTool, "_guard_command", return_value=None),
+        ):
+            tool = ExecTool(
+                working_dir=str(tmp_path),
+                sandbox="bwrap",
+                allow_unsandboxed_fallback=True,
+            )
+            result = await tool.execute(command="echo safe")
         assert "ok" in result
-        spawned_cmd = mock_spawn.call_args[0][0]
-        assert "bwrap" not in spawned_cmd
+        spawn.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_bwrap_applied_on_unix(self, tmp_path):

@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from miniunicorn.config.schema import AgentDefaults
 from miniunicorn.providers.base import LLMResponse, ToolCallRequest
+from tests.agent.conftest import FakeToolExecutionPort
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
@@ -42,6 +43,7 @@ async def test_runner_persists_large_tool_results_for_follow_up_calls(tmp_path):
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "do task"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=2,
             workspace=tmp_path,
@@ -159,6 +161,7 @@ async def test_runner_keeps_going_when_tool_result_persistence_fails():
             AgentRunSpec(
                 initial_messages=[{"role": "user", "content": "do task"}],
                 tools=tools,
+                tool_execution_port=FakeToolExecutionPort(tools),
                 model="test-model",
                 max_iterations=2,
                 max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,

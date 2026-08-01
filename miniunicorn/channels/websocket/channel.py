@@ -31,7 +31,31 @@ from websockets.http11 import Response
 
 from miniunicorn import __version__
 from miniunicorn.agent.tools.mcp import request_mcp_reload
-from miniunicorn.bus.events import OUTBOUND_META_AGENT_UI, OutboundMessage
+from miniunicorn.bus.agent_events import (
+    AGENT_EVENT_ADAPTER,
+    AgentEvent,
+    AttachedEvent,
+    DeltaEvent,
+    ErrorEvent,
+    FileEditEvent,
+    GoalStateEvent,
+    GoalStatusEvent,
+    MessageEvent,
+    ReadyEvent,
+    ReasoningDeltaEvent,
+    ReasoningEndEvent,
+    RuntimeModelUpdatedEvent,
+    SessionUpdatedEvent,
+    StreamEndEvent,
+    SubagentActivityEvent,
+    TurnEndEvent,
+    serialize_agent_event,
+)
+from miniunicorn.bus.events import (
+    OUTBOUND_META_AGENT_EVENT,
+    OUTBOUND_META_AGENT_UI,
+    OutboundMessage,
+)
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.channels.base import BaseChannel
 from miniunicorn.config.paths import get_media_dir, get_workspace_path
@@ -176,6 +200,7 @@ class WebSocketChannel(BaseChannel):
         agent_model_refresher: Callable[[], None] | None = None,
         cron_service: Any = None,
         tool_registry: Any = None,
+        submit_control: Any = None,
     ):
         if isinstance(config, dict):
             config = WebSocketConfig.model_validate(config)
@@ -216,6 +241,7 @@ class WebSocketChannel(BaseChannel):
         self._agent_model_refresher = agent_model_refresher
         self._cron_service = cron_service
         self._tool_registry = tool_registry
+        self._submit_control = submit_control
         self._runtime_surface = "native" if runtime_surface in {"native", "desktop"} else "browser"
         self._runtime_capabilities = runtime_capabilities(
             self._runtime_surface,
@@ -398,9 +424,15 @@ class WebSocketChannel(BaseChannel):
         await self._maybe_push_turn_run_wall_clock(chat_id)
 
     async def _send_event(self, connection: Any, event: str, **fields: Any) -> None:
-        """Send a control event (attached, error, ...) to a single connection."""
-        payload: dict[str, Any] = {"event": event}
-        payload.update(fields)
+        """Send a control event (attached, error, session_updated) to a single connection.
+
+        Constructs the matching typed ``AgentEvent`` so the wire payload carries
+        ``protocol_version`` and is validated before send. Error handling matches
+        the original contract: ConnectionClosed cleans up, other exceptions are
+        logged as warnings without re-raising.
+        """
+        typed = self._build_control_event(event, fields)
+        payload = serialize_agent_event(typed)
         raw = json.dumps(payload, ensure_ascii=False)
         try:
             await connection.send(raw)
@@ -408,6 +440,30 @@ class WebSocketChannel(BaseChannel):
             self._cleanup_connection(connection)
         except Exception as e:
             self.logger.warning("failed to send {} event: {}", event, e)
+
+    @staticmethod
+    def _build_control_event(event: str, fields: dict[str, Any]) -> AgentEvent:
+        """Map a legacy ``_send_event`` call to its typed ``AgentEvent`` model."""
+        if event == "attached":
+            return AttachedEvent(
+                chat_id=fields["chat_id"],
+                request_id=fields.get("request_id"),
+            )
+        if event == "session_updated":
+            return SessionUpdatedEvent(
+                chat_id=fields["chat_id"],
+                scope=fields.get("scope"),
+                workspace_scope=fields.get("workspace_scope"),
+            )
+        if event == "error":
+            return ErrorEvent(
+                chat_id=fields.get("chat_id"),
+                detail=fields.get("detail"),
+                reason=fields.get("reason"),
+            )
+        # Defensive: unknown event types become a descriptive error frame
+        # rather than crashing the connection loop.
+        return ErrorEvent(detail=f"unknown control event: {event!r}")
 
     @classmethod
     def default_config(cls) -> dict[str, Any]:
@@ -1133,15 +1189,9 @@ class WebSocketChannel(BaseChannel):
         default_chat_id = str(uuid.uuid4())
 
         try:
-            await connection.send(
-                json.dumps(
-                    {
-                        "event": "ready",
-                        "chat_id": default_chat_id,
-                        "client_id": client_id,
-                    },
-                    ensure_ascii=False,
-                )
+            ready_event = ReadyEvent(chat_id=default_chat_id, client_id=client_id)
+            await self._send_agent_event(
+                ready_event, connections=[connection], label=" ready "
             )
             # Register only after ready is successfully sent to avoid out-of-order sends
             self._conn_default[connection] = default_chat_id
@@ -1421,7 +1471,76 @@ class WebSocketChannel(BaseChannel):
                 is_dm=False,
             )
             return
+        if t == "task_control":
+            await self._handle_task_control(connection, client_id, envelope)
+            return
         await self._send_event(connection, "error", detail=f"unknown type: {t!r}")
+
+    async def _handle_task_control(
+        self,
+        connection: Any,
+        client_id: str,
+        envelope: dict[str, Any],
+    ) -> None:
+        """Handle a task control request (cancel/steer/continue/approve/reject).
+
+        Maps the wire ``action`` to a ``ControlKind`` and submits a
+        ``TaskControlRequest`` through the ``submit_control`` callback
+        wired by the runtime bootstrap (Task 9).
+        """
+        if self._submit_control is None:
+            await self._send_event(
+                connection, "error", detail="task_control not available"
+            )
+            return
+
+        task_id = envelope.get("task_id")
+        action = envelope.get("action")
+        if not isinstance(task_id, str) or not task_id:
+            await self._send_event(connection, "error", detail="invalid task_id")
+            return
+        if not isinstance(action, str) or not action:
+            await self._send_event(connection, "error", detail="missing action")
+            return
+
+        action_map = {
+            "cancel": "CANCEL",
+            "steer": "STEER",
+            "continue": "CONTINUE",
+            "approve_tool": "APPROVE_TOOL",
+            "reject_tool": "REJECT_TOOL",
+        }
+        kind = action_map.get(action)
+        if kind is None:
+            await self._send_event(
+                connection, "error", detail=f"unknown action: {action!r}"
+            )
+            return
+
+        payload = envelope.get("payload") or {}
+        if not isinstance(payload, dict):
+            payload = {}
+
+        try:
+            result = await self._submit_control(
+                task_id=task_id,
+                kind=kind,
+                payload=payload,
+                requested_by=client_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.logger.warning("task_control failed: {}", exc)
+            await self._send_event(
+                connection, "error", detail="task_control_failed"
+            )
+            return
+
+        status = getattr(result, "status", "ERROR")
+        await self._send_event(
+            connection,
+            "error" if status == "TASK_NOT_FOUND" else "session_updated",
+            chat_id=envelope.get("chat_id"),
+        )
 
     async def _workspace_scope_or_error(
         self,
@@ -1482,7 +1601,42 @@ class WebSocketChannel(BaseChannel):
             self.logger.exception("send failed{}", label)
             raise
 
+    async def _send_agent_event(
+        self,
+        event: AgentEvent,
+        *,
+        connections: list[Any] | None = None,
+        label: str = "",
+        persist: bool = False,
+    ) -> None:
+        """Serialize a typed ``AgentEvent`` and fan it out to connections.
+
+        When ``connections`` is ``None``, targets every subscriber of the
+        event's ``chat_id``. When ``persist`` is True, appends the serialized
+        payload to the WebUI transcript for replay on reconnect (only when
+        the event carries a ``chat_id``).
+        """
+        payload = serialize_agent_event(event)
+        chat_id = payload.get("chat_id")
+        if persist and isinstance(chat_id, str):
+            self._try_append_webui_transcript(chat_id, payload)
+        raw = json.dumps(payload, ensure_ascii=False)
+        targets = connections
+        if targets is None and isinstance(chat_id, str):
+            targets = list(self._subs.get(chat_id, ()))
+        for connection in targets or []:
+            await self._safe_send_to(connection, raw, label=label)
+
     async def send(self, msg: OutboundMessage) -> None:
+        # Typed envelope: when present, validate and forward as-is. This is
+        # the preferred path for new code; legacy metadata flags below remain
+        # for one compatibility release.
+        typed_payload = msg.metadata.get(OUTBOUND_META_AGENT_EVENT)
+        if isinstance(typed_payload, dict):
+            event = AGENT_EVENT_ADAPTER.validate_python(typed_payload)
+            await self._send_agent_event(event, persist=True)
+            return
+
         if msg.metadata.get("_runtime_model_updated"):
             await self.send_runtime_model_updated(
                 model_name=msg.metadata.get("model"),
@@ -1512,17 +1666,13 @@ class WebSocketChannel(BaseChannel):
         # ``_subagent_label`` / ``_subagent_task_id`` metadata lets the client
         # group breadcrumbs by originating subagent.
         if msg.metadata.get("_subagent_activity"):
-            payload: dict[str, Any] = {
-                "event": "subagent_activity",
-                "chat_id": msg.chat_id,
-                "label": msg.metadata.get("_subagent_label"),
-                "task_id": msg.metadata.get("_subagent_task_id"),
-                "content": msg.content,
-            }
-            self._try_append_webui_transcript(msg.chat_id, payload)
-            raw = json.dumps(payload, ensure_ascii=False)
-            for connection in conns:
-                await self._safe_send_to(connection, raw, label=" subagent_activity ")
+            event = SubagentActivityEvent(
+                chat_id=msg.chat_id,
+                label=msg.metadata.get("_subagent_label"),
+                task_id=msg.metadata.get("_subagent_task_id"),
+                content=msg.content,
+            )
+            await self._send_agent_event(event, connections=conns, persist=True, label=" subagent_activity ")
             return
         if msg.metadata.get("_goal_state_sync"):
             blob = msg.metadata.get("goal_state")
@@ -1563,55 +1713,50 @@ class WebSocketChannel(BaseChannel):
             )
             return
         if msg.metadata.get("_file_edit_events"):
-            payload: dict[str, Any] = {
-                "event": "file_edit",
-                "chat_id": msg.chat_id,
-                "edits": msg.metadata["_file_edit_events"],
-            }
-            self._try_append_webui_transcript(msg.chat_id, payload)
-            raw = json.dumps(payload, ensure_ascii=False)
-            for connection in conns:
-                await self._safe_send_to(connection, raw, label=" ")
+            event = FileEditEvent(
+                chat_id=msg.chat_id,
+                edits=msg.metadata["_file_edit_events"],
+            )
+            await self._send_agent_event(event, connections=conns, persist=True, label=" ")
             return
         text = msg.content
         wire_text = self._rewrite_local_markdown_images(text)
-        payload: dict[str, Any] = {
-            "event": "message",
-            "chat_id": msg.chat_id,
-            "text": wire_text,
-        }
+        # Media signing and full-stream buffering happen before model
+        # construction so the typed event carries the final wire shape.
+        media_urls: list[dict[str, str]] | None = None
         if msg.media:
-            payload["media"] = msg.media
             urls: list[dict[str, str]] = []
             for entry in msg.media:
                 signed = self._sign_or_stage_media_path(Path(entry))
                 if signed is not None:
                     urls.append(signed)
             if urls:
-                payload["media_urls"] = urls
-        if msg.reply_to:
-            payload["reply_to"] = msg.reply_to
-        lat = msg.metadata.get("latency_ms")
-        if isinstance(lat, (int, float)):
-            payload["latency_ms"] = int(lat)
-        if msg.metadata.get("_tool_events"):
-            payload["tool_events"] = msg.metadata["_tool_events"]
-        agent_ui = msg.metadata.get(OUTBOUND_META_AGENT_UI)
-        if agent_ui is not None:
-            payload["agent_ui"] = agent_ui
-        # Mark intermediate agent breadcrumbs (tool-call hints, generic
-        # progress strings) so WS clients can render them as subordinate
-        # trace rows rather than conversational replies.
+                media_urls = urls
+        kind: str | None = None
         if msg.metadata.get("_tool_hint"):
-            payload["kind"] = "tool_hint"
+            kind = "tool_hint"
         elif msg.metadata.get("_progress"):
-            payload["kind"] = "progress"
-        transcript_payload = dict(payload)
-        transcript_payload["text"] = text
-        self._try_append_webui_transcript(msg.chat_id, transcript_payload)
-        raw = json.dumps(payload, ensure_ascii=False)
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" ")
+            kind = "progress"
+        lat = msg.metadata.get("latency_ms")
+        lat_i = int(lat) if isinstance(lat, (int, float)) else None
+        event = MessageEvent(
+            chat_id=msg.chat_id,
+            text=wire_text,
+            reply_to=msg.reply_to or None,
+            media=msg.media or None,
+            media_urls=media_urls,
+            tool_events=msg.metadata.get("_tool_events"),
+            kind=kind,  # type: ignore[arg-type]
+            latency_ms=lat_i,
+            agent_ui=msg.metadata.get(OUTBOUND_META_AGENT_UI),
+        )
+        # Persist with the original (un-rewritten) text so transcript replay
+        # matches what the agent actually produced, not the media-signed URL form.
+        transcript_event = event.model_copy(update={"text": text})
+        self._try_append_webui_transcript(
+            msg.chat_id, serialize_agent_event(transcript_event)
+        )
+        await self._send_agent_event(event, connections=conns, label=" ")
 
     async def send_reasoning_delta(
         self,
@@ -1628,18 +1773,12 @@ class WebSocketChannel(BaseChannel):
         if not conns or not delta:
             return
         meta = metadata or {}
-        body: dict[str, Any] = {
-            "event": "reasoning_delta",
-            "chat_id": chat_id,
-            "text": delta,
-        }
-        stream_id = meta.get("_stream_id")
-        if stream_id is not None:
-            body["stream_id"] = stream_id
-        self._try_append_webui_transcript(chat_id, body)
-        raw = json.dumps(body, ensure_ascii=False)
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" reasoning ")
+        event = ReasoningDeltaEvent(
+            chat_id=chat_id,
+            text=delta,
+            stream_id=meta.get("_stream_id"),
+        )
+        await self._send_agent_event(event, connections=conns, persist=True, label=" reasoning ")
 
     async def send_reasoning_end(
         self,
@@ -1651,17 +1790,11 @@ class WebSocketChannel(BaseChannel):
         if not conns:
             return
         meta = metadata or {}
-        body: dict[str, Any] = {
-            "event": "reasoning_end",
-            "chat_id": chat_id,
-        }
-        stream_id = meta.get("_stream_id")
-        if stream_id is not None:
-            body["stream_id"] = stream_id
-        self._try_append_webui_transcript(chat_id, body)
-        raw = json.dumps(body, ensure_ascii=False)
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" reasoning_end ")
+        event = ReasoningEndEvent(
+            chat_id=chat_id,
+            stream_id=meta.get("_stream_id"),
+        )
+        await self._send_agent_event(event, connections=conns, persist=True, label=" reasoning_end ")
 
     async def send_delta(
         self,
@@ -1674,8 +1807,8 @@ class WebSocketChannel(BaseChannel):
             return
         meta = metadata or {}
         stream_key = (chat_id, str(meta.get("_stream_id") or ""))
+        stream_id = meta.get("_stream_id")
         if meta.get("_stream_end"):
-            body: dict[str, Any] = {"event": "stream_end", "chat_id": chat_id}
             buffered = self._stream_text_buffers.pop(stream_key, [])
             # 同步清理时间戳记录,避免 _stream_text_buffer_times 残留 key。
             self._stream_text_buffer_times.pop(stream_key, None)
@@ -1683,23 +1816,21 @@ class WebSocketChannel(BaseChannel):
                 buffered.append(delta)
             full_text = "".join(buffered)
             rewritten = self._rewrite_local_markdown_images(full_text)
-            if rewritten != full_text:
-                body["text"] = rewritten
+            event: AgentEvent = StreamEndEvent(
+                chat_id=chat_id,
+                stream_id=stream_id if stream_id is not None else None,
+                text=rewritten if rewritten != full_text else None,
+            )
         else:
-            body = {
-                "event": "delta",
-                "chat_id": chat_id,
-                "text": delta,
-            }
+            event = DeltaEvent(
+                chat_id=chat_id,
+                text=delta,
+                stream_id=stream_id if stream_id is not None else None,
+            )
             self._stream_text_buffers.setdefault(stream_key, []).append(delta)
             # 每次追加 delta 都刷新时间戳,供 TTL 清理判断 buffer 是否陈旧。
             self._stream_text_buffer_times[stream_key] = time.monotonic()
-        if meta.get("_stream_id") is not None:
-            body["stream_id"] = meta["_stream_id"]
-        self._try_append_webui_transcript(chat_id, body)
-        raw = json.dumps(body, ensure_ascii=False)
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" stream ")
+        await self._send_agent_event(event, connections=conns, persist=True, label=" stream ")
 
     async def send_turn_end(
         self,
@@ -1713,27 +1844,21 @@ class WebSocketChannel(BaseChannel):
         conns = list(self._subs.get(chat_id, ()))
         if not conns:
             return
-        body: dict[str, Any] = {"event": "turn_end", "chat_id": chat_id}
-        if latency_ms is not None:
-            body["latency_ms"] = int(latency_ms)
-        if goal_state is not None:
-            body["goal_state"] = goal_state
-        if context_usage:
-            body["context_usage"] = context_usage
-        self._try_append_webui_transcript(chat_id, body)
-        raw = json.dumps(body, ensure_ascii=False)
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" turn_end ")
+        event = TurnEndEvent(
+            chat_id=chat_id,
+            latency_ms=int(latency_ms) if latency_ms is not None else None,
+            goal_state=goal_state,
+            context_usage=context_usage,
+        )
+        await self._send_agent_event(event, connections=conns, persist=True, label=" turn_end ")
 
     async def send_goal_state(self, chat_id: str, blob: dict[str, Any]) -> None:
         """Push persisted goal-state snapshot for *chat_id* (multi-chat isolation)."""
         conns = list(self._subs.get(chat_id, ()))
         if not conns:
             return
-        body = {"event": "goal_state", "chat_id": chat_id, "goal_state": blob}
-        raw = json.dumps(body, ensure_ascii=False)
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" goal_state ")
+        event = GoalStateEvent(chat_id=chat_id, goal_state=blob)
+        await self._send_agent_event(event, connections=conns, persist=True, label=" goal_state ")
 
     async def send_goal_status(
         self,
@@ -1746,28 +1871,20 @@ class WebSocketChannel(BaseChannel):
         conns = list(self._subs.get(chat_id, ()))
         if not conns:
             return
-        body: dict[str, Any] = {
-            "event": "goal_status",
-            "chat_id": chat_id,
-            "status": status,
-        }
-        if status == "running" and started_at is not None:
-            body["started_at"] = started_at
-        raw = json.dumps(body, ensure_ascii=False)
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" goal_status ")
+        event = GoalStatusEvent(
+            chat_id=chat_id,
+            status=status,  # type: ignore[arg-type]
+            started_at=started_at if status == "running" else None,
+        )
+        await self._send_agent_event(event, connections=conns, persist=True, label=" goal_status ")
 
     async def send_session_updated(self, chat_id: str, *, scope: str | None = None) -> None:
         """Notify clients that session metadata changed outside the main turn."""
         conns = list(self._subs.get(chat_id, ()))
         if not conns:
             return
-        body: dict[str, Any] = {"event": "session_updated", "chat_id": chat_id}
-        if scope:
-            body["scope"] = scope
-        raw = json.dumps(body, ensure_ascii=False)
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" session_updated ")
+        event = SessionUpdatedEvent(chat_id=chat_id, scope=scope)
+        await self._send_agent_event(event, connections=conns, persist=True, label=" session_updated ")
 
     async def send_runtime_model_updated(
         self,
@@ -1779,12 +1896,8 @@ class WebSocketChannel(BaseChannel):
         conns = list(self._conn_chats)
         if not conns or not isinstance(model_name, str) or not model_name.strip():
             return
-        body: dict[str, Any] = {
-            "event": "runtime_model_updated",
-            "model_name": model_name.strip(),
-        }
-        if isinstance(model_preset, str) and model_preset.strip():
-            body["model_preset"] = model_preset.strip()
-        raw = json.dumps(body, ensure_ascii=False)
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" runtime_model_updated ")
+        event = RuntimeModelUpdatedEvent(
+            model_name=model_name.strip(),
+            model_preset=model_preset.strip() if isinstance(model_preset, str) else None,
+        )
+        await self._send_agent_event(event, connections=conns, label=" runtime_model_updated ")

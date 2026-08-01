@@ -9,6 +9,14 @@ from typing import Any
 # render it and other channels may ignore unknown keys.
 OUTBOUND_META_AGENT_UI = "_agent_ui"
 
+# Optional ``OutboundMessage.metadata`` key for a fully typed, serialized
+# ``AgentEvent`` payload (see ``miniunicorn.bus.agent_events``). Value is a
+# dict produced by ``serialize_agent_event``; typed-aware channels (currently
+# the WebSocket server) validate and forward it as-is, while non-WebUI
+# channels may ignore it. Coexists with the legacy ``_turn_end`` /
+# ``_progress`` / ``_goal_state`` / … flags for one compatibility release.
+OUTBOUND_META_AGENT_EVENT = "_agent_event"
+
 # Internal-only inbound metadata used by in-process channels to ask the agent
 # loop to update runtime state without going through a user session.
 INBOUND_META_RUNTIME_CONTROL = "_runtime_control"

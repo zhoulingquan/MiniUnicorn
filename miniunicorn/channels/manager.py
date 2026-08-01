@@ -23,6 +23,7 @@ from miniunicorn.utils.restart import (
 )
 
 if TYPE_CHECKING:
+    from miniunicorn.runtime.models import DeliveryReceipt
     from miniunicorn.session.manager import SessionManager
 
 
@@ -74,6 +75,8 @@ class ChannelManager:
         webui_agent_model_refresher: Callable[[], None] | None = None,
         webui_cron_service: Any = None,
         webui_tool_registry: Any = None,
+        submit_inbound: Any | None = None,
+        submit_control: Any | None = None,
     ):
         self.config = config
         self.bus = bus
@@ -87,6 +90,8 @@ class ChannelManager:
         self._webui_agent_model_refresher = webui_agent_model_refresher
         self._webui_cron_service = webui_cron_service
         self._webui_tool_registry = webui_tool_registry
+        self._submit_inbound = submit_inbound
+        self._submit_control = submit_control
         self.channels: dict[str, BaseChannel] = {}
         self._dispatch_task: asyncio.Task | None = None
         # 去重指纹缓存:使用 OrderedDict 实现 LRU,访问/写入时 move_to_end,
@@ -153,6 +158,8 @@ class ChannelManager:
                         kwargs["cron_service"] = self._webui_cron_service
                     if self._webui_tool_registry is not None:
                         kwargs["tool_registry"] = self._webui_tool_registry
+                    if self._submit_control is not None:
+                        kwargs["submit_control"] = self._submit_control
                 channel = cls(section, self.bus, **kwargs)
                 channel.transcription_provider = transcription_provider
                 channel.transcription_api_key = transcription_key
@@ -174,6 +181,11 @@ class ChannelManager:
                     self.config.channels.show_reasoning,
                 )
                 self.channels[name] = channel
+                # Propagate the submit_inbound callback so channels route
+                # ingress to the Runtime TaskService instead of the legacy
+                # bus when a callback is wired (Task 9 cutover).
+                if self._submit_inbound is not None:
+                    channel._submit_inbound = self._submit_inbound
                 logger.info("{} channel enabled", cls.display_name)
             except Exception as e:
                 logger.warning("{} channel not available: {}", name, e)
@@ -459,9 +471,14 @@ class ChannelManager:
             except asyncio.CancelledError:
                 break
 
-    @staticmethod
-    async def _send_once(channel: BaseChannel, msg: OutboundMessage) -> None:
-        """Send one outbound message without retry policy."""
+    async def _send_once(self, channel: BaseChannel, msg: OutboundMessage) -> None:
+        """Send one outbound message without retry policy.
+
+        Regular sends route through :meth:`send_with_receipt` (design §23.5,
+        WP5) so ``channel.send()`` is only ever called from that method.
+        Reasoning deltas and stream deltas use their dedicated channel APIs
+        and are not affected.
+        """
         if msg.metadata.get("_reasoning_end"):
             await channel.send_reasoning_end(msg.chat_id, msg.metadata)
         elif msg.metadata.get("_reasoning_delta"):
@@ -474,7 +491,11 @@ class ChannelManager:
         elif msg.metadata.get("_stream_delta") or msg.metadata.get("_stream_end"):
             await channel.send_delta(msg.chat_id, msg.content, msg.metadata)
         elif not msg.metadata.get("_streamed"):
-            await channel.send(msg)
+            receipt = await self.send_with_receipt(msg.channel, msg)
+            if receipt.status != "DELIVERED":
+                raise ConnectionError(
+                    f"Delivery to {msg.channel} failed: {receipt.safe_error_code}"
+                )
 
     def _coalesce_stream_deltas(
         self, first_msg: OutboundMessage
@@ -574,3 +595,65 @@ class ChannelManager:
     def enabled_channels(self) -> list[str]:
         """Get list of enabled channel names."""
         return list(self.channels.keys())
+
+    async def send_with_receipt(
+        self, channel_name: str, msg: OutboundMessage
+    ) -> "DeliveryReceipt":
+        """Send one message and return a delivery receipt (design §23.5, WP5).
+
+        This is one bounded logical attempt. It calls ``channel.send()``
+        exactly once and maps the outcome to a :class:`DeliveryReceipt`.
+        Transport-internal retries (proven idempotent) may happen inside
+        the adapter, but no second application-level retry loop runs here
+        — that is the Outbox Sender's responsibility.
+        """
+        from miniunicorn.runtime.models import DeliveryReceipt
+
+        channel = self.channels.get(channel_name)
+        if channel is None:
+            return DeliveryReceipt(
+                status="PERMANENT_FAILURE",
+                safe_error_code="CHANNEL_NOT_FOUND",
+            )
+        try:
+            await channel.send(msg)
+            return DeliveryReceipt(
+                status="DELIVERED",
+                receipt_ref=getattr(msg, "metadata", {}).get("message_id"),
+            )
+        except asyncio.CancelledError:
+            raise
+        except ConnectionError:
+            return DeliveryReceipt(
+                status="RETRYABLE_FAILURE",
+                safe_error_code="DELIVERY_RETRYABLE",
+                retry_after_ms=1000,
+            )
+        except TimeoutError:
+            return DeliveryReceipt(
+                status="RETRYABLE_FAILURE",
+                safe_error_code="DELIVERY_TIMEOUT",
+                retry_after_ms=2000,
+            )
+        except Exception as exc:  # noqa: BLE001
+            error_str = str(exc).lower()
+            if any(
+                kw in error_str
+                for kw in ("rate limit", "429", "503", "temporarily", "retry")
+            ):
+                return DeliveryReceipt(
+                    status="RETRYABLE_FAILURE",
+                    safe_error_code="DELIVERY_RETRYABLE",
+                    retry_after_ms=2000,
+                )
+            return DeliveryReceipt(
+                status="PERMANENT_FAILURE",
+                safe_error_code="DELIVERY_PERMANENT",
+            )
+
+    def get_channel_recovery(self, channel_name: str) -> str:
+        """Return the delivery recovery capability for a channel (design §23.5)."""
+        channel = self.channels.get(channel_name)
+        if channel is None:
+            return "NONE"
+        return channel.delivery_recovery

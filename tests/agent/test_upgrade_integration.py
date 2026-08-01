@@ -33,7 +33,7 @@ from miniunicorn.agent.tools.context import RequestContext
 from miniunicorn.agent.tools.delegate import DelegateTool
 from miniunicorn.agent.tools.execute_plan import ExecutePlanTool
 from miniunicorn.agent.turn_budget import TurnBudget
-from miniunicorn.agent.vector_memory import NoOpVectorStore, VectorMemoryStore
+from miniunicorn.agent.vector_memory import NoOpVectorStore
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.config.schema import AgentDefaults
 from miniunicorn.providers.base import LLMProvider, LLMResponse
@@ -279,14 +279,14 @@ def test_vector_memory_noop_store_contract():
 
 def test_vector_memory_store_disabled_when_no_sqlite_vec(tmp_path, monkeypatch):
     """VectorMemoryStore degrades to disabled when sqlite-vec is unavailable."""
-    from miniunicorn.agent import vector_memory as vm
+    from miniunicorn.runtime.sqlite import vector_memory_store as vms
 
     def _fail_load(_conn):
         return False
 
-    monkeypatch.setattr(vm, "_try_load_sqlite_vec", _fail_load)
+    monkeypatch.setattr(vms, "_try_load_sqlite_vec", _fail_load)
 
-    store = VectorMemoryStore(tmp_path / "vec.db", embedding_dim=4)
+    store = vms.VectorMemoryStore(tmp_path / "vec.db", embedding_dim=4)
     assert store.enabled is False
     # Disabled store behaves like NoOp
     assert store.index("hi", [0.1, 0.2, 0.3, 0.4]) is None
@@ -297,10 +297,10 @@ def test_vector_memory_store_disabled_when_no_sqlite_vec(tmp_path, monkeypatch):
 
 def test_create_vector_store_falls_back_to_noop(tmp_path, monkeypatch):
     """create_vector_store returns NoOpVectorStore when sqlite-vec is missing."""
-    from miniunicorn.agent import vector_memory as vm
+    from miniunicorn.runtime.sqlite import vector_memory_store as vms
 
-    monkeypatch.setattr(vm, "_try_load_sqlite_vec", lambda _conn: False)
-    store = vm.create_vector_store(tmp_path / "vec.db", embedding_dim=4)
+    monkeypatch.setattr(vms, "_try_load_sqlite_vec", lambda _conn: False)
+    store = vms.create_vector_store(tmp_path / "vec.db", embedding_dim=4)
     assert isinstance(store, NoOpVectorStore)
     assert store.enabled is False
 
@@ -310,9 +310,11 @@ def test_agent_loop_uses_memory_db_for_vector_recall(tmp_path, monkeypatch):
 
     The local embedding provider (FastEmbed/BGE, dim=512) is wired in
     alongside the chat provider; the chat provider is never used for
-    embeddings.
+    embeddings. The vector store factory is injected by the caller
+    (production wiring uses
+    ``miniunicorn.runtime.sqlite.vector_memory_store.create_vector_store``);
+    Agent Core never imports the SQLite implementation directly.
     """
-    from miniunicorn.agent import vector_memory as vm
     from miniunicorn.agent.loop import AgentLoop
 
     provider = MagicMock(spec=LLMProvider)
@@ -323,8 +325,7 @@ def test_agent_loop_uses_memory_db_for_vector_recall(tmp_path, monkeypatch):
         reasoning_effort=None,
     )
     vector_store = MagicMock()
-    create_vector_store = MagicMock(return_value=vector_store)
-    monkeypatch.setattr(vm, "create_vector_store", create_vector_store)
+    vector_memory_factory = MagicMock(return_value=vector_store)
 
     loop = AgentLoop(
         bus=MessageBus(),
@@ -333,10 +334,11 @@ def test_agent_loop_uses_memory_db_for_vector_recall(tmp_path, monkeypatch):
         model="test-model",
         context_window_tokens=128_000,
         vector_recall=True,
+        vector_memory_factory=vector_memory_factory,
     )
 
-    create_vector_store.assert_called_once()
-    call_args = create_vector_store.call_args
+    vector_memory_factory.assert_called_once()
+    call_args = vector_memory_factory.call_args
     assert call_args.args[0] == tmp_path / "memory" / "memory.db"
     assert call_args.kwargs["embedding_dim"] == 512
     assert call_args.kwargs["model_id"] == "BAAI/bge-small-zh-v1.5"

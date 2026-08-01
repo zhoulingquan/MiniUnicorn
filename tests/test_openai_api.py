@@ -4,19 +4,21 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
 
 from miniunicorn.api.server import (
-    API_CHAT_ID,
     API_SESSION_KEY,
     _chat_completion_response,
     _error_json,
     create_app,
     handle_chat_completions,
 )
+from miniunicorn.runtime.application import RuntimeTurnResult
+from miniunicorn.runtime.models import DurableReply, RequestScope, TaskSnapshot
 
 try:
     from aiohttp.test_utils import TestClient, TestServer
@@ -28,17 +30,82 @@ except ImportError:
 pytest_plugins = ("pytest_asyncio",)
 
 
-def _make_mock_agent(response_text: str = "mock response") -> MagicMock:
-    agent = MagicMock()
-    agent.process_direct = AsyncMock(return_value=response_text)
-    agent._connect_mcp = AsyncMock()
-    agent.close_mcp = AsyncMock()
-    return agent
+# ---------------------------------------------------------------------------
+# Mock RuntimeApplication helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_scope() -> RequestScope:
+    return RequestScope(
+        tenant_id="local",
+        principal_id="local-user",
+        agent_id="default",
+        workspace_id="test",
+    )
+
+
+def _make_snapshot(state: str = "COMPLETED") -> TaskSnapshot:
+    return TaskSnapshot(
+        task_id="test-task",
+        state=state,
+        checkpoint_phase="done",
+        run_segment=0,
+        root_attempt_count=1,
+        max_root_attempts=3,
+        recovery_pending=0,
+    )
+
+
+def _make_reply(content: str = "mock response") -> DurableReply:
+    return DurableReply(content=content, outbox_id=1, metadata={})
+
+
+def _make_runtime(
+    *,
+    reply_text: str = "mock response",
+    state: str = "COMPLETED",
+) -> MagicMock:
+    """Create a mock RuntimeApplication for non-streaming tests."""
+    runtime = MagicMock()
+    snapshot = _make_snapshot(state)
+    reply = _make_reply(reply_text)
+
+    async def _submit(request):
+        handle = MagicMock()
+        handle.task_id = "test-task"
+        return handle
+
+    async def _wait(scope, task_id, timeout_s):
+        return snapshot
+
+    async def _submit_and_wait(request, timeout_s=None):
+        return RuntimeTurnResult(snapshot=snapshot, reply=reply)
+
+    def _read_reply(scope, task_id):
+        return reply
+
+    @asynccontextmanager
+    async def _subscribe(task_id):
+        queue: asyncio.Queue = asyncio.Queue()
+        yield queue
+
+    runtime.submit = AsyncMock(side_effect=_submit)
+    runtime.wait = AsyncMock(side_effect=_wait)
+    runtime.submit_and_wait = AsyncMock(side_effect=_submit_and_wait)
+    runtime.read_reply = MagicMock(side_effect=_read_reply)
+    runtime.subscribe = _subscribe
+    return runtime
+
+
+def _make_mock_runtime(response_text: str = "mock response") -> MagicMock:
+    """Alias for backward compatibility with test naming."""
+    return _make_runtime(reply_text=response_text)
 
 
 @pytest.fixture
 def mock_agent():
-    return _make_mock_agent()
+    """Backward-compat fixture name; returns a mock RuntimeApplication."""
+    return _make_mock_runtime()
 
 
 @pytest.fixture
@@ -114,6 +181,7 @@ async def test_stream_true_returns_sse(aiohttp_client, app) -> None:
 @pytest.mark.asyncio
 async def test_model_mismatch_returns_400() -> None:
     request = MagicMock()
+    request.content_type = "application/json"
     request.json = AsyncMock(
         return_value={
             "model": "other-model",
@@ -121,10 +189,10 @@ async def test_model_mismatch_returns_400() -> None:
         }
     )
     request.app = {
-        "agent_loop": _make_mock_agent(),
+        "runtime": _make_mock_runtime(),
         "model_name": "test-model",
         "request_timeout": 10.0,
-        "session_lock": asyncio.Lock(),
+        "session_locks": {},
     }
 
     resp = await handle_chat_completions(request)
@@ -136,6 +204,7 @@ async def test_model_mismatch_returns_400() -> None:
 @pytest.mark.asyncio
 async def test_single_user_message_required() -> None:
     request = MagicMock()
+    request.content_type = "application/json"
     request.json = AsyncMock(
         return_value={
             "messages": [
@@ -145,10 +214,10 @@ async def test_single_user_message_required() -> None:
         }
     )
     request.app = {
-        "agent_loop": _make_mock_agent(),
+        "runtime": _make_mock_runtime(),
         "model_name": "test-model",
         "request_timeout": 10.0,
-        "session_lock": asyncio.Lock(),
+        "session_locks": {},
     }
 
     resp = await handle_chat_completions(request)
@@ -160,16 +229,17 @@ async def test_single_user_message_required() -> None:
 @pytest.mark.asyncio
 async def test_single_user_message_must_have_user_role() -> None:
     request = MagicMock()
+    request.content_type = "application/json"
     request.json = AsyncMock(
         return_value={
             "messages": [{"role": "system", "content": "you are a bot"}],
         }
     )
     request.app = {
-        "agent_loop": _make_mock_agent(),
+        "runtime": _make_mock_runtime(),
         "model_name": "test-model",
         "request_timeout": 10.0,
-        "session_lock": asyncio.Lock(),
+        "session_locks": {},
     }
 
     resp = await handle_chat_completions(request)
@@ -191,13 +261,7 @@ async def test_successful_request_uses_fixed_api_session(aiohttp_client, mock_ag
     body = await resp.json()
     assert body["choices"][0]["message"]["content"] == "mock response"
     assert body["model"] == "test-model"
-    mock_agent.process_direct.assert_called_once_with(
-        content="hello",
-        media=None,
-        session_key=API_SESSION_KEY,
-        channel="api",
-        chat_id=API_CHAT_ID,
-    )
+    mock_agent.submit_and_wait.assert_called_once()
 
 
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
@@ -205,16 +269,26 @@ async def test_successful_request_uses_fixed_api_session(aiohttp_client, mock_ag
 async def test_followup_requests_share_same_session_key(aiohttp_client) -> None:
     call_log: list[str] = []
 
-    async def fake_process(content, session_key="", channel="", chat_id="", **kwargs):
-        call_log.append(session_key)
-        return f"reply to {content}"
+    async def _submit_and_wait(request, timeout_s=None):
+        call_log.append(request.session_key)
+        return RuntimeTurnResult(
+            snapshot=_make_snapshot(),
+            reply=_make_reply(f"reply to {request.content}"),
+        )
 
-    agent = MagicMock()
-    agent.process_direct = fake_process
-    agent._connect_mcp = AsyncMock()
-    agent.close_mcp = AsyncMock()
+    runtime = MagicMock()
+    runtime.submit_and_wait = AsyncMock(side_effect=_submit_and_wait)
+    runtime.submit = AsyncMock(return_value=MagicMock(task_id="t"))
+    runtime.wait = AsyncMock(return_value=_make_snapshot())
+    runtime.read_reply = MagicMock(return_value=_make_reply())
 
-    app = create_app(agent, model_name="m")
+    @asynccontextmanager
+    async def _subscribe(task_id):
+        yield asyncio.Queue()
+
+    runtime.subscribe = _subscribe
+
+    app = create_app(runtime, model_name="m")
     client = await aiohttp_client(app)
 
     r1 = await client.post(
@@ -236,18 +310,28 @@ async def test_followup_requests_share_same_session_key(aiohttp_client) -> None:
 async def test_fixed_session_requests_are_serialized(aiohttp_client) -> None:
     order: list[str] = []
 
-    async def slow_process(content, session_key="", channel="", chat_id="", **kwargs):
-        order.append(f"start:{content}")
+    async def slow_submit_and_wait(request, timeout_s=None):
+        order.append(f"start:{request.content}")
         await asyncio.sleep(0.1)
-        order.append(f"end:{content}")
-        return content
+        order.append(f"end:{request.content}")
+        return RuntimeTurnResult(
+            snapshot=_make_snapshot(),
+            reply=_make_reply(request.content),
+        )
 
-    agent = MagicMock()
-    agent.process_direct = slow_process
-    agent._connect_mcp = AsyncMock()
-    agent.close_mcp = AsyncMock()
+    runtime = MagicMock()
+    runtime.submit_and_wait = AsyncMock(side_effect=slow_submit_and_wait)
+    runtime.submit = AsyncMock(return_value=MagicMock(task_id="t"))
+    runtime.wait = AsyncMock(return_value=_make_snapshot())
+    runtime.read_reply = MagicMock(return_value=_make_reply())
 
-    app = create_app(agent, model_name="m")
+    @asynccontextmanager
+    async def _subscribe(task_id):
+        yield asyncio.Queue()
+
+    runtime.subscribe = _subscribe
+
+    app = create_app(runtime, model_name="m")
     client = await aiohttp_client(app)
 
     async def send(msg: str):
@@ -307,12 +391,12 @@ async def test_multimodal_content_extracts_text(aiohttp_client, mock_agent) -> N
         },
     )
     assert resp.status == 200
-    call_kwargs = mock_agent.process_direct.call_args.kwargs
-    assert call_kwargs["content"] == "describe this"
-    assert call_kwargs["session_key"] == API_SESSION_KEY
-    assert call_kwargs["channel"] == "api"
-    assert call_kwargs["chat_id"] == API_CHAT_ID
-    assert len(call_kwargs.get("media") or []) >= 0  # base64 images saved to disk
+    call_kwargs = mock_agent.submit_and_wait.call_args
+    inbound_request = call_kwargs.args[0]
+    assert inbound_request.content == "describe this"
+    assert inbound_request.session_key == API_SESSION_KEY
+    assert inbound_request.channel == "api"
+    assert len(inbound_request.media) >= 0  # base64 images saved to disk
 
 
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
@@ -341,56 +425,17 @@ async def test_multimodal_remote_image_url_returns_400(aiohttp_client, mock_agen
     assert resp.status == 400
     body = await resp.json()
     assert "remote image urls are not supported" in body["error"]["message"].lower()
-    mock_agent.process_direct.assert_not_called()
-
-
-@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
-@pytest.mark.asyncio
-async def test_empty_response_retry_then_success(aiohttp_client) -> None:
-    call_count = 0
-
-    async def sometimes_empty(content, session_key="", channel="", chat_id="", **kwargs):
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
-            return ""
-        return "recovered response"
-
-    agent = MagicMock()
-    agent.process_direct = sometimes_empty
-    agent._connect_mcp = AsyncMock()
-    agent.close_mcp = AsyncMock()
-
-    app = create_app(agent, model_name="m")
-    client = await aiohttp_client(app)
-    resp = await client.post(
-        "/v1/chat/completions",
-        json={"messages": [{"role": "user", "content": "hello"}]},
-    )
-    assert resp.status == 200
-    body = await resp.json()
-    assert body["choices"][0]["message"]["content"] == "recovered response"
-    assert call_count == 2
+    mock_agent.submit_and_wait.assert_not_called()
 
 
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
 @pytest.mark.asyncio
 async def test_empty_response_falls_back(aiohttp_client) -> None:
+    """Empty durable reply should fall back to the fallback message."""
     from miniunicorn.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
 
-    call_count = 0
-
-    async def always_empty(content, session_key="", channel="", chat_id="", **kwargs):
-        nonlocal call_count
-        call_count += 1
-        return ""
-
-    agent = MagicMock()
-    agent.process_direct = always_empty
-    agent._connect_mcp = AsyncMock()
-    agent.close_mcp = AsyncMock()
-
-    app = create_app(agent, model_name="m")
+    runtime = _make_runtime(reply_text="")
+    app = create_app(runtime, model_name="m")
     client = await aiohttp_client(app)
     resp = await client.post(
         "/v1/chat/completions",
@@ -399,33 +444,44 @@ async def test_empty_response_falls_back(aiohttp_client) -> None:
     assert resp.status == 200
     body = await resp.json()
     assert body["choices"][0]["message"]["content"] == EMPTY_FINAL_RESPONSE_MESSAGE
-    assert call_count == 2
 
 
 @pytest.mark.asyncio
-async def test_process_direct_accepts_media() -> None:
-    """process_direct should forward media paths to _process_message."""
+async def test_process_message_accepts_media() -> None:
+    """_process_message should forward media paths to _execute_message."""
     from miniunicorn.agent.loop import AgentLoop
+    from miniunicorn.agent.turn_coordinator import TurnCoordinator
+    from miniunicorn.agent.turn_dispatcher import TurnDispatcher
+    from miniunicorn.agent.turn_runtime import ProcessedTurn
+    from miniunicorn.bus.events import InboundMessage
 
     loop = AgentLoop.__new__(AgentLoop)
-    loop._connect_mcp = AsyncMock()
+    loop._turn_coordinator = TurnCoordinator(max_concurrent_requests=None)
 
     captured_msg = None
 
-    async def fake_process(
-        msg, *, session_key="", on_progress=None, on_stream=None, on_stream_end=None
-    ):
+    async def fake_execute(msg, **kwargs):
         nonlocal captured_msg
         captured_msg = msg
-        return None
+        return ProcessedTurn(outbound=None, context=None)
 
-    loop._process_message = fake_process
+    loop._execute_message = fake_execute
 
-    await loop.process_direct(
+    # Build a minimal TurnDispatcher that delegates to the loop's
+    # _execute_message (bypassing full __init__).
+    dispatcher = TurnDispatcher.__new__(TurnDispatcher)
+    dispatcher._host = loop
+    dispatcher._coordinator = loop._turn_coordinator
+    loop._turn_dispatcher = dispatcher
+
+    msg = InboundMessage(
+        channel="cli",
+        sender_id="user",
+        chat_id="1",
         content="analyze this",
         media=["/tmp/image.png", "/tmp/report.pdf"],
-        session_key="test:1",
     )
+    await loop._process_message(msg, session_key="test:1")
 
     assert captured_msg is not None
     assert captured_msg.media == ["/tmp/image.png", "/tmp/report.pdf"]

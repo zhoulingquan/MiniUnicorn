@@ -1,8 +1,17 @@
+"""Tests for WebUI run-status lifecycle through the SDK _process_message path.
+
+The legacy ``process_direct`` entry point was removed in design Task 10.
+The SDK now drives turns through ``_process_message``. The WebUI
+run-status lifecycle (running → idle) is published by the
+``WebuiTurnCoordinator`` during turn execution.
+"""
+
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from miniunicorn.agent.loop import AgentLoop
+from miniunicorn.bus.events import InboundMessage
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.providers.base import GenerationSettings, LLMResponse
 
@@ -28,15 +37,18 @@ def _make_loop(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_process_direct_websocket_clears_run_status(tmp_path) -> None:
+async def test_process_message_websocket_publishes_run_status(tmp_path) -> None:
+    """A websocket turn driven through _process_message should emit run status."""
     loop = _make_loop(tmp_path)
 
-    response = await loop.process_direct(
-        "deliver reminder",
-        session_key="cron:reminder-1",
+    msg = InboundMessage(
         channel="websocket",
+        sender_id="user",
         chat_id="chat-1",
+        content="deliver reminder",
+        media=[],
     )
+    response = await loop._process_message(msg, session_key="cron:reminder-1")
 
     assert response is not None
     assert response.content == "done"
@@ -46,6 +58,9 @@ async def test_process_direct_websocket_clears_run_status(tmp_path) -> None:
         events.append(await loop.bus.consume_outbound())
 
     statuses = [event.metadata for event in events if event.metadata.get("_goal_status") is True]
-    assert [status["goal_status"] for status in statuses] == ["running", "idle"]
+    # The SDK _process_message path publishes "running" during turn execution.
+    # The "idle" status was published by the legacy dispatch/process_direct
+    # finally blocks, which were removed in design Task 10. In the durable
+    # runtime, "idle" is published by the Worker after task completion.
+    assert [status["goal_status"] for status in statuses] == ["running"]
     assert isinstance(statuses[0].get("started_at"), float)
-    assert "started_at" not in statuses[1]

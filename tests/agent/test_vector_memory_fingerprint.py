@@ -16,6 +16,8 @@ from miniunicorn.agent.vector_memory import (
     _DEFAULT_MODEL_ID,
     _VEC_SCHEMA_VERSION,
     NoOpVectorStore,
+)
+from miniunicorn.runtime.sqlite.vector_memory_store import (
     VectorMemoryStore,
     create_vector_store,
 )
@@ -132,9 +134,9 @@ class TestFingerprint:
 
 class TestNoOpFallback:
     def test_noop_when_sqlite_vec_missing(self, tmp_path, monkeypatch):
-        from miniunicorn.agent import vector_memory as vm
+        from miniunicorn.runtime.sqlite import vector_memory_store as vms
 
-        monkeypatch.setattr(vm, "_try_load_sqlite_vec", lambda _conn: False)
+        monkeypatch.setattr(vms, "_try_load_sqlite_vec", lambda _conn: False)
         store = create_vector_store(tmp_path / "vec.db")
         assert isinstance(store, NoOpVectorStore)
         assert store.enabled is False

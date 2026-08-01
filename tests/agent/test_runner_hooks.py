@@ -9,6 +9,7 @@ import pytest
 
 from miniunicorn.config.schema import AgentDefaults
 from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from tests.agent.conftest import FakeToolExecutionPort
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
@@ -70,6 +71,7 @@ async def test_runner_calls_hooks_in_order():
         AgentRunSpec(
             initial_messages=[],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=3,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -129,6 +131,7 @@ async def test_runner_streaming_hook_receives_deltas_and_end_signal():
         AgentRunSpec(
             initial_messages=[],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=1,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -171,6 +174,7 @@ async def test_runner_passes_cached_tokens_to_hook_context():
         AgentRunSpec(
             initial_messages=[],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=1,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,

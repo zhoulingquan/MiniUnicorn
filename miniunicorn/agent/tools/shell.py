@@ -77,6 +77,7 @@ class ExecToolConfig(Base):
     )  # Hard timeout (s); 0 = no limit. Not capped by the per-call max.
     path_append: str = ""
     sandbox: str = ""
+    allow_unsandboxed_fallback: bool = False
     # 沙箱是否启用网络隔离(--unshare-net)。默认 False,因为多数命令需要联网;
     # 仅在确需网络隔离的工作流中显式开启。
     unshare_net: bool = False
@@ -179,6 +180,7 @@ class ExecTool(Tool):
             allow_patterns=cfg.allow_patterns,
             deny_patterns=cfg.deny_patterns,
             unshare_net=cfg.unshare_net,
+            allow_unsandboxed_fallback=cfg.allow_unsandboxed_fallback,
         )
 
     def __init__(
@@ -195,11 +197,13 @@ class ExecTool(Tool):
         allowed_env_keys: list[str] | None = None,
         session_manager: Any | None = None,
         unshare_net: bool = False,
+        allow_unsandboxed_fallback: bool = False,
     ):
         self.timeout = timeout
         self.working_dir = working_dir
         self.sandbox = sandbox
         self.unshare_net = unshare_net
+        self.allow_unsandboxed_fallback = allow_unsandboxed_fallback
         self.deny_patterns = (
             (deny_patterns or [])
             + [
@@ -452,8 +456,14 @@ class ExecTool(Tool):
 
         if self.sandbox:
             if _IS_WINDOWS:
+                if not self.allow_unsandboxed_fallback:
+                    return (
+                        f"Error: sandbox '{self.sandbox}' is not supported on Windows; "
+                        "refusing to run unsandboxed. Set "
+                        "tools.exec.allow_unsandboxed_fallback=true only if this risk is accepted."
+                    )
                 logger.warning(
-                    "Sandbox '{}' is not supported on Windows; running unsandboxed",
+                    "Sandbox '{}' is not supported on Windows; explicit unsandboxed fallback enabled",
                     self.sandbox,
                 )
             else:
@@ -507,11 +517,19 @@ class ExecTool(Tool):
           连带终止子 shell 启动的子孙进程。
         - Windows: ``CREATE_NEW_PROCESS_GROUP`` 让子进程成为新进程组根,
           终止时通过 ``taskkill /T`` 递归终止整棵树。
+
+        The spawned PID is registered with the task's containment scope
+        (design §20.7) so the entire child tree is terminated on Worker
+        termination, cancellation, or hard timeout. Registration goes
+        through the Agent-owned ``ContainmentPort`` bound to the current
+        ``TurnRuntime``; the runtime supplies the concrete scope.
         """
+        from miniunicorn.agent.turn_runtime import current_turn_runtime
+
         if _IS_WINDOWS:
             creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
             if "\n" in command:
-                return await asyncio.create_subprocess_exec(
+                proc = await asyncio.create_subprocess_exec(
                     _windows_powershell(),
                     "-NoProfile",
                     "-Command",
@@ -523,30 +541,42 @@ class ExecTool(Tool):
                     env=env,
                     creationflags=creationflags,
                 )
-            return await asyncio.create_subprocess_shell(
-                command,
+            else:
+                proc = await asyncio.create_subprocess_shell(
+                    command,
+                    stdin=stdin,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=cwd,
+                    env=env,
+                    creationflags=creationflags,
+                )
+        else:
+            shell_program = shell_program or shutil.which("bash") or "/bin/bash"
+            args = [shell_program]
+            shell_name = Path(shell_program).name.lower()
+            if login and shell_name in {"bash", "bash.exe", "zsh", "zsh.exe"}:
+                args.append("-l")
+            args.extend(["-c", command])
+            proc = await asyncio.create_subprocess_exec(
+                *args,
                 stdin=stdin,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
                 env=env,
-                creationflags=creationflags,
+                start_new_session=True,
             )
-        shell_program = shell_program or shutil.which("bash") or "/bin/bash"
-        args = [shell_program]
-        shell_name = Path(shell_program).name.lower()
-        if login and shell_name in {"bash", "bash.exe", "zsh", "zsh.exe"}:
-            args.append("-l")
-        args.extend(["-c", command])
-        return await asyncio.create_subprocess_exec(
-            *args,
-            stdin=stdin,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=cwd,
-            env=env,
-            start_new_session=True,
-        )
+        # Register the spawned PID with the task's containment scope via
+        # the Agent-owned ContainmentPort bound to the current TurnRuntime.
+        runtime = current_turn_runtime()
+        containment = runtime.containment_port if runtime is not None else None
+        if containment is not None:
+            containment.register(
+                proc.pid,
+                pgid=(proc.pid if not _IS_WINDOWS else None),
+            )
+        return proc
 
     @staticmethod
     def _resolve_shell(shell: str | None) -> tuple[str | None, str | None]:

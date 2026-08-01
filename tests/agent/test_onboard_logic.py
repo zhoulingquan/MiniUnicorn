@@ -838,7 +838,7 @@ class TestApiServerRegistration:
         config = Config()
         from miniunicorn.config.schema import ApiConfig
 
-        new_api = ApiConfig(host="0.0.0.0", port=9999)
+        new_api = ApiConfig(host="0.0.0.0", port=9999, allow_insecure_public_bind=True)
         _SETTINGS_SETTER["API Server"](config, new_api)
         assert config.api.host == "0.0.0.0"
         assert config.api.port == 9999
