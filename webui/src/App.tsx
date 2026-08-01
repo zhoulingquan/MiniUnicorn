@@ -985,7 +985,6 @@ function Shell({
             <aside
               className={cn(
                 "relative z-20 hidden shrink-0 overflow-hidden lg:block",
-                "transition-[width] duration-300 ease-out",
               )}
               style={{
                 width: hostSidebarOpen ? SIDEBAR_WIDTH : SIDEBAR_RAIL_WIDTH,

@@ -146,7 +146,7 @@ export function Sidebar(props: SidebarProps) {
       </div>
       <div
         className={cn(
-          "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden transition-opacity duration-200",
+          "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
           collapsed && "pointer-events-none opacity-0",
         )}
       >
@@ -228,7 +228,7 @@ function SidebarActionButton({
       onClick={onClick}
       className={cn(
         "group h-8 min-w-0 gap-2 overflow-hidden rounded-full font-medium text-sidebar-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground",
-        "transition-[width,padding,border-radius,color,background-color] duration-300 ease-out",
+        "transition-colors",
         collapsed
           ? "w-9 justify-center gap-0 rounded-xl px-0"
           : "w-full justify-start gap-2 px-3 text-[12.5px]",
@@ -238,7 +238,7 @@ function SidebarActionButton({
     >
       <span
         className={cn(
-          "flex shrink-0 items-center justify-center transition-transform duration-300 ease-out",
+          "flex shrink-0 items-center justify-center",
           "translate-x-0",
         )}
         aria-hidden
@@ -247,9 +247,9 @@ function SidebarActionButton({
       </span>
       <span
         className={cn(
-          "min-w-0 overflow-hidden truncate whitespace-nowrap transition-[max-width,opacity,transform] duration-200 ease-out",
+          "min-w-0 overflow-hidden truncate whitespace-nowrap",
           collapsed
-            ? "max-w-0 -translate-x-1 opacity-0"
+            ? "max-w-0 -translate-x-0 opacity-0"
             : "max-w-[12rem] translate-x-0 opacity-100",
         )}
       >

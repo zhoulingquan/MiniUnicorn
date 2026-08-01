@@ -528,6 +528,10 @@ class ControlPlaneResources:
     channels: Any = None  # ChannelManager | None (Task 9)
     cron_service: Any = None  # CronService | None (Task 9)
     _started: bool = False
+    # Channels run for the lifetime of the process; start_all() blocks until
+    # the channels stop. Running it as a background task lets start() return
+    # so the Control Plane can signal readiness to the Supervisor.
+    _channels_task: Any = None
 
     async def start(self) -> None:
         """Start the Outbox, Channels, Cron, and begin accepting ingress."""
@@ -535,7 +539,7 @@ class ControlPlaneResources:
         if self.cron_service is not None:
             await self.cron_service.start()
         if self.channels is not None:
-            await self.channels.start_all()
+            self._channels_task = asyncio.create_task(self.channels.start_all())
         self.application.start_accepting()
         self._started = True
         logger.info("control plane resources started")
@@ -552,6 +556,13 @@ class ControlPlaneResources:
                 await self.channels.stop_all()
             except BaseException as exc:  # noqa: BLE001
                 first_exc = exc if first_exc is None else first_exc
+        # stop_all() sets each channel's stop event, which unblocks the
+        # start_all() gather; await the background task for a clean exit.
+        if self._channels_task is not None:
+            try:
+                await self._channels_task
+            except BaseException:  # noqa: BLE001
+                pass
         if self.cron_service is not None:
             try:
                 self.cron_service.stop()
