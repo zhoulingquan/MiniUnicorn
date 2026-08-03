@@ -43,10 +43,6 @@ dependencies = [
     "jinja2>=3.1.0,<4.0.0",
     "dulwich>=0.22.0,<1.0.0",
     "pyyaml>=6.0,<7.0.0",
-    "pypdf>=5.0.0,<6.0.0",
-    "python-docx>=1.1.0,<2.0.0",
-    "openpyxl>=3.1.0,<4.0.0",
-    "python-pptx>=1.0.0,<2.0.0",
     "filelock>=3.25.2,<4.0.0",
 ]
 
@@ -61,8 +57,15 @@ vector = [
 langsmith = [
     "langsmith>=0.1.0",
 ]
+documents = [
+    "pypdf>=5.0.0,<6.0.0",
+    "python-docx>=1.1.0,<2.0.0",
+    "openpyxl>=3.1.0,<4.0.0",
+    "python-pptx>=1.0.0,<2.0.0",
+]
 pdf = [
     "pymupdf>=1.25.0",
+    "pypdf>=5.0.0,<6.0.0",
 ]
 olostep = [
     "olostep>=0.1.0",
@@ -74,6 +77,10 @@ dev = [
     "pytest-cov>=6.0.0,<7.0.0",
     "ruff>=0.1.0",
     "pymupdf>=1.25.0",
+    "pypdf>=5.0.0,<6.0.0",
+    "python-docx>=1.1.0,<2.0.0",
+    "openpyxl>=3.1.0,<4.0.0",
+    "python-pptx>=1.0.0,<2.0.0",
     "tzdata>=2025.2; sys_platform == 'win32'",
 ]
 

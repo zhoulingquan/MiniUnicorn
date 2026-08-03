@@ -7,6 +7,23 @@ from loguru import logger
 
 from miniunicorn.utils.helpers import detect_image_mime
 
+
+class MissingDocumentBackendError(RuntimeError):
+    """Raised when a document parser package is not installed.
+
+    The message tells the user exactly which extra to install so the error
+    is actionable instead of a silent string return.
+    """
+
+    def __init__(self, extension: str, distribution: str) -> None:
+        self.extension = extension
+        self.distribution = distribution
+        super().__init__(
+            f"Reading {extension} files requires {distribution}. "
+            "Install it with: pip install 'miniunicorn-ai[documents]'"
+        )
+
+
 # Supported file extensions for text extraction
 SUPPORTED_EXTENSIONS: set[str] = {
     # Document formats
@@ -82,8 +99,8 @@ def _extract_pdf(path: Path) -> str:
     """Extract text from PDF using pypdf."""
     try:
         from pypdf import PdfReader
-    except ImportError:
-        return "[error: pypdf not installed]"
+    except ImportError as e:
+        raise MissingDocumentBackendError(".pdf", "pypdf") from e
     try:
         reader = PdfReader(path)
         pages: list[str] = []
@@ -100,8 +117,8 @@ def _extract_docx(path: Path) -> str:
     """Extract text from DOCX using python-docx."""
     try:
         from docx import Document as DocxDocument
-    except ImportError:
-        return "[error: python-docx not installed]"
+    except ImportError as e:
+        raise MissingDocumentBackendError(".docx", "python-docx") from e
     try:
         doc = DocxDocument(path)
         paragraphs: list[str] = [p.text for p in doc.paragraphs if p.text.strip()]
@@ -115,8 +132,8 @@ def _extract_xlsx(path: Path) -> str:
     """Extract text from XLSX using openpyxl."""
     try:
         from openpyxl import load_workbook
-    except ImportError:
-        return "[error: openpyxl not installed]"
+    except ImportError as e:
+        raise MissingDocumentBackendError(".xlsx", "openpyxl") from e
     try:
         wb = load_workbook(path, read_only=True, data_only=True)
         try:
@@ -142,8 +159,8 @@ def _extract_pptx(path: Path) -> str:
     """Extract text from PPTX using python-pptx."""
     try:
         from pptx import Presentation as PptxPresentation
-    except ImportError:
-        return "[error: python-pptx not installed]"
+    except ImportError as e:
+        raise MissingDocumentBackendError(".pptx", "python-pptx") from e
     try:
         prs = PptxPresentation(path)
         slides: list[str] = []
@@ -312,7 +329,11 @@ def extract_documents(
         if is_image_file(path_str):
             image_paths.append(path_str)
         else:
-            extracted = extract_text(p)
+            try:
+                extracted = extract_text(p)
+            except MissingDocumentBackendError as e:
+                doc_texts.append(f"[File: {p.name}]\n[{e}]")
+                continue
             if extracted and not extracted.startswith("[error:"):
                 doc_texts.append(f"[File: {p.name}]\n{extracted}")
 

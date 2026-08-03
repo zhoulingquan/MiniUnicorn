@@ -27,6 +27,18 @@ uv tool install miniunicorn-ai
 pip install miniunicorn-ai
 ```
 
+**Document parsing** (PDF/DOCX/XLSX/PPTX extraction)
+
+```bash
+pip install "miniunicorn-ai[documents]"
+```
+
+`[documents]` supplies pypdf, python-docx, openpyxl, and python-pptx. The `[pdf]` extra remains as a PDF-specific compatibility profile (includes both PyMuPDF and pypdf). For development:
+
+```bash
+pip install -e ".[api,vector,pdf,documents,dev]"
+```
+
 ### Update to latest version
 
 **PyPI / pip**

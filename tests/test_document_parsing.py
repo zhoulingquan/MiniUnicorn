@@ -1,12 +1,20 @@
 """Tests for document text extraction utilities."""
 
+import sys
+import tomllib
 from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 from miniunicorn.utils.document import (
     SUPPORTED_EXTENSIONS,
+    MissingDocumentBackendError,
     _is_text_extension,
     extract_text,
 )
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class TestSupportedExtensions:
@@ -310,3 +318,82 @@ class TestIsTextExtension:
         assert _is_text_extension(".txt") is True
         assert _is_text_extension(".TXT") is False
         assert _is_text_extension(".pdf") is False
+
+
+# ---------------------------------------------------------------------------
+# Task 19: dependency layout — document backends must be optional extras
+# ---------------------------------------------------------------------------
+
+
+class TestDependencyLayout:
+    """Assert pyproject.toml keeps document backends out of base deps."""
+
+    @staticmethod
+    def _load_pyproject() -> dict:
+        with open(_REPO_ROOT / "pyproject.toml", "rb") as f:
+            return tomllib.load(f)
+
+    def test_base_dependencies_exclude_document_backends(self) -> None:
+        project = self._load_pyproject()["project"]
+        base = " ".join(project["dependencies"])
+        for name in ("pypdf", "python-docx", "openpyxl", "python-pptx"):
+            assert name not in base, f"{name} must not be in base dependencies"
+
+    def test_documents_extra_contains_all_four_backends(self) -> None:
+        project = self._load_pyproject()["project"]
+        documents = " ".join(project["optional-dependencies"]["documents"])
+        for name in ("pypdf", "python-docx", "openpyxl", "python-pptx"):
+            assert name in documents, f"{name} must be in documents extra"
+
+    def test_pdf_extra_contains_pypdf(self) -> None:
+        project = self._load_pyproject()["project"]
+        pdf = " ".join(project["optional-dependencies"]["pdf"])
+        assert "pypdf" in pdf
+
+    def test_dev_extra_contains_all_four_backends_and_pymupdf(self) -> None:
+        project = self._load_pyproject()["project"]
+        dev = " ".join(project["optional-dependencies"]["dev"])
+        for name in ("pypdf", "python-docx", "openpyxl", "python-pptx", "pymupdf"):
+            assert name in dev, f"{name} must be in dev extra"
+
+
+# ---------------------------------------------------------------------------
+# Task 19: actionable missing-backend error
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("ext", "module_name", "distribution"),
+    [
+        (".pdf", "pypdf", "pypdf"),
+        (".docx", "docx", "python-docx"),
+        (".xlsx", "openpyxl", "openpyxl"),
+        (".pptx", "pptx", "python-pptx"),
+    ],
+)
+def test_missing_backend_raises_actionable_error(
+    tmp_path: Path, ext: str, module_name: str, distribution: str
+) -> None:
+    """When the parser package is absent, extract_text raises MissingDocumentBackendError."""
+    doc_file = tmp_path / f"test{ext}"
+    doc_file.write_bytes(b"dummy")
+
+    # Simulate the package not being installed by blocking the import.
+    original_import = (
+        __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
+    )
+
+    def _block_import(name, *args, **kwargs):
+        if name == module_name:
+            raise ImportError(f"No module named '{name}'")
+        return original_import(name, *args, **kwargs)
+
+    # Also remove any cached module so the lazy import re-triggers.
+    with patch.dict(sys.modules, {module_name: None}, clear=False):
+        with patch("builtins.__import__", side_effect=_block_import):
+            with pytest.raises(MissingDocumentBackendError) as exc:
+                extract_text(doc_file)
+
+    assert exc.value.extension == ext
+    assert exc.value.distribution == distribution
+    assert "miniunicorn-ai[documents]" in str(exc.value)

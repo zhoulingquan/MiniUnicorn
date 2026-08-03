@@ -198,8 +198,11 @@ cd miniunicorn
 pip install -e .
 
 # 可选附加依赖
-pip install -e ".[api,vector,pdf,dev]"   # HTTP API / 向量记忆 / PDF 解析 / 测试
+pip install "miniunicorn-ai[documents]"            # PDF/DOCX/XLSX/PPTX 文档解析
+pip install -e ".[api,vector,pdf,documents,dev]"   # 全量开发安装
 ```
+
+`[documents]` 提供 PDF/DOCX/XLSX/PPTX 文档解析，`[pdf]` 是 PDF 专用兼容配置（同时包含 PyMuPDF 和 pypdf）。
 
 运行时依赖约 30 个 Python 包，无原生编译依赖（除 lxml 外）。
 

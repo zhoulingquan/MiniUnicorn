@@ -198,8 +198,11 @@ cd miniunicorn
 pip install -e .
 
 # Optional extras
-pip install -e ".[api,vector,pdf,dev]"   # HTTP API / vector memory / PDF parsing / tests
+pip install "miniunicorn-ai[documents]"            # PDF/DOCX/XLSX/PPTX document parsing
+pip install -e ".[api,vector,pdf,documents,dev]"   # Full development install
 ```
+
+`[documents]` supplies PDF/DOCX/XLSX/PPTX extraction and `[pdf]` remains the PDF-specific compatibility profile (includes both PyMuPDF and pypdf).
 
 About 30 Python packages at runtime, no native build dependencies (except lxml).
 
