@@ -95,7 +95,7 @@ def test_snip_history_drops_orphaned_tool_results_from_trimmed_slice(monkeypatch
     )
 
     monkeypatch.setattr(
-        "miniunicorn.agent.runner.estimate_prompt_tokens_chain",
+        "miniunicorn.agent.runner_tools.estimate_prompt_tokens_chain",
         lambda *_args, **_kwargs: (500, None),
     )
     token_sizes = {
@@ -106,7 +106,7 @@ def test_snip_history_drops_orphaned_tool_results_from_trimmed_slice(monkeypatch
         "system": 0,
     }
     monkeypatch.setattr(
-        "miniunicorn.agent.runner.estimate_message_tokens",
+        "miniunicorn.agent.runner_tools.estimate_message_tokens",
         lambda msg: token_sizes.get(str(msg.get("content")), 40),
     )
 
@@ -153,7 +153,7 @@ def test_snip_history_reserves_budget_for_tool_definitions(monkeypatch):
         assert estimate_tools == tools.get_definitions.return_value
         return 350, None
 
-    monkeypatch.setattr("miniunicorn.agent.runner.estimate_prompt_tokens_chain", _estimate)
+    monkeypatch.setattr("miniunicorn.agent.runner_tools.estimate_prompt_tokens_chain", _estimate)
     token_sizes = {
         "system": 50,
         "old user": 200,
@@ -163,7 +163,7 @@ def test_snip_history_reserves_budget_for_tool_definitions(monkeypatch):
         "recent two": 200,
     }
     monkeypatch.setattr(
-        "miniunicorn.agent.runner.estimate_message_tokens",
+        "miniunicorn.agent.runner_tools.estimate_message_tokens",
         lambda msg: token_sizes.get(str(msg.get("content")), 40),
     )
 
@@ -692,7 +692,8 @@ def test_snip_history_preserves_user_message_after_truncation(monkeypatch):
 
     # Make estimate_prompt_tokens_chain report above budget so _snip_history activates.
     monkeypatch.setattr(
-        "miniunicorn.agent.runner.estimate_prompt_tokens_chain", lambda *_a, **_kw: (500, None)
+        "miniunicorn.agent.runner_tools.estimate_prompt_tokens_chain",
+        lambda *_a, **_kw: (500, None),
     )
     # Make kept window small: only the last 2 messages fit the budget.
     token_sizes = {
@@ -703,7 +704,7 @@ def test_snip_history_preserves_user_message_after_truncation(monkeypatch):
         "tool output 2": 80,
     }
     monkeypatch.setattr(
-        "miniunicorn.agent.runner.estimate_message_tokens",
+        "miniunicorn.agent.runner_tools.estimate_message_tokens",
         lambda msg: token_sizes.get(str(msg.get("content")), 100),
     )
 
@@ -747,10 +748,11 @@ def test_snip_history_no_user_at_all_falls_back_gracefully(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "miniunicorn.agent.runner.estimate_prompt_tokens_chain", lambda *_a, **_kw: (500, None)
+        "miniunicorn.agent.runner_tools.estimate_prompt_tokens_chain",
+        lambda *_a, **_kw: (500, None),
     )
     monkeypatch.setattr(
-        "miniunicorn.agent.runner.estimate_message_tokens",
+        "miniunicorn.agent.runner_tools.estimate_message_tokens",
         lambda msg: 100,
     )
 

@@ -98,3 +98,19 @@ class AgentRunResult:
     # Usage from the last LLM call in this run (not cumulative). Represents
     # the actual context window footprint at the end of the turn.
     last_call_usage: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class ToolBatchResult:
+    """Typed result of a batch of tool executions (Task 11).
+
+    Wraps the ``(results, events, fatal_error)`` tuple previously returned
+    by ``AgentRunner._execute_tools``. ``results`` is the list of raw tool
+    contents (one per tool call, in order). ``events`` is the list of
+    ``{name, status, detail}`` event dicts. ``fatal_error`` is the first
+    exception encountered when ``fail_on_tool_error`` is set, or ``None``.
+    """
+
+    results: list[Any]
+    events: list[dict[str, str]]
+    fatal_error: Exception | None = None
