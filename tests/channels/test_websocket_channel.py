@@ -1493,6 +1493,18 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
     # web_search was removed; only web.fetch.use_jina_reader remains configurable
     save_config(config, config_path)
     monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
+    # Avoid real HuggingFace/ModelScope network calls during the settings API
+    # round-trip; the test verifies response shape, not model discovery.
+    monkeypatch.setattr(
+        "miniunicorn.cli.models.learn_model_context_limit",
+        lambda model, provider="auto": {
+            "status": "ok",
+            "limit": 4096,
+            "source": "learning_table",
+            "hf_model_id": "test/test",
+            "error": None,
+        },
+    )
 
     channel = _ch(bus, port=port)
     channel._api_tokens["tok"] = time.monotonic() + 300
