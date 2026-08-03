@@ -82,9 +82,7 @@ async def test_one_direct_tool_call() -> None:
         if call_count["n"] == 1:
             return LLMResponse(
                 content=None,
-                tool_calls=[
-                    ToolCallRequest(id="call_1", name="list_dir", arguments={"path": "."})
-                ],
+                tool_calls=[ToolCallRequest(id="call_1", name="list_dir", arguments={"path": "."})],
                 usage={"prompt_tokens": 5, "completion_tokens": 3},
             )
         return LLMResponse(content="done", tool_calls=[], usage={})
@@ -103,9 +101,7 @@ async def test_one_direct_tool_call() -> None:
     )
     assert result.final_content == "done"
     assert result.tools_used == ["list_dir"]
-    assert result.tool_events == [
-        {"name": "list_dir", "status": "ok", "detail": "entries"}
-    ]
+    assert result.tool_events == [{"name": "list_dir", "status": "ok", "detail": "entries"}]
 
 
 @pytest.mark.asyncio
@@ -181,9 +177,7 @@ async def test_budget_stop() -> None:
     )
     runner = AgentRunner(provider)
     budget = TurnBudget(max_input_tokens=1, max_output_tokens=None, max_cost_usd=None)
-    result = await runner.run(
-        _spec([{"role": "user", "content": "hi"}], turn_budget=budget)
-    )
+    result = await runner.run(_spec([{"role": "user", "content": "hi"}], turn_budget=budget))
     assert result.budget_exceeded is True
     assert result.stop_reason == "budget_exceeded"
 
@@ -199,9 +193,7 @@ async def test_injected_message() -> None:
         if call_count["n"] == 1:
             return LLMResponse(
                 content=None,
-                tool_calls=[
-                    ToolCallRequest(id="call_1", name="wait", arguments={})
-                ],
+                tool_calls=[ToolCallRequest(id="call_1", name="wait", arguments={})],
                 usage={"prompt_tokens": 5, "completion_tokens": 3},
             )
         return LLMResponse(content="injected-done", tool_calls=[], usage={})
@@ -246,9 +238,7 @@ async def test_finalization_retry() -> None:
             # runner should retry once to get a clean final answer.
             return LLMResponse(
                 content="partial",
-                tool_calls=[
-                    ToolCallRequest(id="call_1", name="noop", arguments={})
-                ],
+                tool_calls=[ToolCallRequest(id="call_1", name="noop", arguments={})],
                 usage={"prompt_tokens": 5, "completion_tokens": 3},
             )
         return LLMResponse(content="final", tool_calls=[], usage={})

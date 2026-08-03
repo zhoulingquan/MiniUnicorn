@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -27,7 +26,6 @@ from miniunicorn.providers.local_embedding import (
     DEFAULT_LOCAL_MODEL,
 )
 from miniunicorn.runtime.sqlite.vector_memory_store import (
-    VectorMemoryStore,
     create_vector_store,
 )
 

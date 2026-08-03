@@ -87,7 +87,6 @@ async def _run(workspace: Path) -> dict:
         sys.exit(1)
 
     _validate_vectors(all_vecs, "embed")
-    doc_vecs = all_vecs[: len(DOCUMENTS)]
     query_vec = all_vecs[len(DOCUMENTS)]
 
     # -- 2. Attach real vector store + MemoryStore -------------------------

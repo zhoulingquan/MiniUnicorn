@@ -28,7 +28,7 @@ from miniunicorn.agent.hook import AgentHook, AgentHookContext
 from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 from miniunicorn.agent.runner_model import ModelRequester
 from miniunicorn.config.schema import AgentDefaults
-from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from miniunicorn.providers.base import LLMProvider, LLMResponse
 from tests.agent.conftest import FakeToolExecutionPort
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
@@ -342,9 +342,7 @@ async def test_cancellation_propagates() -> None:
     hook = AgentHook()
     context = AgentHookContext(iteration=0, messages=spec.initial_messages)
 
-    task = asyncio.create_task(
-        requester.request(spec, spec.initial_messages, hook, context)
-    )
+    task = asyncio.create_task(requester.request(spec, spec.initial_messages, hook, context))
     await asyncio.sleep(0.05)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
