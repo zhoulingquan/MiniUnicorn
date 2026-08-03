@@ -1258,3 +1258,205 @@ def test_recovery_identity_mismatch_exposes_diagnostics() -> None:
     assert exc.existing["request_hash"] == "h1"
     assert exc.requested["request_hash"] == "h2"
     assert "task-1/model-call-1/1" in str(exc)
+
+
+# ---------------------------------------------------------------------------
+# Provider-attempt begin idempotency (Task 5, design §19.4)
+# ---------------------------------------------------------------------------
+
+
+class TestProviderAttemptBeginIdempotency:
+    """The ``(task_id, logical_call_id, attempt_no)`` triple is the idempotency
+    key for ``begin_model_attempt`` (design §19.4).
+
+    A replay with the same identity must return the existing
+    ``model_attempt_id`` without appending another ``MODEL_STARTED`` event.
+    A replay with a different identity must raise ``RecoveryIdentityMismatch``.
+    """
+
+    def test_begin_model_attempt_reuses_same_durable_identity(
+        self, store: Any, sample_scope: Any, make_inbound_envelope: Any
+    ) -> None:
+        """Same-identity replay returns the same id and emits one event."""
+        claim = _claim_running_task(store, sample_scope, make_inbound_envelope)
+        set_active_claim(claim.task_id, claim)
+        try:
+            from miniunicorn.runtime.models import ModelAttemptWrite
+
+            now_ms = int(time.time() * 1000)
+            value = ModelAttemptWrite(
+                logical_call_id="model-call-1",
+                attempt_no=1,
+                provider_name="custom",
+                model_name="stub-model",
+                request_hash="sha256:abc",
+                started_at_ms=now_ms,
+            )
+            first = store.begin_model_attempt(claim, value)
+            second = store.begin_model_attempt(claim, value)
+            assert second == first
+            events = [
+                e
+                for e in store.list_events(claim.task_id)
+                if e.event_type == "MODEL_STARTED"
+            ]
+            assert len(events) == 1
+        finally:
+            clear_active_claim(claim.task_id)
+
+    def test_begin_model_attempt_rejects_different_identity(
+        self, store: Any, sample_scope: Any, make_inbound_envelope: Any
+    ) -> None:
+        """A replay with a different request_hash raises RecoveryIdentityMismatch."""
+        claim = _claim_running_task(store, sample_scope, make_inbound_envelope)
+        set_active_claim(claim.task_id, claim)
+        try:
+            from miniunicorn.runtime.contracts import RecoveryIdentityMismatch
+            from miniunicorn.runtime.models import ModelAttemptWrite
+
+            now_ms = int(time.time() * 1000)
+            value = ModelAttemptWrite(
+                logical_call_id="model-call-2",
+                attempt_no=1,
+                provider_name="custom",
+                model_name="stub-model",
+                request_hash="sha256:abc",
+                started_at_ms=now_ms,
+            )
+            store.begin_model_attempt(claim, value)
+
+            # Replay with a different request_hash for the same triple.
+            replay = ModelAttemptWrite(
+                logical_call_id=value.logical_call_id,
+                attempt_no=value.attempt_no,
+                provider_name=value.provider_name,
+                model_name=value.model_name,
+                request_hash="sha256:different",
+                started_at_ms=now_ms + 1,
+            )
+            with pytest.raises(RecoveryIdentityMismatch):
+                store.begin_model_attempt(claim, replay)
+
+            # Exactly one MODEL_STARTED event for this logical call.
+            events = [
+                e
+                for e in store.list_events(claim.task_id)
+                if e.event_type == "MODEL_STARTED"
+            ]
+            assert len(events) == 1
+        finally:
+            clear_active_claim(claim.task_id)
+
+    def test_begin_model_attempt_rejects_stale_lease(
+        self, store: Any, sample_scope: Any, make_inbound_envelope: Any
+    ) -> None:
+        """A replay with an expired/replaced lease raises StaleLeaseError."""
+        claim = _claim_running_task(store, sample_scope, make_inbound_envelope)
+        set_active_claim(claim.task_id, claim)
+        try:
+            from miniunicorn.runtime.contracts import StaleLeaseError
+            from miniunicorn.runtime.models import ModelAttemptWrite, TaskClaim
+
+            now_ms = int(time.time() * 1000)
+            value = ModelAttemptWrite(
+                logical_call_id="model-call-3",
+                attempt_no=1,
+                provider_name="custom",
+                model_name="stub-model",
+                request_hash="sha256:abc",
+                started_at_ms=now_ms,
+            )
+            store.begin_model_attempt(claim, value)
+
+            # Forge a stale claim with a wrong epoch.
+            stale_claim = TaskClaim(
+                task_id=claim.task_id,
+                lease_token=claim.lease_token,
+                lease_epoch=claim.lease_epoch + 999,
+                leased_by="stale-worker",
+                lease_until_ms=claim.lease_until_ms,
+            )
+            with pytest.raises(StaleLeaseError):
+                store.begin_model_attempt(stale_claim, value)
+        finally:
+            clear_active_claim(claim.task_id)
+
+    def test_begin_model_attempt_reuses_after_terminal_state(
+        self, store: Any, sample_scope: Any, make_inbound_envelope: Any
+    ) -> None:
+        """Replaying an identical begin after COMPLETED or FAILED returns the
+        existing id and does not append another MODEL_STARTED event."""
+        claim = _claim_running_task(store, sample_scope, make_inbound_envelope)
+        set_active_claim(claim.task_id, claim)
+        try:
+            from miniunicorn.agent.ports import SafeError
+            from miniunicorn.runtime.models import (
+                BlobWrite,
+                ModelAttemptWrite,
+                ModelResultWrite,
+            )
+
+            now_ms = int(time.time() * 1000)
+
+            # --- Completed attempt case ---
+            completed_value = ModelAttemptWrite(
+                logical_call_id="model-call-completed",
+                attempt_no=1,
+                provider_name="custom",
+                model_name="stub-model",
+                request_hash="sha256:completed",
+                started_at_ms=now_ms,
+            )
+            completed_id = store.begin_model_attempt(claim, completed_value)
+            completed_blob = store.write_blob(
+                BlobWrite(
+                    scope_key="test/model",
+                    blob_kind="MODEL_RESPONSE",
+                    content_hash="rh-completed",
+                    encoding="RAW_JSON",
+                    inline_content=b'{"text":"ok"}',
+                )
+            )
+            store.finish_model_attempt(
+                claim,
+                completed_id,
+                ModelResultWrite(
+                    response_blob_id=completed_blob.blob_id,
+                    response_hash="rh-completed",
+                    input_tokens=1,
+                    output_tokens=2,
+                    finish_reason="stop",
+                    finished_at_ms=now_ms + 1,
+                ),
+            )
+            replay_completed = store.begin_model_attempt(claim, completed_value)
+            assert replay_completed == completed_id
+
+            # --- Failed attempt case ---
+            failed_value = ModelAttemptWrite(
+                logical_call_id="model-call-failed",
+                attempt_no=1,
+                provider_name="custom",
+                model_name="stub-model",
+                request_hash="sha256:failed",
+                started_at_ms=now_ms + 2,
+            )
+            failed_id = store.begin_model_attempt(claim, failed_value)
+            store.fail_model_attempt(
+                claim,
+                failed_id,
+                SafeError(error_code="TIMEOUT", error_summary="timed out"),
+                finished_at_ms=now_ms + 3,
+            )
+            replay_failed = store.begin_model_attempt(claim, failed_value)
+            assert replay_failed == failed_id
+
+            # Exactly one MODEL_STARTED per logical call (2 total).
+            started_events = [
+                e
+                for e in store.list_events(claim.task_id)
+                if e.event_type == "MODEL_STARTED"
+            ]
+            assert len(started_events) == 2
+        finally:
+            clear_active_claim(claim.task_id)

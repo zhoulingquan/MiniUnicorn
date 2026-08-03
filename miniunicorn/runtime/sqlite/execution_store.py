@@ -21,7 +21,7 @@ from miniunicorn.agent.ports import (
     SafeError,
     ToolExecutionResult,
 )
-from miniunicorn.runtime.contracts import TaskClaim
+from miniunicorn.runtime.contracts import RecoveryIdentityMismatch, TaskClaim
 from miniunicorn.runtime.models import (
     ControlOutcomeWrite,
     ModelAttemptWrite,
@@ -223,11 +223,51 @@ class ExecutionStoreMixin:
     def begin_model_attempt(
         self, claim: TaskClaim, value: ModelAttemptWrite
     ) -> str:
-        """Durable-record the start of a Provider attempt (design §17.5)."""
+        """Durable-record the start of a Provider attempt (design §17.5, §19.4).
+
+        The ``(task_id, logical_call_id, attempt_no)`` triple is the
+        idempotency key. A replay with the same identity returns the existing
+        ``model_attempt_id`` without appending another ``MODEL_STARTED``
+        event. A replay with a different ``(provider_name, model_name,
+        request_hash)`` identity raises :class:`RecoveryIdentityMismatch`.
+        """
         model_attempt_id = value.model_attempt_id or _new_uuid()
         self._conn.execute("BEGIN IMMEDIATE")
         try:
             self._validate_lease(claim, now_ms=value.started_at_ms)
+            existing = self._conn.execute(
+                """
+                SELECT model_attempt_id, provider_name, model_name,
+                       request_hash, state
+                FROM model_attempts
+                WHERE task_id=? AND logical_call_id=? AND attempt_no=?
+                """,
+                (claim.task_id, value.logical_call_id, value.attempt_no),
+            ).fetchone()
+            if existing is not None:
+                existing_identity = {
+                    "provider_name": existing["provider_name"],
+                    "model_name": existing["model_name"],
+                    "request_hash": existing["request_hash"],
+                }
+                requested_identity = {
+                    "provider_name": value.provider_name,
+                    "model_name": value.model_name,
+                    "request_hash": value.request_hash,
+                }
+                if existing_identity != requested_identity:
+                    raise RecoveryIdentityMismatch(
+                        task_id=claim.task_id,
+                        logical_call_id=value.logical_call_id,
+                        attempt_no=value.attempt_no,
+                        existing=existing_identity,
+                        requested=requested_identity,
+                    )
+                # Same identity: reuse the existing row without appending
+                # another MODEL_STARTED event. Terminal states (STARTED,
+                # COMPLETED, FAILED) are all safe to reuse.
+                self._conn.execute("COMMIT")
+                return existing["model_attempt_id"]
             self._conn.execute(
                 """
                 INSERT INTO model_attempts (
