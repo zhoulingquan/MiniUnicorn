@@ -3,7 +3,7 @@
 ## Source Commit
 
 - Branch: `codex/full-remediation`
-- Final source commit: `88369a970098e79b7920c819d940acb7452438e3`
+- Final source commit: `c2ac801946724f76bd555df558a5f73acbf35e36`
 - Platform: macOS (substituted `/opt/homebrew/bin/uv run` for `py -m uv run`)
 - Node: v24.13.1, npm from `/usr/local/bin/npm`
 
@@ -157,7 +157,13 @@ The soak ran from commit `6213d4e0` (Task 26). Post-soak commits (`ca97b56a`, `4
 
 ## Docker Result
 
-ENVIRONMENT UNAVAILABLE: `zsh:1: command not found: docker` (exit 127). Docker is not installed on this macOS machine. This is recorded as an environment limitation, not a pass.
+| Step | Command | Exit | Result |
+|---|---|---:|---|
+| version | `docker version` | 0 | Docker 29.6.2, build dfc4efb |
+| build | `docker build -t miniunicorn-remediation:local .` | 0 | Built successfully (bun 1.2 builder + Python runtime with documents extra) |
+| import smoke | `docker run --rm --entrypoint python miniunicorn-remediation:local -c "import pypdf, docx, openpyxl, pptx; import miniunicorn; print(miniunicorn.__version__)"` | 0 | Printed `0.3.0` |
+
+The Dockerfile was updated from `oven/bun:1.1-debian` to `oven/bun:1.2-debian` (commit `c2ac8019`) because `webui/bun.lock` uses the JSON `lockfileVersion: 1` format introduced in bun 1.2, which bun 1.1 cannot parse. After the fix, build and import smoke both PASS.
 
 ## Prior-Plan Mapping
 
@@ -195,9 +201,9 @@ All 14 prior-plan tasks (15–28) have commit-backed implementation or evidence-
 
 See the failure categorization table in the Gate Matrix section. These are Windows-specific subprocess tests, CLI module attribute renames from earlier commits, AgentLoop attribute removals from earlier remediation, and one flaky timing/logging test. None affect embedding, three-worker, recovery, packaging, load, or soak evidence.
 
-### Docker unavailable
+### Docker build fix
 
-Docker is not installed on this macOS machine. The Docker gate is recorded as ENVIRONMENT UNAVAILABLE, not as a pass.
+The Dockerfile's bun builder image was upgraded from 1.1 to 1.2 (commit `c2ac8019`) to support the JSON `bun.lock` format. Build and import smoke now PASS.
 
 ### Vite circular-chunk warnings
 

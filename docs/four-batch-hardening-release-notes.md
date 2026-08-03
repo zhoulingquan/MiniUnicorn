@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-03
 **Branch:** `codex/full-remediation`
-**Final commit:** `88369a970098e79b7920c819d940acb7452438e3`
+**Final commit:** `c2ac801946724f76bd555df558a5f73acbf35e36`
 **Plan:** `docs/superpowers/plans/2026-08-03-embedding-three-worker-completion-remediation.md`
 
 ## Summary
@@ -67,7 +67,7 @@ The 19 full-suite failures are all pre-existing (Windows-specific subprocess tes
 
 1. **Platform substitution:** The plan was written for Windows (`py -m uv run`). On macOS, `/opt/homebrew/bin/uv run` was substituted. Node/npm were at `/usr/local/bin/`. All substitutions are recorded here.
 
-2. **Docker unavailable:** Docker is not installed on this macOS machine. The Docker gate is recorded as ENVIRONMENT UNAVAILABLE, not as a pass.
+2. **Docker build fix:** The Dockerfile's bun builder image was upgraded from `oven/bun:1.1-debian` to `oven/bun:1.2-debian` (commit `c2ac8019`) because `webui/bun.lock` uses the JSON `lockfileVersion: 1` format introduced in bun 1.2. After the fix, `docker build` and the import smoke test (`import pypdf, docx, openpyxl, pptx; import miniunicorn; print(miniunicorn.__version__)` → `0.3.0`) both PASS.
 
 3. **Soak source state:** The 30-minute soak ran from commit `6213d4e0`. Post-soak commits (`ca97b56a`, `499e6d25`, `88369a97`) only modified test files, formatting, and frontend test type casts — no runtime source code changed. The soak report remains valid.
 
@@ -98,3 +98,5 @@ The 19 full-suite failures are all pre-existing (Windows-specific subprocess tes
 | `ca97b56a` | Gate fix: ruff format and unused imports |
 | `499e6d25` | Gate fix: pre-existing test gaps |
 | `88369a97` | Gate fix: tsc --noEmit mock instance casts |
+| `c2ac8019` | Docker fix: upgrade bun builder to 1.2 for JSON lockfile |
+| `f8ec80e0` | Task 27: final evidence and release notes |
