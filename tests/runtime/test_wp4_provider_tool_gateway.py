@@ -31,7 +31,7 @@ from miniunicorn.agent.ports import (
     ProviderAttemptStarted,
     SafeError,
 )
-from miniunicorn.runtime.contracts import ClaimRequest
+from miniunicorn.runtime.contracts import ClaimRequest, RecoveryIdentityMismatch
 from miniunicorn.runtime.durable_journal import JournalProviderObserver
 from miniunicorn.runtime.models import (
     ResourceLeaseRequest,
@@ -1236,3 +1236,25 @@ class TestContainmentScope:
                 reset_containment_scope(token)
 
         asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# RecoveryIdentityMismatch contract
+# ---------------------------------------------------------------------------
+
+
+def test_recovery_identity_mismatch_exposes_diagnostics() -> None:
+    """RecoveryIdentityMismatch carries task/call/attempt and identity dicts."""
+    exc = RecoveryIdentityMismatch(
+        task_id="task-1",
+        logical_call_id="model-call-1",
+        attempt_no=1,
+        existing={"provider_name": "a", "model_name": "m", "request_hash": "h1"},
+        requested={"provider_name": "a", "model_name": "m", "request_hash": "h2"},
+    )
+    assert exc.task_id == "task-1"
+    assert exc.logical_call_id == "model-call-1"
+    assert exc.attempt_no == 1
+    assert exc.existing["request_hash"] == "h1"
+    assert exc.requested["request_hash"] == "h2"
+    assert "task-1/model-call-1/1" in str(exc)

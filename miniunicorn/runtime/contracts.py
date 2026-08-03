@@ -110,6 +110,36 @@ class SessionCommitMismatchError(RuntimeError):
         self.field_names = field_names
 
 
+class RecoveryIdentityMismatch(RuntimeError):  # noqa: N818 - plan-mandated name
+    """Raised when a Provider-attempt begin is replayed with a different identity (Task 4).
+
+    The ``(task_id, logical_call_id, attempt_no)`` triple is the
+    idempotency key for Provider-attempt begin. A replay with a
+    different ``(provider_name, model_name, request_hash)`` identity
+    must be rejected rather than silently returning the existing row
+    (design §19.4 Provider-attempt idempotency).
+    """
+
+    def __init__(
+        self,
+        *,
+        task_id: str,
+        logical_call_id: str,
+        attempt_no: int,
+        existing: dict[str, str],
+        requested: dict[str, str],
+    ) -> None:
+        self.task_id = task_id
+        self.logical_call_id = logical_call_id
+        self.attempt_no = attempt_no
+        self.existing = existing
+        self.requested = requested
+        super().__init__(
+            f"provider attempt identity mismatch for {task_id}/"
+            f"{logical_call_id}/{attempt_no}: existing={existing!r}, requested={requested!r}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Result DTOs used directly by Protocol signatures
 # ---------------------------------------------------------------------------
