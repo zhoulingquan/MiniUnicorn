@@ -13,6 +13,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _CHANNEL = _REPO_ROOT / "miniunicorn" / "channels" / "websocket" / "channel.py"
 _FEISHU_CHANNEL = _REPO_ROOT / "miniunicorn" / "channels" / "feishu" / "channel.py"
+_WEIXIN_CHANNEL = _REPO_ROOT / "miniunicorn" / "channels" / "weixin" / "channel.py"
 
 # Task 15 ceiling: channel.py must stay below 1450 physical lines after the
 # outbound emission extraction.  If this test fails, outbound logic has
@@ -23,6 +24,11 @@ _CHANNEL_MAX_LINES = 1450
 # after the media-operations extraction.  If this test fails, media logic
 # has leaked back into the channel façade — move it to ``media.py``.
 _FEISHU_CHANNEL_MAX_LINES = 1750
+
+# Task 18 ceiling: weixin/channel.py must stay below 1150 physical lines
+# after the crypto/API/media extraction.  If this test fails, logic has
+# leaked back into the channel façade — move it to the extracted service.
+_WEIXIN_CHANNEL_MAX_LINES = 1150
 
 
 def _count_lines(path: Path) -> int:
@@ -46,4 +52,14 @@ def test_feishu_channel_py_under_line_budget() -> None:
         f"feishu/channel.py grew to {actual} lines "
         f"(ceiling {_FEISHU_CHANNEL_MAX_LINES}); "
         "move media logic back into media.py"
+    )
+
+
+def test_weixin_channel_py_under_line_budget() -> None:
+    """Weixin ``channel.py`` must stay below the post-extraction line ceiling."""
+    actual = _count_lines(_WEIXIN_CHANNEL)
+    assert actual < _WEIXIN_CHANNEL_MAX_LINES, (
+        f"weixin/channel.py grew to {actual} lines "
+        f"(ceiling {_WEIXIN_CHANNEL_MAX_LINES}); "
+        "move crypto/API/media logic back into the extracted services"
     )

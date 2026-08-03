@@ -42,6 +42,7 @@ def test_make_headers_includes_route_tag_when_configured() -> None:
         WeixinConfig(enabled=True, allow_from=["*"], route_tag=123),
         bus,
     )
+    channel._client = object()
     channel._token = "token"
 
     headers = channel._make_headers()
@@ -699,95 +700,22 @@ async def test_send_progress_message_keeps_typing_indicator() -> None:
     assert len(typing_cancel_calls) == 0
 
 
-class _DummyHttpResponse:
-    def __init__(self, *, headers: dict[str, str] | None = None, status_code: int = 200) -> None:
-        self.headers = headers or {}
-        self.status_code = status_code
-
-    def raise_for_status(self) -> None:
-        return None
-
-
 @pytest.mark.asyncio
-async def test_send_media_uses_upload_full_url_when_present(tmp_path) -> None:
+async def test_send_media_file_delegates_to_media_service(tmp_path) -> None:
+    """Channel._send_media_file delegates to WeixinMediaService.send_file."""
     channel, _bus = _make_channel()
+    channel._client = object()
+    channel._token = "token"
+    channel._ensure_services()
+    assert channel._media is not None
+    channel._media.send_file = AsyncMock()
 
     media_file = tmp_path / "photo.jpg"
-    media_file.write_bytes(b"hello-weixin")
-
-    cdn_post = AsyncMock(return_value=_DummyHttpResponse(headers={"x-encrypted-param": "dl-param"}))
-    channel._client = SimpleNamespace(post=cdn_post)
-    channel._api_post = AsyncMock(
-        side_effect=[
-            {
-                "upload_full_url": "https://upload-full.example.test/path?foo=bar",
-                "upload_param": "should-not-be-used",
-            },
-            {"ret": 0},
-        ]
-    )
+    media_file.write_bytes(b"data")
 
     await channel._send_media_file("wx-user", str(media_file), "ctx-1")
 
-    # first POST call is CDN upload
-    cdn_url = cdn_post.await_args_list[0].args[0]
-    assert cdn_url == "https://upload-full.example.test/path?foo=bar"
-
-
-@pytest.mark.asyncio
-async def test_send_media_falls_back_to_upload_param_url(tmp_path) -> None:
-    channel, _bus = _make_channel()
-
-    media_file = tmp_path / "photo.jpg"
-    media_file.write_bytes(b"hello-weixin")
-
-    cdn_post = AsyncMock(return_value=_DummyHttpResponse(headers={"x-encrypted-param": "dl-param"}))
-    channel._client = SimpleNamespace(post=cdn_post)
-    channel._api_post = AsyncMock(
-        side_effect=[
-            {"upload_param": "enc-need-fallback"},
-            {"ret": 0},
-        ]
-    )
-
-    await channel._send_media_file("wx-user", str(media_file), "ctx-1")
-
-    cdn_url = cdn_post.await_args_list[0].args[0]
-    assert cdn_url.startswith(
-        f"{channel.config.cdn_base_url}/upload?encrypted_query_param=enc-need-fallback"
-    )
-    assert "&filekey=" in cdn_url
-
-
-@pytest.mark.asyncio
-async def test_send_media_voice_file_uses_voice_item_and_voice_upload_type(tmp_path) -> None:
-    channel, _bus = _make_channel()
-
-    media_file = tmp_path / "voice.mp3"
-    media_file.write_bytes(b"voice-bytes")
-
-    cdn_post = AsyncMock(
-        return_value=_DummyHttpResponse(headers={"x-encrypted-param": "voice-dl-param"})
-    )
-    channel._client = SimpleNamespace(post=cdn_post)
-    channel._api_post = AsyncMock(
-        side_effect=[
-            {"upload_full_url": "https://upload-full.example.test/voice?foo=bar"},
-            {"ret": 0},
-        ]
-    )
-
-    await channel._send_media_file("wx-user", str(media_file), "ctx-voice")
-
-    getupload_body = channel._api_post.await_args_list[0].args[1]
-    assert getupload_body["media_type"] == 4
-
-    sendmessage_body = channel._api_post.await_args_list[1].args[1]
-    item = sendmessage_body["msg"]["item_list"][0]
-    assert item["type"] == 3
-    assert "voice_item" in item
-    assert "file_item" not in item
-    assert item["voice_item"]["media"]["encrypt_query_param"] == "voice-dl-param"
+    channel._media.send_file.assert_awaited_once_with("wx-user", str(media_file), "ctx-1")
 
 
 @pytest.mark.asyncio
