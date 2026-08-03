@@ -5,6 +5,8 @@ import process from "node:process";
 
 import { compileFromFile } from "json-schema-to-typescript";
 
+import { generatedTextMatches } from "./generated-file-check.mjs";
+
 const webuiRoot = fileURLToPath(new URL("../", import.meta.url));
 const schemaPath = path.join(
   webuiRoot,
@@ -32,7 +34,7 @@ if (checkOnly) {
     process.stderr.write("generated agent event types are missing\n");
     process.exitCode = 1;
   }
-  if (current && current !== normalized) {
+  if (current && !generatedTextMatches(current, normalized)) {
     process.stderr.write("generated agent event types are stale\n");
     process.exitCode = 1;
   }

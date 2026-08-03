@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "lint": "eslint src --max-warnings 0",
     "generate:protocol": "python ../scripts/export_agent_event_schema.py && node scripts/generate-agent-events.mjs",
-    "check:protocol": "node scripts/generate-agent-events.mjs --check"
+    "check:protocol": "node scripts/generate-agent-events.mjs --check",
+    "test:generated-check": "node --test scripts/generated-file-check.test.mjs"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.4",
