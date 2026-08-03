@@ -247,7 +247,9 @@ class AgentTaskWorker:
         try:
             self._ledger.mark_running(claim, now_ms)
         except StaleLeaseError:
-            logger.warning("worker {} lost lease before mark_running for {}", self._worker_id, task_id)
+            logger.warning(
+                "worker {} lost lease before mark_running for {}", self._worker_id, task_id
+            )
             return
 
         # Task 9 Step 4: route internal task kinds through the
@@ -301,7 +303,9 @@ class AgentTaskWorker:
             # Check if INBOUND commit already happened (crash recovery).
             inbound_result = await self._commit_inbound(claim, record, payload)
             if inbound_result.state == "IO_FAILURE":
-                self._fail_task(claim, task_id, "INBOUND_COMMIT_IO_FAILURE", str(inbound_result.error))
+                self._fail_task(
+                    claim, task_id, "INBOUND_COMMIT_IO_FAILURE", str(inbound_result.error)
+                )
                 return
             if not _session_commit_succeeded(inbound_result):
                 self._enter_session_retry(claim, task_id, inbound_result)
@@ -406,7 +410,9 @@ class AgentTaskWorker:
             try:
                 containment.close()
             except Exception:  # noqa: BLE001
-                logger.warning("worker {}: containment close failed for {}", self._worker_id, task_id)
+                logger.warning(
+                    "worker {}: containment close failed for {}", self._worker_id, task_id
+                )
             reset_containment_scope(containment_token)
             clear_active_claim(task_id)
             clear_active_delivery_ledger(task_id)
@@ -664,11 +670,11 @@ class AgentTaskWorker:
                 ),
             )
         except StaleLeaseError:
-            logger.warning("worker {} could not fail task {} (stale lease)", self._worker_id, task_id)
+            logger.warning(
+                "worker {} could not fail task {} (stale lease)", self._worker_id, task_id
+            )
 
-    def _enter_session_retry(
-        self, claim: Any, task_id: str, result: SessionCommitResult
-    ) -> None:
+    def _enter_session_retry(self, claim: Any, task_id: str, result: SessionCommitResult) -> None:
         """Enter bounded RETRY_WAIT after a session commit conflict (Task 3 Step 6).
 
         A ``REVISION_CONFLICT`` means the session changed before the

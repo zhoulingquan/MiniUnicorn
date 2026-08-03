@@ -80,9 +80,7 @@ class DurableTurnJournalAdapter:
     # Model attempt journaling (design §17.5, §19) — WP4 scope
     # ------------------------------------------------------------------
 
-    async def record_model_started(
-        self, call: ModelAttemptStarted
-    ) -> AttemptIdentity:
+    async def record_model_started(self, call: ModelAttemptStarted) -> AttemptIdentity:
         """Durable-record that a Provider attempt started (design §19).
 
         Full implementation is WP4. WP3 returns a synthetic
@@ -212,9 +210,7 @@ class DurableTurnJournalAdapter:
             )
         content = self._journal.read_blob_content(response_blob_id)  # type: ignore[attr-defined]
         if content is None:
-            raise RuntimeError(
-                f"model response blob not found: {response_blob_id}"
-            )
+            raise RuntimeError(f"model response blob not found: {response_blob_id}")
         # Task 14 Step 7: expose recovery metrics. This method is only
         # called when a completed model decision is reused after crash
         # recovery, so each call represents one reused decision.
@@ -223,9 +219,7 @@ class DurableTurnJournalAdapter:
         get_runtime_metrics().inc("model_decisions_reused_total")
         return deserialize_model_decision(content)
 
-    async def record_model_failed(
-        self, attempt: AttemptIdentity, error: SafeError
-    ) -> None:
+    async def record_model_failed(self, attempt: AttemptIdentity, error: SafeError) -> None:
         """Durable-record a failed Provider attempt (design §19)."""
         if self._journal is not None:
             self._journal.fail_model_attempt(
@@ -245,9 +239,7 @@ class DurableTurnJournalAdapter:
 
         claim = _claim_from_context()
         if claim is None:
-            raise RuntimeError(
-                "DurableTurnJournalAdapter.save_checkpoint requires an active claim"
-            )
+            raise RuntimeError("DurableTurnJournalAdapter.save_checkpoint requires an active claim")
         write = CheckpointWrite(
             phase=checkpoint.phase,
             run_segment=checkpoint.run_segment,
@@ -263,9 +255,7 @@ class DurableTurnJournalAdapter:
         """Persist bounded, redacted progress at a safe boundary (design §17.4)."""
         claim = _claim_from_context()
         if claim is None:
-            raise RuntimeError(
-                "DurableTurnJournalAdapter.record_progress requires an active claim"
-            )
+            raise RuntimeError("DurableTurnJournalAdapter.record_progress requires an active claim")
         self._ledger.record_progress(
             claim,
             {

@@ -1190,9 +1190,7 @@ class WebSocketChannel(BaseChannel):
 
         try:
             ready_event = ReadyEvent(chat_id=default_chat_id, client_id=client_id)
-            await self._send_agent_event(
-                ready_event, connections=[connection], label=" ready "
-            )
+            await self._send_agent_event(ready_event, connections=[connection], label=" ready ")
             # Register only after ready is successfully sent to avoid out-of-order sends
             self._conn_default[connection] = default_chat_id
             self._attach(connection, default_chat_id)
@@ -1489,9 +1487,7 @@ class WebSocketChannel(BaseChannel):
         wired by the runtime bootstrap (Task 9).
         """
         if self._submit_control is None:
-            await self._send_event(
-                connection, "error", detail="task_control not available"
-            )
+            await self._send_event(connection, "error", detail="task_control not available")
             return
 
         task_id = envelope.get("task_id")
@@ -1512,9 +1508,7 @@ class WebSocketChannel(BaseChannel):
         }
         kind = action_map.get(action)
         if kind is None:
-            await self._send_event(
-                connection, "error", detail=f"unknown action: {action!r}"
-            )
+            await self._send_event(connection, "error", detail=f"unknown action: {action!r}")
             return
 
         payload = envelope.get("payload") or {}
@@ -1530,9 +1524,7 @@ class WebSocketChannel(BaseChannel):
             )
         except Exception as exc:  # noqa: BLE001
             self.logger.warning("task_control failed: {}", exc)
-            await self._send_event(
-                connection, "error", detail="task_control_failed"
-            )
+            await self._send_event(connection, "error", detail="task_control_failed")
             return
 
         status = getattr(result, "status", "ERROR")
@@ -1672,7 +1664,9 @@ class WebSocketChannel(BaseChannel):
                 task_id=msg.metadata.get("_subagent_task_id"),
                 content=msg.content,
             )
-            await self._send_agent_event(event, connections=conns, persist=True, label=" subagent_activity ")
+            await self._send_agent_event(
+                event, connections=conns, persist=True, label=" subagent_activity "
+            )
             return
         if msg.metadata.get("_goal_state_sync"):
             blob = msg.metadata.get("goal_state")
@@ -1753,9 +1747,7 @@ class WebSocketChannel(BaseChannel):
         # Persist with the original (un-rewritten) text so transcript replay
         # matches what the agent actually produced, not the media-signed URL form.
         transcript_event = event.model_copy(update={"text": text})
-        self._try_append_webui_transcript(
-            msg.chat_id, serialize_agent_event(transcript_event)
-        )
+        self._try_append_webui_transcript(msg.chat_id, serialize_agent_event(transcript_event))
         await self._send_agent_event(event, connections=conns, label=" ")
 
     async def send_reasoning_delta(
@@ -1794,7 +1786,9 @@ class WebSocketChannel(BaseChannel):
             chat_id=chat_id,
             stream_id=meta.get("_stream_id"),
         )
-        await self._send_agent_event(event, connections=conns, persist=True, label=" reasoning_end ")
+        await self._send_agent_event(
+            event, connections=conns, persist=True, label=" reasoning_end "
+        )
 
     async def send_delta(
         self,
@@ -1884,7 +1878,9 @@ class WebSocketChannel(BaseChannel):
         if not conns:
             return
         event = SessionUpdatedEvent(chat_id=chat_id, scope=scope)
-        await self._send_agent_event(event, connections=conns, persist=True, label=" session_updated ")
+        await self._send_agent_event(
+            event, connections=conns, persist=True, label=" session_updated "
+        )
 
     async def send_runtime_model_updated(
         self,

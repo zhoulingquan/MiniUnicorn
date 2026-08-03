@@ -195,9 +195,7 @@ class MessageTool(Tool, ContextAware):
             self._sent_in_turn = True
             if media:
                 prev = self._turn_delivered_media_var.get()
-                self._turn_delivered_media_var.set(
-                    prev + tuple(str(p) for p in media)
-                )
+                self._turn_delivered_media_var.set(prev + tuple(str(p) for p in media))
 
         media_info = f" with {len(media)} attachments" if media else ""
         return (

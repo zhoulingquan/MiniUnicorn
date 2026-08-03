@@ -226,9 +226,7 @@ class TestUserWorkPreemptsMaintenance:
         store.submit_internal(maint_env)
 
         # Claim — must get the user task, not the maintenance task.
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         assert result.claimed is not None
         assert result.claimed.record.task_kind == "USER_TURN"
 
@@ -254,9 +252,7 @@ class TestUserWorkPreemptsMaintenance:
         store.submit_internal(maint_env)
 
         # Claim — must get the maintenance task since no user work.
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         assert result.claimed is not None
         assert result.claimed.record.task_kind == "DREAM"
 
@@ -320,9 +316,7 @@ class TestRetention:
         # Submit and complete a task.
         env = make_inbound_envelope(sample_scope)
         submit = store.submit_task(env)
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         claim = result.claimed.claim
         store.mark_running(claim, now_ms=2_000_001)
 
@@ -352,9 +346,7 @@ class TestRetention:
 
         # Deliver the outbox row so the task becomes retention-eligible
         # (design §16.16: tasks with non-terminal outbox rows are skipped).
-        outbox_claim = store.claim_next_delivery(
-            sender_id="s-1", now_ms=2_000_004, lease_ms=60_000
-        )
+        outbox_claim = store.claim_next_delivery(sender_id="s-1", now_ms=2_000_004, lease_ms=60_000)
         assert outbox_claim is not None
         store.mark_delivered(
             outbox_claim,
@@ -445,6 +437,7 @@ class TestRetention:
         dest = str(tmp_path / "backup.db")
         run_backup(store, dest_path=dest)
         import os
+
         assert os.path.exists(dest)
 
 
@@ -565,9 +558,7 @@ class TestMaintenanceExecutor:
             received_keys.append(key)
             return "summary"
 
-        executor = MaintenanceExecutor(
-            store, consolidation_runner=consolidation_runner
-        )
+        executor = MaintenanceExecutor(store, consolidation_runner=consolidation_runner)
         result = await executor.execute(
             task_kind="MEMORY_CONSOLIDATION",
             payload={"session_key": "session-1"},
@@ -592,9 +583,7 @@ class TestMaintenanceExecutor:
         from miniunicorn.runtime.maintenance_executor import MaintenanceExecutor
 
         executor = MaintenanceExecutor(store)
-        result = await executor.execute(
-            task_kind="UNKNOWN_KIND", payload={}
-        )
+        result = await executor.execute(task_kind="UNKNOWN_KIND", payload={})
         assert result.success is False
         assert "unsupported" in result.detail
 
@@ -619,6 +608,7 @@ class TestMaintenanceExecutor:
         )
         assert result.success is True
         import os
+
         assert os.path.exists(dest)
 
     @pytest.mark.asyncio
@@ -662,9 +652,7 @@ class TestVectorMemoryStoreHardening:
         yield store
         store.close()
 
-    def test_idempotent_index_same_source_revision(
-        self, vector_store
-    ) -> None:
+    def test_idempotent_index_same_source_revision(self, vector_store) -> None:
         """Duplicate index with same source revision is idempotent (§22.2)."""
         vec = [0.1, 0.2, 0.3, 0.4]
         id1 = vector_store.index(
@@ -684,9 +672,7 @@ class TestVectorMemoryStoreHardening:
         assert id1 == id2, "same source revision must dedup"
         assert vector_store.count() == 1
 
-    def test_different_source_revision_creates_new_entry(
-        self, vector_store
-    ) -> None:
+    def test_different_source_revision_creates_new_entry(self, vector_store) -> None:
         """Different source revision creates a new entry (§22.2)."""
         vec = [0.1, 0.2, 0.3, 0.4]
         id1 = vector_store.index(
@@ -706,9 +692,7 @@ class TestVectorMemoryStoreHardening:
         assert id1 != id2
         assert vector_store.count() == 2
 
-    def test_tombstone_excludes_from_search_and_count(
-        self, vector_store
-    ) -> None:
+    def test_tombstone_excludes_from_search_and_count(self, vector_store) -> None:
         """Tombstoned entries are excluded from search and count (§22.2)."""
         vec = [0.1, 0.2, 0.3, 0.4]
         vector_store.index(
@@ -746,17 +730,13 @@ class TestVectorMemoryStoreHardening:
             scope={"tenant_id": "tenant-b", "workspace_id": "ws-2"},
         )
         # Filter by tenant A — only one result.
-        results_a = vector_store.search(
-            vec, k=5, scope={"tenant_id": "tenant-a"}
-        )
+        results_a = vector_store.search(vec, k=5, scope={"tenant_id": "tenant-a"})
         assert len(results_a) == 1
         # No scope filter — both results.
         results_all = vector_store.search(vec, k=5)
         assert len(results_all) == 2
 
-    def test_rebuild_reconstructs_from_authoritative_sources(
-        self, vector_store
-    ) -> None:
+    def test_rebuild_reconstructs_from_authoritative_sources(self, vector_store) -> None:
         """Rebuild wipes and re-indexes from authoritative entries (§22.2)."""
         vec = [0.1, 0.2, 0.3, 0.4]
         # Seed with some entries.
@@ -810,12 +790,8 @@ class TestVectorMemoryStoreHardening:
                 "source_revision": "rev-1",
             },
         ]
-        count1 = vector_store.rebuild(
-            embed_fn=lambda _text: vec, entries=entries
-        )
-        count2 = vector_store.rebuild(
-            embed_fn=lambda _text: vec, entries=entries
-        )
+        count1 = vector_store.rebuild(embed_fn=lambda _text: vec, entries=entries)
+        count2 = vector_store.rebuild(embed_fn=lambda _text: vec, entries=entries)
         assert count1 == count2 == 1
         assert vector_store.count() == 1
 
@@ -863,6 +839,7 @@ class TestDreamIdleTriggerDurableMode:
         )
         # Force idle condition.
         import time as _time
+
         trigger._last_user_activity_ts = _time.monotonic() - 1000
         trigger._last_trigger_ts = 0.0
 
@@ -906,6 +883,7 @@ class TestDreamIdleTriggerDurableMode:
             min_interval_s=0,
         )
         import time as _time
+
         trigger._last_user_activity_ts = _time.monotonic() - 1000
         trigger._last_trigger_ts = 0.0
 
@@ -1113,9 +1091,7 @@ class TestMaintenanceWorkerDispatch:
                 dedup_key=dedup_key_for_dream(source_revision="rev-dispatch-1"),
                 priority=PRIORITY_REFLECTION_DREAM,
             )
-            snapshot = await host.task_service.wait_terminal(
-                sample_scope, task_id, timeout_s=10.0
-            )
+            snapshot = await host.task_service.wait_terminal(sample_scope, task_id, timeout_s=10.0)
             assert snapshot.state == "COMPLETED"
             assert dream_calls == [True]
             # The USER_TURN execution callback must not have been called.
@@ -1168,9 +1144,7 @@ class TestMaintenanceWorkerDispatch:
                 dedup_key=dedup_key_for_dream(source_revision="rev-no-exec-1"),
                 priority=PRIORITY_REFLECTION_DREAM,
             )
-            snapshot = await host.task_service.wait_terminal(
-                sample_scope, task_id, timeout_s=10.0
-            )
+            snapshot = await host.task_service.wait_terminal(sample_scope, task_id, timeout_s=10.0)
             assert snapshot.state == "FAILED"
             assert snapshot.error is not None
             assert snapshot.error.error_code == "MAINTENANCE_EXECUTOR_NOT_CONFIGURED"

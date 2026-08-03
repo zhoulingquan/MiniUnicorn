@@ -60,8 +60,8 @@ class ContainmentScope(Protocol):
 # Context-var binding
 # ---------------------------------------------------------------------------
 
-_containment_var: contextvars.ContextVar[ContainmentScope | None] = (
-    contextvars.ContextVar("_containment_var", default=None)
+_containment_var: contextvars.ContextVar[ContainmentScope | None] = contextvars.ContextVar(
+    "_containment_var", default=None
 )
 
 
@@ -184,9 +184,7 @@ class ProcessContainmentScope:
                 logger.warning("containment: taskkill failed for PID {}: {}", pid, exc)
 
     @classmethod
-    def _kill_posix(
-        cls, pids: list[int], pgids: list[int], term_grace_s: float
-    ) -> None:
+    def _kill_posix(cls, pids: list[int], pgids: list[int], term_grace_s: float) -> None:
         """Send SIGTERM to process groups, wait grace, then SIGKILL survivors.
 
         Task 10 Step 5: kill POSIX process groups when a PGID is available,
@@ -201,9 +199,7 @@ class ProcessContainmentScope:
             except (ProcessLookupError, PermissionError):
                 pass
             except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "containment: killpg SIGTERM failed for PGID {}: {}", pgid, exc
-                )
+                logger.warning("containment: killpg SIGTERM failed for PGID {}: {}", pgid, exc)
 
         # Fall back to SIGTERM on individual PIDs that have no PGID.
         pgid_pids = set(pgids)
@@ -229,9 +225,7 @@ class ProcessContainmentScope:
             except (ProcessLookupError, PermissionError):
                 pass
             except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "containment: killpg SIGKILL failed for PGID {}: {}", pgid, exc
-                )
+                logger.warning("containment: killpg SIGKILL failed for PGID {}: {}", pgid, exc)
 
         # SIGKILL any surviving individual PIDs.
         for pid in pids:
@@ -347,7 +341,9 @@ class SupervisorContainment:
             except (ProcessLookupError, PermissionError):
                 pass
             except Exception as exc:  # noqa: BLE001
-                logger.warning("supervisor-containment: killpg SIGTERM failed for PGID {}: {}", pgid, exc)
+                logger.warning(
+                    "supervisor-containment: killpg SIGTERM failed for PGID {}: {}", pgid, exc
+                )
 
         import time
 
@@ -359,7 +355,9 @@ class SupervisorContainment:
             except (ProcessLookupError, PermissionError):
                 pass
             except Exception as exc:  # noqa: BLE001
-                logger.warning("supervisor-containment: killpg SIGKILL failed for PGID {}: {}", pgid, exc)
+                logger.warning(
+                    "supervisor-containment: killpg SIGKILL failed for PGID {}: {}", pgid, exc
+                )
 
         # Catch any direct PIDs that were not part of a registered group.
         for pid in sorted(self._pids):
@@ -447,9 +445,7 @@ def _assign_pid_to_job(job_handle: Any, pid: int) -> None:
         PROCESS_SET_QUOTA = 0x0100  # noqa: N806
         PROCESS_TERMINATE = 0x0001  # noqa: N806
         inh = False
-        proc_handle = kernel32.OpenProcess(
-            PROCESS_SET_QUOTA | PROCESS_TERMINATE, inh, pid
-        )
+        proc_handle = kernel32.OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, inh, pid)
         if not proc_handle:
             return
         try:
@@ -457,7 +453,9 @@ def _assign_pid_to_job(job_handle: Any, pid: int) -> None:
         finally:
             kernel32.CloseHandle(proc_handle)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("supervisor-containment: AssignProcessToJobObject failed for PID {}: {}", pid, exc)
+        logger.warning(
+            "supervisor-containment: AssignProcessToJobObject failed for PID {}: {}", pid, exc
+        )
 
 
 def posix_set_child_death_signal() -> None:

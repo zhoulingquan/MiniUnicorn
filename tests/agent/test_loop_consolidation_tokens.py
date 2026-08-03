@@ -38,9 +38,7 @@ async def _run_turn(loop: AgentLoop, content: str = "hello", session_key: str = 
     Replaces the legacy ``loop.process_direct(...)`` entry point removed
     in design Task 10.
     """
-    msg = InboundMessage(
-        channel="cli", sender_id="user", chat_id="test", content=content, media=[]
-    )
+    msg = InboundMessage(channel="cli", sender_id="user", chat_id="test", content=content, media=[])
     await loop._process_message(msg, session_key=session_key)
 
 

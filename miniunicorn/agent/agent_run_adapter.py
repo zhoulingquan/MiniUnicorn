@@ -75,11 +75,7 @@ def _resolve_tool_execution_port(tools: Any) -> Any:
     """
     runtime = current_turn_runtime()
     is_durable = runtime is not None and runtime.task_id is not None
-    port = (
-        runtime.tool_execution_port
-        if runtime is not None
-        else None
-    )
+    port = runtime.tool_execution_port if runtime is not None else None
     if port is None:
         if is_durable:
             raise RuntimeError(
@@ -114,13 +110,9 @@ class DirectToolExecutionPort:
             if tool is not None:
                 result = await tool.execute(**request.normalized_arguments)
             else:
-                result = await self._tools.execute(
-                    request.tool_name, request.normalized_arguments
-                )
+                result = await self._tools.execute(request.tool_name, request.normalized_arguments)
         else:
-            result = await self._tools.execute(
-                request.tool_name, request.normalized_arguments
-            )
+            result = await self._tools.execute(request.tool_name, request.normalized_arguments)
         return ToolExecutionResult(state="SUCCEEDED", content=result)
 
     def derive(self, lineage: str) -> "DirectToolExecutionPort":
@@ -387,9 +379,7 @@ class AgentRunAdapter:
                     # runtime adapter and bound to the TurnRuntime. The
                     # runner reads it here and binds it via ContextVar so
                     # the Provider calls started/completed/failed (design §19).
-                    provider_attempt_observer=_durable_runtime_port(
-                        "provider_attempt_observer"
-                    ),
+                    provider_attempt_observer=_durable_runtime_port("provider_attempt_observer"),
                 )
             )
         finally:

@@ -799,9 +799,7 @@ def agent(
                     target_key="direct",
                 )
             )
-            wait_task = asyncio.create_task(
-                resources.application.wait(scope, handle.task_id, None)
-            )
+            wait_task = asyncio.create_task(resources.application.wait(scope, handle.task_id, None))
             try:
                 async with resources.application.subscribe(handle.task_id) as queue:
                     while True:

@@ -86,9 +86,7 @@ def _make_config(workspace: Path, api_base: str) -> Any:
     )
 
 
-def _generate_dataset(
-    seed: int, total_tasks: int, sessions: int
-) -> list[tuple[str, str]]:
+def _generate_dataset(seed: int, total_tasks: int, sessions: int) -> list[tuple[str, str]]:
     """Generate a deterministic ``(session_key, content)`` dataset.
 
     Each session receives ``total_tasks // sessions`` tasks with unique
@@ -114,8 +112,7 @@ def _generate_dataset(
 def _count_terminal(conn: Any) -> int:
     """Count tasks in a terminal state."""
     return conn.execute(
-        "SELECT COUNT(*) AS n FROM tasks "
-        "WHERE state IN ('COMPLETED', 'FAILED', 'CANCELLED')"
+        "SELECT COUNT(*) AS n FROM tasks WHERE state IN ('COMPLETED', 'FAILED', 'CANCELLED')"
     ).fetchone()["n"]
 
 
@@ -291,9 +288,7 @@ async def _run_load_test(
                 scope=scope,
                 target_key="direct",
             )
-            envelope = build_inbound_envelope(
-                request, now_ms=int(time.time() * 1000)
-            )
+            envelope = build_inbound_envelope(request, now_ms=int(time.time() * 1000))
             result = test_store.submit_task(envelope)
             if result.status == "ACCEPTED":
                 accepted += 1
@@ -318,12 +313,8 @@ async def _run_load_test(
         missing_replies = _count_missing_final_replies(test_conn)
         order_violations = _compute_order_violations(test_conn)
         intervals = _collect_task_intervals(test_conn)
-        same_session_overlaps = _compute_same_session_overlaps(
-            intervals, task_sessions
-        )
-        max_concurrent = _compute_max_concurrent_sessions(
-            intervals, task_sessions
-        )
+        same_session_overlaps = _compute_same_session_overlaps(intervals, task_sessions)
+        max_concurrent = _compute_max_concurrent_sessions(intervals, task_sessions)
 
         metrics = {
             "accepted": accepted,
@@ -349,15 +340,11 @@ async def _run_load_test(
     assert metrics["accepted"] == total_tasks, (
         f"accepted_unique_tasks={metrics['accepted']}, expected={total_tasks}"
     )
-    assert metrics["duplicates"] == 0, (
-        f"duplicate_inbound_tasks={metrics['duplicates']}"
-    )
+    assert metrics["duplicates"] == 0, f"duplicate_inbound_tasks={metrics['duplicates']}"
     assert metrics["terminal"] == total_tasks, (
         f"terminal_tasks={metrics['terminal']}, expected={total_tasks}"
     )
-    assert metrics["missing_replies"] == 0, (
-        f"missing_final_replies={metrics['missing_replies']}"
-    )
+    assert metrics["missing_replies"] == 0, f"missing_final_replies={metrics['missing_replies']}"
     assert metrics["order_violations"] == 0, (
         f"same_session_order_violations={metrics['order_violations']}"
     )
@@ -369,9 +356,7 @@ async def _run_load_test(
             f"lightweight mode achieved only {metrics['max_concurrent']} "
             f"distinct concurrent sessions (need >= 3)"
         )
-    assert metrics["wall_elapsed"] < 600.0, (
-        f"test took {metrics['wall_elapsed']:.1f}s (max 600s)"
-    )
+    assert metrics["wall_elapsed"] < 600.0, f"test took {metrics['wall_elapsed']:.1f}s (max 600s)"
     # All worker tasks exited after shutdown.
     assert not resources.host._running, "host still running after stop"
     assert len(resources.host._worker_tasks) == 0, "worker tasks not cleared"

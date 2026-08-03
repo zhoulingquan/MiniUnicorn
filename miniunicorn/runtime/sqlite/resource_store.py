@@ -160,8 +160,7 @@ class ResourceStoreMixin:
     ) -> ResourceLeaseRecord | None:
         """Read a resource lease row by ``(resource_key, holder_kind, holder_id)``."""
         row = self._conn.execute(
-            "SELECT * FROM resource_leases "
-            "WHERE resource_key=? AND holder_kind=? AND holder_id=?",
+            "SELECT * FROM resource_leases WHERE resource_key=? AND holder_kind=? AND holder_id=?",
             (resource_key, holder_kind, holder_id),
         ).fetchone()
         return _row_to_resource_lease(row) if row else None

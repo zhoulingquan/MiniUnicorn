@@ -43,8 +43,18 @@ class NoOpVectorStore:
     def enabled(self) -> bool:
         return False
 
-    def index(self, text, embedding, kind="history", metadata=None, importance=0.5,
-              *, source_identity="", source_revision="", scope=None):
+    def index(
+        self,
+        text,
+        embedding,
+        kind="history",
+        metadata=None,
+        importance=0.5,
+        *,
+        source_identity="",
+        source_revision="",
+        scope=None,
+    ):
         return None
 
     def search(self, query_embedding, k=5, kind=None, *, scope=None):

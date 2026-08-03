@@ -145,13 +145,9 @@ class AgentExecutionCallback:
                 # TurnRuntime so Agent-owned tools (Shell, Message) reach
                 # them through Agent-owned ports.
                 if self._outbound_port_factory is not None:
-                    turn_runtime.outbound_port = self._outbound_port_factory(
-                        payload.task_id
-                    )
+                    turn_runtime.outbound_port = self._outbound_port_factory(payload.task_id)
                 if self._progress_port_factory is not None:
-                    turn_runtime.progress_port = self._progress_port_factory(
-                        payload.task_id
-                    )
+                    turn_runtime.progress_port = self._progress_port_factory(payload.task_id)
                 from miniunicorn.runtime.containment import (
                     current_containment_scope,
                 )
@@ -261,7 +257,8 @@ class AgentExecutionCallback:
                     # We want only the new assistant/tool messages.
                     skip = result.context.save_skip or 0
                     messages = [
-                        m for m in result.context.all_messages[skip:]
+                        m
+                        for m in result.context.all_messages[skip:]
                         if m.get("role") in ("assistant", "tool")
                     ]
                 if not messages and outbound.content:

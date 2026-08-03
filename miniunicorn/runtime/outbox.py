@@ -45,10 +45,7 @@ class ChannelSender(Protocol):
     recovery loop can reconcile an interrupted send.
     """
 
-    async def send_with_receipt(
-        self, channel_name: str, msg: Any
-    ) -> DeliveryReceipt:
-        ...
+    async def send_with_receipt(self, channel_name: str, msg: Any) -> DeliveryReceipt: ...
 
     def get_channel_recovery(self, channel_name: str) -> str:
         """Return the delivery recovery capability for a channel."""
@@ -178,9 +175,7 @@ class OutboxSender:
             try:
                 self._apply_recovery_policy(claim)
             except Exception:  # noqa: BLE001
-                logger.exception(
-                    "OutboxSender recovery error outbox_id={}", claim.outbox_id
-                )
+                logger.exception("OutboxSender recovery error outbox_id={}", claim.outbox_id)
         return True
 
     def _apply_recovery_policy(self, claim: OutboxClaim) -> None:
@@ -261,9 +256,7 @@ class OutboxSender:
         try:
             return query_fn(claim.channel, claim.dedup_key)
         except Exception:  # noqa: BLE001
-            logger.warning(
-                "OutboxSender receipt query failed for outbox_id={}", claim.outbox_id
-            )
+            logger.warning("OutboxSender receipt query failed for outbox_id={}", claim.outbox_id)
             return None
 
     async def _deliver_one(self) -> bool:
@@ -337,9 +330,7 @@ class OutboxSender:
             buttons=None,
         )
 
-    async def _send_with_lease_renewal(
-        self, claim: OutboxClaim, msg: Any
-    ) -> DeliveryReceipt:
+    async def _send_with_lease_renewal(self, claim: OutboxClaim, msg: Any) -> DeliveryReceipt:
         """Send the message with concurrent lease renewal (design §17.9).
 
         Task 8 Step 5: timeout handling is now channel-policy aware:

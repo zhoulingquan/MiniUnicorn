@@ -326,8 +326,7 @@ class TestCommitTurnCrashRecovery:
             content_hash="hash-1",
         )
         assert retry.state == "ALREADY_COMMITTED", (
-            f"crash after session replace must be idempotent; got {retry.state}: "
-            f"{retry.error}"
+            f"crash after session replace must be idempotent; got {retry.state}: {retry.error}"
         )
         assert retry.revision == 1
 
@@ -614,8 +613,13 @@ class TestEmbeddedRuntimeIndexRobustness:
         meta["_runtime"] = {
             "format_version": 1,
             "applied_commits": [
-                {"commit_id": "commit-good", "content_hash": "hash-good",
-                 "revision": 1, "commit_kind": "INBOUND", "committed_at_ms": 1},
+                {
+                    "commit_id": "commit-good",
+                    "content_hash": "hash-good",
+                    "revision": 1,
+                    "commit_kind": "INBOUND",
+                    "committed_at_ms": 1,
+                },
                 {"commit_id": "bad-no-content", "revision": 2},  # missing hash ok
                 "not-a-dict",  # dropped
                 {"commit_id": ""},  # dropped (empty id)

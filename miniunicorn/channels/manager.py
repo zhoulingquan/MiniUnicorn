@@ -596,9 +596,7 @@ class ChannelManager:
         """Get list of enabled channel names."""
         return list(self.channels.keys())
 
-    async def send_with_receipt(
-        self, channel_name: str, msg: OutboundMessage
-    ) -> "DeliveryReceipt":
+    async def send_with_receipt(self, channel_name: str, msg: OutboundMessage) -> "DeliveryReceipt":
         """Send one message and return a delivery receipt (design §23.5, WP5).
 
         This is one bounded logical attempt. It calls ``channel.send()``
@@ -637,10 +635,7 @@ class ChannelManager:
             )
         except Exception as exc:  # noqa: BLE001
             error_str = str(exc).lower()
-            if any(
-                kw in error_str
-                for kw in ("rate limit", "429", "503", "temporarily", "retry")
-            ):
+            if any(kw in error_str for kw in ("rate limit", "429", "503", "temporarily", "retry")):
                 return DeliveryReceipt(
                     status="RETRYABLE_FAILURE",
                     safe_error_code="DELIVERY_RETRYABLE",

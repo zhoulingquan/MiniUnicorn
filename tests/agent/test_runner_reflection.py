@@ -61,9 +61,7 @@ def _make_runner_for_reflection(tmp_path) -> tuple[AgentRunner, MagicMock]:
         if call_count["n"] == 1:
             return LLMResponse(
                 content="thinking",
-                tool_calls=[
-                    ToolCallRequest(id="call_1", name="list_dir", arguments={"path": "."})
-                ],
+                tool_calls=[ToolCallRequest(id="call_1", name="list_dir", arguments={"path": "."})],
                 usage={"prompt_tokens": 5, "completion_tokens": 3},
             )
         return LLMResponse(content="done", tool_calls=[], usage={})

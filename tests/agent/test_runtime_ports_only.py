@@ -32,7 +32,9 @@ def test_agent_source_has_no_runtime_import() -> None:
     for path in root.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("miniunicorn.runtime"):
+            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith(
+                "miniunicorn.runtime"
+            ):
                 violations.append(f"{path}:{node.lineno}")
             if isinstance(node, ast.Import):
                 for alias in node.names:

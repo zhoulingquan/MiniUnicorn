@@ -137,9 +137,7 @@ def check_health(store: "RuntimeStore | None") -> RuntimeHealth:
         # A simple query verifies the connection is live and the schema
         # is migrated.
         conn = _get_conn(store)
-        row = conn.execute(
-            "SELECT COUNT(*) AS n FROM schema_migrations"
-        ).fetchone()
+        row = conn.execute("SELECT COUNT(*) AS n FROM schema_migrations").fetchone()
         if row is None or row["n"] == 0:
             return RuntimeHealth(alive=True, ready=False, detail="schema not migrated")
         return RuntimeHealth(alive=True, ready=True)
@@ -215,23 +213,17 @@ def collect_status(
         conn = _get_conn(store)
 
         # Schema version.
-        row = conn.execute(
-            "SELECT MAX(version) AS v FROM schema_migrations"
-        ).fetchone()
+        row = conn.execute("SELECT MAX(version) AS v FROM schema_migrations").fetchone()
         schema_version = row["v"] if row and row["v"] else 0
 
         # Tasks by state.
         tasks_by_state: dict[str, int] = {}
-        for r in conn.execute(
-            "SELECT state, COUNT(*) AS n FROM tasks GROUP BY state"
-        ).fetchall():
+        for r in conn.execute("SELECT state, COUNT(*) AS n FROM tasks GROUP BY state").fetchall():
             tasks_by_state[r["state"]] = r["n"]
 
         # Outbox by state.
         outbox_by_state: dict[str, int] = {}
-        for r in conn.execute(
-            "SELECT state, COUNT(*) AS n FROM outbox GROUP BY state"
-        ).fetchall():
+        for r in conn.execute("SELECT state, COUNT(*) AS n FROM outbox GROUP BY state").fetchall():
             outbox_by_state[r["state"]] = r["n"]
 
         # Active and expired leases.
@@ -245,9 +237,7 @@ def collect_status(
         ).fetchone()["n"]
 
         # Blob count.
-        blob_count = conn.execute(
-            "SELECT COUNT(*) AS n FROM runtime_blobs"
-        ).fetchone()["n"]
+        blob_count = conn.execute("SELECT COUNT(*) AS n FROM runtime_blobs").fetchone()["n"]
 
         # Database size (page_count * page_size).
         db_size = 0
@@ -380,20 +370,16 @@ def collect_metrics_text(
             cid = child.get("id", "unknown")
             lines.append(
                 f'miniunicorn_runtime_child_restarts_in_window{{child="{cid}"}} '
-                f'{child.get("restarts_in_window", 0)}'
+                f"{child.get('restarts_in_window', 0)}"
             )
 
     # Tasks by state.
     for state, count in sorted(status.tasks_by_state.items()):
-        lines.append(
-            f'miniunicorn_runtime_tasks_by_state{{state="{state}"}} {count}'
-        )
+        lines.append(f'miniunicorn_runtime_tasks_by_state{{state="{state}"}} {count}')
 
     # Outbox by state.
     for state, count in sorted(status.outbox_by_state.items()):
-        lines.append(
-            f'miniunicorn_runtime_outbox_by_state{{state="{state}"}} {count}'
-        )
+        lines.append(f'miniunicorn_runtime_outbox_by_state{{state="{state}"}} {count}')
 
     # Recovery metrics counters (Task 14 Step 7). Cumulative since
     # process start; no labels carry task IDs, session content, user
@@ -415,20 +401,14 @@ def collect_metrics_text(
     # Aggregate supervisor restarts in window (Task 14 Step 7).
     if snap.get("children"):
         total_restarts = sum(
-            c.get("restarts_in_window", 0)
-            for c in snap["children"]
-            if c.get("role") == "worker"
+            c.get("restarts_in_window", 0) for c in snap["children"] if c.get("role") == "worker"
         )
         lines.append(
             "# HELP miniunicorn_runtime_supervisor_restarts_in_window "
             "Total worker restarts in the rolling window"
         )
-        lines.append(
-            "# TYPE miniunicorn_runtime_supervisor_restarts_in_window gauge"
-        )
-        lines.append(
-            f"miniunicorn_runtime_supervisor_restarts_in_window {total_restarts}"
-        )
+        lines.append("# TYPE miniunicorn_runtime_supervisor_restarts_in_window gauge")
+        lines.append(f"miniunicorn_runtime_supervisor_restarts_in_window {total_restarts}")
 
     return "\n".join(lines) + "\n"
 

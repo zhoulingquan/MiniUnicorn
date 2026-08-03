@@ -168,7 +168,9 @@ class TestProviderAttemptObserver:
                 provider_name="p", model_name="m", request_hash="h", started_at_ms=1
             )
         )
-        await observer.completed(aid, ProviderAttemptCompleted(response_blob_id="b", response_hash="r"))
+        await observer.completed(
+            aid, ProviderAttemptCompleted(response_blob_id="b", response_hash="r")
+        )
         await observer.failed(aid, ProviderAttemptFailed(error_code="E", error_summary="s"))
         # No exception means success; the null observer must never raise.
 
@@ -311,6 +313,7 @@ class TestToolGateway:
         runtime = TurnRuntime(turn_id="t1", session_key="wp4-session", task_id=claim.task_id)
         token = bind_turn_runtime(runtime)
         try:
+
             class _BoomTool(_StubTool):
                 async def execute(self, **kwargs: Any) -> Any:
                     self.invocations += 1
@@ -376,6 +379,7 @@ class TestToolGateway:
         runtime = TurnRuntime(turn_id="t1", session_key="wp4-session", task_id=claim.task_id)
         token = bind_turn_runtime(runtime)
         try:
+
             class _BoomEffectTool(_StubTool):
                 async def execute(self, **kwargs: Any) -> Any:
                     self.invocations += 1
@@ -584,9 +588,24 @@ class TestToolGatewayRecoveryMatrix:
         "existing_state,policy_kwargs,expected_state,expected_invocations",
         [
             ("SUCCEEDED", {}, "SUCCEEDED", 0),
-            ("FAILED", {"idempotency_mode": "REPLAY_SAFE", "recovery_policy": "REPLAY"}, "SUCCEEDED", 1),
-            ("RUNNING", {"idempotency_mode": "NATIVE_KEY", "recovery_policy": "REUSE_RESULT"}, "SUCCEEDED", 1),
-            ("RUNNING", {"idempotency_mode": "NONE", "recovery_policy": "MANUAL"}, "OUTCOME_UNKNOWN", 0),
+            (
+                "FAILED",
+                {"idempotency_mode": "REPLAY_SAFE", "recovery_policy": "REPLAY"},
+                "SUCCEEDED",
+                1,
+            ),
+            (
+                "RUNNING",
+                {"idempotency_mode": "NATIVE_KEY", "recovery_policy": "REUSE_RESULT"},
+                "SUCCEEDED",
+                1,
+            ),
+            (
+                "RUNNING",
+                {"idempotency_mode": "NONE", "recovery_policy": "MANUAL"},
+                "OUTCOME_UNKNOWN",
+                0,
+            ),
             ("OUTCOME_UNKNOWN", {}, "OUTCOME_UNKNOWN", 0),
             ("WAITING_APPROVAL", {}, "WAITING_APPROVAL", 0),
             ("REJECTED", {}, "REJECTED", 0),
@@ -661,8 +680,7 @@ class TestToolGatewayRecoveryMatrix:
             result = await gateway.execute(request)
 
             assert result.state == expected_state, (
-                f"state={result.state!r} expected={expected_state!r} "
-                f"existing={existing_state!r}"
+                f"state={result.state!r} expected={expected_state!r} existing={existing_state!r}"
             )
             assert tool.execute.await_count == expected_invocations, (
                 f"await_count={tool.execute.await_count} expected={expected_invocations} "
@@ -774,8 +792,7 @@ class TestSubagentEffectRecovery:
             # Exactly one external effect — the tool ran once, the crash
             # happened after, and the gateway must not auto-replay.
             assert tool.invocations == 1, (
-                f"expected exactly 1 invocation (one external effect), "
-                f"got {tool.invocations}"
+                f"expected exactly 1 invocation (one external effect), got {tool.invocations}"
             )
             assert len(crash_calls) == 1, (
                 f"expected exactly 1 crash injection, got {len(crash_calls)}"
@@ -793,8 +810,7 @@ class TestSubagentEffectRecovery:
                 (claim.task_id,),
             ).fetchall()
             assert rows, (
-                "expected at least one OUTCOME_UNKNOWN tool_calls row for the "
-                "derived subagent call"
+                "expected at least one OUTCOME_UNKNOWN tool_calls row for the derived subagent call"
             )
 
             # Task must be in WAITING_USER for manual recovery.
@@ -1109,14 +1125,18 @@ class TestContainmentScope:
                 # Spawn a long-sleeping child process.
                 if sys.platform == "win32":
                     proc = await asyncio.create_subprocess_exec(
-                        "ping", "-n", "60", "127.0.0.1",
+                        "ping",
+                        "-n",
+                        "60",
+                        "127.0.0.1",
                         stdout=asyncio.subprocess.DEVNULL,
                         stderr=asyncio.subprocess.DEVNULL,
                         creationflags=0x00000200,  # CREATE_NEW_PROCESS_GROUP
                     )
                 else:
                     proc = await asyncio.create_subprocess_exec(
-                        "sleep", "60",
+                        "sleep",
+                        "60",
                         stdout=asyncio.subprocess.DEVNULL,
                         stderr=asyncio.subprocess.DEVNULL,
                         start_new_session=True,
@@ -1193,13 +1213,17 @@ class TestContainmentScope:
                 # Spawn the child process.
                 if sys.platform == "win32":
                     proc = await asyncio.create_subprocess_exec(
-                        sys.executable, "-c", child_script,
+                        sys.executable,
+                        "-c",
+                        child_script,
                         stdout=asyncio.subprocess.DEVNULL,
                         stderr=asyncio.subprocess.DEVNULL,
                     )
                 else:
                     proc = await asyncio.create_subprocess_exec(
-                        sys.executable, "-c", child_script,
+                        sys.executable,
+                        "-c",
+                        child_script,
                         stdout=asyncio.subprocess.DEVNULL,
                         stderr=asyncio.subprocess.DEVNULL,
                         start_new_session=True,
@@ -1296,9 +1320,7 @@ class TestProviderAttemptBeginIdempotency:
             second = store.begin_model_attempt(claim, value)
             assert second == first
             events = [
-                e
-                for e in store.list_events(claim.task_id)
-                if e.event_type == "MODEL_STARTED"
+                e for e in store.list_events(claim.task_id) if e.event_type == "MODEL_STARTED"
             ]
             assert len(events) == 1
         finally:
@@ -1339,9 +1361,7 @@ class TestProviderAttemptBeginIdempotency:
 
             # Exactly one MODEL_STARTED event for this logical call.
             events = [
-                e
-                for e in store.list_events(claim.task_id)
-                if e.event_type == "MODEL_STARTED"
+                e for e in store.list_events(claim.task_id) if e.event_type == "MODEL_STARTED"
             ]
             assert len(events) == 1
         finally:
@@ -1453,9 +1473,7 @@ class TestProviderAttemptBeginIdempotency:
 
             # Exactly one MODEL_STARTED per logical call (2 total).
             started_events = [
-                e
-                for e in store.list_events(claim.task_id)
-                if e.event_type == "MODEL_STARTED"
+                e for e in store.list_events(claim.task_id) if e.event_type == "MODEL_STARTED"
             ]
             assert len(started_events) == 2
         finally:

@@ -63,9 +63,7 @@ def test_success_record_carries_turn_and_session_ids() -> None:
     runtime.llm_calls.append(
         LlmCallMetric(iteration=0, duration_ms=320.5, usage={"prompt_tokens": 40})
     )
-    runtime.tool_calls.append(
-        ToolCallMetric(name="read_file", duration_ms=15.0, status="ok")
-    )
+    runtime.tool_calls.append(ToolCallMetric(name="read_file", duration_ms=15.0, status="ok"))
 
     record = build_turn_telemetry(runtime)
 

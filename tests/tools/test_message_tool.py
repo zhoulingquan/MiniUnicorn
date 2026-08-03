@@ -334,7 +334,9 @@ async def test_message_tool_tracks_turn_media_for_same_target(tmp_path) -> None:
     f = tmp_path / "doc.md"
     f.write_text("hello", encoding="utf-8")
     with bind_fake_outbound(_send):
-        await tool.execute(content="see file", channel="websocket", chat_id="chat-1", media=[str(f)])
+        await tool.execute(
+            content="see file", channel="websocket", chat_id="chat-1", media=[str(f)]
+        )
 
     assert tool.turn_delivered_media_paths() == [str(f.resolve())]
 

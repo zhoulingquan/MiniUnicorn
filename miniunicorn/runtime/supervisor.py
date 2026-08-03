@@ -204,8 +204,8 @@ class Supervisor:
         # Bounded so a saturated transient relay never blocks readiness, restart,
         # or wake-hint handling. The relay thread is the only writer to the
         # Control Plane child's parent pipe end.
-        self._control_relay_queue: _queue_mod.Queue[IpcEnvelope | None] = (
-            _queue_mod.Queue(maxsize=1024)
+        self._control_relay_queue: _queue_mod.Queue[IpcEnvelope | None] = _queue_mod.Queue(
+            maxsize=1024
         )
         self._relay_thread: threading.Thread | None = None
         self._relay_dropped_events = 0
@@ -244,17 +244,13 @@ class Supervisor:
         if control is None or not control.ready or not _is_alive(control):
             return False
         ready_workers = sum(
-            1
-            for r in self._children.values()
-            if r.role == "worker" and r.ready and _is_alive(r)
+            1 for r in self._children.values() if r.role == "worker" and r.ready and _is_alive(r)
         )
         return ready_workers >= self._min_workers
 
     def ready_workers(self) -> int:
         return sum(
-            1
-            for r in self._children.values()
-            if r.role == "worker" and r.ready and _is_alive(r)
+            1 for r in self._children.values() if r.role == "worker" and r.ready and _is_alive(r)
         )
 
     def snapshot(self) -> dict[str, Any]:
@@ -328,9 +324,7 @@ class Supervisor:
         self._start_relay_thread()
         # Spawn Workers only after the Control Plane is ready.
         for i in range(self._worker_count):
-            self._start_child_instance(
-                self._create_child_record("worker", f"worker-{i}")
-            )
+            self._start_child_instance(self._create_child_record("worker", f"worker-{i}"))
         # Wait for combined readiness.
         self._await_readiness()
 
@@ -434,9 +428,7 @@ class Supervisor:
         pickle on Windows.
         """
         entrypoint = (
-            self._control_entrypoint
-            if record.role == "control"
-            else self._worker_entrypoint
+            self._control_entrypoint if record.role == "control" else self._worker_entrypoint
         )
         return self._ctx.Process(
             target=_child_trampoline,
@@ -688,9 +680,7 @@ class Supervisor:
             proc = record.process
             if proc is not None and proc.is_alive():
                 try:
-                    record.channel.parent_send(
-                        shutdown_signal("supervisor", grace_s=grace)
-                    )
+                    record.channel.parent_send(shutdown_signal("supervisor", grace_s=grace))
                 except Exception:  # noqa: BLE001
                     pass
 
@@ -806,9 +796,7 @@ def _child_trampoline(
         channel = ProcessIpcChannel(parent_end=ipc_child_end, child_end=ipc_child_end)
 
         def _ready_signal(role_tag: str) -> None:
-            channel.child_send(
-                child_ready(instance_id, role=role_tag, id_=child_id)
-            )
+            channel.child_send(child_ready(instance_id, role=role_tag, id_=child_id))
 
         return int(
             entrypoint(

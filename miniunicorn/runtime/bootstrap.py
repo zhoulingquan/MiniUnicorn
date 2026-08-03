@@ -281,6 +281,7 @@ def _wire_maintenance_callbacks(
 
     # --- CronService callbacks ---
     if cron_service is not None:
+
         async def _system_enqueue_callback(job: Any) -> str | None:
             """Enqueue a durable maintenance task for a system_event cron job."""
             name_lower = (job.name or "").lower()
@@ -324,9 +325,7 @@ def _wire_maintenance_callbacks(
                 scope=scope,
                 target_key=chat_id,
             )
-            envelope = build_inbound_envelope(
-                request, now_ms=int(_time.time() * 1000)
-            )
+            envelope = build_inbound_envelope(request, now_ms=int(_time.time() * 1000))
             handle = await task_service.submit(envelope)
             return handle.task_id
 
@@ -334,6 +333,7 @@ def _wire_maintenance_callbacks(
 
     # --- DreamIdleTrigger enqueue_callback ---
     if agent is not None and hasattr(agent, "dream_idle_trigger"):
+
         async def _dream_enqueue_callback(source_revision: str) -> str | None:
             """Enqueue a durable DREAM task (design §22.3)."""
             return await enqueue_maintenance(
@@ -409,9 +409,7 @@ def build_lightweight_runtime(
     session_committer = SessionCommitter(store, sessions)
     tool_gateway = ToolGateway(agent.tools, store, store)
     journal = DurableTurnJournalAdapter(store, store)
-    realtime = RealtimeSubscriptionHub(
-        capacity=resolved.realtime_event_queue_capacity
-    )
+    realtime = RealtimeSubscriptionHub(capacity=resolved.realtime_event_queue_capacity)
 
     def _outbound_factory(task_id: str) -> Any:
         return DurableMessageDelivery(task_id)
@@ -608,9 +606,7 @@ def build_control_plane_runtime(
     resolved = resolve_runtime_paths(config.runtime, config.workspace_path)
     store = SqliteRuntimeStore(connection)
 
-    realtime = RealtimeSubscriptionHub(
-        capacity=resolved.realtime_event_queue_capacity
-    )
+    realtime = RealtimeSubscriptionHub(capacity=resolved.realtime_event_queue_capacity)
     task_service = TaskService(store)
 
     # Channels (Task 9): the Control Plane owns the ChannelManager so

@@ -222,9 +222,7 @@ class TestLightweightCrashRecovery:
         )
         await host2.start()
         try:
-            snapshot = await host2.task_service.wait_terminal(
-                scope, handle.task_id, timeout_s=10.0
-            )
+            snapshot = await host2.task_service.wait_terminal(scope, handle.task_id, timeout_s=10.0)
             assert snapshot.state == "COMPLETED", (
                 f"task should complete after recovery, got {snapshot.state}"
             )
@@ -272,8 +270,11 @@ class TestFaultInjectionBoundaries:
         injector.raise_at("after_task_claim", _CrashException("crash after claim"))
 
         host = _build_lightweight_host(
-            store, session_manager, callback,
-            lease_ms=2_000, heartbeat_interval_s=0.5,
+            store,
+            session_manager,
+            callback,
+            lease_ms=2_000,
+            heartbeat_interval_s=0.5,
             fault_hook=injector.hook,
         )
         await host.start()
@@ -289,9 +290,7 @@ class TestFaultInjectionBoundaries:
         # The task should be in RUNNING or FAILED state (not COMPLETED).
         task = store.read_task(handle.task_id)
         assert task is not None
-        assert task.state != "COMPLETED", (
-            "task should not complete after crash at after_task_claim"
-        )
+        assert task.state != "COMPLETED", "task should not complete after crash at after_task_claim"
         # The Provider should not have been called.
         assert callback.effect_count == 0
 
@@ -320,13 +319,18 @@ class TestFaultInjectionBoundaries:
         injector.raise_at("after_session_prepare", _CrashException("crash after inbound"))
 
         host = _build_lightweight_host(
-            store, session_manager, callback,
-            lease_ms=2_000, heartbeat_interval_s=0.5,
+            store,
+            session_manager,
+            callback,
+            lease_ms=2_000,
+            heartbeat_interval_s=0.5,
             fault_hook=injector.hook,
         )
         await host.start()
         try:
-            envelope = _make_envelope(scope, content="inbound-crash", session_key="inbound-crash-session")
+            envelope = _make_envelope(
+                scope, content="inbound-crash", session_key="inbound-crash-session"
+            )
             _handle = await host.task_service.submit(envelope)
             await asyncio.sleep(0.5)
         finally:
@@ -365,13 +369,18 @@ class TestFaultInjectionBoundaries:
         injector.raise_at("after_outbox_enqueue", _CrashException("crash after enqueue"))
 
         host = _build_lightweight_host(
-            store, session_manager, callback,
-            lease_ms=10_000, heartbeat_interval_s=2.0,
+            store,
+            session_manager,
+            callback,
+            lease_ms=10_000,
+            heartbeat_interval_s=2.0,
             fault_hook=injector.hook,
         )
         await host.start()
         try:
-            envelope = _make_envelope(scope, content="enqueue-crash", session_key="enqueue-crash-session")
+            envelope = _make_envelope(
+                scope, content="enqueue-crash", session_key="enqueue-crash-session"
+            )
             handle = await host.task_service.submit(envelope)
             await asyncio.sleep(1.0)
         finally:
@@ -386,7 +395,9 @@ class TestFaultInjectionBoundaries:
 
         # The Outbox row should exist with the correct content.
         facts = collect_durable_facts(
-            store, handle.task_id, "enqueue-crash-session",
+            store,
+            handle.task_id,
+            "enqueue-crash-session",
             session_manager=session_manager,
         )
         assert len(facts["outbox"]) == 1
@@ -502,9 +513,7 @@ class TestSupervisedWorkerKillRecovery:
                         scope=scope,
                         target_key="direct",
                     )
-                    envelope = build_inbound_envelope(
-                        request, now_ms=int(time.time() * 1000)
-                    )
+                    envelope = build_inbound_envelope(request, now_ms=int(time.time() * 1000))
                     handle = await task_service.submit(envelope)
 
                     # Resolve the real lease-owning Worker from durable
@@ -519,15 +528,11 @@ class TestSupervisedWorkerKillRecovery:
                     assert task.leased_by == owner
 
                     # Terminate the exact Worker that holds the lease.
-                    killed_pid = terminate_worker(
-                        resources.host.supervisor, owner
-                    )
+                    killed_pid = terminate_worker(resources.host.supervisor, owner)
                     assert killed_pid > 0
 
                     # Wait for the task to complete (recovered by another Worker).
-                    snapshot = await task_service.wait_terminal(
-                        scope, handle.task_id, timeout_s=45
-                    )
+                    snapshot = await task_service.wait_terminal(scope, handle.task_id, timeout_s=45)
                     assert snapshot.state == "COMPLETED", (
                         f"task should recover after Worker kill, got {snapshot.state}"
                     )
@@ -538,8 +543,7 @@ class TestSupervisedWorkerKillRecovery:
                     # root_attempt_count >= 2: the original attempt plus at
                     # least one recovery attempt after lease expiry.
                     assert final_task.root_attempt_count >= 2, (
-                        f"expected >=2 root attempts, got "
-                        f"{final_task.root_attempt_count}"
+                        f"expected >=2 root attempts, got {final_task.root_attempt_count}"
                     )
                     # The Provider was called at most twice: once before
                     # the kill (may not have completed) and once during
@@ -552,13 +556,11 @@ class TestSupervisedWorkerKillRecovery:
                     # One logical Provider decision: exactly one COMPLETED
                     # model attempt for this task.
                     completed_attempts = test_conn.execute(
-                        "SELECT COUNT(*) FROM model_attempts "
-                        "WHERE task_id=? AND state='COMPLETED'",
+                        "SELECT COUNT(*) FROM model_attempts WHERE task_id=? AND state='COMPLETED'",
                         (handle.task_id,),
                     ).fetchone()[0]
                     assert completed_attempts == 1, (
-                        f"expected exactly 1 COMPLETED model attempt, "
-                        f"got {completed_attempts}"
+                        f"expected exactly 1 COMPLETED model attempt, got {completed_attempts}"
                     )
 
                     # No duplicate terminal/final-reply effect: exactly one

@@ -79,9 +79,7 @@ class TestAliasHandling:
 
 class TestCrossFieldValidation:
     def test_heartbeat_less_than_lease_third(self) -> None:
-        cfg = parse_runtime_config(
-            {"heartbeatIntervalS": 15, "leaseTimeoutS": 60}
-        )
+        cfg = parse_runtime_config({"heartbeatIntervalS": 15, "leaseTimeoutS": 60})
         assert cfg.heartbeat_interval_s == 15
         assert cfg.lease_timeout_s == 60
 
@@ -92,9 +90,7 @@ class TestCrossFieldValidation:
 
     def test_progress_timeout_exceeds_heartbeat(self) -> None:
         with pytest.raises((ValueError, ValidationError), match="progress timeout"):
-            parse_runtime_config(
-                {"progressTimeoutS": 10, "heartbeatIntervalS": 15}
-            )
+            parse_runtime_config({"progressTimeoutS": 10, "heartbeatIntervalS": 15})
 
     def test_queue_poll_max_below_lease_scan(self) -> None:
         with pytest.raises((ValueError, ValidationError), match="queue poll"):

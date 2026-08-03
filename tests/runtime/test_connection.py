@@ -44,9 +44,7 @@ class TestBusyTimeoutPragma:
         conn.close()
 
     def test_custom_busy_timeout(self, tmp_path: Path) -> None:
-        conn = open_connection(
-            tmp_path / "runtime.sqlite", busy_timeout_ms=10_000
-        )
+        conn = open_connection(tmp_path / "runtime.sqlite", busy_timeout_ms=10_000)
         assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == 10_000
         conn.close()
 

@@ -201,9 +201,7 @@ TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
     # LEASED -> FAILED is permitted by the reaper when the root attempt
     # budget is exhausted during lease reclaim (design §24.2 step 5).
     "LEASED": frozenset({"RUNNING", "QUEUED", "FAILED", "CANCELLED"}),
-    "RUNNING": frozenset(
-        {"COMPLETED", "RETRY_WAIT", "WAITING_USER", "FAILED", "CANCELLED"}
-    ),
+    "RUNNING": frozenset({"COMPLETED", "RETRY_WAIT", "WAITING_USER", "FAILED", "CANCELLED"}),
     "RETRY_WAIT": frozenset({"QUEUED", "CANCELLED", "FAILED"}),
     "WAITING_USER": frozenset({"QUEUED", "CANCELLED", "FAILED"}),
     "COMPLETED": frozenset(),

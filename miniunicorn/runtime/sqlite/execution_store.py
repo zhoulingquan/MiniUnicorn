@@ -140,13 +140,10 @@ class ExecutionStoreMixin:
         checkpoint_id = cp_row["checkpoint_id"] if cp_row is not None else None
 
         sc_row = self._conn.execute(
-            "SELECT base_revision FROM session_commits "
-            "WHERE task_id=? AND commit_kind='INBOUND'",
+            "SELECT base_revision FROM session_commits WHERE task_id=? AND commit_kind='INBOUND'",
             (task_id,),
         ).fetchone()
-        session_base_revision = (
-            sc_row["base_revision"] if sc_row is not None else 0
-        )
+        session_base_revision = sc_row["base_revision"] if sc_row is not None else 0
 
         completed_models = self.list_completed_models(task_id)
         completed_tools = self.list_completed_tools(task_id)
@@ -163,9 +160,7 @@ class ExecutionStoreMixin:
             payload_hash=task_row["payload_hash"],
         )
 
-    def list_completed_models(
-        self, task_id: str
-    ) -> tuple[CompletedModelDecision, ...]:
+    def list_completed_models(self, task_id: str) -> tuple[CompletedModelDecision, ...]:
         """Return all completed model attempts for ``task_id`` ordered by start."""
         rows = self._conn.execute(
             "SELECT * FROM model_attempts "
@@ -175,9 +170,7 @@ class ExecutionStoreMixin:
         ).fetchall()
         return tuple(_row_to_model_attempt(r) for r in rows)
 
-    def list_completed_tools(
-        self, task_id: str
-    ) -> tuple[CompletedToolDecision, ...]:
+    def list_completed_tools(self, task_id: str) -> tuple[CompletedToolDecision, ...]:
         """Return completed tool calls for ``task_id`` ordered by creation."""
         rows = self._conn.execute(
             "SELECT * FROM tool_calls "
@@ -187,9 +180,7 @@ class ExecutionStoreMixin:
         ).fetchall()
         return tuple(_row_to_completed_tool_decision(r) for r in rows)
 
-    def read_tool_call(
-        self, task_id: str, tool_call_id: str
-    ) -> ToolCallRecord | None:
+    def read_tool_call(self, task_id: str, tool_call_id: str) -> ToolCallRecord | None:
         """Read a single logical tool call by id (Task 6 Step 3).
 
         Used by :class:`ToolGateway._check_existing_call` to decide
@@ -220,9 +211,7 @@ class ExecutionStoreMixin:
         except (json.JSONDecodeError, ValueError):
             return text
 
-    def begin_model_attempt(
-        self, claim: TaskClaim, value: ModelAttemptWrite
-    ) -> str:
+    def begin_model_attempt(self, claim: TaskClaim, value: ModelAttemptWrite) -> str:
         """Durable-record the start of a Provider attempt (design §17.5, §19.4).
 
         The ``(task_id, logical_call_id, attempt_no)`` triple is the
@@ -402,9 +391,7 @@ class ExecutionStoreMixin:
             self._conn.execute("ROLLBACK")
             raise
 
-    def prepare_tool_call(
-        self, claim: TaskClaim, value: PreparedToolWrite
-    ) -> ToolCallRecord:
+    def prepare_tool_call(self, claim: TaskClaim, value: PreparedToolWrite) -> ToolCallRecord:
         """Insert a logical tool call (idempotent) (design §17.6, §20)."""
         self._conn.execute("BEGIN IMMEDIATE")
         try:
@@ -419,9 +406,7 @@ class ExecutionStoreMixin:
                 self._conn.execute("COMMIT")
                 return _row_to_tool_call(existing)
 
-            initial_state = (
-                "WAITING_APPROVAL" if value.approval_policy == "ALWAYS" else "PREPARED"
-            )
+            initial_state = "WAITING_APPROVAL" if value.approval_policy == "ALWAYS" else "PREPARED"
             self._conn.execute(
                 """
                 INSERT OR IGNORE INTO tool_calls (
@@ -476,9 +461,7 @@ class ExecutionStoreMixin:
         assert row is not None
         return _row_to_tool_call(row)
 
-    def begin_tool_attempt(
-        self, claim: TaskClaim, value: ToolAttemptWrite
-    ) -> ToolAttemptRecord:
+    def begin_tool_attempt(self, claim: TaskClaim, value: ToolAttemptWrite) -> ToolAttemptRecord:
         """Durable-record the start of a tool invocation attempt (design §17.6)."""
         tool_attempt_id = value.tool_attempt_id or _new_uuid()
         self._conn.execute("BEGIN IMMEDIATE")
@@ -687,9 +670,7 @@ class ExecutionStoreMixin:
         ).fetchall()
         return [_row_to_control(r) for r in rows]
 
-    def acknowledge_control(
-        self, claim: TaskClaim, outcome: ControlOutcomeWrite
-    ) -> None:
+    def acknowledge_control(self, claim: TaskClaim, outcome: ControlOutcomeWrite) -> None:
         """Apply a control outcome and advance ``control_cursor`` (design §17.12)."""
         now_ms = outcome.applied_at_ms or _now_ms()
         self._conn.execute("BEGIN IMMEDIATE")

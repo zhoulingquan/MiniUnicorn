@@ -144,9 +144,7 @@ class AgentLoopBuilder:
         self._kwargs["embedding_model"] = embedding_model
         return self
 
-    def with_vector_memory_factory(
-        self, vector_memory_factory: Any | None
-    ) -> AgentLoopBuilder:
+    def with_vector_memory_factory(self, vector_memory_factory: Any | None) -> AgentLoopBuilder:
         """Inject the Runtime-owned vector memory factory (design §22.2).
 
         Production wiring passes

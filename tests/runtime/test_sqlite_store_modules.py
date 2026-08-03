@@ -85,40 +85,73 @@ class TestSqliteStoreFacadeIdentity:
         """Every protocol-required method is present on the façade class."""
         required = {
             # TaskIngressStore
-            "submit_task", "submit_internal", "append_control",
-            "read_task", "read_task_snapshot", "read_final_reply",
+            "submit_task",
+            "submit_internal",
+            "append_control",
+            "read_task",
+            "read_task_snapshot",
+            "read_final_reply",
             # WorkerLedger
-            "claim_next", "mark_running", "renew_lease", "heartbeat",
-            "checkpoint", "record_progress", "enter_retry_wait",
-            "enter_waiting_user", "fail_task", "cancel_task",
-            "complete_with_outbox", "complete_internal",
-            "promote_due_retries", "reclaim_expired",
+            "claim_next",
+            "mark_running",
+            "renew_lease",
+            "heartbeat",
+            "checkpoint",
+            "record_progress",
+            "enter_retry_wait",
+            "enter_waiting_user",
+            "fail_task",
+            "cancel_task",
+            "complete_with_outbox",
+            "complete_internal",
+            "promote_due_retries",
+            "reclaim_expired",
             # ExecutionJournal
-            "load_restore_point", "list_completed_models",
-            "list_completed_tools", "begin_model_attempt",
-            "finish_model_attempt", "fail_model_attempt",
-            "prepare_tool_call", "begin_tool_attempt",
-            "finish_tool_attempt", "mark_tool_unknown",
-            "read_tool_call", "read_tool_result_content",
-            "list_pending_controls", "acknowledge_control",
+            "load_restore_point",
+            "list_completed_models",
+            "list_completed_tools",
+            "begin_model_attempt",
+            "finish_model_attempt",
+            "fail_model_attempt",
+            "prepare_tool_call",
+            "begin_tool_attempt",
+            "finish_tool_attempt",
+            "mark_tool_unknown",
+            "read_tool_call",
+            "read_tool_result_content",
+            "list_pending_controls",
+            "acknowledge_control",
             # SessionCommitLedger
-            "prepare_session_commit", "confirm_session_commit",
-            "mark_session_conflict", "read_session_commit",
+            "prepare_session_commit",
+            "confirm_session_commit",
+            "mark_session_conflict",
+            "read_session_commit",
             # DeliveryLedger
-            "claim_next_delivery", "renew_delivery_lease",
-            "mark_delivered", "retry_delivery", "fail_delivery",
-            "resolve_unknown_delivery", "claim_expired_deliveries",
-            "mark_delivery_outcome_unknown", "read_outbox_record",
+            "claim_next_delivery",
+            "renew_delivery_lease",
+            "mark_delivered",
+            "retry_delivery",
+            "fail_delivery",
+            "resolve_unknown_delivery",
+            "claim_expired_deliveries",
+            "mark_delivery_outcome_unknown",
+            "read_outbox_record",
             # ResourceLedger
-            "acquire_resource", "renew_resource",
-            "release_resource", "read_resource_lease",
+            "acquire_resource",
+            "renew_resource",
+            "release_resource",
+            "read_resource_lease",
             # MaintenanceLedger
-            "list_retention_batch", "delete_retention_batch",
-            "list_unreferenced_blobs", "delete_unreferenced_blobs",
+            "list_retention_batch",
+            "delete_retention_batch",
+            "list_unreferenced_blobs",
+            "delete_unreferenced_blobs",
             # DurableEventLog
             "list_events",
             # BlobStore
-            "write_blob", "read_blob", "read_blob_content",
+            "write_blob",
+            "read_blob",
+            "read_blob_content",
         }
         missing = {name for name in required if not hasattr(direct_store, name)}
         assert not missing, f"façade missing methods: {sorted(missing)}"
@@ -181,9 +214,7 @@ def _claim_and_run(
 ) -> Any:
     env = make_inbound_envelope(scope, channel_message_id=channel_message_id)
     store.submit_task(env)
-    result = store.claim_next(
-        ClaimRequest(worker_id="w-1", now_ms=now_ms, lease_ms=60_000)
-    )
+    result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=now_ms, lease_ms=60_000))
     assert result.claimed is not None
     store.mark_running(result.claimed.claim, now_ms=now_ms + 1)
     return result.claimed.claim
@@ -206,9 +237,7 @@ class TestTransactionBoundaryCharacterization:
         # submit_task writes the payload blob (1 txn) then inserts the
         # task row (1 txn). Both are BEGIN IMMEDIATE + COMMIT, no ROLLBACK.
         store, collector = traced
-        env = make_inbound_envelope(
-            sample_scope, channel_message_id="trace-submit-1"
-        )
+        env = make_inbound_envelope(sample_scope, channel_message_id="trace-submit-1")
         collector.clear()
         store.submit_task(env)
         assert _txn_summary(collector) == _TWO_TXN
@@ -220,14 +249,10 @@ class TestTransactionBoundaryCharacterization:
         make_inbound_envelope: Any,
     ) -> None:
         store, collector = traced
-        env = make_inbound_envelope(
-            sample_scope, channel_message_id="trace-claim-1"
-        )
+        env = make_inbound_envelope(sample_scope, channel_message_id="trace-claim-1")
         store.submit_task(env)
         collector.clear()
-        store.claim_next(
-            ClaimRequest(worker_id="w-2", now_ms=1_000_000, lease_ms=60_000)
-        )
+        store.claim_next(ClaimRequest(worker_id="w-2", now_ms=1_000_000, lease_ms=60_000))
         assert _txn_summary(collector) == _ONE_TXN
 
     def test_complete_with_outbox_one_transaction(
@@ -238,7 +263,9 @@ class TestTransactionBoundaryCharacterization:
     ) -> None:
         store, collector = traced
         claim = _claim_and_run(
-            store, sample_scope, make_inbound_envelope,
+            store,
+            sample_scope,
+            make_inbound_envelope,
             channel_message_id="trace-complete-1",
         )
         collector.clear()
@@ -262,7 +289,9 @@ class TestTransactionBoundaryCharacterization:
     ) -> None:
         store, collector = traced
         claim = _claim_and_run(
-            store, sample_scope, make_inbound_envelope,
+            store,
+            sample_scope,
+            make_inbound_envelope,
             channel_message_id="trace-session-1",
         )
         write = SessionCommitWrite(
@@ -291,7 +320,9 @@ class TestTransactionBoundaryCharacterization:
     ) -> None:
         store, collector = traced
         claim = _claim_and_run(
-            store, sample_scope, make_inbound_envelope,
+            store,
+            sample_scope,
+            make_inbound_envelope,
             channel_message_id="trace-tool-1",
         )
         args_bytes = json.dumps({"path": "/x"}, sort_keys=True).encode("utf-8")
@@ -353,7 +384,9 @@ class TestTransactionBoundaryCharacterization:
     ) -> None:
         store, collector = traced
         claim = _claim_and_run(
-            store, sample_scope, make_inbound_envelope,
+            store,
+            sample_scope,
+            make_inbound_envelope,
             channel_message_id="trace-outbox-1",
         )
         # A real final-reply blob + routing fields create an outbox row.
@@ -386,9 +419,7 @@ class TestTransactionBoundaryCharacterization:
         )
 
         collector.clear()
-        delivery = store.claim_next_delivery(
-            "sender-1", now_ms=1_000_003, lease_ms=60_000
-        )
+        delivery = store.claim_next_delivery("sender-1", now_ms=1_000_003, lease_ms=60_000)
         assert delivery is not None
         assert _txn_summary(collector) == _ONE_TXN
 

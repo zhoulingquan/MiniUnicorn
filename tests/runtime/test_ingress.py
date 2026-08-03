@@ -31,9 +31,7 @@ class TestSubmitTask:
         assert result.task_id
         assert result.session_sequence == 0
 
-    def test_task_is_queued_after_submit(
-        self, store, sample_scope, make_inbound_envelope
-    ) -> None:
+    def test_task_is_queued_after_submit(self, store, sample_scope, make_inbound_envelope) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-1")
         result = store.submit_task(env)
         task = store.read_task(result.task_id)
@@ -45,9 +43,7 @@ class TestSubmitTask:
         assert task.root_attempt_count == 0
         assert task.recovery_pending == 0
 
-    def test_task_accepted_event_appended(
-        self, store, sample_scope, make_inbound_envelope
-    ) -> None:
+    def test_task_accepted_event_appended(self, store, sample_scope, make_inbound_envelope) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-1")
         result = store.submit_task(env)
         events = store.list_events(result.task_id)
@@ -55,9 +51,7 @@ class TestSubmitTask:
         assert events[0].event_type == "TASK_ACCEPTED"
         assert events[0].phase == "ACCEPTED"
 
-    def test_payload_blob_created(
-        self, store, sample_scope, make_inbound_envelope
-    ) -> None:
+    def test_payload_blob_created(self, store, sample_scope, make_inbound_envelope) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-1")
         result = store.submit_task(env)
         task = store.read_task(result.task_id)
@@ -67,12 +61,8 @@ class TestSubmitTask:
         assert blob.blob_kind == "TASK_PAYLOAD"
         assert blob.content_hash == env.payload_hash
 
-    def test_turn_id_stored(
-        self, store, sample_scope, make_inbound_envelope
-    ) -> None:
-        env = make_inbound_envelope(
-            sample_scope, channel_message_id="msg-1", turn_id="turn-abc"
-        )
+    def test_turn_id_stored(self, store, sample_scope, make_inbound_envelope) -> None:
+        env = make_inbound_envelope(sample_scope, channel_message_id="msg-1", turn_id="turn-abc")
         result = store.submit_task(env)
         task = store.read_task(result.task_id)
         assert task is not None
@@ -85,9 +75,7 @@ class TestSubmitTask:
 
 
 class TestDuplicateInbound:
-    def test_duplicate_channel_message_id(
-        self, store, sample_scope, make_inbound_envelope
-    ) -> None:
+    def test_duplicate_channel_message_id(self, store, sample_scope, make_inbound_envelope) -> None:
         env1 = make_inbound_envelope(sample_scope, channel_message_id="msg-dup-1")
         r1 = store.submit_task(env1)
         assert r1.status == "ACCEPTED"
@@ -98,9 +86,7 @@ class TestDuplicateInbound:
         assert r2.task_id == r1.task_id
         assert r2.session_sequence == r1.session_sequence
 
-    def test_duplicate_dedup_key(
-        self, store, sample_scope, make_inbound_envelope
-    ) -> None:
+    def test_duplicate_dedup_key(self, store, sample_scope, make_inbound_envelope) -> None:
         env1 = make_inbound_envelope(
             sample_scope,
             channel_message_id="msg-dedup-1",
@@ -157,9 +143,7 @@ class TestSessionSequenceAllocation:
         self, store, sample_scope, make_inbound_envelope
     ) -> None:
         for i in range(3):
-            env = make_inbound_envelope(
-                sample_scope, channel_message_id=f"msg-seq-{i}"
-            )
+            env = make_inbound_envelope(sample_scope, channel_message_id=f"msg-seq-{i}")
             result = store.submit_task(env)
             assert result.session_sequence == i
 
@@ -213,9 +197,7 @@ class TestSessionSequenceAllocation:
 
 
 class TestSubmitInternal:
-    def test_internal_task_accepted(
-        self, store, sample_scope, make_internal_envelope
-    ) -> None:
+    def test_internal_task_accepted(self, store, sample_scope, make_internal_envelope) -> None:
         env = make_internal_envelope(sample_scope)
         result = store.submit_internal(env)
         assert result.status == "ACCEPTED"
@@ -224,9 +206,7 @@ class TestSubmitInternal:
         assert task.task_kind == "MAINTENANCE"
         assert task.state == "QUEUED"
 
-    def test_internal_dedup(
-        self, store, sample_scope, make_internal_envelope
-    ) -> None:
+    def test_internal_dedup(self, store, sample_scope, make_internal_envelope) -> None:
         env1 = make_internal_envelope(sample_scope, dedup_key="internal-dup-1")
         r1 = store.submit_internal(env1)
         assert r1.status == "ACCEPTED"
@@ -261,9 +241,7 @@ class TestAppendControl:
         assert result.status == "APPENDED"
         assert result.control_id is not None
 
-    def test_duplicate_control(
-        self, store, sample_scope, make_inbound_envelope
-    ) -> None:
+    def test_duplicate_control(self, store, sample_scope, make_inbound_envelope) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-ctrl-2")
         submit = store.submit_task(env)
 
@@ -371,9 +349,7 @@ class TestAppendControl:
 
 
 class TestReadTaskSnapshot:
-    def test_snapshot_matches_scope(
-        self, store, sample_scope, make_inbound_envelope
-    ) -> None:
+    def test_snapshot_matches_scope(self, store, sample_scope, make_inbound_envelope) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-snap-1")
         submit = store.submit_task(env)
         snap = store.read_task_snapshot(sample_scope, submit.task_id)
@@ -396,9 +372,7 @@ class TestReadTaskSnapshot:
         snap = store.read_task_snapshot(wrong_scope, submit.task_id)
         assert snap is None
 
-    def test_snapshot_includes_error(
-        self, store, sample_scope, make_inbound_envelope
-    ) -> None:
+    def test_snapshot_includes_error(self, store, sample_scope, make_inbound_envelope) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-snap-3")
         submit = store.submit_task(env)
 
@@ -441,9 +415,7 @@ def _complete_task_with_reply(
     env = make_inbound_envelope(scope, channel_message_id="msg-scope-reply")
     submit = store.submit_task(env)
     assert submit.status == "ACCEPTED"
-    result = store.claim_next(
-        ClaimRequest(worker_id="test-worker", now_ms=now_ms, lease_ms=60_000)
-    )
+    result = store.claim_next(ClaimRequest(worker_id="test-worker", now_ms=now_ms, lease_ms=60_000))
     assert result.claimed is not None
     claim = result.claimed.claim
     store.mark_running(claim, now_ms=now_ms + 1)
@@ -514,9 +486,7 @@ class TestRequestScopeIsolation:
     def test_final_reply_wrong_agent_returns_none(
         self, store, sample_scope, make_inbound_envelope
     ) -> None:
-        task_id = _complete_task_with_reply(
-            store, sample_scope, make_inbound_envelope
-        )
+        task_id = _complete_task_with_reply(store, sample_scope, make_inbound_envelope)
 
         wrong_scope = RequestScope(
             tenant_id=sample_scope.tenant_id,
@@ -529,9 +499,7 @@ class TestRequestScopeIsolation:
     def test_final_reply_wrong_workspace_returns_none(
         self, store, sample_scope, make_inbound_envelope
     ) -> None:
-        task_id = _complete_task_with_reply(
-            store, sample_scope, make_inbound_envelope
-        )
+        task_id = _complete_task_with_reply(store, sample_scope, make_inbound_envelope)
 
         wrong_scope = RequestScope(
             tenant_id=sample_scope.tenant_id,
@@ -545,9 +513,7 @@ class TestRequestScopeIsolation:
         self, store, sample_scope, make_inbound_envelope
     ) -> None:
         """Sanity: the owning scope can still read both (design §11.3)."""
-        task_id = _complete_task_with_reply(
-            store, sample_scope, make_inbound_envelope
-        )
+        task_id = _complete_task_with_reply(store, sample_scope, make_inbound_envelope)
         snap = store.read_task_snapshot(sample_scope, task_id)
         assert snap is not None
         assert snap.state == "COMPLETED"

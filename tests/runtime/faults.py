@@ -169,9 +169,7 @@ def collect_durable_facts(
         content = ""
         if payload_bytes is not None:
             try:
-                content = decode_outbox_payload(
-                    row["message_kind"], bytes(payload_bytes)
-                ).content
+                content = decode_outbox_payload(row["message_kind"], bytes(payload_bytes)).content
             except Exception:
                 content = ""
         outbox_facts.append(
@@ -189,9 +187,7 @@ def collect_durable_facts(
     if session_manager is not None:
         try:
             snapshot = session_manager.load_fresh(session_key)
-            session_messages = [
-                (m.get("role"), m.get("content")) for m in snapshot.messages
-            ]
+            session_messages = [(m.get("role"), m.get("content")) for m in snapshot.messages]
         except Exception:
             session_messages = []
 

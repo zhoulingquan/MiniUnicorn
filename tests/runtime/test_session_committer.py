@@ -73,9 +73,7 @@ def _derive_commit_id(task_id: str, commit_kind: str) -> str:
 class TestSessionCommitLedger:
     """Tests for SqliteRuntimeStore SessionCommitLedger methods."""
 
-    def test_prepare_inserts_prepared_row(
-        self, store: SqliteRuntimeStore, claim_and_run
-    ) -> None:
+    def test_prepare_inserts_prepared_row(self, store: SqliteRuntimeStore, claim_and_run) -> None:
         record, claim = claim_and_run()
         write = SessionCommitWrite(
             session_key=record.session_key,
@@ -93,9 +91,7 @@ class TestSessionCommitLedger:
         assert result.base_revision == 0
         assert result.target_revision == 1
 
-    def test_prepare_is_idempotent(
-        self, store: SqliteRuntimeStore, claim_and_run
-    ) -> None:
+    def test_prepare_is_idempotent(self, store: SqliteRuntimeStore, claim_and_run) -> None:
         record, claim = claim_and_run()
         write = SessionCommitWrite(
             session_key=record.session_key,
@@ -143,9 +139,7 @@ class TestSessionCommitLedger:
             store.prepare_session_commit(claim, write2)
         assert "content_hash" in exc_info.value.field_names
 
-    def test_confirm_marks_committed(
-        self, store: SqliteRuntimeStore, claim_and_run
-    ) -> None:
+    def test_confirm_marks_committed(self, store: SqliteRuntimeStore, claim_and_run) -> None:
         record, claim = claim_and_run()
         write = SessionCommitWrite(
             session_key=record.session_key,
@@ -162,9 +156,7 @@ class TestSessionCommitLedger:
         assert result.state == "COMMITTED"
         assert result.committed_at_ms == 2_000_000
 
-    def test_confirm_is_idempotent(
-        self, store: SqliteRuntimeStore, claim_and_run
-    ) -> None:
+    def test_confirm_is_idempotent(self, store: SqliteRuntimeStore, claim_and_run) -> None:
         record, claim = claim_and_run()
         write = SessionCommitWrite(
             session_key=record.session_key,

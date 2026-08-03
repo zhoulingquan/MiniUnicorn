@@ -33,7 +33,9 @@ from miniunicorn.bus.agent_events import AgentEvent
 # light and the values are inline with the design).
 # ---------------------------------------------------------------------------
 
-TaskKind = Literal["USER_TURN", "MEMORY_CONSOLIDATION", "MEMORY_INDEX", "REFLECTION", "DREAM", "MAINTENANCE"]
+TaskKind = Literal[
+    "USER_TURN", "MEMORY_CONSOLIDATION", "MEMORY_INDEX", "REFLECTION", "DREAM", "MAINTENANCE"
+]
 
 TaskState = Literal[
     "QUEUED",
@@ -285,9 +287,7 @@ def deserialize_model_decision(data: bytes) -> NormalizedModelDecision:
         tool_calls = tuple(tc for tc in raw_tool_calls if isinstance(tc, dict))
     raw_usage = obj.get("usage", {})
     usage: dict[str, int] = (
-        {str(k): int(v) for k, v in raw_usage.items()}
-        if isinstance(raw_usage, dict)
-        else {}
+        {str(k): int(v) for k, v in raw_usage.items()} if isinstance(raw_usage, dict) else {}
     )
     return NormalizedModelDecision(
         content=obj.get("content"),
@@ -539,8 +539,7 @@ class ToolExecutionPort(Protocol):
     resource locking, and recovery decisions.
     """
 
-    async def execute(self, request: ToolExecutionRequest) -> ToolExecutionResult:
-        ...
+    async def execute(self, request: ToolExecutionRequest) -> ToolExecutionResult: ...
 
     def derive(self, lineage: str) -> "ToolExecutionPort":
         """Return a derived port scoped to ``lineage`` (Task 6 Step 6).
@@ -561,8 +560,7 @@ class SessionCommitPort(Protocol):
     outcome.
     """
 
-    async def commit_turn(self, request: SessionCommitRequest) -> SessionCommitResult:
-        ...
+    async def commit_turn(self, request: SessionCommitRequest) -> SessionCommitResult: ...
 
 
 @runtime_checkable
@@ -574,11 +572,9 @@ class ControlInboxPort(Protocol):
     (design §23.3).
     """
 
-    async def pending_controls(self, cursor: int) -> ControlBatch:
-        ...
+    async def pending_controls(self, cursor: int) -> ControlBatch: ...
 
-    async def acknowledge(self, control_id: str, outcome: ControlOutcome) -> None:
-        ...
+    async def acknowledge(self, control_id: str, outcome: ControlOutcome) -> None: ...
 
 
 @runtime_checkable
@@ -589,8 +585,7 @@ class ProgressPort(Protocol):
     dropped; final complete messages are delivered only from Outbox.
     """
 
-    async def emit(self, event: AgentEvent) -> None:
-        ...
+    async def emit(self, event: AgentEvent) -> None: ...
 
 
 # ---------------------------------------------------------------------------
@@ -731,8 +726,7 @@ class OutboundReceipt:
 class OutboundPort(Protocol):
     """Agent Core's only path to enqueue a user-visible message."""
 
-    async def enqueue(self, request: OutboundRequest) -> OutboundReceipt:
-        ...
+    async def enqueue(self, request: OutboundRequest) -> OutboundReceipt: ...
 
 
 class DirectOutboundPort:
@@ -772,8 +766,7 @@ class DirectOutboundPort:
 class ContainmentPort(Protocol):
     """Registers child PIDs for task-scoped process-tree containment."""
 
-    def register(self, pid: int, *, pgid: int | None = None) -> None:
-        ...
+    def register(self, pid: int, *, pgid: int | None = None) -> None: ...
 
 
 # ---------------------------------------------------------------------------
@@ -785,17 +778,13 @@ class ContainmentPort(Protocol):
 class VectorMemoryPort(Protocol):
     """Agent Core's interface to the derived vector memory index."""
 
-    def index(self, entry: Any) -> None:
-        ...
+    def index(self, entry: Any) -> None: ...
 
-    def search(self, query: Any, *, top_k: int = 5) -> list[Any]:
-        ...
+    def search(self, query: Any, *, top_k: int = 5) -> list[Any]: ...
 
-    def count(self) -> int:
-        ...
+    def count(self) -> int: ...
 
-    def close(self) -> None:
-        ...
+    def close(self) -> None: ...
 
 
 #: Agent-owned factory callable type. Production wiring injects

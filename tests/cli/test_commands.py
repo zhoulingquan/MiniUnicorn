@@ -43,7 +43,9 @@ class _FakeRuntimeApplication:
         self.submit_and_wait = AsyncMock(side_effect=self._submit_and_wait)
         self.submit = AsyncMock(side_effect=self._submit)
         self.wait = AsyncMock(side_effect=self._wait)
-        self.read_reply = MagicMock(return_value=DurableReply(content=reply_text, outbox_id=1, metadata={}))
+        self.read_reply = MagicMock(
+            return_value=DurableReply(content=reply_text, outbox_id=1, metadata={})
+        )
 
     async def _submit_and_wait(self, inbound, timeout_s=None):
         reply = DurableReply(content=self._reply_text, outbox_id=1, metadata={})

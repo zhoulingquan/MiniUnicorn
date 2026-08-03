@@ -107,9 +107,7 @@ def _validate_surface(surface: Any) -> None:
             _validate_surface(item)
         return
     if not isinstance(surface, _JSON_SCALAR_TYPES):
-        raise TypeError(
-            f"surface must contain only JSON scalars, got {type(surface).__name__}"
-        )
+        raise TypeError(f"surface must contain only JSON scalars, got {type(surface).__name__}")
     if callable(surface):
         raise TypeError("surface must not contain callables")
 
@@ -492,9 +490,7 @@ async def _control_plane_async(
     connection = open_connection(db_path)
     run_migrations(connection)
 
-    resources = build_control_plane_runtime(
-        cfg, connection, surface=child_surface
-    )
+    resources = build_control_plane_runtime(cfg, connection, surface=child_surface)
     await resources.start()
 
     # Signal readiness to the Supervisor only after Store, Outbox, and

@@ -140,7 +140,9 @@ async def cmd_stop(ctx: CommandContext) -> OutboundMessage:
         sub_cancelled = await asyncio.wait_for(
             loop.subagents.cancel_by_session(ctx.key), timeout=10.0
         )
-    content = f"Stopped {sub_cancelled} subagent(s)." if sub_cancelled else "No active task to stop."
+    content = (
+        f"Stopped {sub_cancelled} subagent(s)." if sub_cancelled else "No active task to stop."
+    )
     return OutboundMessage(
         channel=msg.channel, chat_id=msg.chat_id, content=content, metadata=dict(msg.metadata or {})
     )

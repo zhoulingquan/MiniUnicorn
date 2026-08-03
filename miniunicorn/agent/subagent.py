@@ -280,11 +280,7 @@ class SubagentManager:
         from miniunicorn.agent.turn_runtime import current_turn_runtime
 
         runtime = current_turn_runtime()
-        root_port = (
-            runtime.tool_execution_port
-            if runtime is not None
-            else None
-        )
+        root_port = runtime.tool_execution_port if runtime is not None else None
         if root_port is not None:
             return root_port.derive(f"sub:{task_id}")
         return DirectToolExecutionPort(tools)

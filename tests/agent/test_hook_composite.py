@@ -345,9 +345,7 @@ async def test_agent_loop_extra_hook_receives_calls(tmp_path):
     )
     loop.tools.get_definitions = MagicMock(return_value=[])
 
-    result = await loop._run_agent_loop(
-        [{"role": "user", "content": "hi"}]
-    )
+    result = await loop._run_agent_loop([{"role": "user", "content": "hi"}])
 
     assert result.final_content == "done"
     assert "before_iter:0" in events

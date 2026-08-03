@@ -308,8 +308,7 @@ class SqliteStoreBase:
         if now_ms is None:
             now_ms = _now_ms()
         row = self._conn.execute(
-            "SELECT state, lease_token, lease_epoch, lease_until_ms "
-            "FROM tasks WHERE task_id=?",
+            "SELECT state, lease_token, lease_epoch, lease_until_ms FROM tasks WHERE task_id=?",
             (claim.task_id,),
         ).fetchone()
         if row is None:
@@ -318,10 +317,7 @@ class SqliteStoreBase:
             get_runtime_metrics().inc("stale_mutations_rejected_total")
             raise StaleLeaseError(claim.task_id, claim.lease_epoch, "task not found")
         if check_deadline:
-            deadline_ok = (
-                row["lease_until_ms"] is not None
-                and row["lease_until_ms"] >= now_ms
-            )
+            deadline_ok = row["lease_until_ms"] is not None and row["lease_until_ms"] >= now_ms
         else:
             deadline_ok = True
         if (
@@ -356,9 +352,7 @@ class SqliteStoreBase:
         incremented (design §14.4). Must be called inside an active
         ``BEGIN IMMEDIATE`` transaction.
         """
-        row = self._conn.execute(
-            "SELECT state FROM tasks WHERE task_id=?", (task_id,)
-        ).fetchone()
+        row = self._conn.execute("SELECT state FROM tasks WHERE task_id=?", (task_id,)).fetchone()
         if row is None:
             raise RuntimeError(f"task not found: {task_id}")
         current = row["state"]
@@ -367,9 +361,7 @@ class SqliteStoreBase:
                 f"task {task_id} state mismatch: expected {from_state}, got {current}"
             )
         if not is_allowed_transition(current, to_state):
-            raise RuntimeError(
-                f"forbidden transition: {current} -> {to_state} for task {task_id}"
-            )
+            raise RuntimeError(f"forbidden transition: {current} -> {to_state} for task {task_id}")
 
         if clear_lease:
             self._conn.execute(
@@ -421,8 +413,7 @@ class SqliteStoreBase:
     def _release_session_slot(self, task_id: str, now_ms: int) -> None:
         """Clear ``session_slots.active_task_id`` if it points to ``task_id``."""
         self._conn.execute(
-            "UPDATE session_slots SET active_task_id=NULL, updated_at_ms=? "
-            "WHERE active_task_id=?",
+            "UPDATE session_slots SET active_task_id=NULL, updated_at_ms=? WHERE active_task_id=?",
             (now_ms, task_id),
         )
 

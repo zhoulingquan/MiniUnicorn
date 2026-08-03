@@ -19,7 +19,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniunicorn.agent.loop import AgentLoop, UNIFIED_SESSION_KEY
+from miniunicorn.agent.loop import UNIFIED_SESSION_KEY, AgentLoop
 from miniunicorn.bus.events import InboundMessage
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.command.builtin import cmd_new, register_builtin_commands
@@ -84,9 +84,18 @@ class TestUnifiedSessionDispatch:
     async def test_unified_session_different_channels_share_same_key(self, tmp_path: Path):
         """Messages from different channels all resolve to the same session key."""
         loop = _make_loop(tmp_path, unified_session=True)
-        assert loop._effective_session_key(_make_msg(channel="telegram", chat_id="111")) == UNIFIED_SESSION_KEY
-        assert loop._effective_session_key(_make_msg(channel="discord", chat_id="222")) == UNIFIED_SESSION_KEY
-        assert loop._effective_session_key(_make_msg(channel="cli", chat_id="direct")) == UNIFIED_SESSION_KEY
+        assert (
+            loop._effective_session_key(_make_msg(channel="telegram", chat_id="111"))
+            == UNIFIED_SESSION_KEY
+        )
+        assert (
+            loop._effective_session_key(_make_msg(channel="discord", chat_id="222"))
+            == UNIFIED_SESSION_KEY
+        )
+        assert (
+            loop._effective_session_key(_make_msg(channel="cli", chat_id="direct"))
+            == UNIFIED_SESSION_KEY
+        )
 
     @pytest.mark.asyncio
     async def test_unified_session_disabled_preserves_original_key(self, tmp_path: Path):

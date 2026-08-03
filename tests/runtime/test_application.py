@@ -235,9 +235,7 @@ class TestRuntimeApplication:
         self, runtime_application: RuntimeApplication, sample_scope: RequestScope
     ) -> None:
         handle = await runtime_application.submit(_make_request(sample_scope))
-        snapshot = await runtime_application.wait(
-            sample_scope, handle.task_id, timeout_s=5
-        )
+        snapshot = await runtime_application.wait(sample_scope, handle.task_id, timeout_s=5)
         assert snapshot.state == "COMPLETED"
 
 
@@ -296,9 +294,7 @@ class TestRealtimeSubscriptionHub:
 class TestIngressHelpers:
     """build_inbound_envelope, build_internal_envelope, local_request_scope."""
 
-    def test_build_inbound_envelope_is_deterministic(
-        self, sample_scope: RequestScope
-    ) -> None:
+    def test_build_inbound_envelope_is_deterministic(self, sample_scope: RequestScope) -> None:
         request = RuntimeInboundRequest(
             content="hello",
             media=("file1.txt",),
@@ -334,9 +330,7 @@ class TestIngressHelpers:
         env = build_inbound_envelope(request, now_ms=1_000_000)
         assert env.dedup_key is None
 
-    def test_build_inbound_envelope_payload_hash_matches(
-        self, sample_scope: RequestScope
-    ) -> None:
+    def test_build_inbound_envelope_payload_hash_matches(self, sample_scope: RequestScope) -> None:
         request = RuntimeInboundRequest(
             content="hello",
             media=("a.txt", "b.txt"),
@@ -362,9 +356,7 @@ class TestIngressHelpers:
         assert env.payload_hash == expected_hash
         assert env.payload_content == expected_payload
 
-    def test_build_internal_envelope_has_inline_payload(
-        self, sample_scope: RequestScope
-    ) -> None:
+    def test_build_internal_envelope_has_inline_payload(self, sample_scope: RequestScope) -> None:
         env = build_internal_envelope(
             kind="DREAM",
             scope=sample_scope,
@@ -391,9 +383,7 @@ class TestIngressHelpers:
     def test_local_request_scope_is_stable(self, tmp_path: Path) -> None:
         from miniunicorn.config.schema import Config
 
-        config = Config.model_validate(
-            {"agents": {"defaults": {"workspace": str(tmp_path)}}}
-        )
+        config = Config.model_validate({"agents": {"defaults": {"workspace": str(tmp_path)}}})
         scope1 = local_request_scope(config)
         scope2 = local_request_scope(config)
         assert scope1.workspace_id == scope2.workspace_id
@@ -401,21 +391,15 @@ class TestIngressHelpers:
         assert scope1.agent_id == "default"
         assert len(scope1.workspace_id) == 16
 
-    def test_local_request_scope_different_workspaces_different_ids(
-        self, tmp_path: Path
-    ) -> None:
+    def test_local_request_scope_different_workspaces_different_ids(self, tmp_path: Path) -> None:
         from miniunicorn.config.schema import Config
 
         ws1 = tmp_path / "ws1"
         ws2 = tmp_path / "ws2"
         ws1.mkdir()
         ws2.mkdir()
-        config1 = Config.model_validate(
-            {"agents": {"defaults": {"workspace": str(ws1)}}}
-        )
-        config2 = Config.model_validate(
-            {"agents": {"defaults": {"workspace": str(ws2)}}}
-        )
+        config1 = Config.model_validate({"agents": {"defaults": {"workspace": str(ws1)}}})
+        config2 = Config.model_validate({"agents": {"defaults": {"workspace": str(ws2)}}})
         scope1 = local_request_scope(config1)
         scope2 = local_request_scope(config2)
         assert scope1.workspace_id != scope2.workspace_id
@@ -470,9 +454,7 @@ def _complete_task_with_reply(
     env = make_inbound_envelope(scope, channel_message_id=channel_message_id)
     submit = store.submit_task(env)
     assert submit.status == "ACCEPTED"
-    result = store.claim_next(
-        ClaimRequest(worker_id="test-worker", now_ms=now_ms, lease_ms=60_000)
-    )
+    result = store.claim_next(ClaimRequest(worker_id="test-worker", now_ms=now_ms, lease_ms=60_000))
     assert result.claimed is not None
     claim = result.claimed.claim
     store.mark_running(claim, now_ms=now_ms + 1)
@@ -585,8 +567,7 @@ class TestSubmitAndWaitResultDeterminism:
         for task_id, content in expected.items():
             reply = runtime.read_reply(sample_scope, task_id)
             assert reply.content == content, (
-                f"reply content mismatch for {task_id}: "
-                f"got {reply.content!r}, want {content!r}"
+                f"reply content mismatch for {task_id}: got {reply.content!r}, want {content!r}"
             )
             observed_states.add(reply.metadata.get("delivery_state", ""))
 
@@ -598,6 +579,5 @@ class TestSubmitAndWaitResultDeterminism:
             f"race did not leave any PENDING rows: {observed_states}"
         )
         assert "DELIVERED" in observed_states, (
-            f"sender did not deliver any rows during race window: "
-            f"{observed_states}"
+            f"sender did not deliver any rows during race window: {observed_states}"
         )

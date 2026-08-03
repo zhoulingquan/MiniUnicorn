@@ -618,16 +618,11 @@ class CronService:
         logger.info("Cron: executing job '{}' ({})", job.name, job.id)
 
         try:
-            if (
-                self.system_enqueue_callback is not None
-                and job.payload.kind == "system_event"
-            ):
+            if self.system_enqueue_callback is not None and job.payload.kind == "system_event":
                 # Durable mode: enqueue a maintenance task instead of
                 # executing directly (design §22.3).
                 task_id = await self.system_enqueue_callback(job)
-                logger.info(
-                    "Cron: job '{}' enqueued durable task {}", job.name, task_id
-                )
+                logger.info("Cron: job '{}' enqueued durable task {}", job.name, task_id)
             elif self.on_job:
                 await self.on_job(job)
 

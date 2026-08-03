@@ -83,9 +83,7 @@ def _row_to_outbox_record(row: sqlite3.Row) -> OutboxRecord:
 class OutboxStoreMixin:
     """Outbox delivery claim/renew/mark/retry/fail/resolve/read operations."""
 
-    def claim_next_delivery(
-        self, sender_id: str, now_ms: int, lease_ms: int
-    ) -> OutboxClaim | None:
+    def claim_next_delivery(self, sender_id: str, now_ms: int, lease_ms: int) -> OutboxClaim | None:
         """Claim the earliest eligible outbox row (design §17.9).
 
         A row is claimable only when no earlier non-terminal row exists
@@ -137,7 +135,14 @@ class OutboxStoreMixin:
                     attempt_count=?
                 WHERE outbox_id=?
                 """,
-                (sender_id, lease_token, lease_epoch, lease_until_ms, attempt_count, row["outbox_id"]),
+                (
+                    sender_id,
+                    lease_token,
+                    lease_epoch,
+                    lease_until_ms,
+                    attempt_count,
+                    row["outbox_id"],
+                ),
             )
             self._conn.execute("COMMIT")
             # Re-read to get the updated row.
@@ -260,7 +265,13 @@ class OutboxStoreMixin:
                     lease_until_ms=NULL
                 WHERE outbox_id=? AND lease_token=? AND lease_epoch=?
                 """,
-                (error.error_code, error.error_summary, claim.outbox_id, claim.lease_token, claim.lease_epoch),
+                (
+                    error.error_code,
+                    error.error_summary,
+                    claim.outbox_id,
+                    claim.lease_token,
+                    claim.lease_epoch,
+                ),
             )
             if cur.rowcount == 0:
                 raise StaleLeaseError(
@@ -293,9 +304,7 @@ class OutboxStoreMixin:
             if row is None:
                 raise ValueError(f"outbox row {outbox_id} not found")
             if row["state"] != "OUTCOME_UNKNOWN":
-                raise ValueError(
-                    f"outbox row {outbox_id} is {row['state']}, not OUTCOME_UNKNOWN"
-                )
+                raise ValueError(f"outbox row {outbox_id} is {row['state']}, not OUTCOME_UNKNOWN")
             now_ms = _now_ms()
             if resolution == "MARK_DELIVERED":
                 self._conn.execute(
@@ -384,9 +393,7 @@ class OutboxStoreMixin:
             self._conn.execute("ROLLBACK")
             raise
 
-    def mark_delivery_outcome_unknown(
-        self, claim: OutboxClaim, error: SafeError
-    ) -> None:
+    def mark_delivery_outcome_unknown(self, claim: OutboxClaim, error: SafeError) -> None:
         """Transition a claimed delivery to ``OUTCOME_UNKNOWN`` (Task 8, design §17.13).
 
         Used by the recovery path when the Channel recovery policy is
@@ -404,7 +411,13 @@ class OutboxStoreMixin:
                     lease_until_ms=NULL
                 WHERE outbox_id=? AND lease_token=? AND lease_epoch=?
                 """,
-                (error.error_code, error.error_summary, claim.outbox_id, claim.lease_token, claim.lease_epoch),
+                (
+                    error.error_code,
+                    error.error_summary,
+                    claim.outbox_id,
+                    claim.lease_token,
+                    claim.lease_epoch,
+                ),
             )
             if cur.rowcount == 0:
                 raise StaleLeaseError(
@@ -417,9 +430,7 @@ class OutboxStoreMixin:
 
     def read_outbox_record(self, outbox_id: int) -> OutboxRecord | None:
         """Read an outbox row by ID."""
-        row = self._conn.execute(
-            "SELECT * FROM outbox WHERE outbox_id=?", (outbox_id,)
-        ).fetchone()
+        row = self._conn.execute("SELECT * FROM outbox WHERE outbox_id=?", (outbox_id,)).fetchone()
         return _row_to_outbox_record(row) if row else None
 
     def read_final_reply(
@@ -469,9 +480,7 @@ class OutboxStoreMixin:
             # UTF-8 string via decode_outbox_payload's FINAL_REPLY path.
             from miniunicorn.runtime.outbox_payload import decode_outbox_payload
 
-            content = decode_outbox_payload(
-                "FINAL_REPLY", bytes(row["inline_content"])
-            ).content
+            content = decode_outbox_payload("FINAL_REPLY", bytes(row["inline_content"])).content
         return DurableReply(
             content=content,
             outbox_id=int(row["outbox_id"]),

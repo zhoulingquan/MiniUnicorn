@@ -23,9 +23,7 @@ import pytest
 from miniunicorn.runtime.bootstrap import build_supervised_runtime
 
 
-def _make_supervised_config(
-    workspace: Path, api_base: str
-) -> Any:
+def _make_supervised_config(workspace: Path, api_base: str) -> Any:
     """Build a root Config with supervised runtime and a chat_completions provider."""
     from miniunicorn.config.schema import Config
 
@@ -128,16 +126,12 @@ async def test_supervised_processes_real_turn_after_readiness(
                     # cannot alter routing.
                     target_key="direct",
                 )
-                envelope = build_inbound_envelope(
-                    request, now_ms=int(time.time() * 1000)
-                )
+                envelope = build_inbound_envelope(request, now_ms=int(time.time() * 1000))
                 handle = await task_service.submit(envelope)
 
                 # 6. Wait for terminal state. Before the fix this times out
                 #    because the Worker event loop is starved.
-                snapshot = await task_service.wait_terminal(
-                    scope, handle.task_id, timeout_s=30
-                )
+                snapshot = await task_service.wait_terminal(scope, handle.task_id, timeout_s=30)
                 assert snapshot.state == "COMPLETED"
                 # Exactly one Provider request — the stub was called once.
                 assert len(stub.requests) == 1

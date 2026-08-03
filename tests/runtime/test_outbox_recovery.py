@@ -59,9 +59,7 @@ class RecoveryChannelSender:
         self.send_count = 0
         self.sent_messages: list[OutboundMessage] = []
 
-    async def send_with_receipt(
-        self, channel_name: str, msg: OutboundMessage
-    ) -> DeliveryReceipt:
+    async def send_with_receipt(self, channel_name: str, msg: OutboundMessage) -> DeliveryReceipt:
         self.send_count += 1
         self.sent_messages.append(msg)
         if self._timeout:
@@ -73,9 +71,7 @@ class RecoveryChannelSender:
     def get_channel_recovery(self, channel_name: str) -> str:
         return self._recovery
 
-    def query_delivery_receipt(
-        self, channel_name: str, dedup_key: str
-    ) -> DeliveryReceipt | None:
+    def query_delivery_receipt(self, channel_name: str, dedup_key: str) -> DeliveryReceipt | None:
         return self._query_receipt
 
 
@@ -107,9 +103,7 @@ def _claim_and_run_task(store: Any, sample_scope: Any, make_inbound_envelope: An
     env = make_inbound_envelope(sample_scope)
     submit = store.submit_task(env)
     assert submit.status == "ACCEPTED"
-    result = store.claim_next(
-        ClaimRequest(worker_id="test-worker", now_ms=now_ms, lease_ms=60_000)
-    )
+    result = store.claim_next(ClaimRequest(worker_id="test-worker", now_ms=now_ms, lease_ms=60_000))
     assert result.claimed is not None
     record = store.mark_running(result.claimed.claim, now_ms=now_ms + 1)
     return record, result.claimed.claim
@@ -166,9 +160,7 @@ def _seed_expired_sending(
     # Claim the delivery to transition PENDING → SENDING.
     # Use real-time now_ms so available_at_ms <= now_ms passes.
     now_ms = int(time.time() * 1000)
-    delivery_claim = store.claim_next_delivery(
-        "original-sender", now_ms=now_ms, lease_ms=60_000
-    )
+    delivery_claim = store.claim_next_delivery("original-sender", now_ms=now_ms, lease_ms=60_000)
     assert delivery_claim is not None
     assert delivery_claim.outbox_id == outbox_id
     # Simulate the lease expiring by backdating lease_until_ms.
@@ -188,9 +180,7 @@ def _enqueue_second_row(
 ) -> int:
     """Enqueue a second row for the same target."""
     record, claim = _claim_and_run_task(store, sample_scope, make_inbound_envelope)
-    return _enqueue_final_reply(
-        store, claim, content="second message", target_key=target_key
-    )
+    return _enqueue_final_reply(store, claim, content="second message", target_key=target_key)
 
 
 # ---------------------------------------------------------------------------
@@ -345,9 +335,7 @@ class TestExpiredSendingRecovery:
                 resolved_by="operator",
             )
             now_ms = int(time.time() * 1000)
-            claim = store.claim_next_delivery(
-                "sender", now_ms=now_ms, lease_ms=60_000
-            )
+            claim = store.claim_next_delivery("sender", now_ms=now_ms, lease_ms=60_000)
             assert claim is not None
             assert claim.outbox_id == second_id
 
@@ -525,6 +513,4 @@ class TestClaimExpiredDeliveries:
 
         # The stale claim cannot write.
         with pytest.raises(Exception):
-            store.mark_delivered(
-                stale_claim, DeliveryReceipt(status="DELIVERED")
-            )
+            store.mark_delivered(stale_claim, DeliveryReceipt(status="DELIVERED"))

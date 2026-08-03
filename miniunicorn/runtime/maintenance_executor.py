@@ -121,9 +121,7 @@ class MaintenanceExecutor:
     async def _execute_dream(self, payload: dict) -> MaintenanceExecutionResult:
         """Execute a DREAM task (design §22.3)."""
         if self._dream_runner is None:
-            return MaintenanceExecutionResult(
-                success=False, detail="dream runner not configured"
-            )
+            return MaintenanceExecutionResult(success=False, detail="dream runner not configured")
         did_work = await self._dream_runner()
         return MaintenanceExecutionResult(
             success=True,
@@ -148,9 +146,7 @@ class MaintenanceExecutor:
     async def _execute_index(self, payload: dict) -> MaintenanceExecutionResult:
         """Execute a MEMORY_INDEX task (design §22.2, §22.3)."""
         if self._index_runner is None:
-            return MaintenanceExecutionResult(
-                success=False, detail="index runner not configured"
-            )
+            return MaintenanceExecutionResult(success=False, detail="index runner not configured")
         count = await self._index_runner(payload)
         return MaintenanceExecutionResult(
             success=True,

@@ -363,9 +363,7 @@ class TestAcceptanceCriteriaSpotChecks:
         store.submit_task(env1)
 
         # Claim the first task.
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=1_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=1_000_000, lease_ms=60_000))
         assert result.claimed is not None
         store.mark_running(result.claimed.claim, now_ms=1_000_001)
 
@@ -379,9 +377,7 @@ class TestAcceptanceCriteriaSpotChecks:
 
         # The second task should be QUEUED, not claimable while the first
         # is non-terminal (same-session head-only claim).
-        result2 = store.claim_next(
-            ClaimRequest(worker_id="w-2", now_ms=1_000_002, lease_ms=60_000)
-        )
+        result2 = store.claim_next(ClaimRequest(worker_id="w-2", now_ms=1_000_002, lease_ms=60_000))
         assert result2.claimed is None  # blocked by same-session ordering
 
     def test_criterion_6_stale_worker_cannot_checkpoint(
@@ -401,17 +397,13 @@ class TestAcceptanceCriteriaSpotChecks:
 
         env = make_inbound_envelope(sample_scope)
         store.submit_task(env)
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=1_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=1_000_000, lease_ms=60_000))
         claim = result.claimed.claim
         store.mark_running(claim, now_ms=1_000_001)
 
         # Simulate a stale lease: reclaim the task with a new epoch.
         store.reclaim_expired(now_ms=2_000_000, limit=10)
-        result2 = store.claim_next(
-            ClaimRequest(worker_id="w-2", now_ms=2_000_001, lease_ms=60_000)
-        )
+        result2 = store.claim_next(ClaimRequest(worker_id="w-2", now_ms=2_000_001, lease_ms=60_000))
         assert result2.claimed is not None
         _new_claim = result2.claimed.claim
 
@@ -462,9 +454,7 @@ class TestAcceptanceCriteriaSpotChecks:
 
         env = make_inbound_envelope(sample_scope)
         store.submit_task(env)
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=1_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=1_000_000, lease_ms=60_000))
         claim = result.claimed.claim
         store.mark_running(claim, now_ms=1_000_001)
 
@@ -568,9 +558,7 @@ class TestAcceptanceCriteriaSpotChecks:
             if in_transaction and not stripped.startswith("#"):
                 # Allow only SQL operations and local variable assignments.
                 # Flag if an await or external API call appears.
-                assert "await " not in stripped, (
-                    f"await inside transaction: {stripped}"
-                )
+                assert "await " not in stripped, f"await inside transaction: {stripped}"
 
     def test_criterion_23_agent_core_no_sqlite_import(self) -> None:
         """§34.23: Agent Core imports no SQLite or multiprocessing implementation.
@@ -592,9 +580,7 @@ class TestAcceptanceCriteriaSpotChecks:
 
         # Check that the agent package does not import sqlite3 directly,
         # excluding the optional storage adapters above.
-        agent_modules = [
-            name for name in sys.modules if name.startswith("miniunicorn.agent.")
-        ]
+        agent_modules = [name for name in sys.modules if name.startswith("miniunicorn.agent.")]
         for mod_name in agent_modules:
             if mod_name in _NON_CORE_STORAGE_MODULES:
                 continue
@@ -644,9 +630,7 @@ class TestCrossScopeApiBoundary:
         env = make_inbound_envelope(sample_scope, channel_message_id="api-msg-1")
         submit = store.submit_task(env)
         now_ms = 1_000_000
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=now_ms, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=now_ms, lease_ms=60_000))
         store.mark_running(result.claimed.claim, now_ms=now_ms + 1)
         payload_bytes = encode_outbox_payload(content="secret reply")
         blob = store.write_blob(
@@ -711,9 +695,7 @@ class TestCrossScopeApiBoundary:
         env = make_inbound_envelope(sample_scope, channel_message_id="api-msg-2")
         submit = store.submit_task(env)
         now_ms = 1_000_000
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=now_ms, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=now_ms, lease_ms=60_000))
         store.mark_running(result.claimed.claim, now_ms=now_ms + 1)
         payload_bytes = encode_outbox_payload(content="private content")
         blob = store.write_blob(

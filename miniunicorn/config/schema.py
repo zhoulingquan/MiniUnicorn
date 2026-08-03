@@ -42,6 +42,7 @@ def validate_api_bind_security(
         "set api.allow_insecure_public_bind=true only to accept unauthenticated exposure"
     )
 
+
 if TYPE_CHECKING:
     from miniunicorn.agent.tools.cli_apps import CliAppsToolConfig
     from miniunicorn.agent.tools.deep_research.config import DeepResearchConfig

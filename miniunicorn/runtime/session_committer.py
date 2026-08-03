@@ -121,9 +121,7 @@ class SessionCommitter:
         # Step 2: commit id is already derived by the caller, but verify it
         # matches the deterministic derivation. Use the request's commit_id
         # as the source of truth (it may have been pre-derived).
-        commit_id = request.commit_id or _derive_commit_id(
-            request.task_id, request.commit_kind
-        )
+        commit_id = request.commit_id or _derive_commit_id(request.task_id, request.commit_kind)
 
         # Step 3: prepare in SQLite (insert or verify PREPARED row).
         now_ms = int(time.time() * 1000)
@@ -207,9 +205,7 @@ class SessionCommitter:
 
         # Step 5: confirm in SQLite (mark COMMITTED + append event).
         committed_at_ms = int(time.time() * 1000)
-        self._ledger.confirm_session_commit(
-            claim, commit_id, outcome.revision, committed_at_ms
-        )
+        self._ledger.confirm_session_commit(claim, commit_id, outcome.revision, committed_at_ms)
 
         return SessionCommitResult(
             state="COMMITTED",

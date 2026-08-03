@@ -236,9 +236,7 @@ class TestRestartPolicy:
             max_restarts_per_window=10,
         )
         ch = ProcessIpcChannel.new_pipe()
-        record = _ChildRecord(
-            role="worker", child_id="w-0", instance_id="i", channel=ch
-        )
+        record = _ChildRecord(role="worker", child_id="w-0", instance_id="i", channel=ch)
         try:
             b1 = policy.next_backoff_ms(record)
             b2 = policy.next_backoff_ms(record)
@@ -259,9 +257,7 @@ class TestRestartPolicy:
             max_restarts_per_window=10,
         )
         ch = ProcessIpcChannel.new_pipe()
-        record = _ChildRecord(
-            role="worker", child_id="w-0", instance_id="i", channel=ch
-        )
+        record = _ChildRecord(role="worker", child_id="w-0", instance_id="i", channel=ch)
         try:
             policy.next_backoff_ms(record)
             policy.next_backoff_ms(record)
@@ -280,9 +276,7 @@ class TestRestartPolicy:
             max_restarts_per_window=2,
         )
         ch = ProcessIpcChannel.new_pipe()
-        record = _ChildRecord(
-            role="worker", child_id="w-0", instance_id="i", channel=ch
-        )
+        record = _ChildRecord(role="worker", child_id="w-0", instance_id="i", channel=ch)
         try:
             policy.next_backoff_ms(record)  # restart 1
             policy.next_backoff_ms(record)  # restart 2 — budget exhausted
@@ -302,9 +296,7 @@ class TestRestartPolicy:
             max_restarts_per_window=2,
         )
         ch = ProcessIpcChannel.new_pipe()
-        record = _ChildRecord(
-            role="worker", child_id="w-0", instance_id="i", channel=ch
-        )
+        record = _ChildRecord(role="worker", child_id="w-0", instance_id="i", channel=ch)
         try:
             policy.next_backoff_ms(record)
             policy.next_backoff_ms(record)
@@ -485,7 +477,9 @@ class TestSupervisorRestartBackoff:
             while time.monotonic() < deadline:
                 sup.reap_once(restart=True)
                 snap = sup.snapshot()
-                if any(c["backoff_until_ms"] > 0 for c in snap["children"] if c["role"] == "worker"):
+                if any(
+                    c["backoff_until_ms"] > 0 for c in snap["children"] if c["role"] == "worker"
+                ):
                     seen_backoff = True
                     break
                 time.sleep(0.05)
@@ -659,9 +653,7 @@ class TestSupervisorRestartBudgetEnforced:
     restart is visible in metrics.
     """
 
-    def test_sixth_crash_is_suppressed_by_window_budget(
-        self, monkeypatch: Any
-    ) -> None:
+    def test_sixth_crash_is_suppressed_by_window_budget(self, monkeypatch: Any) -> None:
         """Six crashes inside the window; the sixth restart is suppressed."""
         import miniunicorn.runtime.supervisor as sup_mod
 
@@ -932,9 +924,7 @@ class TestStaleWorkerFencingViaSqlite:
         submit = store.submit_task(env)
         assert submit.status == "ACCEPTED"
 
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         assert result.claimed is not None
         claim = result.claimed.claim
 
@@ -959,9 +949,7 @@ class TestStaleWorkerFencingViaSqlite:
 
         env = make_inbound_envelope(sample_scope)
         store.submit_task(env)
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         claim = result.claimed.claim
         store.mark_running(claim, now_ms=2_000_001)
 
@@ -1021,12 +1009,8 @@ class TestWorkersClaimDirectlyFromSqlite:
         store.submit_task(env2)
 
         # Two workers each claim — they must get different tasks.
-        c1 = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
-        c2 = store.claim_next(
-            ClaimRequest(worker_id="w-2", now_ms=2_000_001, lease_ms=60_000)
-        )
+        c1 = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
+        c2 = store.claim_next(ClaimRequest(worker_id="w-2", now_ms=2_000_001, lease_ms=60_000))
         assert c1.claimed is not None
         assert c2.claimed is not None
         assert c1.claimed.claim.task_id != c2.claimed.claim.task_id
@@ -1052,16 +1036,12 @@ class TestWorkersClaimDirectlyFromSqlite:
         store.submit_task(env2)
 
         # First worker claims the head.
-        c1 = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        c1 = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         assert c1.claimed is not None
 
         # Second worker must NOT get the second task — the session head
         # is still held by w-1.
-        c2 = store.claim_next(
-            ClaimRequest(worker_id="w-2", now_ms=2_000_001, lease_ms=60_000)
-        )
+        c2 = store.claim_next(ClaimRequest(worker_id="w-2", now_ms=2_000_001, lease_ms=60_000))
         assert c2.claimed is None
 
 
@@ -1206,9 +1186,7 @@ class _BlockingExecutionCallback:
         self._release_event = release_event
         self.started = asyncio.Event()
 
-    async def __call__(
-        self, payload: Any, session_base_revision: int
-    ) -> Any:
+    async def __call__(self, payload: Any, session_base_revision: int) -> Any:
         from miniunicorn.runtime.worker import WorkerExecutionResult
 
         self.started.set()
@@ -1325,12 +1303,8 @@ class TestGracefulWorkerShutdown:
             elapsed = time.monotonic() - start
 
             # Cancellation should occur only after the grace period.
-            assert elapsed >= 0.8, (
-                f"shutdown should wait at least ~1s grace, took {elapsed:.2f}s"
-            )
-            assert elapsed < 5.0, (
-                f"shutdown should not hang, took {elapsed:.2f}s"
-            )
+            assert elapsed >= 0.8, f"shutdown should wait at least ~1s grace, took {elapsed:.2f}s"
+            assert elapsed < 5.0, f"shutdown should not hang, took {elapsed:.2f}s"
 
             # The task was not completed (still RUNNING or FAILED).
             snapshot = store.read_task_snapshot(sample_scope, handle.task_id)

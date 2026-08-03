@@ -38,9 +38,7 @@ class TestTransitionTable:
     def test_targets_are_valid_states(self) -> None:
         for source, targets in TRANSITIONS.items():
             for target in targets:
-                assert target in TASK_STATES, (
-                    f"invalid target {target} from {source}"
-                )
+                assert target in TASK_STATES, f"invalid target {target} from {source}"
 
     def test_no_self_transitions_in_table(self) -> None:
         """Self-transitions are handled by ``is_allowed_transition`` as no-ops;
@@ -178,9 +176,7 @@ class TestIsTerminalState:
     def test_terminal(self, state: str) -> None:
         assert is_terminal_state(state)  # type: ignore[arg-type]
 
-    @pytest.mark.parametrize(
-        "state", ["QUEUED", "LEASED", "RUNNING", "RETRY_WAIT", "WAITING_USER"]
-    )
+    @pytest.mark.parametrize("state", ["QUEUED", "LEASED", "RUNNING", "RETRY_WAIT", "WAITING_USER"])
     def test_non_terminal(self, state: str) -> None:
         assert not is_terminal_state(state)  # type: ignore[arg-type]
 
@@ -197,9 +193,7 @@ class TestStoreEnforcesTransitions:
     def test_forbidden_queued_to_running_raises(
         self, store, sample_scope, make_inbound_envelope
     ) -> None:
-        env = make_inbound_envelope(
-            sample_scope, channel_message_id="msg-forbidden-1"
-        )
+        env = make_inbound_envelope(sample_scope, channel_message_id="msg-forbidden-1")
         result = store.submit_task(env)
         task = store.read_task(result.task_id)
         assert task is not None
@@ -216,9 +210,7 @@ class TestStoreEnforcesTransitions:
     def test_forbidden_terminal_to_anything_raises(
         self, store, sample_scope, make_inbound_envelope
     ) -> None:
-        env = make_inbound_envelope(
-            sample_scope, channel_message_id="msg-forbidden-2"
-        )
+        env = make_inbound_envelope(sample_scope, channel_message_id="msg-forbidden-2")
         result = store.submit_task(env)
 
         # Move to CANCELLED via control (QUEUED -> CANCELLED is allowed).
@@ -243,12 +235,8 @@ class TestStoreEnforcesTransitions:
                 now_ms=1_000_002,
             )
 
-    def test_state_mismatch_raises(
-        self, store, sample_scope, make_inbound_envelope
-    ) -> None:
-        env = make_inbound_envelope(
-            sample_scope, channel_message_id="msg-mismatch-1"
-        )
+    def test_state_mismatch_raises(self, store, sample_scope, make_inbound_envelope) -> None:
+        env = make_inbound_envelope(sample_scope, channel_message_id="msg-mismatch-1")
         result = store.submit_task(env)
 
         with pytest.raises(RuntimeError, match="state mismatch"):

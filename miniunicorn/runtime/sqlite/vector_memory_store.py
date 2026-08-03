@@ -337,17 +337,22 @@ class VectorMemoryStore:
                         "tenant_id=?, principal_id=?, agent_id=?, workspace_id=?, "
                         "tombstone=0 WHERE id=?",
                         (
-                            text, blob, meta_json, float(importance),
-                            source_identity, source_revision,
-                            tenant_id, principal_id, agent_id, workspace_id,
+                            text,
+                            blob,
+                            meta_json,
+                            float(importance),
+                            source_identity,
+                            source_revision,
+                            tenant_id,
+                            principal_id,
+                            agent_id,
+                            workspace_id,
                             existing_id,
                         ),
                     )
                     # sqlite-vec does not support UPDATE on stored vectors;
                     # delete and re-insert to refresh the vector.
-                    self._conn.execute(
-                        "DELETE FROM vec WHERE rowid = ?", (existing_id,)
-                    )
+                    self._conn.execute("DELETE FROM vec WHERE rowid = ?", (existing_id,))
                     self._conn.execute(
                         "INSERT INTO vec(rowid, embedding) VALUES (?, ?)",
                         (existing_id, blob),
@@ -362,9 +367,19 @@ class VectorMemoryStore:
                         "tenant_id, principal_id, agent_id, workspace_id"
                         ") VALUES (?,?,?,?,?,?,?,?,?,0,?,?,?,?)",
                         (
-                            kind, text, blob, meta_json, float(importance), ts,
-                            source_identity, source_revision, idempotency_key,
-                            tenant_id, principal_id, agent_id, workspace_id,
+                            kind,
+                            text,
+                            blob,
+                            meta_json,
+                            float(importance),
+                            ts,
+                            source_identity,
+                            source_revision,
+                            idempotency_key,
+                            tenant_id,
+                            principal_id,
+                            agent_id,
+                            workspace_id,
                         ),
                     )
                     rowid = cur.lastrowid
@@ -431,13 +446,29 @@ class VectorMemoryStore:
                         continue
                     # Scope filtering (design §22.2).
                     if scope:
-                        if scope.get("tenant_id") and entry["tenant_id"] and entry["tenant_id"] != scope["tenant_id"]:
+                        if (
+                            scope.get("tenant_id")
+                            and entry["tenant_id"]
+                            and entry["tenant_id"] != scope["tenant_id"]
+                        ):
                             continue
-                        if scope.get("principal_id") and entry["principal_id"] and entry["principal_id"] != scope["principal_id"]:
+                        if (
+                            scope.get("principal_id")
+                            and entry["principal_id"]
+                            and entry["principal_id"] != scope["principal_id"]
+                        ):
                             continue
-                        if scope.get("agent_id") and entry["agent_id"] and entry["agent_id"] != scope["agent_id"]:
+                        if (
+                            scope.get("agent_id")
+                            and entry["agent_id"]
+                            and entry["agent_id"] != scope["agent_id"]
+                        ):
                             continue
-                        if scope.get("workspace_id") and entry["workspace_id"] and entry["workspace_id"] != scope["workspace_id"]:
+                        if (
+                            scope.get("workspace_id")
+                            and entry["workspace_id"]
+                            and entry["workspace_id"] != scope["workspace_id"]
+                        ):
                             continue
                     meta = json.loads(entry["metadata_json"] or "{}")
                     importance = entry["importance"] if entry["importance"] is not None else 0.5
@@ -483,9 +514,7 @@ class VectorMemoryStore:
                         (kind,),
                     )
                 else:
-                    cur = self._conn.execute(
-                        "SELECT COUNT(*) FROM vec_entries WHERE tombstone = 0"
-                    )
+                    cur = self._conn.execute("SELECT COUNT(*) FROM vec_entries WHERE tombstone = 0")
                 return cur.fetchone()[0]
         except Exception:
             return 0
@@ -638,9 +667,7 @@ class VectorMemoryStore:
                 )
                 if row_id is not None:
                     count += 1
-            logger.info(
-                "VectorMemoryStore.rebuild: indexed {} entries", count
-            )
+            logger.info("VectorMemoryStore.rebuild: indexed {} entries", count)
             return count
         except Exception:
             logger.exception("VectorMemoryStore.rebuild failed")

@@ -56,9 +56,7 @@ class DurableMessageDelivery:
             )
         store = _get_delivery_ledger_for_task(self._task_id)
         if store is None:
-            raise RuntimeError(
-                f"No delivery ledger bound for task {self._task_id}"
-            )
+            raise RuntimeError(f"No delivery ledger bound for task {self._task_id}")
         tool_call_id = _get_active_tool_call_id(self._task_id)
         if tool_call_id is None:
             raise RuntimeError(

@@ -27,17 +27,13 @@ from miniunicorn.runtime.scheduler import Scheduler
 
 
 class TestClaimNext:
-    def test_claim_returns_claimed_task(
-        self, store, sample_scope, make_inbound_envelope
-    ) -> None:
+    def test_claim_returns_claimed_task(self, store, sample_scope, make_inbound_envelope) -> None:
         env = make_inbound_envelope(
             sample_scope, channel_message_id="msg-claim-1", available_at_ms=1_000_000
         )
         submit = store.submit_task(env)
 
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         assert result.claimed is not None
         assert result.claimed.record.task_id == submit.task_id
         assert result.claimed.record.state == "LEASED"
@@ -47,9 +43,7 @@ class TestClaimNext:
         assert result.claimed.claim.lease_until_ms == 2_060_000
 
     def test_claim_nothing_when_empty(self, store) -> None:
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         assert result.claimed is None
 
     def test_claim_nothing_when_not_available_yet(
@@ -63,9 +57,7 @@ class TestClaimNext:
         )
         store.submit_task(env)
 
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         assert result.claimed is None
 
     def test_claim_increments_root_attempt_count(
@@ -74,9 +66,7 @@ class TestClaimNext:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-root-1")
         store.submit_task(env)
 
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         assert result.claimed is not None
         assert result.claimed.record.root_attempt_count == 1
 
@@ -86,9 +76,7 @@ class TestClaimNext:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-evt-1")
         submit = store.submit_task(env)
 
-        store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         events = store.list_events(submit.task_id)
         types = [e.event_type for e in events]
         assert "TASK_LEASED" in types
@@ -99,9 +87,7 @@ class TestClaimNext:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-active-1")
         submit = store.submit_task(env)
 
-        store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         row = store.connection.execute(
             "SELECT active_task_id FROM session_slots WHERE session_key=?",
             (env.session_key,),
@@ -120,23 +106,15 @@ class TestSessionHeadClaimOrdering:
     ) -> None:
         """When multiple tasks are queued in the same session, the earliest
         non-terminal sequence must be claimed first (design §15.2)."""
-        env1 = make_inbound_envelope(
-            sample_scope, channel_message_id="msg-order-1"
-        )
-        env2 = make_inbound_envelope(
-            sample_scope, channel_message_id="msg-order-2"
-        )
-        env3 = make_inbound_envelope(
-            sample_scope, channel_message_id="msg-order-3"
-        )
+        env1 = make_inbound_envelope(sample_scope, channel_message_id="msg-order-1")
+        env2 = make_inbound_envelope(sample_scope, channel_message_id="msg-order-2")
+        env3 = make_inbound_envelope(sample_scope, channel_message_id="msg-order-3")
         r1 = store.submit_task(env1)
         _r2 = store.submit_task(env2)
         _r3 = store.submit_task(env3)
 
         # Claim should return the first task (sequence 0)
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         assert result.claimed is not None
         assert result.claimed.record.task_id == r1.task_id
 
@@ -145,43 +123,29 @@ class TestSessionHeadClaimOrdering:
     ) -> None:
         """A later task cannot be claimed while an earlier task is non-terminal
         (design §15.2)."""
-        env1 = make_inbound_envelope(
-            sample_scope, channel_message_id="msg-block-1"
-        )
-        env2 = make_inbound_envelope(
-            sample_scope, channel_message_id="msg-block-2"
-        )
+        env1 = make_inbound_envelope(sample_scope, channel_message_id="msg-block-1")
+        env2 = make_inbound_envelope(sample_scope, channel_message_id="msg-block-2")
         store.submit_task(env1)
         _r2 = store.submit_task(env2)
 
         # Claim the first task (now LEASED)
-        result1 = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result1 = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         assert result1.claimed is not None
 
         # Second task cannot be claimed (first is LEASED, not terminal)
-        result2 = store.claim_next(
-            ClaimRequest(worker_id="w-2", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result2 = store.claim_next(ClaimRequest(worker_id="w-2", now_ms=2_000_000, lease_ms=60_000))
         assert result2.claimed is None
 
     def test_later_sequence_claimable_after_earlier_completes(
         self, store, sample_scope, make_inbound_envelope
     ) -> None:
-        env1 = make_inbound_envelope(
-            sample_scope, channel_message_id="msg-comp-1"
-        )
-        env2 = make_inbound_envelope(
-            sample_scope, channel_message_id="msg-comp-2"
-        )
+        env1 = make_inbound_envelope(sample_scope, channel_message_id="msg-comp-1")
+        env2 = make_inbound_envelope(sample_scope, channel_message_id="msg-comp-2")
         _r1 = store.submit_task(env1)
         r2 = store.submit_task(env2)
 
         # Claim and complete the first task
-        claim1 = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        claim1 = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         assert claim1.claimed is not None
         store.mark_running(claim1.claimed.claim, now_ms=2_000_001)
         store.complete_with_outbox(
@@ -196,9 +160,7 @@ class TestSessionHeadClaimOrdering:
         )
 
         # Now the second task can be claimed
-        claim2 = store.claim_next(
-            ClaimRequest(worker_id="w-2", now_ms=2_000_003, lease_ms=60_000)
-        )
+        claim2 = store.claim_next(ClaimRequest(worker_id="w-2", now_ms=2_000_003, lease_ms=60_000))
         assert claim2.claimed is not None
         assert claim2.claimed.record.task_id == r2.task_id
 
@@ -229,9 +191,7 @@ class TestPriorityAcrossSessions:
         _r_low = store.submit_task(env_low)
         r_high = store.submit_task(env_high)
 
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         assert result.claimed is not None
         assert result.claimed.record.task_id == r_high.task_id
 
@@ -261,9 +221,7 @@ class TestPriorityAcrossSessions:
             (r_recovery.task_id,),
         )
 
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         assert result.claimed is not None
         assert result.claimed.record.task_id == r_recovery.task_id
 
@@ -277,25 +235,17 @@ class TestActiveSessionSlot:
     def test_second_worker_cannot_claim_same_session(
         self, store, sample_scope, make_inbound_envelope
     ) -> None:
-        env1 = make_inbound_envelope(
-            sample_scope, channel_message_id="msg-slot-1"
-        )
-        env2 = make_inbound_envelope(
-            sample_scope, channel_message_id="msg-slot-2"
-        )
+        env1 = make_inbound_envelope(sample_scope, channel_message_id="msg-slot-1")
+        env2 = make_inbound_envelope(sample_scope, channel_message_id="msg-slot-2")
         store.submit_task(env1)
         store.submit_task(env2)
 
         # First worker claims the head task
-        result1 = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result1 = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         assert result1.claimed is not None
 
         # Second worker cannot claim the next task (active slot is held)
-        result2 = store.claim_next(
-            ClaimRequest(worker_id="w-2", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result2 = store.claim_next(ClaimRequest(worker_id="w-2", now_ms=2_000_000, lease_ms=60_000))
         assert result2.claimed is None
 
 
@@ -311,23 +261,17 @@ class TestMarkRunning:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-run-1")
         store.submit_task(env)
 
-        claim = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        claim = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         assert claim.claimed is not None
 
         record = store.mark_running(claim.claimed.claim, now_ms=2_000_001)
         assert record.state == "RUNNING"
 
-    def test_mark_running_appends_event(
-        self, store, sample_scope, make_inbound_envelope
-    ) -> None:
+    def test_mark_running_appends_event(self, store, sample_scope, make_inbound_envelope) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-run-2")
         submit = store.submit_task(env)
 
-        claim = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        claim = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         store.mark_running(claim.claimed.claim, now_ms=2_000_001)
 
         events = store.list_events(submit.task_id)
@@ -347,9 +291,7 @@ class TestFencing:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-fence-1")
         store.submit_task(env)
 
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         assert result.claimed is not None
 
         stale_claim = TaskClaim(
@@ -368,9 +310,7 @@ class TestFencing:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-fence-2")
         store.submit_task(env)
 
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         store.mark_running(result.claimed.claim, now_ms=2_000_001)
 
         stale_claim = TaskClaim(
@@ -400,9 +340,7 @@ class TestFencing:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-fence-3")
         store.submit_task(env)
 
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         store.mark_running(result.claimed.claim, now_ms=2_000_001)
 
         stale_claim = TaskClaim(
@@ -432,9 +370,7 @@ class TestFencing:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-epoch-1")
         store.submit_task(env)
 
-        result1 = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result1 = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         assert result1.claimed.claim.lease_epoch == 1
 
         # Lease expires
@@ -442,9 +378,7 @@ class TestFencing:
         assert reclaim.reclaimed_count == 1
 
         # New claim must have epoch 2
-        result2 = store.claim_next(
-            ClaimRequest(worker_id="w-2", now_ms=3_000_001, lease_ms=60_000)
-        )
+        result2 = store.claim_next(ClaimRequest(worker_id="w-2", now_ms=3_000_001, lease_ms=60_000))
         assert result2.claimed is not None
         assert result2.claimed.claim.lease_epoch == 2
         assert result2.claimed.claim.lease_token != result1.claimed.claim.lease_token
@@ -456,15 +390,11 @@ class TestFencing:
 
 
 class TestRenewLease:
-    def test_renew_extends_lease_until(
-        self, store, sample_scope, make_inbound_envelope
-    ) -> None:
+    def test_renew_extends_lease_until(self, store, sample_scope, make_inbound_envelope) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-renew-1")
         store.submit_task(env)
 
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         original = store.read_task(result.claimed.claim.task_id)
         assert original is not None
 
@@ -484,9 +414,7 @@ class TestRenewLease:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-renew-2")
         store.submit_task(env)
 
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         before = store.read_task(result.claimed.claim.task_id)
         assert before is not None
 
@@ -502,9 +430,7 @@ class TestRenewLease:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-renew-3")
         store.submit_task(env)
 
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
 
         stale_claim = TaskClaim(
             task_id=result.claimed.claim.task_id,
@@ -522,14 +448,10 @@ class TestRenewLease:
 
 
 class TestHeartbeat:
-    def test_heartbeat_updates_timestamp(
-        self, store, sample_scope, make_inbound_envelope
-    ) -> None:
+    def test_heartbeat_updates_timestamp(self, store, sample_scope, make_inbound_envelope) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-hb-1")
         store.submit_task(env)
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
 
         ok = store.heartbeat(result.claimed.claim, now_ms=2_010_000)
         assert ok is True
@@ -543,9 +465,7 @@ class TestHeartbeat:
     ) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-hb-2")
         store.submit_task(env)
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         before = store.read_task(result.claimed.claim.task_id)
         assert before is not None
 
@@ -560,9 +480,7 @@ class TestHeartbeat:
     ) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-hb-3")
         store.submit_task(env)
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
 
         stale_claim = TaskClaim(
             task_id=result.claimed.claim.task_id,
@@ -585,9 +503,7 @@ class TestCheckpoint:
     ) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-ckpt-1")
         store.submit_task(env)
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         store.mark_running(result.claimed.claim, now_ms=2_000_001)
 
         # Write a blob for the checkpoint payload
@@ -619,14 +535,10 @@ class TestCheckpoint:
         assert task is not None
         assert task.checkpoint_phase == "CONTEXT_BUILT"
 
-    def test_checkpoint_appends_event(
-        self, store, sample_scope, make_inbound_envelope
-    ) -> None:
+    def test_checkpoint_appends_event(self, store, sample_scope, make_inbound_envelope) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-ckpt-2")
         submit = store.submit_task(env)
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         store.mark_running(result.claimed.claim, now_ms=2_000_001)
 
         blob = store.write_blob(
@@ -667,9 +579,7 @@ class TestRetryWait:
     ) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-retry-1")
         store.submit_task(env)
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         store.mark_running(result.claimed.claim, now_ms=2_000_001)
 
         store.enter_retry_wait(
@@ -696,9 +606,7 @@ class TestRetryWait:
     ) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-retry-2")
         store.submit_task(env)
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         store.mark_running(result.claimed.claim, now_ms=2_000_001)
 
         store.enter_retry_wait(
@@ -727,9 +635,7 @@ class TestRetryWait:
     ) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-retry-3")
         store.submit_task(env)
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         store.mark_running(result.claimed.claim, now_ms=2_000_001)
 
         store.enter_retry_wait(
@@ -754,14 +660,10 @@ class TestRetryWait:
 
 
 class TestLeaseReclaim:
-    def test_reclaim_expired_lease(
-        self, store, sample_scope, make_inbound_envelope
-    ) -> None:
+    def test_reclaim_expired_lease(self, store, sample_scope, make_inbound_envelope) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-reclaim-1")
         store.submit_task(env)
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         assert result.claimed.claim.lease_until_ms == 2_060_000
 
         # Before expiry: nothing to reclaim
@@ -822,9 +724,7 @@ class TestLeaseReclaim:
     ) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-reclaim-3")
         store.submit_task(env)
-        store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
 
         store.reclaim_expired(now_ms=2_060_001, limit=10)
 
@@ -834,14 +734,10 @@ class TestLeaseReclaim:
         ).fetchone()
         assert row["active_task_id"] is None
 
-    def test_reclaim_appends_event(
-        self, store, sample_scope, make_inbound_envelope
-    ) -> None:
+    def test_reclaim_appends_event(self, store, sample_scope, make_inbound_envelope) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-reclaim-4")
         submit = store.submit_task(env)
-        store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
 
         store.reclaim_expired(now_ms=2_060_001, limit=10)
 
@@ -861,9 +757,7 @@ class TestCompletion:
     ) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-done-1")
         store.submit_task(env)
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         store.mark_running(result.claimed.claim, now_ms=2_000_001)
 
         # Write a blob for the reply payload
@@ -902,14 +796,10 @@ class TestCompletion:
         assert task.cumulative_input_tokens == 100
         assert task.cumulative_output_tokens == 50
 
-    def test_complete_with_suppress_final(
-        self, store, sample_scope, make_inbound_envelope
-    ) -> None:
+    def test_complete_with_suppress_final(self, store, sample_scope, make_inbound_envelope) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-done-2")
         store.submit_task(env)
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         store.mark_running(result.claimed.claim, now_ms=2_000_001)
 
         completion = store.complete_with_outbox(
@@ -930,9 +820,7 @@ class TestCompletion:
     ) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-done-3")
         store.submit_task(env)
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         store.mark_running(result.claimed.claim, now_ms=2_000_001)
 
         store.complete_with_outbox(
@@ -952,14 +840,10 @@ class TestCompletion:
         ).fetchone()
         assert row["active_task_id"] is None
 
-    def test_complete_internal(
-        self, store, sample_scope, make_inbound_envelope
-    ) -> None:
+    def test_complete_internal(self, store, sample_scope, make_inbound_envelope) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-done-4")
         store.submit_task(env)
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         store.mark_running(result.claimed.claim, now_ms=2_000_001)
 
         completion = store.complete_internal(
@@ -984,9 +868,7 @@ class TestFailAndCancel:
     ) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-fail-1")
         store.submit_task(env)
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         store.mark_running(result.claimed.claim, now_ms=2_000_001)
 
         store.fail_task(
@@ -1010,9 +892,7 @@ class TestFailAndCancel:
     ) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-cancel-2")
         store.submit_task(env)
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         store.mark_running(result.claimed.claim, now_ms=2_000_001)
 
         store.cancel_task(
@@ -1071,9 +951,7 @@ class TestHeartbeatRenewsLease:
         )
         submit = store.submit_task(env)
 
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=1_000, lease_ms=3_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=1_000, lease_ms=3_000))
         assert result.claimed is not None
         before = store.read_task(submit.task_id)
         assert before is not None
@@ -1100,9 +978,7 @@ class TestExpiredOwnerFenced:
             sample_scope, channel_message_id="msg-fence-exp-1", available_at_ms=0
         )
         store.submit_task(env)
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=1_000, lease_ms=3_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=1_000, lease_ms=3_000))
         store.mark_running(result.claimed.claim, now_ms=1_001)
 
         blob = store.write_blob(
@@ -1137,15 +1013,11 @@ class TestExpiredOwnerFenced:
             sample_scope, channel_message_id="msg-fence-exp-2", available_at_ms=0
         )
         store.submit_task(env)
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=1_000, lease_ms=3_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=1_000, lease_ms=3_000))
         store.mark_running(result.claimed.claim, now_ms=1_001)
 
         with pytest.raises(StaleLeaseError):
-            store.record_progress(
-                result.claimed.claim, {"phase": "x"}, now_ms=5_000
-            )
+            store.record_progress(result.claimed.claim, {"phase": "x"}, now_ms=5_000)
 
     def test_expired_owner_prepare_session_commit_rejected(
         self, store, sample_scope, make_inbound_envelope
@@ -1154,9 +1026,7 @@ class TestExpiredOwnerFenced:
             sample_scope, channel_message_id="msg-fence-exp-3", available_at_ms=0
         )
         store.submit_task(env)
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=1_000, lease_ms=3_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=1_000, lease_ms=3_000))
         store.mark_running(result.claimed.claim, now_ms=1_001)
 
         blob = store.write_blob(
@@ -1190,9 +1060,7 @@ class TestExpiredOwnerFenced:
             sample_scope, channel_message_id="msg-fence-exp-4", available_at_ms=0
         )
         store.submit_task(env)
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=1_000, lease_ms=3_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=1_000, lease_ms=3_000))
         store.mark_running(result.claimed.claim, now_ms=1_001)
 
         completion = store.complete_with_outbox(
@@ -1215,13 +1083,9 @@ class TestRootAttemptCharging:
     def test_reclaim_does_not_increment_root_attempt(
         self, store, sample_scope, make_inbound_envelope
     ) -> None:
-        env = make_inbound_envelope(
-            sample_scope, channel_message_id="msg-root-no-incr"
-        )
+        env = make_inbound_envelope(sample_scope, channel_message_id="msg-root-no-incr")
         store.submit_task(env)
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         assert result.claimed is not None
         assert result.claimed.record.root_attempt_count == 1
 

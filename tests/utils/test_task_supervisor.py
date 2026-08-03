@@ -123,8 +123,7 @@ async def test_cancelled_task_is_not_logged_as_error(caplog):
     finally:
         loguru_logger.remove(handler_id)
     failure_records = [
-        r for r in caplog.records
-        if "failed" in r.getMessage() and "cancel-only" in r.getMessage()
+        r for r in caplog.records if "failed" in r.getMessage() and "cancel-only" in r.getMessage()
     ]
     assert not failure_records, (
         f"Cancelled task should not be logged as failure; got {[r.getMessage() for r in failure_records]}"

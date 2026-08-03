@@ -59,9 +59,7 @@ class StubChannelSender:
         self._call_index = 0
         self.sent_messages: list[OutboundMessage] = []
 
-    async def send_with_receipt(
-        self, channel_name: str, msg: OutboundMessage
-    ) -> DeliveryReceipt:
+    async def send_with_receipt(self, channel_name: str, msg: OutboundMessage) -> DeliveryReceipt:
         self.sent_messages.append(msg)
         if self._receipts:
             receipt = self._receipts[min(self._call_index, len(self._receipts) - 1)]
@@ -122,9 +120,7 @@ def _claim_and_run_task(
     env = make_inbound_envelope(sample_scope, **envelope_kwargs)
     submit = store.submit_task(env)
     assert submit.status == "ACCEPTED"
-    result = store.claim_next(
-        ClaimRequest(worker_id="test-worker", now_ms=now_ms, lease_ms=60_000)
-    )
+    result = store.claim_next(ClaimRequest(worker_id="test-worker", now_ms=now_ms, lease_ms=60_000))
     assert result.claimed is not None
     record = store.mark_running(result.claimed.claim, now_ms=now_ms + 1)
     return record, result.claimed.claim
@@ -196,7 +192,9 @@ class TestCompleteAndEnqueue:
 class TestTargetHeadClaim:
     """Target-head Outbox claim (design §17.9, §16.13, WP5 task 2)."""
 
-    def test_claim_returns_earliest_pending(self, store: Any, sample_scope: Any, make_inbound_envelope: Any) -> None:
+    def test_claim_returns_earliest_pending(
+        self, store: Any, sample_scope: Any, make_inbound_envelope: Any
+    ) -> None:
         """Claim returns the earliest PENDING row."""
         record, claim = _claim_and_run_task(store, sample_scope, make_inbound_envelope)
         oid1 = _enqueue_final_reply(store, claim, content="first")
@@ -240,8 +238,14 @@ class TestTargetHeadClaim:
                 message_kind, payload_blob_id, payload_hash, dedup_key,
                 state, max_attempts, available_at_ms, lease_epoch, created_at_ms
             ) VALUES (?, '', '', '', 'FINAL_REPLY', ?, ?, ?, 'PENDING', 8, ?, 0, ?)""",
-            (claim2.task_id, blob_id, hashlib.sha256(b"second").hexdigest(),
-             hashlib.sha256(b"dedup2").hexdigest(), 3_000_000, 3_000_000),
+            (
+                claim2.task_id,
+                blob_id,
+                hashlib.sha256(b"second").hexdigest(),
+                hashlib.sha256(b"dedup2").hexdigest(),
+                3_000_000,
+                3_000_000,
+            ),
         )
         store._conn.commit()
 
@@ -294,7 +298,9 @@ class TestTargetHeadClaim:
 class TestDeliveryFencing:
     """Delivery fencing and receipts (design §17.9, §23.5, WP5 task 3, 4)."""
 
-    def test_mark_delivered_sets_receipt(self, store: Any, sample_scope: Any, make_inbound_envelope: Any) -> None:
+    def test_mark_delivered_sets_receipt(
+        self, store: Any, sample_scope: Any, make_inbound_envelope: Any
+    ) -> None:
         """Marking delivered stores the provider receipt."""
         record, claim = _claim_and_run_task(store, sample_scope, make_inbound_envelope)
         oid = _enqueue_final_reply(store, claim, content="hello")
@@ -312,7 +318,9 @@ class TestDeliveryFencing:
         assert row.provider_receipt_ref == "msg-123"
         assert row.delivered_at_ms is not None
 
-    def test_stale_delivery_lease_cannot_commit(self, store: Any, sample_scope: Any, make_inbound_envelope: Any) -> None:
+    def test_stale_delivery_lease_cannot_commit(
+        self, store: Any, sample_scope: Any, make_inbound_envelope: Any
+    ) -> None:
         """A stale delivery lease cannot mark delivered (design §17.9 fencing)."""
         record, claim = _claim_and_run_task(store, sample_scope, make_inbound_envelope)
         _oid = _enqueue_final_reply(store, claim, content="hello")
@@ -372,9 +380,7 @@ class TestDeliveryFencing:
         oid = _enqueue_final_reply(store, claim, content="hello")
 
         # Manually set attempt_count to max_attempts so next retry fails.
-        store._conn.execute(
-            "UPDATE outbox SET attempt_count=8 WHERE outbox_id=?", (oid,)
-        )
+        store._conn.execute("UPDATE outbox SET attempt_count=8 WHERE outbox_id=?", (oid,))
         store._conn.commit()
 
         c = store.claim_next_delivery("sender", now_ms=3_000_000, lease_ms=60_000)
@@ -418,15 +424,15 @@ class TestDeliveryFencing:
 class TestOutcomeUnknownResolution:
     """OUTCOME_UNKNOWN resolution (design §17.13, WP5 task 4)."""
 
-    def test_resolve_mark_delivered(self, store: Any, sample_scope: Any, make_inbound_envelope: Any) -> None:
+    def test_resolve_mark_delivered(
+        self, store: Any, sample_scope: Any, make_inbound_envelope: Any
+    ) -> None:
         """Resolving OUTCOME_UNKNOWN with MARK_DELIVERED marks as delivered."""
         record, claim = _claim_and_run_task(store, sample_scope, make_inbound_envelope)
         oid = _enqueue_final_reply(store, claim, content="hello")
 
         # Manually set state to OUTCOME_UNKNOWN.
-        store._conn.execute(
-            "UPDATE outbox SET state='OUTCOME_UNKNOWN' WHERE outbox_id=?", (oid,)
-        )
+        store._conn.execute("UPDATE outbox SET state='OUTCOME_UNKNOWN' WHERE outbox_id=?", (oid,))
         store._conn.commit()
 
         store.resolve_unknown_delivery(
@@ -439,21 +445,23 @@ class TestOutcomeUnknownResolution:
         assert row.state == "DELIVERED"
         assert row.provider_receipt_ref == "rec-1"
 
-    def test_resolve_retry_returns_to_pending(self, store: Any, sample_scope: Any, make_inbound_envelope: Any) -> None:
+    def test_resolve_retry_returns_to_pending(
+        self, store: Any, sample_scope: Any, make_inbound_envelope: Any
+    ) -> None:
         """Resolving OUTCOME_UNKNOWN with RETRY returns to PENDING."""
         record, claim = _claim_and_run_task(store, sample_scope, make_inbound_envelope)
         oid = _enqueue_final_reply(store, claim, content="hello")
 
-        store._conn.execute(
-            "UPDATE outbox SET state='OUTCOME_UNKNOWN' WHERE outbox_id=?", (oid,)
-        )
+        store._conn.execute("UPDATE outbox SET state='OUTCOME_UNKNOWN' WHERE outbox_id=?", (oid,))
         store._conn.commit()
 
         store.resolve_unknown_delivery(oid, "RETRY", resolved_by="operator")
         row = store.read_outbox_record(oid)
         assert row.state == "PENDING"
 
-    def test_resolve_non_unknown_raises(self, store: Any, sample_scope: Any, make_inbound_envelope: Any) -> None:
+    def test_resolve_non_unknown_raises(
+        self, store: Any, sample_scope: Any, make_inbound_envelope: Any
+    ) -> None:
         """Resolving a non-OUTCOME_UNKNOWN row raises."""
         record, claim = _claim_and_run_task(store, sample_scope, make_inbound_envelope)
         oid = _enqueue_final_reply(store, claim, content="hello")
@@ -482,9 +490,7 @@ class TestOutboxSender:
         sender = StubChannelSender(
             receipt=DeliveryReceipt(status="DELIVERED", provider_message_id="rec-1")
         )
-        outbox = OutboxSender(
-            store, sender, sender_id="test-sender", poll_interval_s=0.05
-        )
+        outbox = OutboxSender(store, sender, sender_id="test-sender", poll_interval_s=0.05)
         await outbox.start()
         try:
             await asyncio.sleep(0.3)
@@ -515,9 +521,7 @@ class TestOutboxSender:
                 DeliveryReceipt(status="DELIVERED", provider_message_id="rec-2"),
             ]
         )
-        outbox = OutboxSender(
-            store, sender, sender_id="test-sender", poll_interval_s=0.05
-        )
+        outbox = OutboxSender(store, sender, sender_id="test-sender", poll_interval_s=0.05)
         await outbox.start()
         try:
             await asyncio.sleep(0.5)
@@ -542,9 +546,7 @@ class TestOutboxSender:
                 safe_error_code="DELIVERY_PERMANENT",
             )
         )
-        outbox = OutboxSender(
-            store, sender, sender_id="test-sender", poll_interval_s=0.05
-        )
+        outbox = OutboxSender(store, sender, sender_id="test-sender", poll_interval_s=0.05)
         await outbox.start()
         try:
             await asyncio.sleep(0.3)
@@ -640,9 +642,8 @@ class TestMessageToolDurableEnqueue:
 
         try:
             import asyncio
-            result = asyncio.run(
-                tool.execute(content="hello from durable tool")
-            )
+
+            result = asyncio.run(tool.execute(content="hello from durable tool"))
         finally:
             reset_turn_runtime(token)
             clear_active_tool_call_id(record.task_id)
@@ -680,10 +681,9 @@ class TestMessageToolDurableEnqueue:
 
         # No TurnRuntime / OutboundPort bound → raises RuntimeError.
         import asyncio
+
         with pytest.raises(RuntimeError, match="OutboundPort is required"):
-            asyncio.run(
-                tool.execute(content="hello")
-            )
+            asyncio.run(tool.execute(content="hello"))
 
     def test_message_tool_durable_sets_sent_in_turn(
         self, store: Any, sample_scope: Any, make_inbound_envelope: Any
@@ -785,9 +785,8 @@ class TestMessageToolDurableEnqueue:
 
         try:
             import asyncio
-            asyncio.run(
-                tool.execute(content="dedup test")
-            )
+
+            asyncio.run(tool.execute(content="dedup test"))
         finally:
             reset_turn_runtime(token)
             clear_active_tool_call_id(record.task_id)
@@ -882,9 +881,7 @@ class TestTransientStreamingRetention:
         # Worker, which enqueues to the Outbox. The bus is NOT used for
         # the final reply.
         record, claim = _claim_and_run_task(store, sample_scope, make_inbound_envelope)
-        outbox_id = _enqueue_final_reply(
-            store, claim, content="final reply via outbox"
-        )
+        outbox_id = _enqueue_final_reply(store, claim, content="final reply via outbox")
         assert outbox_id > 0
 
         row = store.read_outbox_record(outbox_id)
@@ -1248,4 +1245,3 @@ class TestFinalReplyRoutingAndPayload:
         reply = store.read_final_reply(sample_scope, record.task_id)
         assert reply is not None
         assert reply.content == "legacy reply text"
-

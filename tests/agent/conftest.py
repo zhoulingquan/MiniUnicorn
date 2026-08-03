@@ -37,13 +37,9 @@ class FakeToolExecutionPort:
             if tool is not None:
                 result = await tool.execute(**request.normalized_arguments)
             else:
-                result = await self._tools.execute(
-                    request.tool_name, request.normalized_arguments
-                )
+                result = await self._tools.execute(request.tool_name, request.normalized_arguments)
         else:
-            result = await self._tools.execute(
-                request.tool_name, request.normalized_arguments
-            )
+            result = await self._tools.execute(request.tool_name, request.normalized_arguments)
         return ToolExecutionResult(state="SUCCEEDED", content=result)
 
 

@@ -11,30 +11,42 @@ def test_root_config_owns_runtime_settings() -> None:
 
 
 def test_runtime_mode_precedence() -> None:
-    assert resolve_runtime_mode(
-        configured="lightweight",
-        cli_value="supervised",
-        environment="lightweight",
-        launcher_default="lightweight",
-    ) == "supervised"
-    assert resolve_runtime_mode(
-        configured="supervised",
-        cli_value=None,
-        environment="lightweight",
-        launcher_default="lightweight",
-    ) == "lightweight"
-    assert resolve_runtime_mode(
-        configured="supervised",
-        cli_value=None,
-        environment=None,
-        launcher_default="lightweight",
-    ) == "supervised"
-    assert resolve_runtime_mode(
-        configured=None,
-        cli_value=None,
-        environment=None,
-        launcher_default="supervised",
-    ) == "supervised"
+    assert (
+        resolve_runtime_mode(
+            configured="lightweight",
+            cli_value="supervised",
+            environment="lightweight",
+            launcher_default="lightweight",
+        )
+        == "supervised"
+    )
+    assert (
+        resolve_runtime_mode(
+            configured="supervised",
+            cli_value=None,
+            environment="lightweight",
+            launcher_default="lightweight",
+        )
+        == "lightweight"
+    )
+    assert (
+        resolve_runtime_mode(
+            configured="supervised",
+            cli_value=None,
+            environment=None,
+            launcher_default="lightweight",
+        )
+        == "supervised"
+    )
+    assert (
+        resolve_runtime_mode(
+            configured=None,
+            cli_value=None,
+            environment=None,
+            launcher_default="supervised",
+        )
+        == "supervised"
+    )
 
 
 def test_supervised_defaults_to_three_single_concurrency_workers() -> None:

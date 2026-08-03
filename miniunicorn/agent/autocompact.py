@@ -29,9 +29,7 @@ class AutoCompact:
         # enqueues a MEMORY_CONSOLIDATION task instead of owning the work
         # through asyncio.create_task. The callback receives the session key
         # (used as source revision) and returns the task_id or None.
-        self._enqueue_callback: (
-            Callable[[str], Coroutine[Any, Any, str | None]] | None
-        ) = None
+        self._enqueue_callback: Callable[[str], Coroutine[Any, Any, str | None]] | None = None
 
     def set_enqueue_callback(
         self,
@@ -104,9 +102,7 @@ class AutoCompact:
                             try:
                                 await self._enqueue_callback(key)
                             except Exception:
-                                logger.exception(
-                                    "Auto-compact: enqueue failed for {}", key
-                                )
+                                logger.exception("Auto-compact: enqueue failed for {}", key)
                             finally:
                                 self._archiving.discard(key)
 

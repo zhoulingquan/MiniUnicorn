@@ -258,9 +258,7 @@ async def _run_soak(args: argparse.Namespace) -> int:
                 scope=scope,
                 target_key="direct",
             )
-            envelope = build_inbound_envelope(
-                request, now_ms=int(time.time() * 1000)
-            )
+            envelope = build_inbound_envelope(request, now_ms=int(time.time() * 1000))
             result = test_store.submit_task(envelope)
             if result.status == "ACCEPTED":
                 total_submitted += 1
@@ -370,10 +368,7 @@ async def _run_soak(args: argparse.Namespace) -> int:
         if resources is not None:
             try:
                 snap = resources.host.snapshot()
-                alive = [
-                    c for c in snap.get("children", [])
-                    if c.get("alive")
-                ]
+                alive = [c for c in snap.get("children", []) if c.get("alive")]
                 if alive:
                     print(
                         f"ERROR: child leaks: {len(alive)} child processes "

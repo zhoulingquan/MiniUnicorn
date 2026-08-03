@@ -39,9 +39,7 @@ def _read(path: Path) -> str:
 def _count_pattern(source: str, pattern: str) -> int:
     """Count non-comment occurrences of ``pattern`` in source."""
     return sum(
-        1
-        for line in source.splitlines()
-        if pattern in line and not line.lstrip().startswith("#")
+        1 for line in source.splitlines() if pattern in line and not line.lstrip().startswith("#")
     )
 
 
@@ -86,7 +84,9 @@ class TestLegacyCheckpointInventory:
 
     def test_turn_persistence_does_not_write_runtime_checkpoint(self) -> None:
         source = _read(_PERSISTENCE)
-        assert "set_runtime_checkpoint" not in source or "def set_runtime_checkpoint" not in source, (
+        assert (
+            "set_runtime_checkpoint" not in source or "def set_runtime_checkpoint" not in source
+        ), (
             "TurnPersistence still defines set_runtime_checkpoint; WP3 must "
             "route through TurnJournalPort.save_checkpoint() instead."
         )
@@ -186,10 +186,7 @@ class TestDirectToolExecutionInventory:
         # can skip ``tool.execute(`` calls inside it (the approved helper).
         direct_port_ranges: list[tuple[int, int]] = []
         for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.ClassDef)
-                and node.name == "DirectToolExecutionPort"
-            ):
+            if isinstance(node, ast.ClassDef) and node.name == "DirectToolExecutionPort":
                 direct_port_ranges.append((node.lineno, node.end_lineno or node.lineno))
         sites: set[str] = set()
         for node in ast.walk(tree):
@@ -207,10 +204,7 @@ class TestDirectToolExecutionInventory:
                 ):
                     continue
                 # Skip if the call is inside the DirectToolExecutionPort class.
-                if any(
-                    start <= child.lineno <= end
-                    for start, end in direct_port_ranges
-                ):
+                if any(start <= child.lineno <= end for start, end in direct_port_ranges):
                     continue
                 sites.add(node.name)
         return sites
@@ -254,7 +248,9 @@ class TestDirectOutboundPublicationInventory:
     def test_dispatcher_does_not_publish_final_reply_directly(self) -> None:
         source = _read(_DISPATCHER)
         # The final-response publish happens in the dispatch completion path.
-        assert "publish_outbound" not in source or _count_pattern(source, "publish_outbound") == 0, (
+        assert (
+            "publish_outbound" not in source or _count_pattern(source, "publish_outbound") == 0
+        ), (
             "TurnDispatcher still publishes final replies via bus.publish_outbound; "
             "WP5 must enqueue through Outbox atomically with task completion."
         )
@@ -372,7 +368,7 @@ class TestCommandDirectMaintenanceInventory:
         if "async def cmd_dream" in dream_section:
             start = dream_section.index("async def cmd_dream")
             # Find the next top-level def/class after cmd_dream
-            rest = dream_section[start + len("async def cmd_dream"):]
+            rest = dream_section[start + len("async def cmd_dream") :]
             next_def = rest.find("\ndef ")
             if next_def == -1:
                 next_def = rest.find("\nasync def ")
@@ -390,7 +386,7 @@ class TestCommandDirectMaintenanceInventory:
         source = _read(_COMMAND_BUILTIN)
         # Find the cmd_dream function body
         start = source.index("async def cmd_dream")
-        rest = source[start + len("async def cmd_dream"):]
+        rest = source[start + len("async def cmd_dream") :]
         next_def = rest.find("\ndef ")
         if next_def == -1:
             next_def = rest.find("\nasync def ")

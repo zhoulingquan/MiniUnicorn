@@ -41,9 +41,7 @@ async def wait_for_task_owner(
         if last is not None and last.state == "RUNNING" and last.leased_by:
             return last, last.leased_by
         await asyncio.sleep(0.05)
-    raise AssertionError(
-        f"lease owner was not resolved for {task_id}; last={last!r}"
-    )
+    raise AssertionError(f"lease owner was not resolved for {task_id}; last={last!r}")
 
 
 def terminate_worker(

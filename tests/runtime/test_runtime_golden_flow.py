@@ -163,9 +163,7 @@ async def _submit_and_collect(
         envelope = build_inbound_envelope(request, now_ms=int(time.time() * 1000))
         handle = await task_service.submit(envelope)
 
-        snapshot = await task_service.wait_terminal(
-            scope, handle.task_id, timeout_s=30
-        )
+        snapshot = await task_service.wait_terminal(scope, handle.task_id, timeout_s=30)
         assert snapshot.state == "COMPLETED", (
             f"task did not complete in {mode_label(resources)} mode: {snapshot.state}"
         )
@@ -270,8 +268,7 @@ async def test_lightweight_and_supervised_produce_same_durable_facts(
 
         # Exactly one Provider request per mode (no duplicate calls).
         assert stub.request_count == 2, (
-            f"expected exactly 2 Provider requests (one per mode), "
-            f"got {stub.request_count}"
+            f"expected exactly 2 Provider requests (one per mode), got {stub.request_count}"
         )
     finally:
         stub.close()

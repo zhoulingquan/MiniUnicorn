@@ -256,7 +256,9 @@ class TestRestartCommand:
         session = MagicMock()
         session.get_history.return_value = [{"role": "user"}]
         loop.sessions.get_or_create.return_value = session
-        session.metadata = {SESSION_LAST_USAGE_KEY: {"prompt_tokens": 1200, "completion_tokens": 34}}
+        session.metadata = {
+            SESSION_LAST_USAGE_KEY: {"prompt_tokens": 1200, "completion_tokens": 34}
+        }
         loop.consolidator.estimate_session_prompt_tokens = MagicMock(return_value=(0, "none"))
         loop.subagents.get_running_count_by_session.return_value = 0
 

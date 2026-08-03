@@ -167,9 +167,7 @@ class ToolGateway:
                 # Ambiguous effectful failure: mark OUTCOME_UNKNOWN and
                 # surface WAITING_USER so the user decides whether the
                 # effect happened (Task 6 Step 4).
-                self._mark_outcome_unknown_and_wait(
-                    request, attempt.tool_attempt_id, exc
-                )
+                self._mark_outcome_unknown_and_wait(request, attempt.tool_attempt_id, exc)
                 # Task 14 Step 7: expose recovery metrics.
                 from miniunicorn.runtime.observability import get_runtime_metrics
 
@@ -210,9 +208,7 @@ class ToolGateway:
     # Recovery: check existing durable tool call state (Task 6 Step 3)
     # ------------------------------------------------------------------
 
-    def _check_existing_call(
-        self, request: ToolExecutionRequest
-    ) -> ToolExecutionResult | None:
+    def _check_existing_call(self, request: ToolExecutionRequest) -> ToolExecutionResult | None:
         """Inspect the durable ``tool_calls`` row and decide recovery action.
 
         Returns a :class:`ToolExecutionResult` for terminal / unrecoverable
@@ -339,9 +335,7 @@ class ToolGateway:
             logger.exception("mark_tool_unknown failed for attempt {}", attempt_id)
         self._enter_waiting_user(request, request.tool_call_id, "TOOL_OUTCOME_UNKNOWN")
 
-    def _mark_running_unknown_and_wait(
-        self, request: ToolExecutionRequest, record: Any
-    ) -> None:
+    def _mark_running_unknown_and_wait(self, request: ToolExecutionRequest, record: Any) -> None:
         """Mark a previously-RUNNING call OUTCOME_UNKNOWN and enter WAITING_USER.
 
         Used when a recovered RUNNING call cannot be retried safely. The
@@ -368,7 +362,9 @@ class ToolGateway:
                     _now_ms(),
                 )
             except Exception:
-                logger.exception("mark_tool_unknown failed for running call {}", record.tool_call_id)
+                logger.exception(
+                    "mark_tool_unknown failed for running call {}", record.tool_call_id
+                )
         self._enter_waiting_user(request, record.tool_call_id, "TOOL_OUTCOME_UNKNOWN")
 
     def _find_open_attempt(self, task_id: str, tool_call_id: str) -> str | None:
@@ -384,9 +380,7 @@ class ToolGateway:
         except Exception:
             return None
 
-    def _enter_waiting_user(
-        self, request: ToolExecutionRequest, ref: str, reason: str
-    ) -> None:
+    def _enter_waiting_user(self, request: ToolExecutionRequest, ref: str, reason: str) -> None:
         """Transition the task to ``WAITING_USER`` with a recovery prompt.
 
         Best-effort: if no WorkerLedger is bound or the transition fails
@@ -488,9 +482,7 @@ class ToolGateway:
         # Get the claim from the session committer context.
         claim = self._get_claim()
         if claim is None:
-            raise RuntimeError(
-                "ToolGateway.execute requires an active task claim"
-            )
+            raise RuntimeError("ToolGateway.execute requires an active task claim")
 
         write = PreparedToolWrite(
             tool_call_id=request.tool_call_id,
@@ -512,9 +504,7 @@ class ToolGateway:
     # Resource lease
     # ------------------------------------------------------------------
 
-    def _acquire_resource(
-        self, request: ToolExecutionRequest
-    ) -> str | None:
+    def _acquire_resource(self, request: ToolExecutionRequest) -> str | None:
         """Acquire a resource lease for an exclusive tool, if needed.
 
         Returns a lease token, or ``None`` when no resource lease is
@@ -538,14 +528,10 @@ class ToolGateway:
         )
         lease = self._resources.acquire_resource(request_obj)
         if lease is None:
-            raise RuntimeError(
-                f"Resource capacity exceeded for {resource_key}"
-            )
+            raise RuntimeError(f"Resource capacity exceeded for {resource_key}")
         return lease.lease_token
 
-    def _release_resource(
-        self, request: ToolExecutionRequest, token: str | None
-    ) -> None:
+    def _release_resource(self, request: ToolExecutionRequest, token: str | None) -> None:
         """Release the resource lease after tool completion."""
         if self._resources is None or token is None:
             return
@@ -734,9 +720,7 @@ def build_tool_execution_request(
     from miniunicorn.agent.ports import EffectiveToolPolicy
 
     args_hash = compute_arguments_hash(arguments)
-    idempotency_key = compute_idempotency_key(
-        task_id, tool_call_id, tool_name, args_hash
-    )
+    idempotency_key = compute_idempotency_key(task_id, tool_call_id, tool_name, args_hash)
 
     if policy is None:
         # Default conservative policy; the Runner should look up the
@@ -777,9 +761,7 @@ class _DerivedToolGateway:
     async def execute(self, request: ToolExecutionRequest) -> ToolExecutionResult:
         from dataclasses import replace
 
-        derived_id = _derived_tool_call_id(
-            request.task_id, self._lineage, request.tool_call_id
-        )
+        derived_id = _derived_tool_call_id(request.task_id, self._lineage, request.tool_call_id)
         derived_request = replace(request, tool_call_id=derived_id)
         return await self._parent.execute(derived_request)
 
@@ -787,9 +769,7 @@ class _DerivedToolGateway:
         return _DerivedToolGateway(self._parent, f"{self._lineage}:{lineage}")
 
 
-def _derived_tool_call_id(
-    root_task_id: str, lineage: str, tool_call_id: str
-) -> str:
+def _derived_tool_call_id(root_task_id: str, lineage: str, tool_call_id: str) -> str:
     """Stable derived call id: ``sha256(root_task_id:lineage:tool_call_id)``.
 
     Uses a colon-separated digest so collisions between root and subagent

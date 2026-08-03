@@ -171,12 +171,8 @@ def test_shutdown_signal_is_handled_by_entrypoint_signature() -> None:
     sig_worker = inspect.signature(worker_main)
     # Must accept **kwargs (the trampoline passes role, instance_id, config,
     # ipc_channel, ready_signal).
-    assert any(
-        p.kind == inspect.Parameter.VAR_KEYWORD for p in sig_control.parameters.values()
-    )
-    assert any(
-        p.kind == inspect.Parameter.VAR_KEYWORD for p in sig_worker.parameters.values()
-    )
+    assert any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig_control.parameters.values())
+    assert any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig_worker.parameters.values())
 
 
 # ---------------------------------------------------------------------------

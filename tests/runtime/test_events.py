@@ -10,18 +10,14 @@ import pytest
 
 
 class TestEventAppend:
-    def test_events_ordered_by_sequence(
-        self, store, sample_scope, make_inbound_envelope
-    ) -> None:
+    def test_events_ordered_by_sequence(self, store, sample_scope, make_inbound_envelope) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-evt-1")
         submit = store.submit_task(env)
 
         # Claim adds TASK_LEASED; mark_running adds TASK_RUNNING
         from miniunicorn.runtime.contracts import ClaimRequest
 
-        result = store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        result = store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
         store.mark_running(result.claimed.claim, now_ms=2_000_001)
 
         events = store.list_events(submit.task_id)
@@ -29,17 +25,13 @@ class TestEventAppend:
         seqs = [e.event_seq for e in events]
         assert seqs == sorted(seqs)
 
-    def test_list_events_after_seq(
-        self, store, sample_scope, make_inbound_envelope
-    ) -> None:
+    def test_list_events_after_seq(self, store, sample_scope, make_inbound_envelope) -> None:
         env = make_inbound_envelope(sample_scope, channel_message_id="msg-evt-2")
         submit = store.submit_task(env)
 
         from miniunicorn.runtime.contracts import ClaimRequest
 
-        store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
 
         all_events = store.list_events(submit.task_id)
         assert len(all_events) >= 2
@@ -83,9 +75,7 @@ class TestEventImmutability:
 
         # task_events has ON DELETE RESTRICT on task_id
         with pytest.raises(Exception):
-            store.connection.execute(
-                "DELETE FROM tasks WHERE task_id=?", (submit.task_id,)
-            )
+            store.connection.execute("DELETE FROM tasks WHERE task_id=?", (submit.task_id,))
 
     def test_event_safe_payload_is_json_or_null(
         self, store, sample_scope, make_inbound_envelope
@@ -96,9 +86,7 @@ class TestEventImmutability:
 
         from miniunicorn.runtime.contracts import ClaimRequest
 
-        store.claim_next(
-            ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000)
-        )
+        store.claim_next(ClaimRequest(worker_id="w-1", now_ms=2_000_000, lease_ms=60_000))
 
         events = store.list_events(submit.task_id)
         for event in events:

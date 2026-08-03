@@ -687,9 +687,7 @@ class SessionManager:
                         # legacy files without ``_runtime`` keep the default
                         # empty index; the sidecar merge in ``load_fresh``
                         # recovers any older entries (Task 4 Step 4).
-                        runtime_meta = self._normalize_runtime_meta(
-                            data.get("_runtime")
-                        )
+                        runtime_meta = self._normalize_runtime_meta(data.get("_runtime"))
                     else:
                         messages.append(data)
 
@@ -799,9 +797,7 @@ class SessionManager:
                         last_consolidated = data.get("last_consolidated", 0)
                         stored_key = data.get("key")
                         revision = data.get("revision", 0)
-                        runtime_meta = self._normalize_runtime_meta(
-                            data.get("_runtime")
-                        )
+                        runtime_meta = self._normalize_runtime_meta(data.get("_runtime"))
                     else:
                         messages.append(data)
 
@@ -1057,9 +1053,7 @@ class SessionManager:
             logger.warning("Failed to read commit index for {}: {}", key, exc)
             return OrderedDict()
 
-    def _write_commit_index(
-        self, key: str, index: "OrderedDict[str, dict[str, Any]]"
-    ) -> None:
+    def _write_commit_index(self, key: str, index: "OrderedDict[str, dict[str, Any]]") -> None:
         """Atomically write the commit-id index sidecar (design §21.3).
 
         The sidecar is bounded to ``_COMMIT_INDEX_MAX`` entries (FIFO
@@ -1202,8 +1196,7 @@ class SessionManager:
                         state="IO_FAILURE",
                         revision=session.revision,
                         error=(
-                            f"commit_id {commit_id} already applied with a "
-                            f"different content_hash"
+                            f"commit_id {commit_id} already applied with a different content_hash"
                         ),
                     )
 
@@ -1270,9 +1263,7 @@ class SessionManager:
                     revision=session.revision,
                 )
         except OSError as exc:
-            logger.warning(
-                "commit_turn IO failure for session {}: {}", session_key, exc
-            )
+            logger.warning("commit_turn IO failure for session {}: {}", session_key, exc)
             return SessionCommitOutcome(
                 state="IO_FAILURE",
                 revision=base_revision,

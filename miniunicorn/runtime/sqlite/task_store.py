@@ -66,11 +66,7 @@ class TaskStoreMixin:
         6. commit.
         """
         now_ms = envelope.received_at_ms or _now_ms()
-        available_at = (
-            envelope.available_at_ms
-            if envelope.available_at_ms is not None
-            else now_ms
-        )
+        available_at = envelope.available_at_ms if envelope.available_at_ms is not None else now_ms
 
         # Write the payload blob first (outside the task transaction is fine
         # because blob write is idempotent and self-contained).
@@ -106,11 +102,7 @@ class TaskStoreMixin:
         self._conn.execute("BEGIN IMMEDIATE")
         try:
             # Dedup by channel message id (design §13.1).
-            if (
-                envelope.channel
-                and envelope.channel_message_id
-                and envelope.channel_account
-            ):
+            if envelope.channel and envelope.channel_message_id and envelope.channel_account:
                 dup = self._conn.execute(
                     "SELECT task_id, session_sequence FROM tasks "
                     "WHERE tenant_id=? AND channel=? AND channel_account=? "
@@ -154,8 +146,7 @@ class TaskStoreMixin:
 
             # Allocate session sequence (design §15.1).
             session = self._conn.execute(
-                "SELECT next_sequence, state_version FROM session_slots "
-                "WHERE session_key=?",
+                "SELECT next_sequence, state_version FROM session_slots WHERE session_key=?",
                 (envelope.session_key,),
             ).fetchone()
             if session:
@@ -229,9 +220,7 @@ class TaskStoreMixin:
             self._conn.execute("ROLLBACK")
             raise
 
-        return SubmitResult(
-            status="ACCEPTED", task_id=task_id, session_sequence=seq
-        )
+        return SubmitResult(status="ACCEPTED", task_id=task_id, session_sequence=seq)
 
     def submit_internal(self, envelope: InternalTaskEnvelope) -> SubmitResult:
         """Submit an internal/maintenance task durably (design §13.1).
@@ -240,11 +229,7 @@ class TaskStoreMixin:
         dedup key that identifies one logical occurrence.
         """
         now_ms = envelope.received_at_ms or _now_ms()
-        available_at = (
-            envelope.available_at_ms
-            if envelope.available_at_ms is not None
-            else now_ms
-        )
+        available_at = envelope.available_at_ms if envelope.available_at_ms is not None else now_ms
         scope_key = f"{envelope.scope.tenant_id}/{envelope.scope.principal_id}"
 
         if envelope.payload_content is not None:
@@ -302,8 +287,7 @@ class TaskStoreMixin:
             if session:
                 seq = session["next_sequence"]
                 self._conn.execute(
-                    "UPDATE session_slots SET next_sequence=?, updated_at_ms=? "
-                    "WHERE session_key=?",
+                    "UPDATE session_slots SET next_sequence=?, updated_at_ms=? WHERE session_key=?",
                     (seq + 1, now_ms, envelope.session_key),
                 )
             else:
@@ -363,9 +347,7 @@ class TaskStoreMixin:
             self._conn.execute("ROLLBACK")
             raise
 
-        return SubmitResult(
-            status="ACCEPTED", task_id=task_id, session_sequence=seq
-        )
+        return SubmitResult(status="ACCEPTED", task_id=task_id, session_sequence=seq)
 
     def append_control(self, control: TaskControlRequest) -> ControlResult:
         """Append a control request to a task (design §17.12)."""
@@ -384,8 +366,7 @@ class TaskStoreMixin:
 
             # Dedup by (task_id, dedup_key) (design §17.12).
             dup = self._conn.execute(
-                "SELECT control_id FROM task_controls "
-                "WHERE task_id=? AND dedup_key=?",
+                "SELECT control_id FROM task_controls WHERE task_id=? AND dedup_key=?",
                 (control.task_id, control.dedup_key),
             ).fetchone()
             if dup:
@@ -444,14 +425,10 @@ class TaskStoreMixin:
         return ControlResult(status="APPENDED", control_id=control_id)
 
     def read_task(self, task_id: str) -> TaskRecord | None:
-        row = self._conn.execute(
-            "SELECT * FROM tasks WHERE task_id=?", (task_id,)
-        ).fetchone()
+        row = self._conn.execute("SELECT * FROM tasks WHERE task_id=?", (task_id,)).fetchone()
         return _row_to_task_record(row) if row else None
 
-    def read_task_snapshot(
-        self, scope: RequestScope, task_id: str
-    ) -> TaskSnapshot | None:
+    def read_task_snapshot(self, scope: RequestScope, task_id: str) -> TaskSnapshot | None:
         predicate, scope_params = self._task_scope_predicate(scope)
         row = self._conn.execute(
             f"SELECT * FROM tasks WHERE task_id = ? AND {predicate}",
@@ -569,9 +546,7 @@ class TaskStoreMixin:
                         event_type="TASK_FAILED",
                         phase=record.checkpoint_phase,
                         lease_epoch=record.lease_epoch,
-                        safe_payload=json.dumps(
-                            {"error_code": "TASK_ATTEMPTS_EXHAUSTED"}
-                        ),
+                        safe_payload=json.dumps({"error_code": "TASK_ATTEMPTS_EXHAUSTED"}),
                         now_ms=request.now_ms,
                     )
                     self._conn.execute("COMMIT")
@@ -611,8 +586,7 @@ class TaskStoreMixin:
 
             # Set session_slots.active_task_id (design §15.3 step 3).
             self._conn.execute(
-                "UPDATE session_slots SET active_task_id=?, updated_at_ms=? "
-                "WHERE session_key=?",
+                "UPDATE session_slots SET active_task_id=?, updated_at_ms=? WHERE session_key=?",
                 (record.task_id, request.now_ms, record.session_key),
             )
 
@@ -699,7 +673,13 @@ class TaskStoreMixin:
             self._conn.execute(
                 "UPDATE tasks SET lease_until_ms=?, last_heartbeat_at_ms=? "
                 "WHERE task_id=? AND lease_token=? AND lease_epoch=?",
-                (lease_until_ms, current_now_ms, claim.task_id, claim.lease_token, claim.lease_epoch),
+                (
+                    lease_until_ms,
+                    current_now_ms,
+                    claim.task_id,
+                    claim.lease_token,
+                    claim.lease_epoch,
+                ),
             )
             self._conn.execute("COMMIT")
         except Exception:
@@ -777,16 +757,13 @@ class TaskStoreMixin:
             raise
         return checkpoint_id
 
-    def record_progress(
-        self, claim: TaskClaim, value: dict, now_ms: int
-    ) -> None:
+    def record_progress(self, claim: TaskClaim, value: dict, now_ms: int) -> None:
         """Record bounded, redacted durable progress (design §24.1)."""
         self._conn.execute("BEGIN IMMEDIATE")
         try:
             self._validate_lease(claim, now_ms=now_ms)
             self._conn.execute(
-                "UPDATE tasks SET last_progress_at_ms=?, updated_at_ms=? "
-                "WHERE task_id=?",
+                "UPDATE tasks SET last_progress_at_ms=?, updated_at_ms=? WHERE task_id=?",
                 (now_ms, now_ms, claim.task_id),
             )
             self._conn.execute("COMMIT")
@@ -816,8 +793,7 @@ class TaskStoreMixin:
             )
             if retry.increment_root_attempt:
                 self._conn.execute(
-                    "UPDATE tasks SET root_attempt_count=root_attempt_count+1 "
-                    "WHERE task_id=?",
+                    "UPDATE tasks SET root_attempt_count=root_attempt_count+1 WHERE task_id=?",
                     (claim.task_id,),
                 )
             # Release the session active slot (design §15.4).
@@ -835,9 +811,7 @@ class TaskStoreMixin:
             self._conn.execute("ROLLBACK")
             raise
 
-    def enter_waiting_user(
-        self, claim: TaskClaim, wait: WaitDecision
-    ) -> WaitResult:
+    def enter_waiting_user(self, claim: TaskClaim, wait: WaitDecision) -> WaitResult:
         """Transition ``RUNNING -> WAITING_USER`` (design §17.11)."""
         self._conn.execute("BEGIN IMMEDIATE")
         try:
@@ -853,8 +827,7 @@ class TaskStoreMixin:
                 now_ms=wait.wait_until_ms or _now_ms(),
             )
             self._conn.execute(
-                "UPDATE tasks SET waiting_reason=?, waiting_ref=?, wait_until_ms=? "
-                "WHERE task_id=?",
+                "UPDATE tasks SET waiting_reason=?, waiting_ref=?, wait_until_ms=? WHERE task_id=?",
                 (
                     wait.waiting_reason,
                     wait.waiting_ref,
@@ -881,9 +854,7 @@ class TaskStoreMixin:
             self._conn.execute("ROLLBACK")
             raise
 
-        return WaitResult(
-            status="WAITING", task_id=claim.task_id, outbox_id=None
-        )
+        return WaitResult(status="WAITING", task_id=claim.task_id, outbox_id=None)
 
     def fail_task(self, claim: TaskClaim, failure: TaskFailure) -> None:
         """Transition to ``FAILED`` (design §17.10)."""
@@ -904,9 +875,7 @@ class TaskStoreMixin:
                 event_type="TASK_FAILED",
                 phase=None,
                 lease_epoch=claim.lease_epoch,
-                safe_payload=json.dumps(
-                    {"error_code": failure.error.error_code}
-                ),
+                safe_payload=json.dumps({"error_code": failure.error.error_code}),
                 now_ms=failure.failed_at_ms,
             )
             self._conn.execute("COMMIT")
@@ -1005,9 +974,7 @@ class TaskStoreMixin:
                     claim.task_id,
                 ),
             )
-            self._release_session_slot(
-                claim.task_id, now_ms
-            )
+            self._release_session_slot(claim.task_id, now_ms)
 
             if outbox_id is not None:
                 self._append_event(
@@ -1029,16 +996,12 @@ class TaskStoreMixin:
             self._conn.execute("COMMIT")
         except StaleLeaseError:
             self._conn.execute("ROLLBACK")
-            return CompletionResult(
-                status="STALE_LEASE", task_id=claim.task_id, outbox_id=None
-            )
+            return CompletionResult(status="STALE_LEASE", task_id=claim.task_id, outbox_id=None)
         except Exception:
             self._conn.execute("ROLLBACK")
             raise
 
-        return CompletionResult(
-            status="COMPLETED", task_id=claim.task_id, outbox_id=outbox_id
-        )
+        return CompletionResult(status="COMPLETED", task_id=claim.task_id, outbox_id=outbox_id)
 
     def complete_internal(
         self, claim: TaskClaim, completion: InternalCompletionWrite
@@ -1055,9 +1018,7 @@ class TaskStoreMixin:
                 now_ms=now_ms,
                 clear_lease=True,
             )
-            self._release_session_slot(
-                claim.task_id, now_ms
-            )
+            self._release_session_slot(claim.task_id, now_ms)
             self._append_event(
                 task_id=claim.task_id,
                 event_type="TASK_COMPLETED",
@@ -1069,16 +1030,12 @@ class TaskStoreMixin:
             self._conn.execute("COMMIT")
         except StaleLeaseError:
             self._conn.execute("ROLLBACK")
-            return CompletionResult(
-                status="STALE_LEASE", task_id=claim.task_id, outbox_id=None
-            )
+            return CompletionResult(status="STALE_LEASE", task_id=claim.task_id, outbox_id=None)
         except Exception:
             self._conn.execute("ROLLBACK")
             raise
 
-        return CompletionResult(
-            status="COMPLETED", task_id=claim.task_id, outbox_id=None
-        )
+        return CompletionResult(status="COMPLETED", task_id=claim.task_id, outbox_id=None)
 
     def promote_due_retries(self, now_ms: int, limit: int) -> int:
         """Move elapsed ``RETRY_WAIT`` tasks back to ``QUEUED`` (design §8.2)."""

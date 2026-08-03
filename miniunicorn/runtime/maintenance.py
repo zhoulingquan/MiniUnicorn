@@ -55,9 +55,7 @@ MAINTENANCE_TASK_KINDS = frozenset(
 
 # Maintenance task kinds that are low-priority and subject to the
 # one-task global quota (design §22.4, §25.2).
-LOW_PRIORITY_MAINTENANCE_KINDS = frozenset(
-    {"REFLECTION", "DREAM", "MAINTENANCE"}
-)
+LOW_PRIORITY_MAINTENANCE_KINDS = frozenset({"REFLECTION", "DREAM", "MAINTENANCE"})
 
 # The resource key for the global maintenance quota.
 MAINTENANCE_RESOURCE_KEY = "global:maintenance"
@@ -205,11 +203,7 @@ def make_maintenance_enqueue_callback(
     ) -> str:
         import time as _time
 
-        priority = (
-            PRIORITY_REFLECTION_DREAM
-            if task_kind == "DREAM"
-            else PRIORITY_RETENTION_CLEANUP
-        )
+        priority = PRIORITY_REFLECTION_DREAM if task_kind == "DREAM" else PRIORITY_RETENTION_CLEANUP
         dedup_key = f"cmd:{task_kind}:{int(_time.time() * 1000)}"
         return await enqueue_maintenance(
             task_service,

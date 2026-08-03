@@ -414,9 +414,7 @@ class AgentRunner:
         # spec.provider_attempt_observer; the Provider reads it via
         # current_provider_attempt_observer() so concurrent turns never share
         # mutable Provider state.
-        _observer_token = _provider_attempt_observer.set(
-            spec.provider_attempt_observer
-        )
+        _observer_token = _provider_attempt_observer.set(spec.provider_attempt_observer)
         # Task 5 Step 5: load the durable restore point before the Agent
         # loop so completed model decisions can be reused without another
         # network request after a crash/reclaim (design §17.4, §19).
@@ -435,9 +433,7 @@ class AgentRunner:
                     lease_epoch=_runtime_for_restore.lease_epoch,
                 )
                 try:
-                    _restore_point = await spec.turn_journal.load_restore_point(
-                        _task_identity
-                    )
+                    _restore_point = await spec.turn_journal.load_restore_point(_task_identity)
                 except Exception:
                     logger.exception("load_restore_point failed; starting fresh")
                     _restore_point = None
@@ -576,14 +572,11 @@ class AgentRunner:
                 import json as _json
 
                 _current_hash = _hashlib.sha256(
-                    _json.dumps(
-                        messages_for_model, default=str, ensure_ascii=False
-                    ).encode("utf-8")
+                    _json.dumps(messages_for_model, default=str, ensure_ascii=False).encode("utf-8")
                 ).hexdigest()
                 if _current_hash != _restored.request_hash:
                     raise RuntimeError(
-                        f"MODEL_RESTORE_HASH_MISMATCH: logical_call_id="
-                        f"{_logical_call_id}"
+                        f"MODEL_RESTORE_HASH_MISMATCH: logical_call_id={_logical_call_id}"
                     )
                 try:
                     _decision = await spec.turn_journal.read_model_response(

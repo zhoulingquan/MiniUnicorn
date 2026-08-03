@@ -290,10 +290,7 @@ class TestSameSessionOrdering:
             # The session transcript must contain exactly four messages
             # in order: user, assistant, user, assistant (Task 3 Step 1).
             snapshot = session_manager.load_fresh("session-A")
-            transcript = [
-                (m.get("role"), m.get("content"))
-                for m in snapshot.messages
-            ]
+            transcript = [(m.get("role"), m.get("content")) for m in snapshot.messages]
             assert transcript == [
                 ("user", "first"),
                 ("assistant", "response to: first"),
@@ -618,9 +615,7 @@ class TestSessionRevisionConflict:
         sample_scope: RequestScope,
     ) -> None:
         """INBOUND REVISION_CONFLICT → RETRY_WAIT, not COMPLETED."""
-        fake_committer = ConflictInjectingCommitter(
-            committer, conflict_kind="INBOUND"
-        )
+        fake_committer = ConflictInjectingCommitter(committer, conflict_kind="INBOUND")
         callback = StubExecutionCallback()
         host = LightweightHost(store, fake_committer, callback, worker_count=1)
         await host.start()
@@ -650,9 +645,7 @@ class TestSessionRevisionConflict:
         sample_scope: RequestScope,
     ) -> None:
         """FINAL REVISION_CONFLICT → RETRY_WAIT, not COMPLETED."""
-        fake_committer = ConflictInjectingCommitter(
-            committer, conflict_kind="FINAL"
-        )
+        fake_committer = ConflictInjectingCommitter(committer, conflict_kind="FINAL")
         callback = StubExecutionCallback()
         host = LightweightHost(store, fake_committer, callback, worker_count=1)
         await host.start()

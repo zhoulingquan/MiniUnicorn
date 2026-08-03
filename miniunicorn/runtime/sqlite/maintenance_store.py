@@ -19,9 +19,7 @@ from miniunicorn.runtime.models import (
 class MaintenanceStoreMixin:
     """Retention, blob GC, WAL checkpoint, and backup operations."""
 
-    def list_retention_batch(
-        self, policy: RetentionPolicy, now_ms: int
-    ) -> RetentionBatch:
+    def list_retention_batch(self, policy: RetentionPolicy, now_ms: int) -> RetentionBatch:
         """Select a bounded batch of terminal rows for retention deletion.
 
         Implements the deletion order from design §16.16: child rows
@@ -119,9 +117,7 @@ class MaintenanceStoreMixin:
         Foreign-key failure aborts the batch and raises.
         """
         if not batch.task_ids and not batch.outbox_ids and not batch.blob_ids:
-            return RetentionResult(
-                deleted_tasks=0, deleted_outbox=0, deleted_blobs=0, skipped=0
-            )
+            return RetentionResult(deleted_tasks=0, deleted_outbox=0, deleted_blobs=0, skipped=0)
         self._conn.execute("BEGIN IMMEDIATE")
         try:
             deleted_tasks = 0
@@ -141,7 +137,8 @@ class MaintenanceStoreMixin:
                 if non_terminal:
                     skipped += len(non_terminal)
                     safe_ids = tuple(
-                        r["task_id"] for r in self._conn.execute(
+                        r["task_id"]
+                        for r in self._conn.execute(
                             f"SELECT task_id FROM tasks WHERE task_id IN ({placeholders}) "
                             f"AND state IN ('COMPLETED', 'FAILED', 'CANCELLED')",
                             batch.task_ids,

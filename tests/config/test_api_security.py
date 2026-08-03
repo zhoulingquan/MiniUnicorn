@@ -4,7 +4,9 @@ from pydantic import ValidationError
 from miniunicorn.config.schema import ApiConfig, is_loopback_bind_host
 
 
-@pytest.mark.parametrize("host", ["localhost", "LOCALHOST", "127.0.0.1", "127.2.3.4", "::1", "[::1]"])
+@pytest.mark.parametrize(
+    "host", ["localhost", "LOCALHOST", "127.0.0.1", "127.2.3.4", "::1", "[::1]"]
+)
 def test_loopback_hosts_are_accepted_without_api_key(host):
     assert is_loopback_bind_host(host)
     assert ApiConfig(host=host).api_key == ""

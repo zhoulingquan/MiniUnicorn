@@ -374,9 +374,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
                 logger.exception("Streaming submit failed for session {}", session_key)
                 return resp
 
-            wait_task = asyncio.create_task(
-                runtime.wait(scope, handle.task_id, timeout_s)
-            )
+            wait_task = asyncio.create_task(runtime.wait(scope, handle.task_id, timeout_s))
 
             try:
                 async with runtime.subscribe(handle.task_id) as event_queue:
@@ -385,9 +383,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
                         if wait_task.done():
                             break
                         try:
-                            event = await asyncio.wait_for(
-                                event_queue.get(), timeout=0.1
-                            )
+                            event = await asyncio.wait_for(event_queue.get(), timeout=0.1)
                         except asyncio.TimeoutError:
                             continue
                         event_type = event.get("event")
@@ -395,9 +391,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
                             delta_text = event.get("text", "")
                             if delta_text:
                                 emitted_content = True
-                                await resp.write(
-                                    _sse_chunk(delta_text, model_name, chunk_id)
-                                )
+                                await resp.write(_sse_chunk(delta_text, model_name, chunk_id))
                         # stream_end and other events are ignored for SSE —
                         # the final reply is read from the durable store.
 

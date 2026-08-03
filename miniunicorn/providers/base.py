@@ -934,9 +934,7 @@ class LLMProvider(ABC):
             # Task 5 Step 4: pass the complete response (tool_calls,
             # reasoning_content) so the observer can persist the full
             # NormalizedModelDecision, not only content.
-            response_hash = hashlib.sha256(
-                (response.content or "").encode("utf-8")
-            ).hexdigest()
+            response_hash = hashlib.sha256((response.content or "").encode("utf-8")).hexdigest()
             usage = response.usage or {}
             await observer.completed(
                 attempt_id,

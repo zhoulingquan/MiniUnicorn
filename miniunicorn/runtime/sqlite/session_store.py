@@ -236,9 +236,7 @@ class SessionStoreMixin:
         assert row is not None
         return self._row_to_session_commit(row)
 
-    def read_session_commit(
-        self, task_id: str, commit_kind: str
-    ) -> SessionCommitRecord | None:
+    def read_session_commit(self, task_id: str, commit_kind: str) -> SessionCommitRecord | None:
         """Read the session commit row for ``(task_id, commit_kind)``."""
         row = self._conn.execute(
             "SELECT * FROM session_commits WHERE task_id=? AND commit_kind=?",

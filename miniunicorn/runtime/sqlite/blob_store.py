@@ -40,23 +40,16 @@ class BlobStoreMixin:
         deterministic id for known payloads.
         """
         if bool(write.inline_content) == bool(write.external_ref):
-            raise ValueError(
-                "BlobWrite requires exactly one of inline_content or external_ref"
-            )
+            raise ValueError("BlobWrite requires exactly one of inline_content or external_ref")
         blob_id = write.blob_id or _new_uuid()
         now_ms = write.created_at_ms or _now_ms()
-        size = write.size_bytes or (
-            len(write.inline_content) if write.inline_content else 0
-        )
+        size = write.size_bytes or (len(write.inline_content) if write.inline_content else 0)
 
-        self._conn.execute(
-            "BEGIN IMMEDIATE"
-        )
+        self._conn.execute("BEGIN IMMEDIATE")
         try:
             # Check for an existing blob with the same dedup key.
             existing = self._conn.execute(
-                "SELECT * FROM runtime_blobs "
-                "WHERE scope_key=? AND blob_kind=? AND content_hash=?",
+                "SELECT * FROM runtime_blobs WHERE scope_key=? AND blob_kind=? AND content_hash=?",
                 (write.scope_key, write.blob_kind, write.content_hash),
             ).fetchone()
             if existing is not None:

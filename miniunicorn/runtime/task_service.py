@@ -62,9 +62,7 @@ class TaskService:
 
         snapshot = self._store.read_task_snapshot(envelope.scope, result.task_id)
         if snapshot is None:
-            raise RuntimeError(
-                f"task {result.task_id} disappeared immediately after submit"
-            )
+            raise RuntimeError(f"task {result.task_id} disappeared immediately after submit")
         return TaskHandle(task_id=result.task_id, snapshot=snapshot)
 
     async def submit_internal(self, envelope: InternalTaskEnvelope) -> TaskHandle:

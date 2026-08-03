@@ -453,7 +453,9 @@ def _now_ms(conn: sqlite3.Connection) -> int:
     return int(row[0])
 
 
-def _acquire_migration_lock(conn: sqlite3.Connection, *, retries: int = 200, delay_s: float = 0.02) -> None:
+def _acquire_migration_lock(
+    conn: sqlite3.Connection, *, retries: int = 200, delay_s: float = 0.02
+) -> None:
     """Acquire ``BEGIN IMMEDIATE`` with BUSY retry for concurrent startup.
 
     SQLite's ``BEGIN IMMEDIATE`` takes a write lock immediately. Under
@@ -667,9 +669,7 @@ def validate_schema_version(conn: sqlite3.Connection) -> None:
     Workers call this on startup (design §16.1). A process refuses work
     when its schema version differs from the binary.
     """
-    row = conn.execute(
-        "SELECT MAX(version) FROM schema_migrations"
-    ).fetchone()
+    row = conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()
     db_version = int(row[0]) if row[0] is not None else 0
     if db_version != CURRENT_SCHEMA_VERSION:
         raise RuntimeError(

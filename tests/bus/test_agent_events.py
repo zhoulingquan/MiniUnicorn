@@ -127,9 +127,7 @@ def test_context_usage_rejects_negative_tokens() -> None:
 
 def test_discriminated_union_rejects_unknown_event() -> None:
     with pytest.raises(ValidationError):
-        AGENT_EVENT_ADAPTER.validate_python(
-            {"protocol_version": 1, "event": "unknown"}
-        )
+        AGENT_EVENT_ADAPTER.validate_python({"protocol_version": 1, "event": "unknown"})
 
 
 def test_discriminated_union_accepts_default_protocol_version() -> None:
@@ -212,9 +210,7 @@ def test_session_updated_event_serializes() -> None:
 
 
 def test_subagent_activity_event_serializes() -> None:
-    event = SubagentActivityEvent(
-        chat_id="c", label="sub-a", task_id="t1", content="working"
-    )
+    event = SubagentActivityEvent(chat_id="c", label="sub-a", task_id="t1", content="working")
     payload = serialize_agent_event(event)
     assert payload["event"] == "subagent_activity"
     assert payload["label"] == "sub-a"

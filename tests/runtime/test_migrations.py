@@ -31,9 +31,7 @@ class TestMigrationChecksum:
             assert migration.checksum == expected
             assert len(migration.checksum) == 64  # SHA-256 hex
 
-    def test_checksum_stored_in_database(
-        self, runtime_db: sqlite3.Connection
-    ) -> None:
+    def test_checksum_stored_in_database(self, runtime_db: sqlite3.Connection) -> None:
         """The checksum stored in ``schema_migrations`` must match the binary
         (design §16.3)."""
         row = runtime_db.execute(
@@ -52,9 +50,7 @@ class TestMigrationChecksum:
         run_migrations(conn)
 
         # Tamper with the stored checksum
-        conn.execute(
-            "UPDATE schema_migrations SET checksum='tampered' WHERE version=1"
-        )
+        conn.execute("UPDATE schema_migrations SET checksum='tampered' WHERE version=1")
 
         with pytest.raises(RuntimeError, match="checksum mismatch"):
             run_migrations(conn)
@@ -68,9 +64,7 @@ class TestMigrationChecksum:
 
 
 class TestMigrationIdempotent:
-    def test_running_migrations_twice_is_noop(
-        self, runtime_db: sqlite3.Connection
-    ) -> None:
+    def test_running_migrations_twice_is_noop(self, runtime_db: sqlite3.Connection) -> None:
         """Running ``run_migrations`` on an already-migrated database must be
         a no-op (design §16.3)."""
         # First run already happened in the fixture
@@ -105,9 +99,7 @@ class TestMigrationIdempotent:
 
 
 class TestConcurrentStartup:
-    def test_two_connections_migrate_and_validate(
-        self, tmp_path: Path
-    ) -> None:
+    def test_two_connections_migrate_and_validate(self, tmp_path: Path) -> None:
         """One connection migrates, the other validates (design §16.1).
 
         This simulates the Host/Supervisor (migrator) and Worker (validator)
@@ -156,9 +148,7 @@ class TestConcurrentStartup:
         # Verify the database is in a valid state
         conn = open_connection(db_path)
         validate_schema_version(conn)
-        version = conn.execute(
-            "SELECT version FROM schema_migrations WHERE version=1"
-        ).fetchone()
+        version = conn.execute("SELECT version FROM schema_migrations WHERE version=1").fetchone()
         assert version is not None
         conn.close()
 
@@ -179,9 +169,7 @@ class TestConcurrentStartup:
             "resource_leases",
             "runtime_blobs",
         }
-        rows = runtime_db.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()
+        rows = runtime_db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         actual_tables = {row["name"] for row in rows}
         assert expected_tables <= actual_tables, (
             f"missing tables: {expected_tables - actual_tables}"
@@ -189,8 +177,6 @@ class TestConcurrentStartup:
 
     def test_triggers_created(self, runtime_db: sqlite3.Connection) -> None:
         """The immutability trigger must exist (design §16.6)."""
-        rows = runtime_db.execute(
-            "SELECT name FROM sqlite_master WHERE type='trigger'"
-        ).fetchall()
+        rows = runtime_db.execute("SELECT name FROM sqlite_master WHERE type='trigger'").fetchall()
         trigger_names = {row["name"] for row in rows}
         assert "trg_task_events_no_update" in trigger_names

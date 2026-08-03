@@ -58,9 +58,7 @@ class OpenAIStubServer:
                     owner.requests.append(body)
                     owner._request_count += 1
                     response = (
-                        owner._responses.pop(0)
-                        if owner._responses
-                        else chat_completion("fallback")
+                        owner._responses.pop(0) if owner._responses else chat_completion("fallback")
                     )
                 # Optional delay to keep the task in-flight for crash tests.
                 if owner._delay_s:
@@ -90,9 +88,7 @@ class OpenAIStubServer:
                 return
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self._thread = threading.Thread(
-            target=self._server.serve_forever, daemon=True
-        )
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
 
     @property
     def api_base(self) -> str:
@@ -172,7 +168,11 @@ def _stream_chunks(response: dict[str, Any]) -> list[str]:
             {
                 **base,
                 "choices": [
-                    {"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": None}
+                    {
+                        "index": 0,
+                        "delta": {"role": "assistant", "content": ""},
+                        "finish_reason": None,
+                    }
                 ],
             }
         )
@@ -183,18 +183,14 @@ def _stream_chunks(response: dict[str, Any]) -> list[str]:
             json.dumps(
                 {
                     **base,
-                    "choices": [
-                        {"index": 0, "delta": {"content": content}, "finish_reason": None}
-                    ],
+                    "choices": [{"index": 0, "delta": {"content": content}, "finish_reason": None}],
                 }
             )
         )
     # Final chunk: empty delta, finish_reason, and usage.
     final_chunk: dict[str, Any] = {
         **base,
-        "choices": [
-            {"index": 0, "delta": {}, "finish_reason": "stop"}
-        ],
+        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
     }
     if usage:
         final_chunk["usage"] = usage

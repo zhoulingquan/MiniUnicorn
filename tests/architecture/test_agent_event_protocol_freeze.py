@@ -68,9 +68,7 @@ def test_event_class_surface_is_frozen() -> None:
     New events may be added; existing ones may not be removed or renamed
     without bumping the protocol version.
     """
-    missing = sorted(
-        cls.__name__ for cls in FROZEN_EVENT_CLASSES if not hasattr(cls, "__name__")
-    )
+    missing = sorted(cls.__name__ for cls in FROZEN_EVENT_CLASSES if not hasattr(cls, "__name__"))
     assert missing == []
 
 
