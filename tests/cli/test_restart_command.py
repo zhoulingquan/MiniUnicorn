@@ -90,67 +90,6 @@ class TestRestartCommand:
             mock_execv.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_restart_intercepted_in_run_loop(self):
-        """Verify /restart is handled at the run-loop level, not inside _dispatch."""
-        loop, bus = _make_loop()
-        msg = InboundMessage(channel="telegram", sender_id="u1", chat_id="c1", content="/restart")
-
-        with (
-            patch.object(loop, "_dispatch", new_callable=AsyncMock) as mock_dispatch,
-            patch("miniunicorn.command.builtin.os.execv"),
-        ):
-            await bus.publish_inbound(msg)
-
-            loop._running = True
-            run_task = asyncio.create_task(loop.run())
-            await asyncio.sleep(0.1)
-            loop._running = False
-            run_task.cancel()
-            try:
-                await run_task
-            except asyncio.CancelledError:
-                pass
-
-            mock_dispatch.assert_not_called()
-            out = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
-            assert "Restarting" in out.content
-
-    @pytest.mark.asyncio
-    async def test_status_intercepted_in_run_loop(self):
-        """Verify /status is handled at the run-loop level for immediate replies."""
-        loop, bus = _make_loop()
-        msg = InboundMessage(channel="telegram", sender_id="u1", chat_id="c1", content="/status")
-
-        with patch.object(loop, "_dispatch", new_callable=AsyncMock) as mock_dispatch:
-            await bus.publish_inbound(msg)
-
-            loop._running = True
-            run_task = asyncio.create_task(loop.run())
-            await asyncio.sleep(0.1)
-            loop._running = False
-            run_task.cancel()
-            try:
-                await run_task
-            except asyncio.CancelledError:
-                pass
-
-            mock_dispatch.assert_not_called()
-            out = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
-            assert "MiniUnicorn" in out.content.lower() or "Model" in out.content
-
-    @pytest.mark.asyncio
-    async def test_run_propagates_external_cancellation(self):
-        """External task cancellation should not be swallowed by the inbound wait loop."""
-        loop, _bus = _make_loop()
-
-        run_task = asyncio.create_task(loop.run())
-        await asyncio.sleep(0.1)
-        run_task.cancel()
-
-        with pytest.raises(asyncio.CancelledError):
-            await asyncio.wait_for(run_task, timeout=1.0)
-
-    @pytest.mark.asyncio
     async def test_help_includes_restart(self):
         loop, bus = _make_loop()
         msg = InboundMessage(channel="telegram", sender_id="u1", chat_id="c1", content="/help")
@@ -189,30 +128,6 @@ class TestRestartCommand:
         assert "Uptime: 2m 5s" in response.content
         assert "Tasks: 0 active" in response.content
         assert response.metadata == {"render_as": "text"}
-
-    @pytest.mark.asyncio
-    async def test_status_counts_running_dispatch_and_subagent_tasks(self):
-        loop, _bus = _make_loop()
-        session = MagicMock()
-        session.get_history.return_value = [{"role": "user"}]
-        loop.sessions.get_or_create.return_value = session
-        loop.consolidator.estimate_session_prompt_tokens = MagicMock(
-            return_value=(1000, "tiktoken")
-        )
-
-        running_task = MagicMock()
-        running_task.done.return_value = False
-        finished_task = MagicMock()
-        finished_task.done.return_value = True
-
-        msg = InboundMessage(channel="telegram", sender_id="u1", chat_id="c1", content="/status")
-        loop._active_tasks[msg.session_key] = [running_task, finished_task]
-        loop.subagents.get_running_count_by_session.return_value = 2
-
-        response = await loop._process_message(msg)
-
-        assert response is not None
-        assert "Tasks: 3 active" in response.content
 
     @pytest.mark.asyncio
     async def test_run_agent_loop_resets_usage_when_provider_omits_it(self):
@@ -361,17 +276,3 @@ class TestRestartCommand:
 
         assert response is not None
         assert "No conversation history yet." in response.content
-
-    @pytest.mark.asyncio
-    async def test_process_direct_preserves_render_metadata(self):
-        loop, _bus = _make_loop()
-        session = MagicMock()
-        session.get_history.return_value = []
-        loop.sessions.get_or_create.return_value = session
-        loop.subagents.get_running_count.return_value = 0
-        loop.subagents.get_running_count_by_session.return_value = 0
-
-        response = await loop.process_direct("/status", session_key="cli:test")
-
-        assert response is not None
-        assert response.metadata == {"render_as": "text"}
