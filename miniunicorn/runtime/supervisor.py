@@ -280,6 +280,15 @@ class Supervisor:
             ],
         }
 
+    def child_record(self, child_id: str) -> _ChildRecord | None:
+        """Return the current supervised child record for diagnostics/fault injection.
+
+        Exposes a read-only lookup so tests and fault-injection harnesses
+        can resolve the real lease-owning Worker without touching the
+        mutable ``_children`` mapping directly (Task 6 Step 3).
+        """
+        return self._children.get(child_id)
+
     # ------------------------------------------------------------------
     # Start / spawn
     # ------------------------------------------------------------------
