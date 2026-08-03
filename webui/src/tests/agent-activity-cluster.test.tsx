@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -893,5 +896,13 @@ describe("AgentActivityCluster", () => {
     } finally {
       restoreMotion();
     }
+  });
+
+  it("keeps AgentActivityCluster at or below 500 physical lines", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "src/components/thread/AgentActivityCluster.tsx"),
+      "utf8",
+    );
+    expect(source.split(/\r?\n/).length).toBeLessThanOrEqual(500);
   });
 });
