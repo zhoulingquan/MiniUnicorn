@@ -1,15 +1,15 @@
 {
-  "version": "0.2.0",
-  "pub_date": "2026-07-27T00:00:00Z",
+  "version": "0.3.0",
+  "pub_date": "2026-07-31T00:00:00Z",
   "notes": {
-    "zh": "### v0.2.0\n\n- 项目评审 6 大块修复（HTTP 鉴权 / Shell & SSRF / Session 隔离 / 调度与持久化 / WebUI 状态机 / Docker & CI）\n- 移除 openai 内置 provider 死代码，改用 apiBase 判断\n- 修复 Responses API 回归（custom 指向 api.openai.com 仍可启用）\n- favicon.svg 改为自包含 base64 内嵌",
-    "en": "### v0.2.0\n\n- Six-block review fixes (HTTP auth / Shell & SSRF / Session isolation / Scheduling & persistence / WebUI state machine / Docker & CI)\n- Remove dead openai builtin provider code, switch to apiBase-based detection\n- Fix Responses API regression (custom pointing to api.openai.com still works)\n- favicon.svg now self-contained base64-embedded"
+    "zh": "### v0.3.0\n\n- **Durable runtime (WP0-WP8)**：SQLite 持久化任务/发件箱/会话存储、三 worker supervised 模式、崩溃恢复、持久化维护\n- **AgentLoop 重构**：拆分 turn dispatcher / persistence / executor / runner adapter，生命周期 facade 所有权\n- **Typed agent event protocol**：前端类型生成\n- **本地 CPU embedding provider**：向量记忆召回\n- **WebUI**：懒加载分块、共享 ModelPresetSelect、设置侧边栏 PanelLeft 折叠\n- **修复**：Control Plane 就绪阻塞、侧边栏动画一致性、会话清理、websocket 连接",
+    "en": "### v0.3.0\n\n- **Durable runtime (WP0-WP8)**: SQLite-backed task/outbox/session stores, three-worker supervised mode, crash recovery, durable maintenance\n- **AgentLoop refactor**: extracted turn dispatcher, persistence, executor, and runner adapter; lifecycle facade ownership\n- **Typed agent event protocol** with frontend type generation\n- **Local CPU embedding provider** for vector memory recall\n- **WebUI**: lazy-loaded chunks, shared ModelPresetSelect, settings sidebar PanelLeft collapse\n- **Fixes**: Control Plane readiness, sidebar animation consistency, session cleanup, websocket connection"
   },
   "package": {
-    "pypi": "0.2.0",
-    "npm": "0.2.0",
-    "docker": "agentscope/miniunicorn:0.2.0"
+    "pypi": "0.3.0",
+    "npm": "0.3.0",
+    "docker": "agentscope/miniunicorn:0.3.0"
   },
   "min_required": "0.1.0",
-  "release_url": "https://github.com/zhoulingquan/MiniUnicorn/releases/tag/v0.2.0"
+  "release_url": "https://github.com/zhoulingquan/MiniUnicorn/releases/tag/v0.3.0"
 }
