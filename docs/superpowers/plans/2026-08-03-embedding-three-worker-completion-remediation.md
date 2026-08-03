@@ -2178,7 +2178,7 @@ Keep `runtime-soak-release.json` for Task 27; do not commit Runtime databases.
 - Produces: one evidence-backed completion record from the same final commit.
 - Records Tasks 15–28 of the prior four-batch plan as implemented or explicitly superseded by Tasks 9–22 here, with commit hashes.
 
-- [ ] **Step 1: Verify no hidden incomplete-work markers**
+- [x] **Step 1: Verify no hidden incomplete-work markers**
 
 Run:
 
@@ -2189,7 +2189,7 @@ rg -n "_dispatch|_active_tasks|process_direct" miniunicorn tests
 
 Expected: every remaining skip is an existing optional/environment gate and is listed with justification in final evidence; no required embedding, three-worker, recovery, packaging, load, or soak result is skipped. Removed task-authority names appear only in hard-cutover negative assertions/documentation.
 
-- [ ] **Step 2: Run source and backend gates**
+- [x] **Step 2: Run source and backend gates**
 
 Run:
 
@@ -2207,7 +2207,7 @@ git diff --check
 
 Expected: every command exits 0. Record pass/skip counts and wall times literally.
 
-- [ ] **Step 3: Run frontend gates**
+- [x] **Step 3: Run frontend gates**
 
 Run:
 
@@ -2224,11 +2224,11 @@ Pop-Location
 
 Expected: all PASS. Vite circular-chunk warnings may be recorded as advisory only if build exits 0 and no runtime test fails.
 
-- [ ] **Step 4: Re-run the two user-visible proof commands**
+- [x] **Step 4: Re-run the two user-visible proof commands**
 
 Run the real embedding command from Task 23 and both normal/crash three-worker commands from Tasks 24–25 from the final commit. Expected: all exit 0; evidence JSON contains the required durable facts.
 
-- [ ] **Step 5: Re-run artifact verification and inspect long-run evidence**
+- [x] **Step 5: Re-run artifact verification and inspect long-run evidence**
 
 Run Task 22 package commands against freshly built artifacts. Validate `runtime-soak-release.json` from Task 26 and include its SHA-256:
 
@@ -2238,7 +2238,7 @@ Get-FileHash runtime-soak-release.json -Algorithm SHA256
 
 If any source changed after the 30-minute soak, rerun the full soak from the new final commit; a report from an older source state is not release evidence.
 
-- [ ] **Step 6: Update prior-plan supersession mapping**
+- [x] **Step 6: Update prior-plan supersession mapping**
 
 If the prior plan is absent in the isolated worktree, first copy the unchanged source document without editing the original checkout:
 
@@ -2262,17 +2262,17 @@ For each prior Task 15–28, compute the implementing commit with `git log --for
 
 No task may be marked complete solely because this plan exists.
 
-- [ ] **Step 7: Write final evidence**
+- [x] **Step 7: Write final evidence**
 
 Use sections: Source Commit, Protected Files Check, Gate Matrix, Embedding Facts, Three-Worker Facts, Crash-Recovery Facts, Packaging Artifacts, Load Facts, Soak Facts, Docker Result, Prior-Plan Mapping, Residual Advisory Warnings. Link or hash each generated JSON; do not include secrets, API keys, databases, or model-cache paths. Create `docs/four-batch-hardening-release-notes.md` with the same measured line counts, install profiles, compatibility boundaries, test counts/durations, and any evidence-backed deviations.
 
-- [ ] **Step 8: Verify the original checkout was untouched**
+- [x] **Step 8: Verify the original checkout was untouched**
 
 Run: `git -C D:\MyProject\MiniUnicorn status --short`
 
 Expected: exactly the original four protected untracked paths and no new tracked modification from this remediation.
 
-- [ ] **Step 9: Commit the final documentation**
+- [x] **Step 9: Commit the final documentation**
 
 ```powershell
 git add docs/four-batch-hardening-release-notes.md

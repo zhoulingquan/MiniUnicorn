@@ -2390,6 +2390,8 @@ git commit -m "docs(protocol): describe events and turn telemetry"
 
 ### Task 15: Freeze `AgentRunner` behavior and file-size boundaries
 
+- [x] Implemented by remediation Task 9, commit f7294799543ae72e5c42ffa513dda57260897e4b, verified by `pytest tests/agent/test_runner_characterization.py tests/agent/test_runner_boundaries.py -q`.
+
 **Files:**
 - Create: `tests/agent/test_runner_characterization.py`
 - Create: `tests/agent/test_runner_structure.py`
@@ -2504,6 +2506,8 @@ git commit -m "test(runner): characterize orchestration behavior"
 ```
 
 ### Task 16: Extract runner contracts and provider requests
+
+- [x] Implemented by remediation Task 10, commit 496e5b353d45e0f570d88d14dc00deee393fc0df, verified by `pytest tests/agent/test_runner_model.py -q`.
 
 **Files:**
 - Create: `miniunicorn/agent/runner_types.py`
@@ -2621,6 +2625,8 @@ git commit -m "refactor(runner): extract provider request boundary"
 
 ### Task 17: Extract tool execution and result normalization
 
+- [x] Implemented by remediation Task 11, commit b7a6369e03767a8d1fea24cc0b1c87f2162bdb6a, verified by `pytest tests/agent/test_runner_tools.py -q`.
+
 **Files:**
 - Create: `miniunicorn/agent/runner_tools.py`
 - Create: `tests/agent/test_runner_tools.py`
@@ -2714,6 +2720,8 @@ git commit -m "refactor(runner): extract tool execution boundary"
 ```
 
 ### Task 18: Split the ReAct loop into explicit control phases
+
+- [x] Implemented by remediation Task 12, commit a0318667eaab3329f84ae8a910c2e483d5052c09, verified by `pytest tests/agent/test_runner_control.py tests/agent/test_runner_boundaries.py -q`.
 
 **Files:**
 - Create: `miniunicorn/agent/runner_control.py`
@@ -2864,6 +2872,8 @@ git commit -m "refactor(runner): split ReAct control phases"
 
 ### Task 19: Extract pure WebUI stream state transitions
 
+- [x] Implemented by remediation Task 13, commit e5bb6f19cd823116e2c0a20df626ceaf4a366dc3, verified by `npm test` in `webui/`.
+
 **Files:**
 - Create: `webui/src/hooks/stream-state.ts`
 - Create: `webui/src/hooks/stream-reducer.ts`
@@ -2968,6 +2978,8 @@ Expected: all frontend tests pass and `useMiniunicornStream.ts` is below 650 lin
 
 ### Task 20: Split activity parsing from activity rendering
 
+- [x] Implemented by remediation Task 14, commit 6b71eb579121f6fd4ff9d41d7f62041a75bfeb87, verified by `npm test` in `webui/`.
+
 **Files:**
 - Create: `webui/src/components/thread/activity/types.ts`
 - Create: `webui/src/components/thread/activity/trace-format.ts`
@@ -3052,6 +3064,8 @@ git commit -m "refactor(webui): split agent activity modules"
 
 ### Task 21: Extract WebSocket outbound emission from channel lifecycle
 
+- [x] Implemented by remediation Task 15, commit d3fd81e2a5e545083f1da42a86499a15ce80d94b, verified by `pytest tests/channels -q`.
+
 **Files:**
 - Create: `miniunicorn/channels/websocket/outbound.py`
 - Create: `tests/channels/test_websocket_outbound.py`
@@ -3116,6 +3130,8 @@ git commit -m "refactor(websocket): extract outbound emitter"
 Expected: all tests pass and `channel.py` is below 1450 lines.
 
 ### Task 22: Extract Feishu rendering and media services
+
+- [x] Implemented by remediation Tasks 16 and 17, commits d3756912d36373c847fdb228e75ffb6001d05af2 and 12dfebd621d377c46ce178e12256ed28cab5a910, verified by `pytest tests/channels -q`.
 
 **Files:**
 - Create: `miniunicorn/channels/feishu/rendering.py`
@@ -3212,6 +3228,8 @@ git commit -m "refactor(feishu): extract rendering and media services"
 Inspect the cached diff so unchanged Feishu test files are not accidentally staged.
 
 ### Task 23: Extract Weixin crypto, API client, and media service
+
+- [x] Implemented by remediation Task 18, commit 236635b1b35f1186a961fe93f4981a826c93af15, verified by `pytest tests/channels/test_weixin_crypto.py tests/channels/test_weixin_api_client.py tests/channels/test_weixin_media.py tests/channels/test_weixin_channel.py -q`.
 
 **Files:**
 - Create: `miniunicorn/channels/weixin/crypto.py`
@@ -3328,6 +3346,8 @@ git commit -m "refactor(weixin): extract API crypto and media services"
 
 ### Task 24: Close Batch 3 with whole-system regression and architecture map
 
+- [x] Superseded by remediation Task 18 Step 5 because the whole-system regression was folded into the Stage B checkpoint at the end of the channel extraction, commit 236635b1b35f1186a961fe93f4981a826c93af15, verified by `pytest tests/agent tests/channels tests/architecture -q`.
+
 **Files:**
 - Create: `docs/architecture.md`
 - Modify: `docs/agent-event-protocol.md` only if module paths need updating
@@ -3424,6 +3444,8 @@ Stage the protocol document only if changed.
 - Wheel, sdist, minimal install, frontend assets, imports, and full tests are verified before completion.
 
 ### Task 25: Define the document extra and actionable missing-dependency behavior
+
+- [x] Implemented by remediation Task 19, commit 74ba6d073cf3de9626b126ad89f53bfaa17e90df, verified by `pytest tests/test_document_parsing.py tests/test_api_attachment.py tests/test_context_documents.py -q`.
 
 **Files:**
 - Modify: `pyproject.toml`
@@ -3614,6 +3636,8 @@ Before accepting each `git add -p` hunk, reject unrelated author/metadata change
 
 ### Task 26: Keep Docker document-capable and verify a truly minimal wheel install
 
+- [x] Superseded by remediation Tasks 20 and 22 because the artifact, minimal-install, and Docker verification were split across the packaging verification and checkpoint tasks, commits 6132d92500cd7bc6e36bef0503b149594865844c and 2cc93164f41909a2632767cd800e24e97f1cfd8a, verified by `pytest tests/packaging -q` and the packaging checkpoint commands.
+
 **Files:**
 - Modify: `Dockerfile`
 - Create: `tests/packaging/test_dependency_metadata.py`
@@ -3742,6 +3766,8 @@ Do not commit `dist/` or `.venv-minimal/`.
 
 ### Task 27: Make version resolution robust to malformed source metadata
 
+- [x] Implemented by remediation Task 21, commit 062006a798ec52829cf5a22bc73c14aae4c40d40, verified by `pytest tests/test_package_version.py -q`.
+
 **Files:**
 - Modify: `miniunicorn/__init__.py`
 - Modify: `tests/test_package_version.py`
@@ -3822,6 +3848,8 @@ git commit -m "fix(packaging): tolerate malformed source metadata"
 ```
 
 ### Task 28: Final four-batch verification, release notes, and handoff
+
+- [x] Superseded by remediation Task 27 because the final verification, release notes, and handoff were folded into the remediation final matrix and evidence report, verified by the gate matrix in `docs/superpowers/evidence/2026-08-03-remediation-final.md` and release notes in `docs/four-batch-hardening-release-notes.md`.
 
 **Files:**
 - Create: `docs/four-batch-hardening-release-notes.md`
