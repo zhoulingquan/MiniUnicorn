@@ -76,6 +76,8 @@ async def test_concurrent_turns_emit_own_context_usage(tmp_path: Path) -> None:
 
     barrier = asyncio.Event()
 
+    captured_contexts: dict[str, TurnContext] = {}
+
     async def _fake_execute_a(*args, **kwargs):
         await barrier.wait()
         return ProcessedTurn(outbound=None, context=ctx_a)
@@ -85,12 +87,14 @@ async def test_concurrent_turns_emit_own_context_usage(tmp_path: Path) -> None:
         return ProcessedTurn(outbound=None, context=ctx_b)
 
     # Patch _execute_message to dispatch based on session key
-    async def _dispatch_execute(msg, **kwargs):
+    async def _execute_for_message(msg, **kwargs):
         if msg.session_key == "ws:c1":
+            captured_contexts[msg.session_key] = ctx_a
             return await _fake_execute_a(msg, **kwargs)
+        captured_contexts[msg.session_key] = ctx_b
         return await _fake_execute_b(msg, **kwargs)
 
-    loop._execute_message = AsyncMock(side_effect=_dispatch_execute)  # type: ignore[method-assign]
+    loop._execute_message = AsyncMock(side_effect=_execute_for_message)  # type: ignore[method-assign]
     loop._webui_turns.publish_run_status = AsyncMock()  # type: ignore[method-assign]
 
     # Patch _state_save path: we need sessions.get_or_create to return a mock
@@ -99,9 +103,23 @@ async def test_concurrent_turns_emit_own_context_usage(tmp_path: Path) -> None:
     mock_session.metadata = {}
     loop.sessions.get_or_create = MagicMock(return_value=mock_session)  # type: ignore[method-assign]
 
+    async def _dispatch_via_seam(msg):
+        """Simulate the old dispatch flow: process_message + publish + turn_end."""
+        response = await loop.core_dispatcher.process_message(msg)
+        if response is not None:
+            await loop.bus.publish_outbound(response)
+        if msg.channel == "websocket":
+            ctx = captured_contexts[msg.session_key]
+            await loop._webui_turns.handle_turn_end(
+                msg,
+                session_key=msg.session_key,
+                latency_ms=ctx.turn_latency_ms,
+                context_usage=ctx.last_call_usage,
+            )
+
     tasks = [
-        asyncio.create_task(loop._dispatch(msg_a)),
-        asyncio.create_task(loop._dispatch(msg_b)),
+        asyncio.create_task(_dispatch_via_seam(msg_a)),
+        asyncio.create_task(_dispatch_via_seam(msg_b)),
     ]
     # Release both turns simultaneously so they overlap.
     barrier.set()
