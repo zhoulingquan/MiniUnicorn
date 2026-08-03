@@ -41,6 +41,13 @@ export interface UpdateInfo {
   isTauri: boolean;
 }
 
+/** 远程 updater.json 地址(GitHub 仓库 main 分支,发版后自动反映最新版本)。 */
+const REMOTE_UPDATER_URL =
+  "https://raw.githubusercontent.com/zhoulingquan/MiniUnicorn/main/webui/public/updater.json";
+
+/** 同源 fallback:远程不可达时(如离线/内网)用本地 updater.json。 */
+const LOCAL_UPDATER_URL = "/updater.json";
+
 /**
  * 检测是否有新版本。
  *
@@ -50,12 +57,15 @@ export interface UpdateInfo {
  *  2. 使用 semver 语义化比较,而非简单字符串包含判断
  *  3. 静默失败(fetch 失败时 hasUpdate=false,不打扰用户)
  *
+ * 优先 fetch 远程 updater.json(GitHub raw),失败时 fallback 到同源 /updater.json。
+ * 这样旧版本实例无需 git pull 即可感知到 GitHub 上发布的新版本。
+ *
  * @param currentVersion 当前版本号(来自后端 boot.version)
- * @param updaterUrl     updater.json 的 URL,默认同源 /updater.json
+ * @param updaterUrl     updater.json 的 URL,默认远程 GitHub raw
  */
 export function useVersionCheck(
   currentVersion: string | null,
-  updaterUrl = "/updater.json",
+  updaterUrl = REMOTE_UPDATER_URL,
 ): UpdateInfo | null {
   const [info, setInfo] = useState<UpdateInfo | null>(null);
 
@@ -71,10 +81,17 @@ export function useVersionCheck(
     // 当前 Phase 1 先统一走 fetch updater.json
     async function check() {
       try {
-        const res = await fetch(updaterUrl, {
+        let res = await fetch(updaterUrl, {
           cache: "no-cache",
           headers: { Accept: "application/json" },
         });
+        // 远程不可达时 fallback 到同源本地 updater.json
+        if (!res.ok && updaterUrl !== LOCAL_UPDATER_URL) {
+          res = await fetch(LOCAL_UPDATER_URL, {
+            cache: "no-cache",
+            headers: { Accept: "application/json" },
+          });
+        }
         if (!res.ok) return;
         const data: UpdaterMeta = await res.json();
         if (cancelled || !data?.version) return;
@@ -92,7 +109,7 @@ export function useVersionCheck(
           notes: data.notes ?? {},
           releaseUrl:
             data.release_url ??
-            `https://github.com/tuolaonainaiguomalu/mini-Unicorn/releases/tag/v${data.version}`,
+            `https://github.com/zhoulingquan/MiniUnicorn/releases/tag/v${data.version}`,
           isTauri,
         });
       } catch {
