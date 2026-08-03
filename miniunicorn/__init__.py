@@ -14,12 +14,20 @@ def _read_pyproject_version() -> str | None:
     Always reads pyproject.toml (not importlib.metadata) so that editing
     ``version`` takes effect on the next import without reinstalling the
     editable install. Cached for the process lifetime via lru_cache.
+
+    Per Task 21: missing, unreadable, malformed TOML, missing ``[project]``,
+    and non-string ``project.version`` all return ``None`` so the resolver
+    falls through to installed metadata instead of raising.
     """
     pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
     if not pyproject.exists():
         return None
-    data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
-    return data.get("project", {}).get("version")
+    try:
+        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError):
+        return None
+    version = data.get("project", {}).get("version")
+    return version if isinstance(version, str) and version else None
 
 
 @lru_cache(maxsize=1)

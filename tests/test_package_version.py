@@ -6,6 +6,8 @@ import textwrap
 import tomllib
 from pathlib import Path
 
+import pytest
+
 
 def test_source_checkout_import_uses_pyproject_version_without_metadata() -> None:
     repo_root = Path(__file__).resolve().parents[1]
@@ -61,3 +63,81 @@ def test_resolve_version_returns_unknown_when_both_unavailable(monkeypatch) -> N
     monkeypatch.setattr(miniunicorn, "_read_pyproject_version", lambda: None)
     monkeypatch.setattr(miniunicorn, "_read_installed_version", lambda: None)
     assert miniunicorn._resolve_version() == "0.0.0+unknown"
+
+
+@pytest.fixture(autouse=True)
+def _clear_version_cache():
+    """Ensure the lru_cache on _read_pyproject_version never leaks between tests."""
+    import miniunicorn
+
+    miniunicorn._read_pyproject_version.cache_clear()
+    yield
+    miniunicorn._read_pyproject_version.cache_clear()
+
+
+def _patch_pyproject_read(
+    monkeypatch,
+    *,
+    content: str | None = None,
+    raises: BaseException | None = None,
+) -> None:
+    """Make the real _read_pyproject_version() see ``content`` (or raise).
+
+    Only the source-tree pyproject.toml path is redirected; every other
+    Path.exists / Path.read_text call delegates to the real implementation so
+    the rest of the test process is unaffected.
+    """
+    import miniunicorn
+
+    miniunicorn._read_pyproject_version.cache_clear()
+    target = Path(miniunicorn.__file__).resolve().parent.parent / "pyproject.toml"
+
+    real_exists = Path.exists
+    real_read_text = Path.read_text
+
+    def fake_exists(self, *args, **kwargs):
+        if self == target:
+            return True
+        return real_exists(self, *args, **kwargs)
+
+    def fake_read_text(self, *args, **kwargs):
+        if self == target:
+            if raises is not None:
+                raise raises
+            return content
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "exists", fake_exists)
+    monkeypatch.setattr(Path, "read_text", fake_read_text)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        pytest.param("[project\nversion='broken'", id="malformed-toml"),
+        pytest.param("[tool.example]\nvalue=1", id="missing-project"),
+        pytest.param("[project]\nname='x'", id="missing-version"),
+        pytest.param("[project]\nversion=3", id="non-string-version"),
+    ],
+)
+def test_read_pyproject_version_tolerates_bad_metadata(monkeypatch, content) -> None:
+    """Bad source pyproject.toml must return None so _resolve_version falls through.
+
+    Per Task 21: malformed TOML, missing [project], missing version, and
+    non-string version all return None from _read_pyproject_version(); the
+    resolver then falls back to installed metadata instead of raising.
+    """
+    import miniunicorn
+
+    _patch_pyproject_read(monkeypatch, content=content)
+    monkeypatch.setattr(miniunicorn, "_read_installed_version", lambda: "9.9.9")
+    assert miniunicorn._resolve_version() == "9.9.9"
+
+
+def test_read_pyproject_version_tolerates_unreadable_file(monkeypatch) -> None:
+    """An unreadable pyproject.toml (OSError) must return None, not raise."""
+    import miniunicorn
+
+    _patch_pyproject_read(monkeypatch, raises=OSError("denied"))
+    monkeypatch.setattr(miniunicorn, "_read_installed_version", lambda: "9.9.9")
+    assert miniunicorn._resolve_version() == "9.9.9"
