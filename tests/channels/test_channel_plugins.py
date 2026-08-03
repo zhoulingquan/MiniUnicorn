@@ -275,8 +275,16 @@ async def test_manager_propagates_groq_transcription_api_base_to_channels():
 
 
 @pytest.mark.asyncio
-async def test_manager_propagates_openai_transcription_api_base_to_channels():
+async def test_manager_propagates_openai_transcription_api_base_to_channels(
+    monkeypatch,
+):
     from miniunicorn.channels.manager import ChannelManager
+
+    # OpenAI Whisper transcription reads its key/base from env (the openai
+    # LLM provider was removed from ProvidersConfig). Set env vars so the
+    # propagation assertions reflect the real resolution path.
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
+    monkeypatch.setenv("OPENAI_API_BASE", "http://proxy.local/v1/audio/transcriptions")
 
     fake_config = SimpleNamespace(
         channels=ChannelsConfig.model_validate(
@@ -303,6 +311,7 @@ async def test_manager_propagates_openai_transcription_api_base_to_channels():
         mgr.bus = MessageBus()
         mgr.channels = {}
         mgr._dispatch_task = None
+        mgr._submit_inbound = None
         mgr._init_channels()
 
     channel = mgr.channels["fakeplugin"]

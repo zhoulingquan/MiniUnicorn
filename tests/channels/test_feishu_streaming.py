@@ -6,6 +6,17 @@ from unittest.mock import MagicMock
 
 import pytest
 
+# Check optional Feishu dependencies before running tests
+try:
+    from miniunicorn.channels import feishu
+
+    FEISHU_AVAILABLE = getattr(feishu, "FEISHU_AVAILABLE", False)
+except ImportError:
+    FEISHU_AVAILABLE = False
+
+if not FEISHU_AVAILABLE:
+    pytest.skip("Feishu dependencies not installed (lark-oapi)", allow_module_level=True)
+
 from miniunicorn.bus.events import OutboundMessage
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.channels.feishu import FeishuChannel, FeishuConfig, _FeishuStreamBuf

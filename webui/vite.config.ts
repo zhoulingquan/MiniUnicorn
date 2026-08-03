@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
+import { configDefaults } from "vitest/config";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
@@ -105,6 +106,10 @@ export default defineConfig(({ mode }) => {
       environment: "happy-dom",
       globals: true,
       setupFiles: ["./src/tests/setup.ts"],
+      // scripts/generated-file-check.test.mjs is a node:test file run via
+      // `npm run test:generated-check`; exclude it from vitest discovery so
+      // vitest doesn't report "no test suite found" for the node:test API.
+      exclude: [...configDefaults.exclude, "scripts/**"],
     },
   };
 });
