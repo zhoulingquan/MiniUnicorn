@@ -70,6 +70,12 @@ async def test_supervised_processes_real_turn_after_readiness(
     Before the Task 1 fix: the Worker's event loop is starved by the
     synchronous ``child_poll`` call, so the task times out while all
     three Worker records report ready.
+
+    Task 24 Step 2 strengthens the postconditions: after terminal
+    completion the durable session has user then assistant content,
+    exactly one FINAL_REPLY Outbox fact, exactly one logical Provider
+    decision, and exactly one stub request. After ``resources.stop()``
+    no child process may remain alive.
     """
     from miniunicorn.runtime.application import RuntimeInboundRequest
     from miniunicorn.runtime.ingress import (
@@ -78,6 +84,7 @@ async def test_supervised_processes_real_turn_after_readiness(
     )
     from miniunicorn.runtime.sqlite import SqliteRuntimeStore, open_connection
     from miniunicorn.runtime.task_service import TaskService
+    from miniunicorn.session.manager import SessionManager
     from tests.runtime.support.openai_stub import OpenAIStubServer, chat_completion
 
     # 1. Start the OpenAI-compatible stub server with one deterministic response.
@@ -134,10 +141,55 @@ async def test_supervised_processes_real_turn_after_readiness(
                 snapshot = await task_service.wait_terminal(scope, handle.task_id, timeout_s=30)
                 assert snapshot.state == "COMPLETED"
                 # Exactly one Provider request — the stub was called once.
-                assert len(stub.requests) == 1
+                assert len(stub.requests) == 1, (
+                    f"expected exactly 1 stub request, got {len(stub.requests)}"
+                )
+
+                # Task 24 Step 2: strengthened postconditions.
+                # (a) Durable session has user then assistant content (read
+                #     directly from the session file via SessionManager so
+                #     we do not depend on the Worker's process-local cache).
+                session_snapshot = SessionManager(workspace).load_fresh("golden-flow-session")
+                roles = [m.get("role") for m in session_snapshot.messages]
+                assert "user" in roles, f"durable session missing user message: roles={roles}"
+                assert "assistant" in roles, (
+                    f"durable session missing assistant message: roles={roles}"
+                )
+                user_idx = roles.index("user")
+                asst_idx = roles.index("assistant")
+                assert user_idx < asst_idx, f"user must precede assistant: roles={roles}"
+
+                # (b) Exactly one final-reply Outbox fact for this task.
+                outbox_count = test_conn.execute(
+                    "SELECT COUNT(*) AS n FROM outbox WHERE task_id=?",
+                    (handle.task_id,),
+                ).fetchone()["n"]
+                assert outbox_count == 1, f"expected exactly 1 outbox row, got {outbox_count}"
+                outbox_kind = test_conn.execute(
+                    "SELECT message_kind FROM outbox WHERE task_id=?",
+                    (handle.task_id,),
+                ).fetchone()["message_kind"]
+                assert outbox_kind == "FINAL_REPLY", (
+                    f"expected FINAL_REPLY outbox kind, got {outbox_kind!r}"
+                )
+
+                # (c) Exactly one logical Provider decision: exactly one
+                #     COMPLETED model attempt for this task.
+                completed_attempts = test_conn.execute(
+                    "SELECT COUNT(*) AS n FROM model_attempts "
+                    "WHERE task_id=? AND state='COMPLETED'",
+                    (handle.task_id,),
+                ).fetchone()["n"]
+                assert completed_attempts == 1, (
+                    f"expected exactly 1 COMPLETED model attempt, got {completed_attempts}"
+                )
             finally:
                 test_conn.close()
         finally:
             await resources.stop()
+            # Task 24 Step 2: after stop(), no child process may remain alive.
+            post_snapshot = resources.host.snapshot()
+            alive_children = [c for c in post_snapshot["children"] if c.get("alive")]
+            assert not alive_children, f"child processes still alive after stop(): {alive_children}"
     finally:
         stub.close()
