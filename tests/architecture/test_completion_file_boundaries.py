@@ -12,11 +12,17 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _CHANNEL = _REPO_ROOT / "miniunicorn" / "channels" / "websocket" / "channel.py"
+_FEISHU_CHANNEL = _REPO_ROOT / "miniunicorn" / "channels" / "feishu" / "channel.py"
 
 # Task 15 ceiling: channel.py must stay below 1450 physical lines after the
 # outbound emission extraction.  If this test fails, outbound logic has
 # leaked back into the channel façade — move it to ``outbound.py``.
 _CHANNEL_MAX_LINES = 1450
+
+# Task 17 ceiling: feishu/channel.py must stay below 1750 physical lines
+# after the media-operations extraction.  If this test fails, media logic
+# has leaked back into the channel façade — move it to ``media.py``.
+_FEISHU_CHANNEL_MAX_LINES = 1750
 
 
 def _count_lines(path: Path) -> int:
@@ -30,4 +36,14 @@ def test_channel_py_under_line_budget() -> None:
     assert actual < _CHANNEL_MAX_LINES, (
         f"channel.py grew to {actual} lines (ceiling {_CHANNEL_MAX_LINES}); "
         "move outbound logic back into outbound.py"
+    )
+
+
+def test_feishu_channel_py_under_line_budget() -> None:
+    """Feishu ``channel.py`` must stay below the post-extraction line ceiling."""
+    actual = _count_lines(_FEISHU_CHANNEL)
+    assert actual < _FEISHU_CHANNEL_MAX_LINES, (
+        f"feishu/channel.py grew to {actual} lines "
+        f"(ceiling {_FEISHU_CHANNEL_MAX_LINES}); "
+        "move media logic back into media.py"
     )
