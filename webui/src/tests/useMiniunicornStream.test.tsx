@@ -1,6 +1,8 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { useMiniunicornStream } from "@/hooks/useMiniunicornStream";
 import type { InboundEvent, GoalStateWsPayload } from "@/lib/types";
@@ -1573,6 +1575,13 @@ describe("useMiniunicornStream", () => {
       });
     });
     expect(result.current.goalState).toEqual({ active: false });
+  });
+
+  it("keeps the hook implementation below 650 physical lines", () => {
+    const hookPath = resolve(__dirname, "..", "..", "src", "hooks", "useMiniunicornStream.ts");
+    const source = readFileSync(hookPath, "utf8");
+    const lineCount = source.split("\n").length;
+    expect(lineCount).toBeLessThan(650);
   });
 
 });
