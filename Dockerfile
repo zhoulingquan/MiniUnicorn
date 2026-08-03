@@ -59,9 +59,11 @@ COPY --from=webui-builder /build/miniunicorn/web/dist ./miniunicorn/web/dist
 # Copy the full Python source and install. MINIUNICORN_SKIP_WEBUI_BUILD=1
 # guarantees hatch_build.py will not try to invoke bun/npm (which are absent
 # from this stage) — the prebuilt dist copied above is used as-is.
+# The [documents] extra supplies pypdf, python-docx, openpyxl, and
+# python-pptx so the container can extract PDF/DOCX/XLSX/PPTX attachments.
 ENV MINIUNICORN_SKIP_WEBUI_BUILD=1
 COPY miniunicorn/ miniunicorn/
-RUN uv pip install --system --no-cache .
+RUN uv pip install --system --no-cache ".[documents]"
 
 # Create non-root user and config directory
 RUN useradd -m -u 1000 -s /bin/bash miniunicorn && \

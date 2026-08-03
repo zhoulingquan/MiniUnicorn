@@ -120,3 +120,41 @@ jobs:
         run: bun run test
       - name: Build
         run: bun run build
+
+  packaging:
+    name: Wheel / sdist / isolated install
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+      - name: Build wheel and sdist
+        run: |
+          uv build --out-dir dist-remediation
+      - name: Inspect artifact metadata
+        run: uv run pytest tests/packaging/test_artifacts.py -q
+      - name: Twine check
+        run: uv run --with twine twine check dist-remediation/*
+      - name: Verify base install
+        run: |
+          wheel=$(ls dist-remediation/miniunicorn_ai-*.whl | head -1)
+          uv run python scripts/verify_package_install.py --artifact "$wheel" --extra base --work-dir .package-smoke-base
+      - name: Verify documents install
+        run: |
+          wheel=$(ls dist-remediation/miniunicorn_ai-*.whl | head -1)
+          uv run python scripts/verify_package_install.py --artifact "$wheel" --extra documents --work-dir .package-smoke-documents
+      - name: Verify bundled WebUI assets
+        run: |
+          python -c "
+          import zipfile, sys
+          wheel = [f for f in __import__('os').listdir('dist-remediation') if f.endswith('.whl')][0]
+          with zipfile.ZipFile(f'dist-remediation/{wheel}') as zf:
+              names = zf.namelist()
+              assert any('miniunicorn/web/dist/index.html' in n for n in names), 'WebUI index.html missing from wheel'
+              print('WebUI assets verified in wheel')
+          "
