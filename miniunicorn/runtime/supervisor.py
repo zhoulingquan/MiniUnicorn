@@ -286,8 +286,21 @@ class Supervisor:
         Exposes a read-only lookup so tests and fault-injection harnesses
         can resolve the real lease-owning Worker without touching the
         mutable ``_children`` mapping directly (Task 6 Step 3).
+
+        ``child_id`` may be either the stable child id (e.g. ``worker-0``)
+        or the per-spawn instance id stored in ``TaskRecord.leased_by``
+        (e.g. ``worker-0#2``), so fault injection can resolve the exact
+        process holding a lease.
         """
-        return self._children.get(child_id)
+        record = self._children.get(child_id)
+        if record is not None:
+            return record
+        # Fall back to instance_id lookup so callers can pass the
+        # leased_by value directly.
+        for r in self._children.values():
+            if r.instance_id == child_id:
+                return r
+        return None
 
     # ------------------------------------------------------------------
     # Start / spawn

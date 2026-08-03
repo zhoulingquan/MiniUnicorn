@@ -403,14 +403,22 @@ class TestFaultInjectionBoundaries:
 
 
 class TestSupervisedWorkerKillRecovery:
-    """Kill a real Worker process and verify task recovery (Task 14 Step 4)."""
+    """Kill the real lease-owning Worker and verify recovery (Task 7).
+
+    The Worker that actually holds the task lease (``TaskRecord.leased_by``)
+    is the one that must be terminated — not an arbitrary Worker. The
+    ``wait_for_task_owner`` helper resolves that owner from durable state,
+    and ``terminate_worker`` kills that exact process. Recovery must
+    produce exactly one logical Provider decision and no duplicate
+    terminal/final-reply effect (design §19.4, §30 Task 14).
+    """
 
     @pytest.mark.slow
     async def test_task_recovers_after_worker_kill(
         self,
         tmp_path: Path,
     ) -> None:
-        """Kill a Worker process while a task is in-flight; verify recovery.
+        """Kill the lease-owning Worker while a task is in-flight; verify recovery.
 
         The Supervisor restarts the Worker, the lease expires, and the
         task is reclaimed and completed by another Worker (or the
@@ -419,6 +427,10 @@ class TestSupervisedWorkerKillRecovery:
         from miniunicorn.config.schema import Config
         from miniunicorn.runtime.bootstrap import build_supervised_runtime
         from tests.runtime.support.openai_stub import OpenAIStubServer, chat_completion
+        from tests.runtime.support.supervised import (
+            terminate_worker,
+            wait_for_task_owner,
+        )
 
         stub = OpenAIStubServer(
             [
@@ -495,44 +507,22 @@ class TestSupervisedWorkerKillRecovery:
                     )
                     handle = await task_service.submit(envelope)
 
-                    # Poll until the task is RUNNING (claimed and executing)
-                    # so we know a Worker is mid-flight when we kill it.
-                    task = None
-                    for _ in range(20):
-                        await asyncio.sleep(0.25)
-                        task = test_store.read_task(handle.task_id)
-                        if task is not None and task.state == "RUNNING":
-                            break
-                    assert task is not None
-                    if task.state in ("QUEUED", "COMPLETED", "FAILED"):
-                        # Task was not claimed in time, already completed,
-                        # or failed by the Worker before we could kill it.
-                        # In all cases, verify the terminal state.
-                        if task.state == "FAILED":
-                            pytest.skip(
-                                f"task was failed before Worker kill "
-                                f"(state={task.state}); not a recovery scenario"
-                            )
-                    else:
-                        # Kill one Worker process.
-                        host = resources.host
-                        supervisor = host.supervisor
-                        children = supervisor._children  # type: ignore[attr-defined]
-                        worker_records = [
-                            r for r in children.values()
-                            if r.role == "worker" and r.process is not None
-                        ]
-                        if worker_records:
-                            killed = worker_records[0]
-                            killed.process.terminate()
-                            try:
-                                killed.process.wait(timeout=2)
-                            except Exception:  # noqa: BLE001
-                                killed.process.kill()
-                            # Give the Supervisor a moment to detect the
-                            # exit and the lease scanner to reclaim the
-                            # task before we wait for terminal.
-                            await asyncio.sleep(0.5)
+                    # Resolve the real lease-owning Worker from durable
+                    # state. The helper fails (not skips) when the task
+                    # never reaches RUNNING — that is the correct signal
+                    # that the recovery scenario was not established.
+                    task, owner = await wait_for_task_owner(
+                        test_store,
+                        handle.task_id,
+                        timeout_s=10.0,
+                    )
+                    assert task.leased_by == owner
+
+                    # Terminate the exact Worker that holds the lease.
+                    killed_pid = terminate_worker(
+                        resources.host.supervisor, owner
+                    )
+                    assert killed_pid > 0
 
                     # Wait for the task to complete (recovered by another Worker).
                     snapshot = await task_service.wait_terminal(
@@ -541,15 +531,53 @@ class TestSupervisedWorkerKillRecovery:
                     assert snapshot.state == "COMPLETED", (
                         f"task should recover after Worker kill, got {snapshot.state}"
                     )
+
+                    # Strengthened postconditions (Task 7 Step 2).
+                    final_task = test_store.read_task(handle.task_id)
+                    assert final_task is not None
+                    # root_attempt_count >= 2: the original attempt plus at
+                    # least one recovery attempt after lease expiry.
+                    assert final_task.root_attempt_count >= 2, (
+                        f"expected >=2 root attempts, got "
+                        f"{final_task.root_attempt_count}"
+                    )
+                    # The Provider was called at most twice: once before
+                    # the kill (may not have completed) and once during
+                    # recovery. At least one call is required for the
+                    # task to complete.
+                    assert 1 <= len(stub.requests) <= 2, (
+                        f"expected 1-2 Provider calls, got {len(stub.requests)}"
+                    )
+
+                    # One logical Provider decision: exactly one COMPLETED
+                    # model attempt for this task.
+                    completed_attempts = test_conn.execute(
+                        "SELECT COUNT(*) FROM model_attempts "
+                        "WHERE task_id=? AND state='COMPLETED'",
+                        (handle.task_id,),
+                    ).fetchone()[0]
+                    assert completed_attempts == 1, (
+                        f"expected exactly 1 COMPLETED model attempt, "
+                        f"got {completed_attempts}"
+                    )
+
+                    # No duplicate terminal/final-reply effect: exactly one
+                    # outbox row for this task (the final reply was enqueued
+                    # exactly once, not duplicated by recovery). The row may
+                    # still be PENDING because the outbox sender runs
+                    # asynchronously; the key assertion is the count.
+                    outbox_count = test_conn.execute(
+                        "SELECT COUNT(*) FROM outbox WHERE task_id=?",
+                        (handle.task_id,),
+                    ).fetchone()[0]
+                    assert outbox_count == 1, (
+                        f"expected exactly 1 outbox row (no duplicate final "
+                        f"reply), got {outbox_count}"
+                    )
                 finally:
                     test_conn.close()
             finally:
                 await resources.stop()
-
-            # The Provider should have been called at most twice (once
-            # before the kill, once during recovery). The key assertion
-            # is that the task completed successfully despite the kill.
-            assert stub.request_count >= 1
         finally:
             stub.close()
 
