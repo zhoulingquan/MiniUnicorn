@@ -210,8 +210,21 @@ class MemoryStore:
         kind: str = "history",
         metadata: dict | None = None,
         importance: float = 0.5,
+        *,
+        source_identity: str = "",
+        source_revision: str = "",
+        scope: dict[str, str] | None = None,
     ) -> None:
-        """Embed *text* and index it in the vector store (no-op if not attached)."""
+        """Embed *text* and index it in the vector store (no-op if not attached).
+
+        ``source_identity`` and ``source_revision`` record where the content
+        came from (e.g. ``"history.jsonl"`` / cursor) so the vector store can
+        deduplicate (idempotent UPSERT). ``scope`` carries
+        ``tenant_id``/``principal_id``/``agent_id``/``workspace_id`` for
+        scoped recall. Both are forwarded to ``VectorMemoryStore.index``;
+        callers without an identity pass empty strings (the default) and
+        remain valid.
+        """
         vs = self._vector_store
         if vs is None or not vs.enabled or not text:
             return
@@ -221,7 +234,16 @@ class MemoryStore:
         try:
             embeddings = await provider.embed([text], model=self._embed_model)
             if embeddings:
-                vs.index(text, embeddings[0], kind=kind, metadata=metadata, importance=importance)
+                vs.index(
+                    text,
+                    embeddings[0],
+                    kind=kind,
+                    metadata=metadata,
+                    importance=importance,
+                    source_identity=source_identity,
+                    source_revision=source_revision,
+                    scope=scope,
+                )
         except NotImplementedError:
             pass  # provider doesn't support embeddings; silently skip
         except Exception:
@@ -1334,6 +1356,8 @@ class Consolidator:
                     kind="history",
                     metadata={"cursor": cursor},
                     importance=0.5,  # ordinary conversation summary
+                    source_identity="history.jsonl",
+                    source_revision=str(cursor),
                 )
             except Exception:
                 logger.debug("Vector indexing of archive summary failed", exc_info=True)
@@ -1928,6 +1952,8 @@ class Dream:
                             kind="procedural",
                             metadata={"cursor": p.get("cursor"), "timestamp": p.get("timestamp")},
                             importance=0.8,
+                            source_identity="procedural.jsonl",
+                            source_revision=str(p.get("cursor", "")),
                         )
             except Exception:
                 logger.debug("Procedural indexing failed", exc_info=True)
