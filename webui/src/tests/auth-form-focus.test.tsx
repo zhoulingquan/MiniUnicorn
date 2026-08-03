@@ -77,7 +77,7 @@ describe("App AuthForm focus management", () => {
     expect(input).toBeInTheDocument();
 
     await waitFor(() => {
-      const focusTargets = focusSpy.mock.instances as HTMLElement[];
+      const focusTargets = focusSpy.mock.instances as unknown as HTMLElement[];
       expect(focusTargets).toContain(input);
     });
   });

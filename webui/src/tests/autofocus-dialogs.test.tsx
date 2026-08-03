@@ -39,7 +39,7 @@ describe("RenameChatDialog focus management", () => {
     // The input itself should have been the focus target.
     // Radix Dialog mounts content asynchronously, so we wait for the focus call.
     await waitFor(() => {
-      const focusCalls = focusSpy.mock.instances as HTMLElement[];
+      const focusCalls = focusSpy.mock.instances as unknown as HTMLElement[];
       expect(focusCalls).toContain(input);
     });
     focusSpy.mockRestore();
@@ -60,7 +60,7 @@ describe("RenameChatDialog focus management", () => {
     expect(input).not.toBeInTheDocument();
     // No focus calls should be issued while the dialog is closed.
     const inputFocusCalls = focusSpy.mock.instances.filter(
-      (el) => el instanceof HTMLInputElement,
+      (el) => (el as unknown) instanceof HTMLInputElement,
     );
     expect(inputFocusCalls).toHaveLength(0);
     focusSpy.mockRestore();
@@ -87,7 +87,7 @@ describe("NewModelConfigurationDialog focus management", () => {
     expect(input).toBeInTheDocument();
     // Radix Dialog mounts content asynchronously, so we wait for the focus call.
     await waitFor(() => {
-      const focusCalls = focusSpy.mock.instances as HTMLElement[];
+      const focusCalls = focusSpy.mock.instances as unknown as HTMLElement[];
       expect(focusCalls).toContain(input);
     });
     focusSpy.mockRestore();
@@ -109,7 +109,7 @@ describe("NewModelConfigurationDialog focus management", () => {
     );
 
     const inputFocusCalls = focusSpy.mock.instances.filter(
-      (el) => el instanceof HTMLInputElement,
+      (el) => (el as unknown) instanceof HTMLInputElement,
     );
     expect(inputFocusCalls).toHaveLength(0);
     focusSpy.mockRestore();
@@ -135,7 +135,7 @@ describe("InlineAddModelForm focus management", () => {
 
     const input = screen.getByPlaceholderText("e.g. gpt-4o, deepseek-chat") as HTMLInputElement;
     expect(input).toBeInTheDocument();
-    const focusCalls = focusSpy.mock.instances as HTMLElement[];
+    const focusCalls = focusSpy.mock.instances as unknown as HTMLElement[];
     expect(focusCalls).toContain(input);
     focusSpy.mockRestore();
   });
