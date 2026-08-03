@@ -1,10 +1,7 @@
 """WebSocket server channel: Miniunicorn acts as a WebSocket server and serves connected clients.
 
-The module-level helpers (path/HTTP/MIME/session/config) live in sibling
-``_``-prefixed modules and are re-imported here so the public surface
-(``WebSocketChannel``, ``WebSocketConfig``, ``publish_runtime_model_update``)
-and the test monkeypatch targets (``get_media_dir``, ``cli_apps_payload``,
-``cli_apps_action``, ``request_mcp_reload``, ``_default_model_name_from_config``)
+Sibling ``_``-prefixed modules hold the path/HTTP/MIME/session/config helpers;
+they are re-imported here so the public surface and test monkeypatch targets
 keep working unchanged.
 """
 
@@ -18,7 +15,7 @@ import secrets
 import ssl
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -32,28 +29,10 @@ from websockets.http11 import Response
 from miniunicorn import __version__
 from miniunicorn.agent.tools.mcp import request_mcp_reload
 from miniunicorn.bus.agent_events import (
-    AGENT_EVENT_ADAPTER,
     AgentEvent,
-    AttachedEvent,
-    DeltaEvent,
-    ErrorEvent,
-    FileEditEvent,
-    GoalStateEvent,
-    GoalStatusEvent,
-    MessageEvent,
     ReadyEvent,
-    ReasoningDeltaEvent,
-    ReasoningEndEvent,
-    RuntimeModelUpdatedEvent,
-    SessionUpdatedEvent,
-    StreamEndEvent,
-    SubagentActivityEvent,
-    TurnEndEvent,
-    serialize_agent_event,
 )
 from miniunicorn.bus.events import (
-    OUTBOUND_META_AGENT_EVENT,
-    OUTBOUND_META_AGENT_UI,
     OutboundMessage,
 )
 from miniunicorn.bus.queue import MessageBus
@@ -93,37 +72,24 @@ from miniunicorn.webui.workspaces import (
     WebUIWorkspaceController,
 )
 
-# Importing the handlers package triggers ``@router.route(...)`` registration
-# for all migrated WebUI HTTP endpoints. Must come after ``_http_router`` so
-# the decorators find the global ``router`` singleton already bound.
+# Importing handlers triggers ``@router.route(...)`` registration for all
+# migrated WebUI HTTP endpoints. Must come after ``_http_router``.
 from . import handlers  # noqa: F401 — side effect: registers declarative routes
 
-# Re-export helpers from sibling submodules so the public surface and the
-# test monkeypatch targets keep working unchanged. The original module
-# attribute path (``miniunicorn.channels.websocket.channel.<name>``) is
-# what tests patch, so the binding must live in this module's globals.
+# Re-export helpers from sibling submodules so test monkeypatch targets keep working.
 from ._http_router import RouteDeps, router  # noqa: F401 — router used by _dispatch_http
 from ._http_routes import (  # noqa: F401
-    _API_KEY_RE,
-    _MCP_PRESET_ACTIONS_BY_PATH,
-    _MCP_VALUES_HEADER,
-    _MCP_VALUES_HEADER_MAX_BYTES,
     _bearer_token,
-    _collect_chunked_header,
-    _decode_api_key,
     _http_error,
     _http_json_response,
     _http_response,
-    _human_readable_size,
     _issue_route_secret_matches,
     _normalize_http_path,
-    _parse_mcp_settings_query,
     _parse_query,
     _parse_request_path,
     _query_first,
 )
 from ._media_sign import (  # noqa: F401
-    _DATA_URL_MIME_RE,
     _DOCUMENT_MIME_ALLOWED,
     _IMAGE_MIME_ALLOWED,
     _MAX_DOCUMENT_BYTES,
@@ -136,7 +102,6 @@ from ._media_sign import (  # noqa: F401
     _extract_data_url_mime,
 )
 from ._session import (  # noqa: F401
-    _CHAT_ID_RE,
     _default_model_name_from_config,
     _is_valid_chat_id,
     _parse_envelope,
@@ -153,8 +118,8 @@ from ._ws_upgrade import (  # noqa: F401
     _normalize_config_path,
     _RateLimiter,
     _safe_host_header,
-    _strip_trailing_slash,
 )
+from .outbound import WebSocketOutboundEmitter
 
 if TYPE_CHECKING:
     from miniunicorn.session.manager import SessionManager
@@ -248,12 +213,6 @@ class WebSocketChannel(BaseChannel):
             runtime_capabilities_overrides,
         )
         self._settings_restart_sections: set[str] = set()
-        self._stream_text_buffers: dict[tuple[str, str], list[str]] = {}
-        # 每个 stream_text_buffer 最近一次追加 delta 的时间(单调时钟),
-        # 供 TTL 清理使用,防止异常中断的流导致 buffer 永驻。
-        self._stream_text_buffer_times: dict[tuple[str, str], float] = {}
-        # 流缓冲 TTL 清理任务:周期性删除超过 _STREAM_TEXT_BUF_TTL 未更新的 buffer,
-        # 同时清理 RateLimiter 中的陈旧 key,防止内存无限增长。
         self._periodic_cleanup_task: asyncio.Task | None = None
         # Process-local secret used to HMAC-sign media URLs. The signed URL is
         # the capability — anyone who holds a valid URL can fetch that one
@@ -264,21 +223,36 @@ class WebSocketChannel(BaseChannel):
         self._conn_rate_limiter = _RateLimiter(max_count=60, window_s=60.0)
         self._token_rate_limiter = _RateLimiter(max_count=60, window_s=60.0)
         self._media_rate_limiter = _RateLimiter(max_count=10, window_s=3600.0)
-        # 浏览器 Origin 白名单:默认放行本地 WebUI 同源请求;若配置 allow_origin 则扩展。
-        # 空 Origin(非浏览器客户端,如 curl)在 _is_origin_allowed 中单独放行,不在此集合中。
         self._origin_allowlist: set[str] = self._build_origin_allowlist()
+        # Outbound emission service (Task 15): owns event serialization,
+        # fan-out, and stream-text buffering via injected callbacks.
+        self._outbound = WebSocketOutboundEmitter(
+            connections_for_chat=self._connections_for_chat,
+            safe_send=self._safe_send_to,
+            rewrite_markdown_images=self._rewrite_local_markdown_images,
+            append_transcript=self._try_append_webui_transcript,
+            sign_media=self._sign_media_urls,
+        )
+
+    def _connections_for_chat(self, chat_id: str) -> Iterable[Any]:
+        if chat_id == "*":
+            return list(self._conn_chats)
+        return list(self._subs.get(chat_id, ()))
+
+    def _sign_media_urls(self, media: list[str] | None) -> list[dict[str, str]] | None:
+        if not media:
+            return None
+        urls: list[dict[str, str]] = []
+        for entry in media:
+            signed = self._sign_or_stage_media_path(Path(entry))
+            if signed is not None:
+                urls.append(signed)
+        return urls if urls else None
 
     # -- Client IP resolution and rate limiting ----------------------------
 
     def _get_real_client_ip(self, connection: Any) -> str:
-        """Return the real client IP, resolving X-Forwarded-For only for trusted proxies.
-
-        When the gateway sits behind a reverse proxy, every connection's
-        ``remote_address`` is the proxy's IP (often localhost).  To avoid
-        trusting spoofed ``X-Forwarded-For`` headers from arbitrary clients,
-        the header is only consulted when the TCP peer is in the
-        ``trusted_proxies`` allowlist.
-        """
+        """Return the real client IP, resolving X-Forwarded-For only for trusted proxies."""
         addr = getattr(connection, "remote_address", None)
         if not addr:
             return ""
@@ -318,25 +292,16 @@ class WebSocketChannel(BaseChannel):
     # -- 浏览器 Origin 校验 ------------------------------------------------
 
     def _build_origin_allowlist(self) -> set[str]:
-        """构造默认 Origin 白名单:本地回环任意端口 + gateway 同源 + 管理员配置。
-
-        默认放行 ``http``/``https`` × ``127.0.0.1``/``localhost`` × 任意端口,
-        保证本地开发场景(Vite 5173、其他 dev server)始终通过;非 localhost
-        来源(如局域网 IP、公网域名)仍被严格校验。若管理员在 ``allow_origin``
-        中配置了额外来源,则一并加入白名单(扩展而非替换)。
-        """
+        """Build default Origin allowlist: localhost any port + gateway + admin config."""
         hosts = ("127.0.0.1", "localhost")
         schemes = ("http", "https")
         allowlist: set[str] = set()
         for scheme in schemes:
             for host in hosts:
-                # 任意端口:覆盖 dev server (5173/3000/...) 与 gateway 自身端口。
                 allowlist.add(f"{scheme}://{host}")
-                # 显式带端口的形式也一并放行(浏览器 Origin 通常包含端口)。
                 port = int(getattr(self.config, "port", 0) or 0)
                 if port > 0:
                     allowlist.add(f"{scheme}://{host}:{port}")
-        # 合并管理员配置的额外来源(忽略空值与重复)。
         for origin in getattr(self.config, "allow_origin", None) or []:
             origin_norm = origin.strip()
             if origin_norm:
@@ -344,26 +309,19 @@ class WebSocketChannel(BaseChannel):
         return allowlist
 
     def _is_origin_allowed(self, request: Any) -> bool:
-        """校验浏览器 Origin 头是否在白名单内。
-
-        - 空 Origin(非浏览器客户端,如 curl、httpx)→ 放行,保持向后兼容。
-        - 非空 Origin → 必须严格匹配白名单(大小写敏感);否则拒绝。
-        - Origin 仅取 scheme://host[:port] 部分(浏览器原生格式,无 path)。
-        - localhost/127.0.0.1 任意端口默认放行(本地开发场景);其他 host 严格校验。
-        """
+        """Return True if the browser Origin header is allowlisted."""
         headers = getattr(request, "headers", None) if request is not None else None
         if headers is None:
             return True
         origin = headers.get("Origin") or headers.get("origin")
         if not origin:
-            # 非浏览器请求(无 Origin 头):放行,其他认证层(secret/token/IP)继续生效。
-            return True
+            return True  # Non-browser request (no Origin): other auth layers apply.
         origin = origin.strip()
         if not origin:
             return True
         if origin in self._origin_allowlist:
             return True
-        # 本地回环任意端口放行:剥离端口后再匹配一次,覆盖 dev server 动态端口。
+        # Allow any localhost port (covers dev servers on dynamic ports).
         try:
             scheme, _, host_port = origin.partition("://")
             if scheme and host_port:
@@ -394,12 +352,7 @@ class WebSocketChannel(BaseChannel):
         self._conn_default.pop(connection, None)
 
     async def _maybe_push_active_goal_state(self, chat_id: str) -> None:
-        """Replay an active sustained goal from session metadata after *chat_id* is subscribed.
-
-        Goal metadata lives on the session JSONL and survives gateway restarts, but
-        connected clients normally see it via ``goal_state`` / ``turn_end`` frames.
-        Pushing here makes refresh + reconnect restore the strip without a new model turn.
-        """
+        """Replay an active sustained goal from session metadata after *chat_id* is subscribed."""
         if self._session_manager is None:
             return
         row = self._session_manager.read_session_file(f"websocket:{chat_id}")
@@ -424,46 +377,11 @@ class WebSocketChannel(BaseChannel):
         await self._maybe_push_turn_run_wall_clock(chat_id)
 
     async def _send_event(self, connection: Any, event: str, **fields: Any) -> None:
-        """Send a control event (attached, error, session_updated) to a single connection.
-
-        Constructs the matching typed ``AgentEvent`` so the wire payload carries
-        ``protocol_version`` and is validated before send. Error handling matches
-        the original contract: ConnectionClosed cleans up, other exceptions are
-        logged as warnings without re-raising.
-        """
-        typed = self._build_control_event(event, fields)
-        payload = serialize_agent_event(typed)
-        raw = json.dumps(payload, ensure_ascii=False)
+        """Send a control event (attached, error, session_updated) to a single connection."""
         try:
-            await connection.send(raw)
-        except ConnectionClosed:
-            self._cleanup_connection(connection)
+            await self._outbound.send_control_event(connection, event, fields)
         except Exception as e:
             self.logger.warning("failed to send {} event: {}", event, e)
-
-    @staticmethod
-    def _build_control_event(event: str, fields: dict[str, Any]) -> AgentEvent:
-        """Map a legacy ``_send_event`` call to its typed ``AgentEvent`` model."""
-        if event == "attached":
-            return AttachedEvent(
-                chat_id=fields["chat_id"],
-                request_id=fields.get("request_id"),
-            )
-        if event == "session_updated":
-            return SessionUpdatedEvent(
-                chat_id=fields["chat_id"],
-                scope=fields.get("scope"),
-                workspace_scope=fields.get("workspace_scope"),
-            )
-        if event == "error":
-            return ErrorEvent(
-                chat_id=fields.get("chat_id"),
-                detail=fields.get("detail"),
-                reason=fields.get("reason"),
-            )
-        # Defensive: unknown event types become a descriptive error frame
-        # rather than crashing the connection loop.
-        return ErrorEvent(detail=f"unknown control event: {event!r}")
 
     @classmethod
     def default_config(cls) -> dict[str, Any]:
@@ -487,10 +405,6 @@ class WebSocketChannel(BaseChannel):
         return ctx
 
     _MAX_ISSUED_TOKENS = 10_000
-    # 流缓冲 TTL:超过该时长(秒)未更新的 buffer 视为陈旧并被清理。
-    # 30 分钟覆盖正常流式回复间隔,异常中断的流不会长期占用内存。
-    _STREAM_TEXT_BUF_TTL = 1800
-    # 清理任务周期:每 5 分钟扫描一次,在及时回收与 CPU 开销之间取折中。
     _STREAM_TEXT_BUF_CLEANUP_INTERVAL = 300
 
     def _purge_expired_issued_tokens(self) -> None:
@@ -500,41 +414,19 @@ class WebSocketChannel(BaseChannel):
                 self._issued_tokens.pop(token_key, None)
 
     def _cleanup_stale_stream_text_buffers(self) -> None:
-        """清理超过 ``_STREAM_TEXT_BUF_TTL`` 未更新的流文本缓冲。
-
-        正常流式回复会在 ``stream_end`` 时主动 ``pop`` 缓冲;但若上游异常
-        中断(进程崩溃/连接断开)导致 ``stream_end`` 未送达,buffer 会残留在
-        ``_stream_text_buffers`` 中。此处用 TTL 兜底回收,避免内存无限增长。
-        """
-        cutoff = time.monotonic() - self._STREAM_TEXT_BUF_TTL
-        stale = [k for k, t in self._stream_text_buffer_times.items() if t < cutoff]
-        for k in stale:
-            self._stream_text_buffers.pop(k, None)
-            self._stream_text_buffer_times.pop(k, None)
-        if stale:
-            self.logger.warning(
-                "清理了 {} 个陈旧的流文本缓冲(超过 {} 秒未更新)",
-                len(stale),
-                self._STREAM_TEXT_BUF_TTL,
-            )
+        """Evict stream-text buffers past their TTL (delegated to emitter)."""
+        evicted = self._outbound.cleanup_stale_buffers()
+        if evicted:
+            self.logger.warning("清理了 {} 个陈旧的流文本缓冲", evicted)
 
     def _cleanup_rate_limiters(self) -> None:
-        """清理三个 RateLimiter 中窗口外已过期的 key,防止内存无限增长。
-
-        ``_RateLimiter.cleanup()`` 会删除窗口外无 hit 的 key,但需要外部周期触发。
-        连接断开后对应的 IP key 不会自动删除,长期运行会导致 ``_hits`` 字典膨胀。
-        """
+        """Purge expired keys from all three RateLimiters."""
         self._conn_rate_limiter.cleanup()
         self._token_rate_limiter.cleanup()
         self._media_rate_limiter.cleanup()
 
     async def _periodic_cleanup_loop(self) -> None:
-        """周期性清理后台循环。
-
-        合并两类清理任务,避免创建多个后台 Task:
-        1. 流文本缓冲 TTL 清理(周期 ``_STREAM_TEXT_BUF_CLEANUP_INTERVAL``)
-        2. RateLimiter 陈旧 key 清理(共用同一周期)
-        """
+        """Background cleanup loop: stream buffers + rate limiters."""
         while self._running:
             try:
                 await asyncio.sleep(self._STREAM_TEXT_BUF_CLEANUP_INTERVAL)
@@ -546,11 +438,7 @@ class WebSocketChannel(BaseChannel):
                 self.logger.warning("周期清理任务异常: {}", exc)
 
     def _take_issued_token_if_valid(self, token_value: str | None) -> bool:
-        """Validate and consume one issued token (single use per connection attempt).
-
-        Uses single-step pop to minimize the window between lookup and removal;
-        safe under asyncio's single-threaded cooperative model.
-        """
+        """Validate and consume one issued token (single use per connection attempt)."""
         if not token_value:
             return False
         self._purge_expired_issued_tokens()
@@ -589,54 +477,39 @@ class WebSocketChannel(BaseChannel):
     # -- HTTP dispatch ------------------------------------------------------
 
     async def _dispatch_http(self, connection: Any, request: WsRequest) -> Any:
-        """Route an inbound HTTP request to a handler or to the WS upgrade path.
-
-        分派顺序:
-        1. ``token_issue_path`` (可选的自定义令牌签发端点,保留在 channel)。
-        2. ``/webui/bootstrap`` (token bootstrap,需要 channel 状态:Origin 校验 +
-           限流 + 双 token 池写入,保留在 channel)。
-        3. 声明式路由层(60 个精确 + 5 个正则,handler 已迁移到 ``handlers/``)。
-        4. WebSocket 升级(只允许在配置路径上的真 WS 握手)。
-        5. API 404(避免给 API 客户端吐 SPA HTML,导致前端 JSON 解析炸掉)。
-        6. 静态文件(SPA fallback 到 index.html)。
-        """
+        """Route an inbound HTTP request to a handler or to the WS upgrade path."""
         got, query = _parse_request_path(request.path)
 
-        # 1. 自定义 token 签发端点
+        # 1. Custom token issuance endpoint.
         if self.config.token_issue_path:
             issue_expected = _normalize_config_path(self.config.token_issue_path)
             if got == issue_expected:
                 return self._handle_token_issue_http(connection, request)
 
-        # 1b. /health (公开 liveness probe)
-        # 设计 §4.6: Compose healthcheck 必须改用公开的 /health,避免 API 启用
-        # key 后 /v1/models 返回 401,导致 healthcheck 永远判定容器不健康。
-        # /health 不需要 token、不读任何状态,只表示进程能接收 HTTP 请求。
+        # 1b. /health — public liveness probe (no token, no state).
         if got == "/health":
             return _http_json_response({"status": "ok"})
 
-        # 2. /webui/bootstrap (channel-side stateful bootstrap endpoint)
+        # 2. /webui/bootstrap — channel-side stateful bootstrap endpoint.
         if got == "/webui/bootstrap":
             return self._handle_bootstrap(connection, request)
 
-        # 3. 声明式路由层:handler 不再持有 self,改由 RouteDeps 注入依赖
+        # 3. Declarative router: handlers receive dependencies via RouteDeps.
         deps = self._build_route_deps()
         api_response = await router.dispatch(deps, connection, request)
         if api_response is not None:
             return api_response
 
-        # 4. WebSocket 升级
+        # 4. WebSocket upgrade.
         ws_matched, ws_response = self._dispatch_websocket_upgrade(connection, request, got, query)
         if ws_matched:
             return ws_response
 
-        # API clients should never receive the SPA shell for an unknown route.
-        # Returning HTML here makes the WebUI fail with "Unexpected token <"
-        # when a dev server is pointed at an older gateway.
+        # API clients must not receive the SPA shell for unknown routes.
         if got.startswith("/api/"):
             return _http_error(404, "API route not found")
 
-        # 5. 静态文件
+        # 5. Static files.
         if self._static_dist_path is not None:
             response = self._serve_static(got)
             if response is not None:
@@ -645,16 +518,7 @@ class WebSocketChannel(BaseChannel):
         return connection.respond(404, "Not Found")
 
     def _build_route_deps(self) -> RouteDeps:
-        """构造一次请求所需的依赖快照,把 channel 实例状态显式注入到 handler。
-
-        - 每次请求都构造新快照,handler 读到的总是最新状态(例如运行时
-          ``runtime_capabilities``、``session_manager`` 等)。
-        - 副作用回调(``with_restart_state``/``refresh_agent_model``/``reload_cron``/
-          ``reload_mcp``/``notify_session_updated``/``invalidate_bootstrap_cache``)
-          通过 callable 注入,handler 不再反向引用 channel,实现解耦。
-        - ``reload_mcp`` 闭包内引用的 ``request_mcp_reload`` 是本模块的全局名,
-          测试通过 monkeypatch ``channel.request_mcp_reload`` 仍可拦截调用。
-        """
+        """Build a dependency snapshot for one request, injecting channel state into handlers."""
         return RouteDeps(
             workspace_path=self._workspace_path,
             webui_workspaces=self._webui_workspaces,
@@ -683,7 +547,7 @@ class WebSocketChannel(BaseChannel):
         )
 
     def _reload_cron_safe(self) -> None:
-        """重新注册心跳/dream 系统 cron 任务,使新间隔立即生效(best-effort)。"""
+        """Re-register heartbeat/dream cron tasks so new intervals take effect (best-effort)."""
         if self._cron_reloader is not None:
             try:
                 self._cron_reloader()
@@ -691,15 +555,14 @@ class WebSocketChannel(BaseChannel):
                 logger.exception("Cron reloader failed after runtime settings update")
 
     def _reload_mcp_safe(self) -> None:
-        """触发 MCP 服务热重载。``request_mcp_reload`` 名字解析自本模块全局,
-        所以测试对 ``channel.request_mcp_reload`` 的 monkeypatch 仍能拦截。"""
+        """Trigger MCP service hot-reload (best-effort)."""
         try:
             request_mcp_reload(self.bus)
         except Exception:
             logger.exception("MCP reload failed after preset change")
 
     def _notify_session_updated_safe(self, chat_id: str) -> None:
-        """fire-and-forget: 通知连接的 WS 客户端刷新会话视图。"""
+        """Fire-and-forget: notify connected WS clients to refresh session view."""
         try:
             asyncio.create_task(self.send_session_updated(chat_id))
         except RuntimeError:
@@ -748,18 +611,11 @@ class WebSocketChannel(BaseChannel):
     def _check_api_token(self, request: WsRequest) -> bool:
         """Validate a request against the API token pool (multi-use, TTL-bound)."""
         self._purge_expired_api_tokens()
-        # 安全提示:推荐客户端使用 ``Authorization: Bearer <token>`` 头传递 token,
-        # 避免出现在 URL/Referer/日志中。``?token=`` 查询参数仅作为旧客户端的
-        # 向后兼容回退保留,且仅在 Authorization 头缺失时才被读取(短路求值)。
-        # 注意:不要在此方法或调用方记录完整 request.path,以免 token 泄漏到日志。
+        # Prefer Authorization header; fall back to ?token= query param (deprecated).
         token = _bearer_token(request.headers)
         if not token:
-            # 仅当 Authorization 头缺失时回退到 ?token= 查询参数(向后兼容)。
             token = _query_first(_parse_query(request.path), "token")
             if token:
-                # 废弃警告:?token= 会出现在 URL 中,可能被日志/Referer/浏览器历史记录泄漏。
-                # 建议客户端迁移到 Authorization: Bearer <token> 头。每次回退使用时只警告一次
-                # 太吵,这里每次都记录(warning 级别),便于监控存量客户端迁移进度。
                 self.logger.warning(
                     "使用 ?token= 查询参数鉴权已废弃,请改用 Authorization 头;token 可能泄漏到日志/Referer/浏览器历史"
                 )
@@ -778,26 +634,19 @@ class WebSocketChannel(BaseChannel):
                 self._api_tokens.pop(token_key, None)
 
     def _handle_bootstrap(self, connection: Any, request: Any) -> Response:
-        # 浏览器 Origin 校验:阻止恶意网页跨域 fetch() 获取 token。
-        # 空 Origin(非浏览器客户端如 curl)放行,后续 secret/localhost 检查继续生效。
-        # 这一层是问题 2 的关键防御:即便 secret 未配置 + localhost 连接,
-        # 跨域浏览器请求仍会被拒绝,杜绝 CSRF 式 token 盗取。
+        # Origin check blocks cross-origin browser fetch() from stealing tokens.
         if not self._is_origin_allowed(request):
             return _http_error(403, "Forbidden")
-        # When a secret is configured (token_issue_secret or static token),
-        # validate it regardless of source IP.  This secures deployments
-        # behind a reverse proxy where all connections appear as localhost.
+        # When a secret is configured, validate it regardless of source IP
+        # (secures deployments behind a reverse proxy where all peers are localhost).
         secret = self.config.token_issue_secret.strip() or self.config.token.strip()
         if secret:
             if not _issue_route_secret_matches(request.headers, secret):
                 return _http_error(401, "Unauthorized")
         elif not self._is_localhost_connection(connection):
-            # No secret configured: only allow localhost (local dev mode).
             return _http_error(403, "bootstrap is localhost-only")
-        # Per-IP token issuance rate limit (60/min).
         if not self._check_rate_limit(self._token_rate_limiter, connection, "bootstrap"):
             return _http_json_response({"error": "rate limited"}, status=429)
-        # Cap outstanding tokens to avoid runaway growth from a misbehaving client.
         self._purge_expired_issued_tokens()
         self._purge_expired_api_tokens()
         if (
@@ -811,8 +660,8 @@ class WebSocketChannel(BaseChannel):
             )
         token = f"nbwt_{secrets.token_urlsafe(32)}"
         expiry = time.monotonic() + float(self.config.token_ttl_s)
-        # Same string registered in both pools: the WS handshake consumes one copy
-        # while the REST surface keeps validating the other until TTL expiry.
+        # Same string registered in both pools: WS handshake consumes one copy,
+        # REST surface validates the other until TTL expiry.
         self._issued_tokens[token] = expiry
         self._api_tokens[token] = expiry
         ws_url = self._bootstrap_ws_url(request)
@@ -826,9 +675,8 @@ class WebSocketChannel(BaseChannel):
                 "runtime_surface": self._runtime_surface,
                 "runtime_capabilities": self._runtime_capabilities,
                 "version": __version__,
-                # 把 WebSocket 帧大小上限回传给前端,使 Composer 能在发送前
-                # 校验附件 + 文本的总 UTF-8 字节数(设计 §4.5),超限直接拦截、
-                # 保留草稿,避免服务端 1009 关闭连接后丢失输入。
+                # Frame-size cap echoed to the WebUI so the Composer can
+                # pre-validate payload size and avoid a server-side 1009 close.
                 "max_message_bytes": int(self.config.max_message_bytes),
             }
         )
@@ -867,11 +715,7 @@ class WebSocketChannel(BaseChannel):
         )
 
     def _maybe_refresh_agent_model(self) -> None:
-        """Refresh the running agent's model after settings changes.
-
-        Re-reads the on-disk config and, if the provider signature changed,
-        swaps the active model and broadcasts runtime_model_updated.
-        """
+        """Refresh the running agent's model after settings changes."""
         if self._agent_model_refresher is not None:
             try:
                 self._agent_model_refresher()
@@ -923,14 +767,7 @@ class WebSocketChannel(BaseChannel):
         )
 
     def _sign_media_path(self, abs_path: Path) -> str | None:
-        """Return a ``/api/media/<sig>/<payload>`` URL for *abs_path*, or
-        ``None`` when the path does not resolve inside the media root.
-
-        The URL is self-authenticating: the signature binds the payload to
-        this process's ``_media_secret``, so only paths we chose to sign can
-        be fetched. The returned path is relative to the server origin; the
-        client joins it against this server's HTTP origin (same host as WS).
-        """
+        """Return a ``/api/media/<sig>/<payload>`` URL for *abs_path*, or"""
         return sign_media_path(
             abs_path,
             secret=self._media_secret,
@@ -938,14 +775,7 @@ class WebSocketChannel(BaseChannel):
         )
 
     def _sign_or_stage_media_path(self, path: Path) -> dict[str, str] | None:
-        """Return a signed media URL payload for *path*.
-
-        Persisted inbound media already lives under ``get_media_dir`` and can
-        be signed directly. Outbound bot-generated files may live anywhere on
-        disk; copy those into the websocket media bucket first so the browser
-        can fetch them through the existing signed media route without
-        exposing arbitrary filesystem paths.
-        """
+        """Return a signed media URL payload for *path*."""
         return sign_or_stage_media_path(
             path,
             secret=self._media_secret,
@@ -961,9 +791,6 @@ class WebSocketChannel(BaseChannel):
         )
 
     # -- Backward-compat wrappers for tests that call handlers directly -----
-    # These thin wrappers delegate to the declarative router so tests written
-    # against the old ``channel._handle_sessions_list(req)`` API keep working
-    # without duplicating the handler logic.
 
     def _handle_sessions_list(self, request: WsRequest) -> Response:
         """Backward-compat: delegates to the ``/api/sessions`` route handler."""
@@ -1007,7 +834,6 @@ class WebSocketChannel(BaseChannel):
         rel = request_path.lstrip("/")
         if not rel:
             rel = "index.html"
-        # Reject path-traversal attempts and absolute targets.
         if ".." in rel.split("/") or rel.startswith("/"):
             return _http_error(403, "Forbidden")
         candidate = (self._static_dist_path / rel).resolve()
@@ -1016,8 +842,7 @@ class WebSocketChannel(BaseChannel):
         except ValueError:
             return _http_error(403, "Forbidden")
         if not candidate.is_file():
-            # SPA history-mode fallback: unknown routes serve index.html so the
-            # client-side router can render them.
+            # SPA history-mode fallback: unknown routes serve index.html.
             index = self._static_dist_path / "index.html"
             if index.is_file():
                 candidate = index
@@ -1033,10 +858,8 @@ class WebSocketChannel(BaseChannel):
             ctype = "application/octet-stream"
         if ctype.startswith("text/") or ctype in {"application/javascript", "application/json"}:
             ctype = f"{ctype}; charset=utf-8"
-        # Hash-named build assets are cache-friendly; index.html must stay fresh.
-        if candidate.name == "index.html":
-            cache = "no-cache"
-        elif "/brand/" in request_path:
+        # Hash-named build assets are immutable; index.html and brand assets stay fresh.
+        if candidate.name == "index.html" or "/brand/" in request_path:
             cache = "no-cache"
         else:
             cache = "public, max-age=31536000, immutable"
@@ -1050,9 +873,7 @@ class WebSocketChannel(BaseChannel):
     def _authorize_websocket_handshake(
         self, connection: Any, request: WsRequest, query: dict[str, list[str]]
     ) -> Any:
-        # 浏览器 Origin 校验:空 Origin(非浏览器客户端)放行以保持向后兼容;
-        # 非空 Origin 必须在白名单内,否则拒绝握手。这能阻止恶意网页通过
-        # ``new WebSocket("ws://127.0.0.1:8765?token=...")`` 进行 CSWSH 攻击。
+        # Origin check: empty Origin (non-browser) is allowed; non-empty must be allowlisted.
         if not self._is_origin_allowed(request):
             return connection.respond(403, "Forbidden")
         supplied = _query_first(query, "token")
@@ -1087,10 +908,7 @@ class WebSocketChannel(BaseChannel):
         ssl_context = self._build_ssl_context()
         scheme = "wss" if ssl_context else "ws"
 
-        async def process_request(
-            connection: ServerConnection,
-            request: WsRequest,
-        ) -> Any:
+        async def process_request(connection: ServerConnection, request: WsRequest) -> Any:
             return await self._dispatch_http(connection, request)
 
         async def handler(connection: ServerConnection) -> None:
@@ -1131,11 +949,7 @@ class WebSocketChannel(BaseChannel):
                     max_size=self.config.max_message_bytes,
                     ping_interval=self.config.ping_interval_s,
                     ping_timeout=self.config.ping_timeout_s,
-                    # process_request also serves plain HTTP API routes (e.g.
-                    # /api/settings/provider/models) that may take >10s when
-                    # upstream providers are slow. The default open_timeout=10
-                    # would abort the request mid-handler. Disable it so the
-                    # HTTP routes can run as long as they need.
+                    # open_timeout=None: process_request also serves slow HTTP API routes.
                     open_timeout=None,
                 )
                 with suppress(OSError):
@@ -1150,8 +964,7 @@ class WebSocketChannel(BaseChannel):
                     ping_interval=self.config.ping_interval_s,
                     ping_timeout=self.config.ping_timeout_s,
                     ssl=ssl_context,
-                    # See comment above: HTTP API routes need no handshake timeout.
-                    open_timeout=None,
+                    open_timeout=None,  # See above: slow HTTP API routes.
                 )
             try:
                 assert self._stop_event is not None
@@ -1164,7 +977,6 @@ class WebSocketChannel(BaseChannel):
                         Path(socket_path).unlink()
 
         self._server_task = asyncio.create_task(runner())
-        # 启动周期性清理后台任务(流缓冲 TTL + RateLimiter 陈旧 key)
         self._periodic_cleanup_task = asyncio.create_task(self._periodic_cleanup_loop())
         await self._server_task
 
@@ -1191,7 +1003,7 @@ class WebSocketChannel(BaseChannel):
         try:
             ready_event = ReadyEvent(chat_id=default_chat_id, client_id=client_id)
             await self._send_agent_event(ready_event, connections=[connection], label=" ready ")
-            # Register only after ready is successfully sent to avoid out-of-order sends
+            # Register only after ready is sent to avoid out-of-order delivery.
             self._conn_default[connection] = default_chat_id
             self._attach(connection, default_chat_id)
             await self._hydrate_after_subscribe(default_chat_id)
@@ -1212,9 +1024,7 @@ class WebSocketChannel(BaseChannel):
                 content = _parse_inbound_payload(raw)
                 if content is None:
                     continue
-                # WebSocket already authenticates at handshake time (token),
-                # so pairing is not applicable. Treat as non-DM to avoid
-                # sending pairing codes to an already-authenticated client.
+                # WS authenticates at handshake; treat as non-DM (no pairing codes).
                 await self._handle_message(
                     sender_id=client_id,
                     chat_id=default_chat_id,
@@ -1229,21 +1039,8 @@ class WebSocketChannel(BaseChannel):
 
     # -- Inbound WebSocket envelopes ---------------------------------------
 
-    def _save_envelope_media(
-        self,
-        media: list[Any],
-    ) -> tuple[list[str], str | None]:
-        """Decode and persist ``media`` items from a ``message`` envelope.
-
-        Returns ``(paths, None)`` on success or ``([], reason)`` on the first
-        failure — the caller is expected to surface ``reason`` to the client
-        and skip publishing so no half-formed message ever reaches the agent.
-        On failure, any files already written to disk earlier in the same
-        call are unlinked so partial ingress doesn't leak orphan files.
-        ``reason`` is a short, stable token suitable for UI localization.
-
-        Shape: ``list[{"data_url": str, "name"?: str | None}]``.
-        """
+    def _save_envelope_media(self, media: list[Any]) -> tuple[list[str], str | None]:
+        """Decode and persist ``media`` items from a ``message`` envelope."""
         image_count = 0
         video_count = 0
         for item in media:
@@ -1253,8 +1050,7 @@ class WebSocketChannel(BaseChannel):
             if mime in _VIDEO_MIME_ALLOWED:
                 video_count += 1
             elif mime in _IMAGE_MIME_ALLOWED or mime in _DOCUMENT_MIME_ALLOWED:
-                # Documents share the image attachment pool (client treats all
-                # non-video attachments as a single 4-item pool).
+                # Documents share the image attachment pool.
                 image_count += 1
         if image_count > _MAX_IMAGES_PER_MESSAGE:
             return [], "too_many_images"
@@ -1291,10 +1087,9 @@ class WebSocketChannel(BaseChannel):
                 max_bytes = _MAX_DOCUMENT_BYTES
             else:
                 max_bytes = _MAX_IMAGE_BYTES
-            # Preserve the original filename so ``save_base64_data_url`` can
-            # fall back to its extension when the MIME is ``application/octet-stream``
-            # (browsers return this for .log/.toml/.ini/.cfg and other text
-            # formats that ``extract_documents()`` parses by extension).
+            # Preserve filename so save_base64_data_url can fall back to its
+            # extension for application/octet-stream (browsers use this for
+            # .log/.toml/.ini/.cfg text formats parsed by extension).
             name_hint = item.get("name") if isinstance(item.get("name"), str) else None
             try:
                 saved = save_base64_data_url(
@@ -1314,19 +1109,13 @@ class WebSocketChannel(BaseChannel):
         return paths, None
 
     async def _dispatch_envelope(
-        self,
-        connection: Any,
-        client_id: str,
-        envelope: dict[str, Any],
+        self, connection: Any, client_id: str, envelope: dict[str, Any]
     ) -> None:
         """Route one typed inbound envelope (``new_chat`` / ``attach`` / ``message``)."""
         t = envelope.get("type")
         if t == "new_chat":
             new_id = str(uuid.uuid4())
-            # Echo the client-supplied ``request_id`` so the WebUI can
-            # correlate a pending ``newChat()`` promise with the correct
-            # ``attached`` response. A missing/empty ``request_id`` keeps
-            # the old protocol working for legacy clients.
+            # Echo request_id so the WebUI can correlate newChat() with the attached response.
             req_id = envelope.get("request_id")
             if not isinstance(req_id, str) or not req_id:
                 req_id = None
@@ -1480,12 +1269,7 @@ class WebSocketChannel(BaseChannel):
         client_id: str,
         envelope: dict[str, Any],
     ) -> None:
-        """Handle a task control request (cancel/steer/continue/approve/reject).
-
-        Maps the wire ``action`` to a ``ControlKind`` and submits a
-        ``TaskControlRequest`` through the ``submit_control`` callback
-        wired by the runtime bootstrap (Task 9).
-        """
+        """Handle a task control request (cancel/steer/continue/approve/reject)."""
         if self._submit_control is None:
             await self._send_event(connection, "error", detail="task_control not available")
             return
@@ -1535,11 +1319,7 @@ class WebSocketChannel(BaseChannel):
         )
 
     async def _workspace_scope_or_error(
-        self,
-        connection: Any,
-        resolver: Callable[[], Any],
-        *,
-        chat_id: str | None = None,
+        self, connection: Any, resolver: Callable[[], Any], *, chat_id: str | None = None
     ) -> Any | None:
         try:
             return resolver()
@@ -1561,7 +1341,6 @@ class WebSocketChannel(BaseChannel):
         self._running = False
         if self._stop_event:
             self._stop_event.set()
-        # 取消周期性清理任务,等待其退出
         if self._periodic_cleanup_task is not None:
             self._periodic_cleanup_task.cancel()
             with suppress(Exception):
@@ -1578,9 +1357,7 @@ class WebSocketChannel(BaseChannel):
         self._conn_default.clear()
         self._issued_tokens.clear()
         self._api_tokens.clear()
-        # 清空流缓冲及其时间戳记录
-        self._stream_text_buffers.clear()
-        self._stream_text_buffer_times.clear()
+        self._outbound.clear_buffers()
 
     async def _safe_send_to(self, connection: Any, raw: str, *, label: str = "") -> None:
         """Send a raw frame to one connection, cleaning up on ConnectionClosed."""
@@ -1601,154 +1378,12 @@ class WebSocketChannel(BaseChannel):
         label: str = "",
         persist: bool = False,
     ) -> None:
-        """Serialize a typed ``AgentEvent`` and fan it out to connections.
-
-        When ``connections`` is ``None``, targets every subscriber of the
-        event's ``chat_id``. When ``persist`` is True, appends the serialized
-        payload to the WebUI transcript for replay on reconnect (only when
-        the event carries a ``chat_id``).
-        """
-        payload = serialize_agent_event(event)
-        chat_id = payload.get("chat_id")
-        if persist and isinstance(chat_id, str):
-            self._try_append_webui_transcript(chat_id, payload)
-        raw = json.dumps(payload, ensure_ascii=False)
-        targets = connections
-        if targets is None and isinstance(chat_id, str):
-            targets = list(self._subs.get(chat_id, ()))
-        for connection in targets or []:
-            await self._safe_send_to(connection, raw, label=label)
+        await self._outbound.send_agent_event(
+            event, connections=connections, label=label, persist=persist
+        )
 
     async def send(self, msg: OutboundMessage) -> None:
-        # Typed envelope: when present, validate and forward as-is. This is
-        # the preferred path for new code; legacy metadata flags below remain
-        # for one compatibility release.
-        typed_payload = msg.metadata.get(OUTBOUND_META_AGENT_EVENT)
-        if isinstance(typed_payload, dict):
-            event = AGENT_EVENT_ADAPTER.validate_python(typed_payload)
-            await self._send_agent_event(event, persist=True)
-            return
-
-        if msg.metadata.get("_runtime_model_updated"):
-            await self.send_runtime_model_updated(
-                model_name=msg.metadata.get("model"),
-                model_preset=msg.metadata.get("model_preset"),
-            )
-            return
-
-        # Snapshot the subscriber set so ConnectionClosed cleanups mid-iteration are safe.
-        conns = list(self._subs.get(msg.chat_id, ()))
-        if not conns:
-            if (
-                msg.metadata.get("_progress")
-                or msg.metadata.get("_file_edit_events")
-                or msg.metadata.get("_turn_end")
-                or msg.metadata.get("_session_updated")
-                or msg.metadata.get("_goal_status")
-                or msg.metadata.get("_goal_state_sync")
-                or msg.metadata.get("_subagent_activity")
-            ):
-                self.logger.debug("no active subscribers for chat_id={}", msg.chat_id)
-            else:
-                self.logger.warning("no active subscribers for chat_id={}", msg.chat_id)
-            return
-        # Subagent activity breadcrumbs (tool calls, reasoning, completion) are
-        # pushed as a dedicated event so the WebUI can render them as a
-        # subordinate trace row rather than a conversational reply. The
-        # ``_subagent_label`` / ``_subagent_task_id`` metadata lets the client
-        # group breadcrumbs by originating subagent.
-        if msg.metadata.get("_subagent_activity"):
-            event = SubagentActivityEvent(
-                chat_id=msg.chat_id,
-                label=msg.metadata.get("_subagent_label"),
-                task_id=msg.metadata.get("_subagent_task_id"),
-                content=msg.content,
-            )
-            await self._send_agent_event(
-                event, connections=conns, persist=True, label=" subagent_activity "
-            )
-            return
-        if msg.metadata.get("_goal_state_sync"):
-            blob = msg.metadata.get("goal_state")
-            await self.send_goal_state(
-                msg.chat_id, blob if isinstance(blob, dict) else {"active": False}
-            )
-            return
-        if msg.metadata.get("_goal_status"):
-            status = msg.metadata.get("goal_status")
-            if status in ("running", "idle"):
-                started_raw = msg.metadata.get("started_at", msg.metadata.get("goal_started_at"))
-                await self.send_goal_status(
-                    msg.chat_id,
-                    status,
-                    started_at=float(started_raw) if isinstance(started_raw, int | float) else None,
-                )
-            return
-        # Signal that the agent has fully finished processing the current turn.
-        if msg.metadata.get("_turn_end"):
-            lat = msg.metadata.get("latency_ms")
-            lat_i = int(lat) if isinstance(lat, (int, float)) else None
-            gs = msg.metadata.get("goal_state")
-            gs_blob = gs if isinstance(gs, dict) else None
-            cu = msg.metadata.get("context_usage")
-            cu_blob = cu if isinstance(cu, dict) else None
-            await self.send_turn_end(
-                msg.chat_id,
-                latency_ms=lat_i,
-                goal_state=gs_blob,
-                context_usage=cu_blob,
-            )
-            return
-        if msg.metadata.get("_session_updated"):
-            scope = msg.metadata.get("_session_update_scope")
-            await self.send_session_updated(
-                msg.chat_id,
-                scope=scope if isinstance(scope, str) else None,
-            )
-            return
-        if msg.metadata.get("_file_edit_events"):
-            event = FileEditEvent(
-                chat_id=msg.chat_id,
-                edits=msg.metadata["_file_edit_events"],
-            )
-            await self._send_agent_event(event, connections=conns, persist=True, label=" ")
-            return
-        text = msg.content
-        wire_text = self._rewrite_local_markdown_images(text)
-        # Media signing and full-stream buffering happen before model
-        # construction so the typed event carries the final wire shape.
-        media_urls: list[dict[str, str]] | None = None
-        if msg.media:
-            urls: list[dict[str, str]] = []
-            for entry in msg.media:
-                signed = self._sign_or_stage_media_path(Path(entry))
-                if signed is not None:
-                    urls.append(signed)
-            if urls:
-                media_urls = urls
-        kind: str | None = None
-        if msg.metadata.get("_tool_hint"):
-            kind = "tool_hint"
-        elif msg.metadata.get("_progress"):
-            kind = "progress"
-        lat = msg.metadata.get("latency_ms")
-        lat_i = int(lat) if isinstance(lat, (int, float)) else None
-        event = MessageEvent(
-            chat_id=msg.chat_id,
-            text=wire_text,
-            reply_to=msg.reply_to or None,
-            media=msg.media or None,
-            media_urls=media_urls,
-            tool_events=msg.metadata.get("_tool_events"),
-            kind=kind,  # type: ignore[arg-type]
-            latency_ms=lat_i,
-            agent_ui=msg.metadata.get(OUTBOUND_META_AGENT_UI),
-        )
-        # Persist with the original (un-rewritten) text so transcript replay
-        # matches what the agent actually produced, not the media-signed URL form.
-        transcript_event = event.model_copy(update={"text": text})
-        self._try_append_webui_transcript(msg.chat_id, serialize_agent_event(transcript_event))
-        await self._send_agent_event(event, connections=conns, label=" ")
+        await self._outbound.dispatch_outbound(msg)
 
     async def send_reasoning_delta(
         self,
@@ -1756,39 +1391,14 @@ class WebSocketChannel(BaseChannel):
         delta: str,
         metadata: dict[str, Any] | None = None,
     ) -> None:
-        """Push one chunk of model reasoning. Mirrors ``send_delta`` shape so
-        clients receive a stream that opens, updates in place, and closes —
-        rendered above the active assistant bubble with a shimmer header
-        until the matching ``reasoning_end`` arrives.
-        """
-        conns = list(self._subs.get(chat_id, ()))
-        if not conns or not delta:
-            return
-        meta = metadata or {}
-        event = ReasoningDeltaEvent(
-            chat_id=chat_id,
-            text=delta,
-            stream_id=meta.get("_stream_id"),
-        )
-        await self._send_agent_event(event, connections=conns, persist=True, label=" reasoning ")
+        await self._outbound.send_reasoning_delta(chat_id, delta, metadata)
 
     async def send_reasoning_end(
         self,
         chat_id: str,
         metadata: dict[str, Any] | None = None,
     ) -> None:
-        """Close the current reasoning stream segment for in-place renderers."""
-        conns = list(self._subs.get(chat_id, ()))
-        if not conns:
-            return
-        meta = metadata or {}
-        event = ReasoningEndEvent(
-            chat_id=chat_id,
-            stream_id=meta.get("_stream_id"),
-        )
-        await self._send_agent_event(
-            event, connections=conns, persist=True, label=" reasoning_end "
-        )
+        await self._outbound.send_reasoning_end(chat_id, metadata)
 
     async def send_delta(
         self,
@@ -1796,35 +1406,7 @@ class WebSocketChannel(BaseChannel):
         delta: str,
         metadata: dict[str, Any] | None = None,
     ) -> None:
-        conns = list(self._subs.get(chat_id, ()))
-        if not conns:
-            return
-        meta = metadata or {}
-        stream_key = (chat_id, str(meta.get("_stream_id") or ""))
-        stream_id = meta.get("_stream_id")
-        if meta.get("_stream_end"):
-            buffered = self._stream_text_buffers.pop(stream_key, [])
-            # 同步清理时间戳记录,避免 _stream_text_buffer_times 残留 key。
-            self._stream_text_buffer_times.pop(stream_key, None)
-            if delta:
-                buffered.append(delta)
-            full_text = "".join(buffered)
-            rewritten = self._rewrite_local_markdown_images(full_text)
-            event: AgentEvent = StreamEndEvent(
-                chat_id=chat_id,
-                stream_id=stream_id if stream_id is not None else None,
-                text=rewritten if rewritten != full_text else None,
-            )
-        else:
-            event = DeltaEvent(
-                chat_id=chat_id,
-                text=delta,
-                stream_id=stream_id if stream_id is not None else None,
-            )
-            self._stream_text_buffers.setdefault(stream_key, []).append(delta)
-            # 每次追加 delta 都刷新时间戳,供 TTL 清理判断 buffer 是否陈旧。
-            self._stream_text_buffer_times[stream_key] = time.monotonic()
-        await self._send_agent_event(event, connections=conns, persist=True, label=" stream ")
+        await self._outbound.send_delta(chat_id, delta, metadata)
 
     async def send_turn_end(
         self,
@@ -1834,25 +1416,12 @@ class WebSocketChannel(BaseChannel):
         goal_state: dict[str, Any] | None = None,
         context_usage: dict[str, Any] | None = None,
     ) -> None:
-        """Signal that the agent has fully finished processing the current turn."""
-        conns = list(self._subs.get(chat_id, ()))
-        if not conns:
-            return
-        event = TurnEndEvent(
-            chat_id=chat_id,
-            latency_ms=int(latency_ms) if latency_ms is not None else None,
-            goal_state=goal_state,
-            context_usage=context_usage,
+        await self._outbound.send_turn_end(
+            chat_id, latency_ms, goal_state=goal_state, context_usage=context_usage
         )
-        await self._send_agent_event(event, connections=conns, persist=True, label=" turn_end ")
 
     async def send_goal_state(self, chat_id: str, blob: dict[str, Any]) -> None:
-        """Push persisted goal-state snapshot for *chat_id* (multi-chat isolation)."""
-        conns = list(self._subs.get(chat_id, ()))
-        if not conns:
-            return
-        event = GoalStateEvent(chat_id=chat_id, goal_state=blob)
-        await self._send_agent_event(event, connections=conns, persist=True, label=" goal_state ")
+        await self._outbound.send_goal_state(chat_id, blob)
 
     async def send_goal_status(
         self,
@@ -1861,26 +1430,10 @@ class WebSocketChannel(BaseChannel):
         *,
         started_at: float | None = None,
     ) -> None:
-        """Notify subscribed clients that a turn started or finished (wall-clock hint)."""
-        conns = list(self._subs.get(chat_id, ()))
-        if not conns:
-            return
-        event = GoalStatusEvent(
-            chat_id=chat_id,
-            status=status,  # type: ignore[arg-type]
-            started_at=started_at if status == "running" else None,
-        )
-        await self._send_agent_event(event, connections=conns, persist=True, label=" goal_status ")
+        await self._outbound.send_goal_status(chat_id, status, started_at=started_at)
 
     async def send_session_updated(self, chat_id: str, *, scope: str | None = None) -> None:
-        """Notify clients that session metadata changed outside the main turn."""
-        conns = list(self._subs.get(chat_id, ()))
-        if not conns:
-            return
-        event = SessionUpdatedEvent(chat_id=chat_id, scope=scope)
-        await self._send_agent_event(
-            event, connections=conns, persist=True, label=" session_updated "
-        )
+        await self._outbound.send_session_updated(chat_id, scope=scope)
 
     async def send_runtime_model_updated(
         self,
@@ -1888,12 +1441,6 @@ class WebSocketChannel(BaseChannel):
         model_name: Any,
         model_preset: Any = None,
     ) -> None:
-        """Broadcast runtime model changes to every open websocket connection."""
-        conns = list(self._conn_chats)
-        if not conns or not isinstance(model_name, str) or not model_name.strip():
-            return
-        event = RuntimeModelUpdatedEvent(
-            model_name=model_name.strip(),
-            model_preset=model_preset.strip() if isinstance(model_preset, str) else None,
+        await self._outbound.send_runtime_model_updated(
+            model_name=model_name, model_preset=model_preset
         )
-        await self._send_agent_event(event, connections=conns, label=" runtime_model_updated ")
