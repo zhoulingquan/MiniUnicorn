@@ -576,6 +576,21 @@ class TestSupervisedWorkerKillRecovery:
                         f"expected exactly 1 outbox row (no duplicate final "
                         f"reply), got {outbox_count}"
                     )
+
+                    # Task 25: no duplicate MODEL_STARTED events. With
+                    # attempt reuse (Task 5), recovery must NOT start a
+                    # new model attempt — it reuses the existing
+                    # COMPLETED row. So there should be exactly 1
+                    # MODEL_STARTED event (0 duplicates).
+                    model_started_count = test_conn.execute(
+                        "SELECT COUNT(*) FROM task_events "
+                        "WHERE task_id=? AND event_type='MODEL_STARTED'",
+                        (handle.task_id,),
+                    ).fetchone()[0]
+                    assert model_started_count == 1, (
+                        f"expected exactly 1 MODEL_STARTED event (no "
+                        f"duplicate starts), got {model_started_count}"
+                    )
                 finally:
                     test_conn.close()
             finally:
