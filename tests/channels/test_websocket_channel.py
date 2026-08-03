@@ -205,7 +205,7 @@ def test_issue_route_secret_matches_empty_secret() -> None:
 @pytest.mark.asyncio
 async def test_webui_message_envelope_marks_inbound_metadata(bus: MagicMock) -> None:
     channel = _ch(bus)
-    conn = MagicMock()
+    conn = AsyncMock()
     conn.remote_address = ("127.0.0.1", 50123)
 
     await channel._dispatch_envelope(
@@ -224,7 +224,7 @@ async def test_webui_message_envelope_marks_inbound_metadata(bus: MagicMock) -> 
 @pytest.mark.asyncio
 async def test_plain_websocket_message_does_not_mark_webui(bus: MagicMock) -> None:
     channel = _ch(bus)
-    conn = MagicMock()
+    conn = AsyncMock()
 
     await channel._dispatch_envelope(
         conn,
