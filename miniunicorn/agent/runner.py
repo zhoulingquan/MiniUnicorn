@@ -1,15 +1,18 @@
-"""Shared execution loop for tool-using agents."""
+"""Shared execution loop for tool-using agents.
+
+Public symbols ``AgentRunSpec`` and ``AgentRunResult`` are defined in
+``runner_types`` and re-exported here so existing imports from
+``miniunicorn.agent.runner`` continue to work. ``__all__`` declares the
+stable public surface (Task 10).
+"""
 
 from __future__ import annotations
 
 import asyncio
 import inspect
-import os
 import time
 from contextlib import suppress
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from loguru import logger
 
@@ -19,12 +22,17 @@ from miniunicorn.agent.ports import (
     build_tool_execution_request,
     current_provider_attempt_observer,
 )
-from miniunicorn.agent.telemetry import LlmCallMetric, ToolCallMetric
+from miniunicorn.agent.runner_types import (
+    _DEFAULT_ERROR_MESSAGE,
+    AgentRunResult,
+    AgentRunSpec,
+)
+from miniunicorn.agent.runner_model import ModelRequester
+from miniunicorn.agent.telemetry import ToolCallMetric
 from miniunicorn.agent.tools.registry import ToolRegistry
 from miniunicorn.agent.turn_runtime import current_turn_runtime
 from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from miniunicorn.utils.file_edit_events import (
-    StreamingFileEditTracker,
     build_file_edit_end_event,
     build_file_edit_error_event,
     build_file_edit_start_event,
@@ -34,7 +42,6 @@ from miniunicorn.utils.file_edit_events import (
     prepare_file_edit_tracker as _prepare_file_edit_tracker,
 )
 from miniunicorn.utils.helpers import (
-    IncrementalThinkExtractor,
     build_assistant_message,
     estimate_message_tokens,
     estimate_prompt_tokens_chain,
@@ -42,7 +49,6 @@ from miniunicorn.utils.helpers import (
     find_legal_message_start,
     maybe_persist_tool_result,
     merge_message_content,
-    strip_think,
     truncate_text,
 )
 from miniunicorn.utils.progress_events import (
@@ -52,7 +58,6 @@ from miniunicorn.utils.progress_events import (
 from miniunicorn.utils.prompt_templates import render_template
 from miniunicorn.utils.runtime import (
     EMPTY_FINAL_RESPONSE_MESSAGE,
-    build_finalization_retry_message,
     build_goal_continue_message,
     build_length_recovery_message,
     ensure_nonempty_tool_result,
@@ -62,7 +67,6 @@ from miniunicorn.utils.runtime import (
 )
 from miniunicorn.utils.task_supervisor import TaskSupervisor
 
-_DEFAULT_ERROR_MESSAGE = "Sorry, I encountered an error calling the AI model."
 _ARREARAGE_ERROR_MESSAGE = (
     "The AI provider rejected the request because the API key is out of quota or the "
     "account is in arrears. Please top up / check the billing status of your API key and try again."
@@ -100,83 +104,7 @@ def _append_tool_metric(
 prepare_file_edit_tracker = _prepare_file_edit_tracker
 
 
-@dataclass(slots=True)
-class AgentRunSpec:
-    """Configuration for a single agent execution."""
-
-    initial_messages: list[dict[str, Any]]
-    tools: ToolRegistry
-    model: str
-    max_iterations: int
-    max_tool_result_chars: int
-    temperature: float | None = None
-    max_tokens: int | None = None
-    reasoning_effort: str | None = None
-    hook: AgentHook | None = None
-    error_message: str | None = _DEFAULT_ERROR_MESSAGE
-    max_iterations_message: str | None = None
-    concurrent_tools: bool = False
-    fail_on_tool_error: bool = False
-    workspace: Path | None = None
-    session_key: str | None = None
-    context_window_tokens: int | None = None
-    context_block_limit: int | None = None
-    provider_retry_mode: str = "standard"
-    progress_callback: Any | None = None
-    stream_progress_deltas: bool = True
-    retry_wait_callback: Any | None = None
-    checkpoint_callback: Any | None = None
-    injection_callback: Any | None = None
-    llm_timeout_s: float | None = None
-    goal_active_predicate: Callable[[], bool] | None = None
-    goal_continue_message: str | None = None
-    # Optional ContextGovernor override. When None, AgentRunner uses a default
-    # governor that reproduces the legacy hardcoded pipeline. Typed as Any to
-    # avoid a circular import with miniunicorn.agent.context_governor.
-    context_governor: Any | None = None
-    # Optional per-turn budget; when exceeded, run() stops with
-    # stop_reason="budget_exceeded". None = no budget tracking (legacy behavior).
-    # Typed as Any to avoid a circular import with miniunicorn.agent.turn_budget.
-    turn_budget: Any | None = None
-    # Plan-and-Execute mode. When True, the runner first decomposes the task
-    # into steps via a Planner LLM call, then executes each step via ReAct.
-    # Failed steps trigger replan (up to planner_max_replans). Default False
-    # preserves the legacy pure-ReAct behavior.
-    use_planner: bool = False
-    planner_model: str | None = None  # model for planning LLM calls; None = use spec.model
-    planner_max_replans: int = 3
-    # Reflection: when enabled, produce a "lesson learned" on failure or every
-    # reflection_interval iterations, appended to memory/reflections.jsonl for
-    # Dream to consolidate. Default False = no reflection overhead.
-    enable_reflection: bool = False
-    reflection_interval: int = 5  # periodic reflection every N iterations
-    # Durable runtime ports (design §11.1, §20). When set, the Runner routes
-    # every tool call through ``tool_execution_port`` (no bypass) and journals
-    # each Provider attempt through ``turn_journal``. When None, the Runner
-    # uses the legacy in-process path (no durable journaling). Typed as Any to
-    # avoid a circular import with miniunicorn.agent.ports.
-    tool_execution_port: Any | None = None
-    turn_journal: Any | None = None
-    provider_attempt_observer: Any | None = None
-
-
-@dataclass(slots=True)
-class AgentRunResult:
-    """Outcome of a shared agent execution."""
-
-    final_content: str | None
-    messages: list[dict[str, Any]]
-    tools_used: list[str] = field(default_factory=list)
-    usage: dict[str, int] = field(default_factory=dict)
-    stop_reason: str = "completed"
-    error: str | None = None
-    tool_events: list[dict[str, str]] = field(default_factory=list)
-    had_injections: bool = False
-    budget_exceeded: bool = False
-    plan: Any | None = None  # Plan | None, populated when use_planner=True
-    # Usage from the last LLM call in this run (not cumulative). Represents
-    # the actual context window footprint at the end of the turn.
-    last_call_usage: dict[str, int] = field(default_factory=dict)
+__all__ = ["AgentRunner", "AgentRunResult", "AgentRunSpec"]
 
 
 class AgentRunner:
@@ -184,6 +112,10 @@ class AgentRunner:
 
     def __init__(self, provider: LLMProvider):
         self.provider = provider
+        # Model request collaborator (Task 10). Resolves the Provider through
+        # a getter on every call so swapping ``self.provider`` between runs
+        # is observed by the next request.
+        self._model_requester: ModelRequester = ModelRequester(lambda: self.provider)
         # Lazily-constructed default ContextGovernor; built on first use so
         # that entry-point plugins are loaded at most once per runner.
         self._default_governor: Any | None = None
@@ -1092,28 +1024,6 @@ class AgentRunner:
             last_call_usage=last_call_usage,
         )
 
-    def _build_request_kwargs(
-        self,
-        spec: AgentRunSpec,
-        messages: list[dict[str, Any]],
-        *,
-        tools: list[dict[str, Any]] | None,
-    ) -> dict[str, Any]:
-        kwargs: dict[str, Any] = {
-            "messages": messages,
-            "tools": tools,
-            "model": spec.model,
-            "retry_mode": spec.provider_retry_mode,
-            "on_retry_wait": spec.retry_wait_callback,
-        }
-        if spec.temperature is not None:
-            kwargs["temperature"] = spec.temperature
-        if spec.max_tokens is not None:
-            kwargs["max_tokens"] = spec.max_tokens
-        if spec.reasoning_effort is not None:
-            kwargs["reasoning_effort"] = spec.reasoning_effort
-        return kwargs
-
     async def _request_model(
         self,
         spec: AgentRunSpec,
@@ -1121,194 +1031,26 @@ class AgentRunner:
         hook: AgentHook,
         context: AgentHookContext,
     ):
-        timeout_s: float | None = spec.llm_timeout_s
-        if timeout_s is None:
-            # Default to a finite timeout to avoid per-session lock starvation when an LLM
-            # request hangs indefinitely (e.g. gateway/network stall).
-            # Set MINIUNICORN_LLM_TIMEOUT_S=0 to disable.
-            raw = os.environ.get("MINIUNICORN_LLM_TIMEOUT_S", "300").strip()
-            try:
-                timeout_s = float(raw)
-            except (TypeError, ValueError):
-                timeout_s = 300.0
-        if timeout_s is not None and timeout_s <= 0:
-            timeout_s = None
-
-        kwargs = self._build_request_kwargs(
-            spec,
-            messages,
-            tools=spec.tools.get_definitions(),
-        )
-        wants_streaming = hook.wants_streaming()
-        wants_progress_streaming = (
-            not wants_streaming
-            and spec.stream_progress_deltas
-            and spec.progress_callback is not None
-            and getattr(self.provider, "supports_progress_deltas", False) is True
-        )
-
-        progress_state: dict[str, bool] | None = None
-        live_file_edits: StreamingFileEditTracker | None = None
-
-        if spec.progress_callback is not None and on_progress_accepts_file_edit_events(
-            spec.progress_callback
-        ):
-
-            async def _emit_live_file_edits(events: list[dict[str, Any]]) -> None:
-                await invoke_file_edit_progress(spec.progress_callback, events)
-
-            live_file_edits = StreamingFileEditTracker(
-                workspace=spec.workspace,
-                tools=spec.tools,
-                emit=_emit_live_file_edits,
-            )
-
-        async def _tool_call_delta(delta: dict[str, Any]) -> None:
-            if live_file_edits is not None:
-                await live_file_edits.update(delta)
-
-        if wants_streaming:
-
-            async def _stream(delta: str) -> None:
-                if delta:
-                    context.streamed_content = True
-                await hook.on_stream(context, delta)
-
-            async def _thinking(delta: str) -> None:
-                if not delta:
-                    return
-                context.streamed_reasoning = True
-                await hook.emit_reasoning(delta)
-
-            coro = self.provider.chat_stream_with_retry(
-                **kwargs,
-                on_content_delta=_stream,
-                on_thinking_delta=_thinking,
-                on_tool_call_delta=_tool_call_delta if live_file_edits is not None else None,
-            )
-        elif wants_progress_streaming:
-            stream_buf = ""
-            think_extractor = IncrementalThinkExtractor()
-            progress_state = {"reasoning_open": False}
-
-            async def _stream_progress(delta: str) -> None:
-                nonlocal stream_buf
-                if not delta:
-                    return
-                prev_clean = strip_think(stream_buf)
-                stream_buf += delta
-                new_clean = strip_think(stream_buf)
-                incremental = new_clean[len(prev_clean) :]
-
-                if await think_extractor.feed(stream_buf, hook.emit_reasoning):
-                    context.streamed_reasoning = True
-                    progress_state["reasoning_open"] = True
-
-                if incremental:
-                    if progress_state["reasoning_open"]:
-                        await hook.emit_reasoning_end()
-                        progress_state["reasoning_open"] = False
-                    context.streamed_content = True
-                    await spec.progress_callback(incremental)
-
-            coro = self.provider.chat_stream_with_retry(
-                **kwargs,
-                on_content_delta=_stream_progress,
-                on_tool_call_delta=_tool_call_delta if live_file_edits is not None else None,
-            )
-        else:
-            coro = self.provider.chat_with_retry(**kwargs)
-
-        # Streaming requests already have provider-level idle timeouts
-        # (MINIUNICORN_STREAM_IDLE_TIMEOUT_S). Do not also apply the outer wall-clock
-        # LLM timeout here, or healthy long reasoning streams can be killed just
-        # because total elapsed time exceeded MINIUNICORN_LLM_TIMEOUT_S.
-        outer_timeout_s = None if (wants_streaming or wants_progress_streaming) else timeout_s
-        _llm_call_start = time.monotonic()
-        _llm_error: str | None = None
-        try:
-            response = (
-                await coro
-                if outer_timeout_s is None
-                else await asyncio.wait_for(coro, timeout=outer_timeout_s)
-            )
-            if live_file_edits is not None:
-                await live_file_edits.flush()
-                if response.should_execute_tools:
-                    live_file_edits.apply_final_call_ids(response.tool_calls)
-                await live_file_edits.error_unmatched(
-                    response.tool_calls if response.should_execute_tools else [],
-                    "Tool call did not complete.",
-                )
-        except asyncio.TimeoutError:
-            # 超时情况下刷新 file edit trackers，标记未匹配的编辑为错误状态
-            if live_file_edits is not None:
-                with suppress(Exception):
-                    await live_file_edits.error_unmatched([], "LLM timed out")
-            _llm_error = "timeout"
-            if outer_timeout_s is None:
-                response = LLMResponse(
-                    content="Error calling LLM: stream stalled",
-                    finish_reason="error",
-                    error_kind="timeout",
-                )
-            else:
-                response = LLMResponse(
-                    content=f"Error calling LLM: timed out after {outer_timeout_s:g}s",
-                    finish_reason="error",
-                    error_kind="timeout",
-                )
-        # Record one LlmCallMetric on the bound TurnRuntime. Safe-by-default:
-        # no runtime means no metric (e.g. unit tests calling _request_model
-        # directly without a coordinator scope).
-        _runtime = current_turn_runtime()
-        if _runtime is not None:
-            _runtime.llm_calls.append(
-                LlmCallMetric(
-                    iteration=context.iteration,
-                    duration_ms=max(0.0, (time.monotonic() - _llm_call_start) * 1000),
-                    usage=self._usage_dict(getattr(response, "usage", None)),
-                    finish_reason=getattr(response, "finish_reason", None),
-                    error=_llm_error,
-                )
-            )
-        if progress_state and progress_state.get("reasoning_open"):
-            await hook.emit_reasoning_end()
-        return response
+        return await self._model_requester.request(spec, messages, hook, context)
 
     async def _request_finalization_retry(
         self,
         spec: AgentRunSpec,
         messages: list[dict[str, Any]],
     ):
-        retry_messages = list(messages)
-        retry_messages.append(build_finalization_retry_message())
-        kwargs = self._build_request_kwargs(spec, retry_messages, tools=None)
-        return await self.provider.chat_with_retry(**kwargs)
+        return await self._model_requester.request_finalization(spec, messages)
 
     @staticmethod
     def _usage_dict(usage: dict[str, Any] | None) -> dict[str, int]:
-        if not usage:
-            return {}
-        result: dict[str, int] = {}
-        for key, value in usage.items():
-            try:
-                result[key] = int(value or 0)
-            except (TypeError, ValueError):
-                continue
-        return result
+        return ModelRequester._usage_dict(usage)
 
     @staticmethod
     def _accumulate_usage(target: dict[str, int], addition: dict[str, int]) -> None:
-        for key, value in addition.items():
-            target[key] = target.get(key, 0) + value
+        ModelRequester._accumulate_usage(target, addition)
 
     @staticmethod
     def _merge_usage(left: dict[str, int], right: dict[str, int]) -> dict[str, int]:
-        merged = dict(left)
-        for key, value in right.items():
-            merged[key] = merged.get(key, 0) + value
-        return merged
+        return ModelRequester._merge_usage(left, right)
 
     def _handle_budget_exceeded(
         self,
