@@ -73,6 +73,7 @@ def verify(
 
     expectations = _EXTRA_EXPECTATIONS[extra]
     work_dir.mkdir(parents=True, exist_ok=True)
+    work_dir = work_dir.resolve()
 
     venv_dir = work_dir / "venv"
     if venv_dir.exists():
