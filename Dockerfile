@@ -11,7 +11,7 @@
 # ----------------------------------------------------------------------------
 # Stage 1: webui builder
 # ----------------------------------------------------------------------------
-FROM oven/bun:1.1-debian AS webui-builder
+FROM oven/bun:1.2-debian AS webui-builder
 
 WORKDIR /build
 
