@@ -196,6 +196,110 @@ def _compute_order_violations(conn: Any) -> int:
     return violations
 
 
+def _collect_worker_ids(conn: Any) -> list[str]:
+    """Return the distinct Worker ids that leased at least one task.
+
+    Sourced from the immutable ``TASK_LEASED`` task events, whose
+    ``safe_payload`` records ``{"leased_by": worker_id}`` at claim time.
+    The ``tasks.leased_by`` column is cleared on completion/reclaim, so
+    only the event log retains the full set of Workers that executed
+    work. A healthy supervised soak over three Workers must yield exactly
+    three distinct ids.
+    """
+    rows = conn.execute(
+        "SELECT DISTINCT json_extract(safe_payload_json, '$.leased_by') AS wid "
+        "FROM task_events "
+        "WHERE event_type = 'TASK_LEASED' "
+        "AND json_extract(safe_payload_json, '$.leased_by') IS NOT NULL "
+        "ORDER BY wid ASC"
+    ).fetchall()
+    return [row["wid"] for row in rows]
+
+
+def _count_missing_final_replies(conn: Any) -> int:
+    """Count COMPLETED tasks without a ``FINAL_REPLY`` outbox row.
+
+    Every COMPLETED interactive (``USER_TURN``) task must enqueue exactly
+    one ``FINAL_REPLY``; a missing row means the final reply was lost
+    before delivery routing.
+    """
+    return conn.execute(
+        "SELECT COUNT(*) AS n FROM tasks t "
+        "WHERE t.state = 'COMPLETED' "
+        "AND NOT EXISTS ("
+        "  SELECT 1 FROM outbox o "
+        "  WHERE o.task_id = t.task_id AND o.message_kind = 'FINAL_REPLY'"
+        ")"
+    ).fetchone()["n"]
+
+
+def _count_stale_mutations(conn: Any) -> int:
+    """Count durable fenced-lease diagnostics.
+
+    Each ``LEASE_RECLAIMED`` task event records a lease that was broken
+    by the reclaim scanner — the durable signal that a Worker's mutation
+    was fenced off (stale lease). In a healthy soak with no Worker
+    crashes this must be 0.
+    """
+    return conn.execute(
+        "SELECT COUNT(*) AS n FROM task_events WHERE event_type = 'LEASE_RECLAIMED'"
+    ).fetchone()["n"]
+
+
+def _count_unresolved_sqlite_busy(conn: Any) -> int:
+    """Count terminal tasks whose failure records an unresolved SQLite busy.
+
+    SQLite busy errors are retried inside the busy-timeout window; a
+    terminal task whose ``error_code``/``error_summary`` records a busy
+    failure means the retry budget was exhausted — a release-blocking
+    durability fault.
+    """
+    return conn.execute(
+        "SELECT COUNT(*) AS n FROM tasks "
+        "WHERE state = 'FAILED' "
+        "AND (error_code LIKE '%BUSY%' OR error_summary LIKE '%busy%' "
+        "     OR error_code LIKE '%SQLITE_BUSY%')"
+    ).fetchone()["n"]
+
+
+# ---------------------------------------------------------------------------
+# Release summary validator (pure, no I/O)
+# ---------------------------------------------------------------------------
+
+
+#: The authoritative set of release-soak summary keys. Every key must be
+#: present in a report and every zero-guard must equal zero.
+_RELEASE_SUMMARY_ZERO_GUARDS: tuple[str, ...] = (
+    "missing_terminal",
+    "missing_final_replies",
+    "duplicate_effects",
+    "same_session_overlaps",
+    "same_session_order_violations",
+    "stale_mutations",
+    "unresolved_sqlite_busy",
+    "children_alive_after_shutdown",
+)
+
+
+def assert_release_soak_summary(summary: dict[str, Any]) -> None:
+    """Assert *summary* satisfies the release soak contract.
+
+    Requires exactly three distinct ``worker_ids`` and every zero-guard
+    key equal to zero. Each failure raises :class:`AssertionError` with a
+    diagnostic that names the offending key.
+
+    Pure: no I/O, sockets, or runtime dependencies — safe to unit-test
+    and to run against a loaded JSON report.
+    """
+    worker_ids = summary["worker_ids"]
+    assert len(set(worker_ids)) == 3, (
+        f"worker_ids must contain exactly 3 distinct ids, got {worker_ids!r}"
+    )
+    for key in _RELEASE_SUMMARY_ZERO_GUARDS:
+        value = summary[key]
+        assert value == 0, f"{key}={value}, expected 0"
+
+
 # ---------------------------------------------------------------------------
 # Async main
 # ---------------------------------------------------------------------------
@@ -220,6 +324,8 @@ async def _run_soak(args: argparse.Namespace) -> int:
     stub.start()
     resources: Any = None
     test_conn: Any = None
+    final_summary: dict[str, Any] | None = None
+    exit_holder: dict[str, int] = {"exit_code": 0}
     try:
         config = _make_config(workspace, stub.api_base)
         resources = build_supervised_runtime(config)
@@ -265,6 +371,8 @@ async def _run_soak(args: argparse.Namespace) -> int:
             elif result.status == "DUPLICATE":
                 duplicate_effects += 1
 
+            session_idx += 1
+
             # Fan out a wake hint so Workers poll immediately.
             try:
                 resources.host.notify_submit(task_id=result.task_id)
@@ -309,6 +417,10 @@ async def _run_soak(args: argparse.Namespace) -> int:
         # ---- Collect final metrics ----
         same_session_overlaps = _compute_same_session_overlaps(test_conn)
         order_violations = _compute_order_violations(test_conn)
+        missing_final_replies = _count_missing_final_replies(test_conn)
+        stale_mutations = _count_stale_mutations(test_conn)
+        unresolved_sqlite_busy = _count_unresolved_sqlite_busy(test_conn)
+        worker_ids = _collect_worker_ids(test_conn)
 
         final_summary = _collect_current_summary(
             test_conn,
@@ -318,6 +430,17 @@ async def _run_soak(args: argparse.Namespace) -> int:
             same_session_overlaps=same_session_overlaps,
         )
         final_summary["same_session_order_violations"] = order_violations
+        # Task 26 Step 2: release-evidence keys sourced from durable facts.
+        final_summary["worker_ids"] = worker_ids
+        final_summary["missing_terminal"] = max(
+            0,
+            total_submitted - (final_summary["total_completed"] + final_summary["total_failed"]),
+        )
+        final_summary["missing_final_replies"] = missing_final_replies
+        final_summary["stale_mutations"] = stale_mutations
+        final_summary["unresolved_sqlite_busy"] = unresolved_sqlite_busy
+        # children_alive_after_shutdown is populated after stop() in finally.
+        final_summary["children_alive_after_shutdown"] = 0
         _write_summary(output_path, final_summary)
 
         print(
@@ -352,8 +475,30 @@ async def _run_soak(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             exit_code = 1
+        # Task 26: release-evidence guards.
+        if len(set(worker_ids)) != 3:
+            print(
+                f"ERROR: expected 3 distinct worker ids, got {worker_ids}",
+                file=sys.stderr,
+            )
+            exit_code = 1
+        if missing_final_replies > 0:
+            print(
+                f"ERROR: missing final replies: {missing_final_replies}",
+                file=sys.stderr,
+            )
+            exit_code = 1
+        if stale_mutations > 0:
+            print(f"ERROR: stale mutations (LEASE_RECLAIMED): {stale_mutations}", file=sys.stderr)
+            exit_code = 1
+        if unresolved_sqlite_busy > 0:
+            print(
+                f"ERROR: unresolved sqlite busy: {unresolved_sqlite_busy}",
+                file=sys.stderr,
+            )
+            exit_code = 1
 
-        return exit_code
+        exit_holder["exit_code"] = exit_code
     finally:
         if test_conn is not None:
             test_conn.close()
@@ -364,11 +509,13 @@ async def _run_soak(args: argparse.Namespace) -> int:
                 print(f"WARNING: error during resources.stop(): {exc}", file=sys.stderr)
         stub.close()
 
-        # Check for child leaks after shutdown.
+        # Check for child leaks after shutdown (Task 26: durable evidence).
+        children_alive_after_shutdown = 0
         if resources is not None:
             try:
                 snap = resources.host.snapshot()
                 alive = [c for c in snap.get("children", []) if c.get("alive")]
+                children_alive_after_shutdown = len(alive)
                 if alive:
                     print(
                         f"ERROR: child leaks: {len(alive)} child processes "
@@ -386,8 +533,18 @@ async def _run_soak(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
 
+        # Record child liveness into the final summary and re-write it so
+        # the saved report carries the complete release-evidence contract.
+        if final_summary is not None:
+            final_summary["children_alive_after_shutdown"] = children_alive_after_shutdown
+            _write_summary(output_path, final_summary)
+            if children_alive_after_shutdown > 0:
+                exit_holder["exit_code"] = 1
+
         # Clean up the temp workspace.
         shutil.rmtree(temp_root, ignore_errors=True)
+
+    return exit_holder["exit_code"]
 
 
 # ---------------------------------------------------------------------------

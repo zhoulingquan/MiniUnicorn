@@ -10,8 +10,8 @@ remediation plan:
 - ``terminal_tasks == total``
 - ``missing_final_replies == 0``
 - ``same_session_order_violations == 0``
-- ``max_distinct_sessions_concurrently_running >= 3`` (skip if lightweight
-  mode does not achieve this)
+- ``max_distinct_sessions_concurrently_running >= 3`` (required: the gate
+  fails, not skips, when three execution slots never overlap)
 - ``same_session_overlap_count == 0``
 
 Safety bounds:
@@ -351,11 +351,9 @@ async def _run_load_test(
     assert metrics["same_session_overlaps"] == 0, (
         f"same_session_overlap_count={metrics['same_session_overlaps']}"
     )
-    if metrics["max_concurrent"] < 3:
-        pytest.skip(
-            f"lightweight mode achieved only {metrics['max_concurrent']} "
-            f"distinct concurrent sessions (need >= 3)"
-        )
+    assert metrics["max_concurrent"] >= 3, (
+        f"distinct concurrent sessions={metrics['max_concurrent']}, expected at least 3"
+    )
     assert metrics["wall_elapsed"] < 600.0, f"test took {metrics['wall_elapsed']:.1f}s (max 600s)"
     # All worker tasks exited after shutdown.
     assert not resources.host._running, "host still running after stop"

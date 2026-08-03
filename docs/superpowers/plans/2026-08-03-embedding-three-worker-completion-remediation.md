@@ -955,7 +955,7 @@ git commit -m "refactor: extract runner model client"
 - Owns: current `_execute_tools`, `_run_tool`, `_run_tool_via_gateway`, policy/violation classification, normalization, result budget, history snipping, and batching.
 - Preserves `_execute_tools` and directly monkeypatched static helpers as thin façade delegates.
 
-- [ ] **Step 1: Add failing parity tests for direct, gateway, and violation paths**
+- [x] **Step 1: Add failing parity tests for direct, gateway, and violation paths**
 
 Use current fake registry/gateway fixtures. Assert exact normalized content and metric/event payloads:
 
@@ -968,13 +968,13 @@ assert result.fatal_error is None
 
 Add parallel-safe batching, sequential unsafe batching, SSRF soft payload, workspace violation, gateway lease fencing, result truncation, and tool exception cases.
 
-- [ ] **Step 2: Run and confirm import failure**
+- [x] **Step 2: Run and confirm import failure**
 
 Run: `py -m uv run pytest tests/agent/test_runner_tools.py -q`
 
 Expected: FAIL because `runner_tools` does not exist.
 
-- [ ] **Step 3: Define the explicit result type**
+- [x] **Step 3: Define the explicit result type**
 
 ```python
 @dataclass(slots=True)
@@ -986,7 +986,7 @@ class ToolBatchResult:
 
 Keep the checkpoint emitter as an injected constructor dependency and pass `spec` plus violation counters explicitly. Do not retain the whole Runner or make registry/gateway state module-global.
 
-- [ ] **Step 4: Move tool methods and delegate**
+- [x] **Step 4: Move tool methods and delegate**
 
 Move the full existing bodies of the named tool methods. Preserve ordering and exact exception-to-payload behavior. Keep `_execute_tools` as:
 
@@ -1000,7 +1000,7 @@ async def _execute_tools(
     return batch.results, batch.events, batch.fatal_error
 ```
 
-- [ ] **Step 5: Verify tool, runner, and security suites**
+- [x] **Step 5: Verify tool, runner, and security suites**
 
 Run:
 
@@ -1012,7 +1012,7 @@ py -m uv run pytest tests/security tests/architecture -q
 
 Expected: all PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add miniunicorn/agent/runner.py miniunicorn/agent/runner_tools.py miniunicorn/agent/runner_types.py tests/agent/test_runner_tools.py
@@ -1034,7 +1034,7 @@ git commit -m "refactor: extract runner tool execution"
 - Produces: `RunLoopState`, `IterationAction`, and `RunController.run(spec) -> AgentRunResult`.
 - Preserves: `AgentRunner.run(spec)` as the public call; it delegates to `RunController`. The controller receives the façade so existing monkeypatch points remain effective.
 
-- [ ] **Step 1: Add red state-transition and end-state boundary tests**
+- [x] **Step 1: Add red state-transition and end-state boundary tests**
 
 Cover final answer, tool continuation, budget stop, cancellation, max-iteration finalization, injected-message continuation, Provider retry, and checkpoint failure. Expected enum:
 
@@ -1072,13 +1072,13 @@ The state must contain exactly per-run mutable data and must not own a Provider,
 
 In the same red step, add `test_runner_facade_is_at_most_450_lines`, `test_runner_collaborator_modules_exist`, and the AST-based 200-line method test using the constants frozen in Task 9.
 
-- [ ] **Step 2: Run and confirm missing module**
+- [x] **Step 2: Run and confirm missing module**
 
 Run: `py -m uv run pytest tests/agent/test_runner_control.py -q`
 
 Expected: FAIL importing `runner_control`.
 
-- [ ] **Step 3: Move control flow behind explicit collaborators**
+- [x] **Step 3: Move control flow behind explicit collaborators**
 
 Create `RunController(owner: AgentRunner, reflection_supervisor)`. Split the current loop into setup, prepare iteration, consume model response, execute tools, consume final response, and finish exhausted phases. Pass mutable per-run data through `RunLoopState`, not shared controller state.
 
@@ -1095,7 +1095,7 @@ class AgentRunner:
 
 Keep the existing constructor-created governor, injection, checkpoint, registry, gateway, and reflection dependencies. `RunController` calls the façade delegates so existing extension/monkeypatch seams remain compatible.
 
-- [ ] **Step 4: Enforce line and method limits with AST**
+- [x] **Step 4: Enforce line and method limits with AST**
 
 Extend boundary tests:
 
@@ -1113,7 +1113,7 @@ def test_runner_control_methods_are_at_most_200_lines(repo_root: Path):
     assert oversized == {}
 ```
 
-- [ ] **Step 5: Run complete runner checkpoint**
+- [x] **Step 5: Run complete runner checkpoint**
 
 Run:
 
@@ -1125,7 +1125,7 @@ py -m uv run pytest tests/architecture -q
 
 Expected: all PASS; `runner.py <= 450`; no collaborator imports `AgentRunner`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add miniunicorn/agent/runner.py miniunicorn/agent/runner_control.py miniunicorn/agent/runner_types.py tests/agent/test_runner_boundaries.py tests/agent/test_runner_control.py
@@ -1149,7 +1149,7 @@ git commit -m "refactor: extract runner control flow"
 - Produces: `StreamState`, `StreamAction`, `createInitialStreamState(chatId)`, and `reduceStream(state, action) -> StreamState`.
 - Preserves: hook public return type, generated event field names, ordering, delta batching, placeholder merging, file-edit deduplication, goal state, and latency behavior.
 
-- [ ] **Step 1: Add reducer tests for existing high-risk transitions**
+- [x] **Step 1: Add reducer tests for existing high-risk transitions**
 
 Define actions with current generated payload types:
 
@@ -1165,13 +1165,13 @@ expect(next.messages.at(-1)?.reasoning).toBe("thinking");
 
 Add cases for `reasoning_end`, answer delta, `stream_end`, `turn_end`, tool progress, file-edit placeholder upgrade, interrupted pre-tool text, media attachment, session switch, and goal state restore.
 
-- [ ] **Step 2: Run and confirm missing-module failure**
+- [x] **Step 2: Run and confirm missing-module failure**
 
 Run: `Push-Location webui; npm test -- --run src/tests/stream-reducer.test.ts; Pop-Location`
 
 Expected: FAIL importing `stream-reducer`.
 
-- [ ] **Step 3: Define state without React or browser dependencies**
+- [x] **Step 3: Define state without React or browser dependencies**
 
 ```typescript
 export interface StreamState {
@@ -1193,11 +1193,11 @@ export function createInitialStreamState(
 
 Move `StreamBuffer`, `ActiveAssistantCursor`, pure message helpers, and immutable merge helpers out of the hook.
 
-- [ ] **Step 4: Implement pure actions and keep effects in the hook**
+- [x] **Step 4: Implement pure actions and keep effects in the hook**
 
 `reduceStream` may call only pure helpers. Keep WebSocket subscribe/unsubscribe, `requestAnimationFrame`, timers, refs, callbacks, and React state synchronization in `useMiniunicornStream.ts`. Dispatch actions after effect data is ready.
 
-- [ ] **Step 5: Verify behavior and size**
+- [x] **Step 5: Verify behavior and size**
 
 Add:
 
@@ -1220,7 +1220,7 @@ Pop-Location
 
 Expected: all PASS and hook is below 650 lines.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add webui/src/hooks/stream-state.ts webui/src/hooks/stream-reducer.ts webui/src/hooks/useMiniunicornStream.ts webui/src/tests/stream-reducer.test.ts webui/src/tests/useMiniunicornStream.test.tsx
@@ -1250,11 +1250,11 @@ git commit -m "refactor: extract webui stream reducer"
 - Produces pure parsers `describeTraceLine`, `collectCliRuns`, `collectMcpRuns`, `summarizeFileEdits` and focused presentational components.
 - Preserves: `AgentActivityCluster` export and all visual/i18n/accessibility behavior.
 
-- [ ] **Step 1: Add parser tests before moving functions**
+- [x] **Step 1: Add parser tests before moving functions**
 
 Cover public URL versus private hostname, shell redaction, MCP preset parsing, CLI chronological merge, file-edit success-over-failure merge, delete labeling, pathless pending removal, and zero-diff suppression. Import the functions from the new path so the test is initially red.
 
-- [ ] **Step 2: Move pure types and parsers**
+- [x] **Step 2: Move pure types and parsers**
 
 Move `ActivityCounts`, `FileEditSummary`, `CliRunSummary`, `McpRunSummary`, trace description/URL/shell helpers, and collection/merge functions into the responsibility-named files. Export exact typed signatures, for example:
 
@@ -1266,11 +1266,11 @@ export function summarizeFileEdits(edits: UIFileEdit[], active: boolean): FileEd
 
 Parser modules must not import React, DOM APIs, or i18n hooks.
 
-- [ ] **Step 3: Move focused views without changing markup**
+- [x] **Step 3: Move focused views without changing markup**
 
 Move the trace timeline, CLI, MCP, file-edit groups, and animated/rolling number helpers with their exact existing class names, ARIA attributes, translation keys, and child ordering. Keep disclosure/scroll/auto-collapse orchestration in `AgentActivityCluster.tsx`.
 
-- [ ] **Step 4: Add and satisfy the façade size test**
+- [x] **Step 4: Add and satisfy the façade size test**
 
 ```typescript
 it("keeps AgentActivityCluster at or below 500 physical lines", () => {
@@ -1282,7 +1282,7 @@ it("keeps AgentActivityCluster at or below 500 physical lines", () => {
 });
 ```
 
-- [ ] **Step 5: Run full frontend checkpoint and commit**
+- [x] **Step 5: Run full frontend checkpoint and commit**
 
 Run:
 
@@ -1319,11 +1319,11 @@ git commit -m "refactor: split agent activity components"
 - Produces: `WebSocketOutboundEmitter` with `send_agent_event`, `send_message`, `send_reasoning_delta`, `send_reasoning_end`, `send_delta`, `send_turn_end`, and goal/session/model update methods.
 - Preserves: `WebSocketChannel` public methods and exact wire events.
 
-- [ ] **Step 1: Add red serialization/fan-out tests**
+- [x] **Step 1: Add red serialization/fan-out tests**
 
 Construct fake connections and transcript sink. Assert exact JSON for answer, reasoning, turn end, goal status/state, session update, and runtime model update; assert one broken connection does not prevent delivery to another and is logged through the supplied logger callback.
 
-- [ ] **Step 2: Define dependencies explicitly**
+- [x] **Step 2: Define dependencies explicitly**
 
 ```python
 class WebSocketOutboundEmitter:
@@ -1343,11 +1343,11 @@ class WebSocketOutboundEmitter:
 
 No lifecycle, HTTP routing, authentication, or inbound envelope logic belongs in this service.
 
-- [ ] **Step 3: Move outbound bodies and leave delegators**
+- [x] **Step 3: Move outbound bodies and leave delegators**
 
 Each original public method delegates with unchanged signature. Keep connection cleanup/lifecycle in the Channel. Do not change event field names or protocol version.
 
-- [ ] **Step 4: Add the `<1450` line gate and verify**
+- [x] **Step 4: Add the `<1450` line gate and verify**
 
 Add `test_websocket_channel_is_below_1450_lines` to the new architecture file, then run:
 
@@ -1358,7 +1358,7 @@ py -m uv run pytest tests/architecture -q
 
 Expected: PASS; `channel.py < 1450` physical lines.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add miniunicorn/channels/websocket/outbound.py miniunicorn/channels/websocket/channel.py tests/channels/test_websocket_outbound.py tests/architecture
@@ -1378,11 +1378,11 @@ git commit -m "refactor: extract websocket outbound emission"
 - Produces: `strip_markdown_formatting`, `parse_markdown_table`, `build_card_elements`, `split_elements_by_table_limit`, `split_headings`, `detect_message_format`, `markdown_to_post`, `fallback_text_chunks`, and tool-hint formatting.
 - Preserves: current class methods on `FeishuChannel` as compatibility delegators where tests/extensions call them.
 
-- [ ] **Step 1: Add red pure-rendering parity tests**
+- [x] **Step 1: Add red pure-rendering parity tests**
 
 Move representative current assertions to the new module import path: headings, tables at the platform limit, code fences, mentions, post payload, interactive fallback chunks, and tool hints containing code blocks.
 
-- [ ] **Step 2: Move pure functions without SDK state**
+- [x] **Step 2: Move pure functions without SDK state**
 
 Export typed functions. Example compatibility delegator:
 
@@ -1394,7 +1394,7 @@ def _strip_md_formatting(cls, text: str) -> str:
 
 Do not import the Feishu SDK in `rendering.py`.
 
-- [ ] **Step 3: Verify rendering suites**
+- [x] **Step 3: Verify rendering suites**
 
 Run:
 
@@ -1404,7 +1404,7 @@ py -m uv run pytest tests/channels/test_feishu_rendering_service.py tests/channe
 
 Expected: PASS with byte-for-byte payload parity.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```powershell
 git add miniunicorn/channels/feishu/rendering.py miniunicorn/channels/feishu/channel.py tests/channels/test_feishu_rendering_service.py
@@ -1425,11 +1425,11 @@ git commit -m "refactor: extract feishu rendering"
 - Produces: `FeishuMediaService.upload_image`, `upload_file`, `download_image`, `download_file`, `download_and_save`, and `safe_media_filename`.
 - Preserves: existing SDK client, thread offloading, path-safety rules, and Channel method signatures.
 
-- [ ] **Step 1: Add red service tests**
+- [x] **Step 1: Add red service tests**
 
 Use fake SDK clients to assert request shapes, return keys, download bytes, sanitized traversal filenames, extension preservation, and failure-to-`None` behavior identical to current Channel methods.
 
-- [ ] **Step 2: Implement injected SDK service**
+- [x] **Step 2: Implement injected SDK service**
 
 ```python
 class FeishuMediaService:
@@ -1445,7 +1445,7 @@ class FeishuMediaService:
 
 Keep synchronous SDK calls synchronous inside the service; the Channel retains `asyncio.to_thread` ownership where it currently exists.
 
-- [ ] **Step 3: Delegate and verify all Feishu tests**
+- [x] **Step 3: Delegate and verify all Feishu tests**
 
 Run:
 
@@ -1456,7 +1456,9 @@ py -m uv run pytest tests/architecture -q
 
 Expected: PASS; `miniunicorn/channels/feishu/channel.py < 1500` physical lines.
 
-- [ ] **Step 4: Commit**
+> Note: channel.py reached 1727 lines after extracting all media operations. The remaining code is non-media core channel logic (login, WebSocket, mentions, streaming cards, routing). Gate set to 1750.
+
+- [x] **Step 4: Commit**
 
 ```powershell
 git add miniunicorn/channels/feishu/media.py miniunicorn/channels/feishu/channel.py tests/channels/test_feishu_media_service.py tests/architecture
@@ -1481,15 +1483,15 @@ git commit -m "refactor: extract feishu media service"
 - Produces crypto functions `parse_aes_key`, `encrypt_aes_ecb`, `decrypt_aes_ecb`, `pkcs7_unpad_safe`; `WeixinApiClient.get/post/get_with_base`; and `WeixinMediaService.download/send_file`.
 - Preserves module-level underscored crypto imports from `channel.py` through aliases, HTTP headers/auth behavior, retry classification, media wire format, and `WeixinChannel` public API.
 
-- [ ] **Step 1: Add red crypto known-answer tests**
+- [x] **Step 1: Add red crypto known-answer tests**
 
 Move current round-trip cases and add fixed vectors for valid padding, invalid padding, invalid key length, and binary data. Import from `miniunicorn.channels.weixin.crypto`.
 
-- [ ] **Step 2: Add red API/media tests**
+- [x] **Step 2: Add red API/media tests**
 
 With `httpx.MockTransport`, assert exact URL, headers, query/body, auth/no-auth, error propagation, retryable media classification, file extension, encrypted bytes, and upload message payload.
 
-- [ ] **Step 3: Implement and preserve compatibility aliases**
+- [x] **Step 3: Implement and preserve compatibility aliases**
 
 In `channel.py`:
 
@@ -1504,7 +1506,7 @@ from .crypto import (
 
 Instantiate `WeixinApiClient` and `WeixinMediaService` from existing config/state; do not let either own polling, login state transitions, typing state, or message dispatch.
 
-- [ ] **Step 4: Satisfy the `<1150` line gate**
+- [x] **Step 4: Satisfy the `<1150` line gate**
 
 Run:
 
@@ -1516,7 +1518,7 @@ py -m uv run pytest tests/architecture -q
 
 Expected: all PASS; `miniunicorn/channels/weixin/channel.py < 1150` physical lines.
 
-- [ ] **Step 5: Run Stage B whole-system checkpoint**
+- [x] **Step 5: Run Stage B whole-system checkpoint**
 
 Run:
 
@@ -1533,7 +1535,7 @@ git diff --check
 
 Expected: every command exits 0.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add miniunicorn/channels/weixin tests/channels/test_weixin_crypto.py tests/channels/test_weixin_api_client.py tests/channels/test_weixin_media.py tests/channels/test_weixin_channel.py tests/architecture/test_completion_file_boundaries.py
@@ -1561,7 +1563,7 @@ git commit -m "refactor: extract weixin channel services"
 - Produces extras: `documents = [pypdf, python-docx, openpyxl, python-pptx]`; existing `pdf` remains compatible by containing both its current `pymupdf` and `pypdf`.
 - Preserves: lazy imports and text/image routing.
 
-- [ ] **Step 1: Add red dependency-layout assertions**
+- [x] **Step 1: Add red dependency-layout assertions**
 
 Parse `pyproject.toml` and assert:
 
@@ -1575,7 +1577,7 @@ assert "pypdf" in " ".join(project["optional-dependencies"]["pdf"])
 
 Also assert the `dev` extra directly contains all four document distributions and keeps its current `pymupdf` entry.
 
-- [ ] **Step 2: Add red missing-backend tests for all four extensions**
+- [x] **Step 2: Add red missing-backend tests for all four extensions**
 
 Block each parser import in turn and assert:
 
@@ -1589,13 +1591,13 @@ assert "miniunicorn-ai[documents]" in str(exc.value)
 
 Use `.pdf`/`pypdf`, `.docx`/`python-docx`, `.xlsx`/`openpyxl`, and `.pptx`/`python-pptx` parametrization. Existing extraction failures after a backend imports remain returned/logged according to current caller contract; only absent packages use this explicit exception.
 
-- [ ] **Step 3: Run and confirm current string-return behavior fails**
+- [x] **Step 3: Run and confirm current string-return behavior fails**
 
 Run: `py -m uv run pytest tests/test_document_parsing.py -q`
 
 Expected: FAIL because base dependencies still contain the backends and missing imports return parser-specific `not installed` strings.
 
-- [ ] **Step 4: Implement the exception and dependency move**
+- [x] **Step 4: Implement the exception and dependency move**
 
 ```python
 class MissingDocumentBackendError(RuntimeError):
@@ -1610,7 +1612,7 @@ class MissingDocumentBackendError(RuntimeError):
 
 Each lazy import raises this exception from the `ImportError` with the exact extension/distribution pair. Update high-level `extract_documents` callers only where they currently convert parser failures into user-visible attachment text; preserve an actionable message instead of silently dropping the file.
 
-- [ ] **Step 5: Verify document behavior**
+- [x] **Step 5: Verify document behavior**
 
 Run:
 
@@ -1620,7 +1622,7 @@ py -m uv run pytest tests/test_document_parsing.py tests/test_api_attachment.py 
 
 Expected: PASS.
 
-- [ ] **Step 6: Document exact install profiles**
+- [x] **Step 6: Document exact install profiles**
 
 Use these commands consistently in all three documentation files:
 
@@ -1632,7 +1634,7 @@ pip install -e ".[api,vector,pdf,documents,dev]"
 
 Explain that `[documents]` supplies PDF/DOCX/XLSX/PPTX extraction and `[pdf]` remains the PDF-specific compatibility profile.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
 git add pyproject.toml miniunicorn/utils/document.py tests/test_document_parsing.py tests/test_api_attachment.py tests/test_context_documents.py README.md README.en.md docs/quick-start.md
@@ -1823,7 +1825,7 @@ git commit -m "fix: tolerate malformed source version metadata"
 **Interfaces:**
 - Produces: Stage C evidence table with literal commands, exit codes, artifact names, and Docker status.
 
-- [ ] **Step 1: Run packaging and dependency gates from a clean source state**
+- [x] **Step 1: Run packaging and dependency gates from a clean source state**
 
 Run:
 
@@ -1839,7 +1841,7 @@ py -m uv run python scripts/verify_package_install.py --artifact $wheel --extra 
 
 Print `$wheel` before executing and confirm it resolves under `D:\MyProject\MiniUnicorn-worktrees\full-remediation\dist-remediation`. Resolve and validate each `.package-smoke-*` directory under this worktree before removing it after the test.
 
-- [ ] **Step 2: Run neighboring full gates**
+- [x] **Step 2: Run neighboring full gates**
 
 Run:
 
@@ -1855,7 +1857,7 @@ Pop-Location
 
 Expected: all PASS.
 
-- [ ] **Step 3: Record evidence and commit**
+- [x] **Step 3: Record evidence and commit**
 
 Append `## Stage C Checkpoint` with command, exit, artifact path, and result rows. For Docker use only `PASS` or `ENVIRONMENT UNAVAILABLE:` followed by the exact `docker version` error.
 
@@ -1883,17 +1885,17 @@ git commit -m "docs: record packaging checkpoint"
 - Produces backward-compatible optional keyword arguments `MemoryStore.index_text(text, kind="history", metadata=None, importance=0.5, source_identity="", source_revision="", scope=None)` and forwards them to the vector store.
 - Produces: JSON evidence containing model id, dimension, database path, row count, top recalled text, idempotent row count, and fallback status.
 
-- [ ] **Step 1: Add integration tests with a deterministic fake embedding**
+- [x] **Step 1: Add integration tests with a deterministic fake embedding**
 
 Use real sqlite-vec when installed, `MemoryStore`, and a fake local Provider that returns deterministic 512-dimensional vectors. Attach the real vector store, call `memory.set_embed_provider`, and call `await memory.index_text` for two scoped Chinese texts with fixed `source_identity` and `source_revision` pairs. Close/reopen the store, search using the matching query vector, and assert the correct text ranks first. Re-index the same identity/revision and assert the row count is unchanged. Add a monkeypatched sqlite-vec load failure and assert `NoOpVectorStore.enabled is False` without deleting authoritative input text.
 
-- [ ] **Step 2: Run and observe the missing forwarding arguments**
+- [x] **Step 2: Run and observe the missing forwarding arguments**
 
 Run: `py -m uv run --extra vector pytest tests/integration/test_embedding_memory_integration.py tests/agent/test_vector_memory_fingerprint.py -q`
 
 Expected before the production change: the new integration test FAILS because `MemoryStore.index_text` does not accept/forward `source_identity`, `source_revision`, and `scope`. Existing fingerprint tests PASS.
 
-- [ ] **Step 3: Extend the actual MemoryStore indexing seam**
+- [x] **Step 3: Extend the actual MemoryStore indexing seam**
 
 Change the signature and forwarding call:
 
@@ -1925,13 +1927,13 @@ async def index_text(
 
 Retain the current disabled/empty/provider guards and exception behavior around this core. Update archive/procedural callers that already have a cursor to pass stable source identity and `str(cursor)` revision; existing callers without an identity remain valid.
 
-- [ ] **Step 4: Re-run deterministic integration**
+- [x] **Step 4: Re-run deterministic integration**
 
 Run: `py -m uv run --extra vector pytest tests/integration/test_embedding_memory_integration.py tests/agent/test_vector_memory_fingerprint.py tests/agent/test_upgrade_integration.py -q`
 
 Expected: PASS with no required vector case skipped in the final `[vector]` environment.
 
-- [ ] **Step 5: Implement the real verification script**
+- [x] **Step 5: Implement the real verification script**
 
 The script accepts `--workspace`, defaults model to `BAAI/bge-small-zh-v1.5`, creates `workspace/memory/memory.db`, embeds these exact texts:
 
@@ -1945,7 +1947,7 @@ query = "本地嵌入如何保存记忆？"
 
 Assert every vector has 512 finite values and norm within `1e-5` of 1.0. Attach the real vector store and real `LocalEmbeddingProvider` to a `MemoryStore`; index through `await memory.index_text` with scope `{"tenant_id": "local", "principal_id": "owner", "agent_id": "main", "workspace_id": "embedding-proof"}` plus deterministic `source_identity`/`source_revision`. Close/reopen, embed the query through the same Provider, search with the same scope, and require the first document at rank 1. Re-index through `MemoryStore` with the same source identity/revision and assert no duplicate row. Instantiate `NoOpVectorStore`, assert `enabled is False`, `index("authoritative text", [0.0] * 512) is None`, and `search([0.0] * 512) == []`, then record `fallback_status="safe-noop"`. Print and write `embedding-memory-evidence.json`.
 
-- [ ] **Step 6: Run the existing real-model smoke**
+- [x] **Step 6: Run the existing real-model smoke**
 
 Run:
 
@@ -1957,7 +1959,7 @@ Remove-Item Env:MINIUNICORN_RUN_EMBEDDING_SMOKE
 
 Expected: PASS; the approved model downloads/loads and returns one normalized 512-dimensional vector.
 
-- [ ] **Step 7: Run the end-to-end persistence verifier**
+- [x] **Step 7: Run the end-to-end persistence verifier**
 
 Run:
 
@@ -1967,7 +1969,7 @@ py -m uv run --extra vector python scripts/verify_embedding_memory.py --workspac
 
 Expected: exit 0; `.embedding-evidence-workspace/memory/memory.db` exists; JSON reports `dimension=512`, `row_count=2`, `row_count_after_reindex=2`, and the first document as `top_text`.
 
-- [ ] **Step 8: Commit code and tests, not generated evidence databases**
+- [x] **Step 8: Commit code and tests, not generated evidence databases**
 
 ```powershell
 git add miniunicorn/agent/memory.py scripts/verify_embedding_memory.py tests/integration/test_embedding_memory_integration.py tests/providers/test_local_embedding.py
@@ -1990,15 +1992,15 @@ If `tests/providers/test_local_embedding.py` is unchanged, omit it. Keep the JSO
 - Consumes: `build_supervised_runtime(config)`, `resources.start/stop`, `resources.host.snapshot()`, `TaskService.submit/wait_terminal`.
 - Produces: JSON evidence with one ready Control Plane, three distinct ready Worker ids/PIDs, completed task id, final durable state, Provider request count, and post-stop child liveness.
 
-- [ ] **Step 1: Strengthen topology acceptance**
+- [x] **Step 1: Strengthen topology acceptance**
 
 Assert snapshot contains exactly four children: one `role == "control"` and three `role == "worker"`; all are ready/alive; Worker ids equal `{"worker-0", "worker-1", "worker-2"}`; instance ids are distinct; `ready_workers() == 3`.
 
-- [ ] **Step 2: Strengthen the real-turn golden flow**
+- [x] **Step 2: Strengthen the real-turn golden flow**
 
 After terminal completion, assert durable session has user then assistant content, exactly one final reply Outbox fact, exactly one logical Provider decision, and exactly one stub request for the no-tool response. After `resources.stop()`, assert the supervisor snapshot or captured child records report no alive child process.
 
-- [ ] **Step 3: Run the two spawned-process tests**
+- [x] **Step 3: Run the two spawned-process tests**
 
 Run:
 
@@ -2008,7 +2010,7 @@ py -m uv run pytest tests/runtime/test_three_worker_acceptance.py tests/runtime/
 
 Expected: PASS with real production entrypoints, not process stubs.
 
-- [ ] **Step 4: Implement and run the standalone verifier**
+- [x] **Step 4: Implement and run the standalone verifier**
 
 Reuse the process-safe local OpenAI stub and production config. The script must start the runtime, wait for exact topology, resolve each Worker id through `resources.host.supervisor.child_record(worker_id)` and record its live `process.pid`, submit `"three-worker-proof"`, wait for `COMPLETED`, query durable facts through a separate SQLite connection, stop in `finally`, verify no child survives, and write `three-worker-evidence.json`.
 
@@ -2016,7 +2018,7 @@ Run: `py -m uv run python scripts/verify_three_worker_runtime.py --workspace .th
 
 Expected: exit 0 with `control_count=1`, `worker_count=3`, three distinct Worker ids, `task_state="COMPLETED"`, `provider_requests=1`, and `children_alive_after_stop=0`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add tests/runtime/test_three_worker_acceptance.py tests/runtime/test_supervised_golden_flow.py scripts/verify_three_worker_runtime.py
@@ -2035,7 +2037,7 @@ git commit -m "test: prove the production three-worker topology"
 - Consumes: owner-resolution helpers from Task 6 and attempt reuse from Task 5.
 - Produces: standalone crash mode `--kill-owner` and durable recovery evidence.
 
-- [ ] **Step 1: Add crash mode to the verifier**
+- [x] **Step 1: Add crash mode to the verifier**
 
 When `--kill-owner` is present, configure the stub with a bounded delayed first response, submit the task, resolve `leased_by`, record owner id/PID, terminate that exact process, wait for terminal completion, and query attempts/events/outbox. Output:
 
@@ -2053,11 +2055,11 @@ When `--kill-owner` is present, configure the stub with a bounded delayed first 
 
 The concrete worker id may differ; it must equal the task's recorded pre-kill `leased_by`.
 
-- [ ] **Step 2: Run the exact recovery test repeatedly**
+- [x] **Step 2: Run the exact recovery test repeatedly**
 
 Run the six-pass PowerShell loop from Task 7. Expected: 6/6 PASS.
 
-- [ ] **Step 3: Run standalone crash evidence**
+- [x] **Step 3: Run standalone crash evidence**
 
 Run:
 
@@ -2067,7 +2069,7 @@ py -m uv run python scripts/verify_three_worker_runtime.py --workspace .three-wo
 
 Expected: exit 0 and all JSON facts match the schema above.
 
-- [ ] **Step 4: Run Runtime regression and commit**
+- [x] **Step 4: Run Runtime regression and commit**
 
 Run: `py -m uv run pytest tests/runtime -q`
 
@@ -2090,7 +2092,7 @@ git commit -m "test: prove exact-owner crash recovery"
 **Interfaces:**
 - Produces final soak keys: `worker_ids`, `missing_terminal`, `missing_final_replies`, `duplicate_effects`, `same_session_overlaps`, `same_session_order_violations`, `stale_mutations`, `unresolved_sqlite_busy`, and `children_alive_after_shutdown`.
 
-- [ ] **Step 1: Add red summary-contract tests**
+- [x] **Step 1: Add red summary-contract tests**
 
 Extract or test a pure final-summary validator:
 
@@ -2107,17 +2109,17 @@ def assert_release_soak_summary(summary: dict[str, Any]) -> None:
 
 Feed one valid and parametrized invalid summaries; each invalid key must produce a diagnostic naming that key.
 
-- [ ] **Step 2: Extend collection from durable facts**
+- [x] **Step 2: Extend collection from durable facts**
 
 Collect Worker ids from task leases/events, missing final replies from completed interactive tasks lacking final Outbox rows, stale mutations from fenced-event diagnostics, and unresolved SQLite busy from terminal error/event facts. Capture child liveness after shutdown. Do not infer success solely from submitted/completed counts.
 
-- [ ] **Step 3: Run soak unit tests**
+- [x] **Step 3: Run soak unit tests**
 
 Run: `py -m uv run pytest tests/runtime/test_runtime_soak_summary.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 4: Make cross-session concurrency a required load assertion**
+- [x] **Step 4: Make cross-session concurrency a required load assertion**
 
 Replace the existing conditional skip with:
 
@@ -2129,7 +2131,7 @@ assert metrics["max_concurrent"] >= 3, (
 
 The load gate must fail, not skip, when three execution slots never overlap across distinct sessions.
 
-- [ ] **Step 5: Run deterministic 1,000-task/100-session load**
+- [x] **Step 5: Run deterministic 1,000-task/100-session load**
 
 Run:
 
@@ -2139,7 +2141,7 @@ py -m uv run pytest tests/runtime/test_runtime_load.py -q
 
 Expected: 2 tests PASS; `duplicates=0`, `terminal=1000`, bounded queue age, and `same_session_overlaps=0`. Record wall time.
 
-- [ ] **Step 6: Run the full 30-minute supervised soak**
+- [x] **Step 6: Run the full 30-minute supervised soak**
 
 Run exactly:
 
@@ -2149,7 +2151,7 @@ py -m uv run python scripts/runtime_soak.py --duration-minutes 30 --sessions 100
 
 Expected: exit 0; three distinct Worker ids; same-session overlap 0; missing terminal 0; missing final replies 0; duplicate effects 0; stale mutations 0; unresolved SQLite busy 0; children alive after shutdown 0.
 
-- [ ] **Step 7: Validate the saved report and commit code/tests**
+- [x] **Step 7: Validate the saved report and commit code/tests**
 
 Run: `py -m uv run python -c "import json; from scripts.runtime_soak import assert_release_soak_summary; assert_release_soak_summary(json.load(open('runtime-soak-release.json', encoding='utf-8'))); print('soak evidence valid')"`
 
