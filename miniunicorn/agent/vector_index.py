@@ -293,6 +293,20 @@ class VectorIndexManager:
         # COMPAT: pre-Task-11 callers (context.py / memory.py / recall.py).
         return self._state == "ready"
 
+    def is_search_ready(self) -> bool:
+        return self._state == "ready"
+
+    def fallback_reason(self) -> str:
+        if self._state == "ready":
+            return ""
+        if self._state == "stale":
+            return "index_stale"
+        if self._state == "failed":
+            if self._error_code == "dependency_missing":
+                return "dependency_missing"
+            return "index_corrupt"
+        return "index_missing"
+
     # -- source rows --------------------------------------------------------
 
     def upsert(self, record: MemorySourceRecord, embedding: Sequence[float]) -> UpsertAction:
