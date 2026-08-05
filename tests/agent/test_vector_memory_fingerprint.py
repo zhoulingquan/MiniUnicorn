@@ -1,8 +1,8 @@
-"""Tests for VectorMemoryStore fingerprinting and dimension defaults.
+"""Tests for the provenance-aware index fingerprint and compatibility layer.
 
 The fingerprint prevents silently mixing vectors from different embedding
-models. A mismatched database is left untouched and the store disables
-itself for the run.
+models or revisions. A mismatched database is left untouched and the index
+reports ``stale`` (read-only diagnostics; never search, never upsert).
 """
 
 from __future__ import annotations
@@ -19,15 +19,11 @@ from miniunicorn.agent.vector_memory import (
     VectorMemoryStore,
     create_vector_store,
 )
+from miniunicorn.embedding import MODEL_DIMENSION, MODEL_ID, MODEL_REVISION
 
 
 def _force_load_sqlite_vec(conn: sqlite3.Connection) -> bool:
-    """Best-effort sqlite-vec loader for tests.
-
-    Tests that need a real VectorMemoryStore skip when sqlite-vec is not
-    installed; the fingerprint logic is still exercised on installations
-    that have the extension.
-    """
+    """Best-effort sqlite-vec loader for tests."""
     try:
         import sqlite_vec  # type: ignore
 
@@ -59,82 +55,95 @@ class TestDefaults:
     def test_default_model_id_is_bge_small_zh(self):
         assert _DEFAULT_MODEL_ID == "BAAI/bge-small-zh-v1.5"
 
+    def test_defaults_match_pinned_embedding_contract(self):
+        assert _DEFAULT_EMBEDDING_DIM == MODEL_DIMENSION
+        assert _DEFAULT_MODEL_ID == MODEL_ID
+        assert _VEC_SCHEMA_VERSION == "2"
+
     def test_create_vector_store_default_dim_is_512(self):
-        # Signature default, not a live call.
         import inspect
 
         sig = inspect.signature(create_vector_store)
         assert sig.parameters["embedding_dim"].default == 512
 
+    def test_vector_memory_store_is_index_manager_alias(self):
+        from miniunicorn.agent.vector_index import VectorIndexManager
+
+        assert VectorMemoryStore is VectorIndexManager
+
 
 class TestFingerprint:
     def test_fresh_database_is_stamped(self, vec_enabled):
         store = VectorMemoryStore(vec_enabled)
-        assert store.enabled
+        assert store.status().state == "ready"
         conn = store._conn
         assert conn is not None
         rows = {
-            r["key"]: r["value"] for r in conn.execute("SELECT key, value FROM vec_meta").fetchall()
+            r["key"]: r["value"]
+            for r in conn.execute("SELECT key, value FROM index_meta").fetchall()
         }
         assert rows["schema_version"] == _VEC_SCHEMA_VERSION
         assert rows["model_id"] == _DEFAULT_MODEL_ID
-        assert rows["vector_dim"] == "512"
+        assert rows["model_revision"] == MODEL_REVISION
+        assert rows["vector_dimension"] == "512"
         store.close()
 
     def test_matching_fingerprint_allows_init(self, vec_enabled):
         store1 = VectorMemoryStore(vec_enabled)
-        assert store1.enabled
+        assert store1.status().state == "ready"
         store1.close()
-        # Reopen the same database — fingerprint must match.
         store2 = VectorMemoryStore(vec_enabled)
-        assert store2.enabled
+        assert store2.status().state == "ready"
         store2.close()
 
-    def test_dimension_mismatch_disables_store(self, vec_enabled):
-        # Stamp with default 512.
+    def test_dimension_mismatch_yields_stale(self, vec_enabled):
         store1 = VectorMemoryStore(vec_enabled)
-        assert store1.enabled
+        assert store1.status().state == "ready"
         store1.close()
-        # Reopen with a different dimension — must disable.
-        store2 = VectorMemoryStore(vec_enabled, embedding_dim=1536)
-        assert store2.enabled is False
+        store2 = create_vector_store(vec_enabled, embedding_dim=1536)
+        assert store2.status().state == "stale"
         store2.close()
 
-    def test_model_mismatch_disables_store(self, vec_enabled):
+    def test_model_mismatch_yields_stale(self, vec_enabled):
         store1 = VectorMemoryStore(vec_enabled)
-        assert store1.enabled
+        assert store1.status().state == "ready"
         store1.close()
-        store2 = VectorMemoryStore(vec_enabled, model_id="text-embedding-3-small")
-        assert store2.enabled is False
+        store2 = create_vector_store(vec_enabled, model_id="text-embedding-3-small")
+        assert store2.status().state == "stale"
+        store2.close()
+
+    def test_revision_mismatch_yields_stale(self, vec_enabled):
+        store1 = VectorMemoryStore(vec_enabled)
+        assert store1.status().state == "ready"
+        store1.close()
+        store2 = create_vector_store(vec_enabled, model_revision="wrong-revision")
+        assert store2.status().state == "stale"
+        assert store2.search([0.0] * 512, limit=5) == []
         store2.close()
 
     def test_mismatched_database_left_untouched(self, vec_enabled):
         store1 = VectorMemoryStore(vec_enabled)
-        assert store1.enabled
+        assert store1.status().state == "ready"
         store1.close()
         original_size = vec_enabled.stat().st_size
-        # Try to open with wrong dimension — store disables, file unchanged.
-        store2 = VectorMemoryStore(vec_enabled, embedding_dim=1536)
-        assert store2.enabled is False
+        store2 = create_vector_store(vec_enabled, embedding_dim=1536)
+        assert store2.status().state == "stale"
         store2.close()
         assert vec_enabled.stat().st_size == original_size
 
-    def test_create_vector_store_falls_back_to_noop_on_mismatch(self, vec_enabled):
-        # Stamp with default.
-        store1 = create_vector_store(vec_enabled)
-        assert store1.enabled
-        store1.close()
-        # Mismatched model -> NoOp fallback.
-        store2 = create_vector_store(vec_enabled, model_id="other-model")
-        assert isinstance(store2, NoOpVectorStore)
-        assert store2.enabled is False
-
 
 class TestNoOpFallback:
-    def test_noop_when_sqlite_vec_missing(self, tmp_path, monkeypatch):
+    def test_failed_state_when_sqlite_vec_missing(self, tmp_path, monkeypatch):
         from miniunicorn.agent import vector_memory as vm
 
         monkeypatch.setattr(vm, "_try_load_sqlite_vec", lambda _conn: False)
         store = create_vector_store(tmp_path / "vec.db")
-        assert isinstance(store, NoOpVectorStore)
+        assert store.status().state == "failed"
+        assert store.count_sources() == 0
+        assert store.search([0.0] * 512, limit=5) == []
+
+    def test_noop_vector_store_still_available_for_legacy_fallback(self):
+        store = NoOpVectorStore()
         assert store.enabled is False
+        assert store.search([0.0] * 512) == []
+        store.close()

@@ -33,7 +33,7 @@ from miniunicorn.agent.tools.context import RequestContext
 from miniunicorn.agent.tools.delegate import DelegateTool
 from miniunicorn.agent.tools.execute_plan import ExecutePlanTool
 from miniunicorn.agent.turn_budget import TurnBudget
-from miniunicorn.agent.vector_memory import NoOpVectorStore, VectorMemoryStore
+from miniunicorn.agent.vector_memory import NoOpVectorStore
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.config.schema import AgentDefaults
 from miniunicorn.providers.base import LLMProvider, LLMResponse
@@ -263,7 +263,7 @@ def test_spawn_and_wait_signature_has_overrides():
 
 
 # ---------------------------------------------------------------------------
-# 4. VectorMemoryStore roundtrip (NoOp fallback)
+# 4. Vector index roundtrip (source-record API, fixed 512-dim contract)
 # ---------------------------------------------------------------------------
 
 
@@ -277,31 +277,29 @@ def test_vector_memory_noop_store_contract():
     store.close()  # must not raise
 
 
-def test_vector_memory_store_disabled_when_no_sqlite_vec(tmp_path, monkeypatch):
-    """VectorMemoryStore degrades to disabled when sqlite-vec is unavailable."""
+def test_vector_index_reports_failed_when_no_sqlite_vec(tmp_path, monkeypatch):
+    """VectorIndexManager reports ``failed`` when sqlite-vec is unavailable."""
     from miniunicorn.agent import vector_memory as vm
-
-    def _fail_load(_conn):
-        return False
-
-    monkeypatch.setattr(vm, "_try_load_sqlite_vec", _fail_load)
-
-    store = VectorMemoryStore(tmp_path / "vec.db", embedding_dim=4)
-    assert store.enabled is False
-    # Disabled store behaves like NoOp
-    assert store.index("hi", [0.1, 0.2, 0.3, 0.4]) is None
-    assert store.search([0.1, 0.2, 0.3, 0.4], k=3) == []
-    assert store.count() == 0
-    store.close()
-
-
-def test_create_vector_store_falls_back_to_noop(tmp_path, monkeypatch):
-    """create_vector_store returns NoOpVectorStore when sqlite-vec is missing."""
-    from miniunicorn.agent import vector_memory as vm
+    from miniunicorn.agent.vector_index import VectorIndexManager
 
     monkeypatch.setattr(vm, "_try_load_sqlite_vec", lambda _conn: False)
-    store = vm.create_vector_store(tmp_path / "vec.db", embedding_dim=4)
-    assert isinstance(store, NoOpVectorStore)
+
+    manager = VectorIndexManager(tmp_path / "vec.db")
+    assert manager.status().state == "failed"
+    assert manager.count_sources() == 0
+    assert manager.search([0.0] * 512, limit=5) == []
+    manager.close()
+
+
+def test_create_vector_store_delegates_to_index_manager(tmp_path, monkeypatch):
+    """create_vector_store returns a VectorIndexManager-backed store."""
+    from miniunicorn.agent import vector_memory as vm
+    from miniunicorn.agent.vector_index import VectorIndexManager
+
+    monkeypatch.setattr(vm, "_try_load_sqlite_vec", lambda _conn: False)
+    store = vm.create_vector_store(tmp_path / "vec.db")
+    assert isinstance(store, VectorIndexManager)
+    assert store.status().state == "failed"
     assert store.enabled is False
 
 
