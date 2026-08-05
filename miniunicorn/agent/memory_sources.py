@@ -127,6 +127,7 @@ class MemorySourceCatalog:
             valid, invalid = self._scan_jsonl(rel_path, source_type, importance)
             records.extend(valid)
             errors.extend(invalid)
+        records.extend(self._scan_explicit(errors))
         return SourceScan(tuple(records), tuple(errors))
 
     # ------------------------------------------------------------- path safety
@@ -312,6 +313,37 @@ class MemorySourceCatalog:
                 )
             )
         return records, errors
+
+
+# ------------------------------------------------------------ explicit JSONL
+
+    def _scan_explicit(self, errors: list[SourceParseError]) -> list[MemorySourceRecord]:
+        from miniunicorn.agent.explicit_memory import ExplicitMemoryJournal
+
+        journal = ExplicitMemoryJournal(self.workspace)
+        if not journal.path.is_file():
+            return []
+        records: list[MemorySourceRecord] = []
+        for revision in journal.effective():
+            records.append(
+                MemorySourceRecord(
+                    source_id=f"explicit:{revision.memory_id}",
+                    source_type="explicit",
+                    source_file="memory/explicit.jsonl",
+                    source_revision=str(revision.revision),
+                    content_hash=_content_hash(revision.normalized_fact),
+                    text=revision.normalized_fact,
+                    importance=1.0,
+                    metadata={
+                        "memory_id": revision.memory_id,
+                        "revision": revision.revision,
+                        "scope": revision.scope,
+                        "created_at": revision.created_at,
+                    },
+                )
+            )
+        errors.extend(journal.errors())
+        return records
 
 
 def _first_text(row: dict) -> str:

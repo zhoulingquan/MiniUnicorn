@@ -22,13 +22,15 @@ from typing import Any, Literal, Sequence
 
 from loguru import logger
 
-from miniunicorn.agent.memory_sources import MemorySourceRecord
+from miniunicorn.agent.memory_sources import MemorySourceRecord, SourceScan
 from miniunicorn.embedding import MODEL_DIMENSION, MODEL_ID, MODEL_REVISION
 from miniunicorn.embedding.types import IndexStatus
 
 SCHEMA_VERSION = "2"
 
 UpsertAction = Literal["inserted", "updated", "unchanged"]
+
+_EMBED_BATCH_SIZE = 32
 
 
 @dataclass(frozen=True)
@@ -51,6 +53,18 @@ class IndexCandidate:
     metadata: dict[str, object]
     similarity: float
     updated_at: str
+
+
+@dataclass(frozen=True)
+class ReconcileReport:
+    discovered: int
+    inserted: int
+    updated: int
+    unchanged: int
+    inactive: int
+    invalid: int
+    failed: int
+    failures: tuple[dict[str, str], ...] = ()
 
 
 def _serialize_f32(vec: Sequence[float]) -> bytes:
@@ -296,6 +310,52 @@ class VectorIndexManager:
                     tuple(source_ids),
                 )
             return int(cur.rowcount)
+
+    async def reconcile(self, scan: SourceScan, embedder: Any) -> ReconcileReport:
+        """Diff the authoritative scan against the index, embed only what
+        changed, upsert in single transactions, and mark missing rows inactive.
+
+        Embedding runs in batches of at most 32; a failed or short batch is
+        reported and skipped without blocking other batches.
+        """
+        current = self.source_fingerprints()
+        changed = [
+            row
+            for row in scan.records
+            if row.active and current.get(row.source_id) != (row.source_revision, row.content_hash, True)
+        ]
+        inserted = updated = 0
+        failed = 0
+        failures: list[dict[str, str]] = []
+        for start in range(0, len(changed), _EMBED_BATCH_SIZE):
+            batch = changed[start : start + _EMBED_BATCH_SIZE]
+            result = await embedder.embed([row.text for row in batch])
+            if result.failure is not None:
+                failed += len(batch)
+                failures.append({"code": result.failure.code, "message": result.failure.message})
+                continue
+            if len(result.vectors) != len(batch):
+                failed += len(batch)
+                failures.append(
+                    {"code": "inference_failed", "message": "embedding 数量与输入不匹配"}
+                )
+                continue
+            for record, vector in zip(batch, result.vectors, strict=True):
+                action = self.upsert(record, vector)
+                inserted += action == "inserted"
+                updated += action == "updated"
+        active_ids = {record.source_id for record in scan.records if record.active}
+        inactive = self.mark_inactive_except(active_ids)
+        return ReconcileReport(
+            discovered=len(scan.records),
+            inserted=inserted,
+            updated=updated,
+            unchanged=len(scan.records) - len(changed),
+            inactive=inactive,
+            invalid=len(scan.errors),
+            failed=failed,
+            failures=tuple(failures),
+        )
 
     def source_fingerprints(self) -> dict[str, tuple[str, str, bool]]:
         if self._state != "ready" or self._conn is None:

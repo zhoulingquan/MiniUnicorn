@@ -3,6 +3,22 @@ import json
 import pytest
 
 from miniunicorn.agent.explicit_memory import ExplicitMemoryJournal
+from miniunicorn.agent.memory_sources import MemorySourceCatalog
+
+
+def test_catalog_indexes_only_effective_explicit_revision(tmp_path):
+    journal = ExplicitMemoryJournal(tmp_path)
+    first = journal.append_new("浅色", "用户喜欢浅色主题", None)
+    journal.append_update(first.memory_id, "深色", "用户喜欢深色主题", None)
+    records = [r for r in MemorySourceCatalog(tmp_path).scan().records if r.source_type == "explicit"]
+    assert len(records) == 1
+    assert records[0].source_id == f"explicit:{first.memory_id}"
+    assert records[0].source_revision == "2"
+    assert records[0].text == "用户喜欢深色主题"
+    assert records[0].importance == 1.0
+    assert records[0].source_file == "memory/explicit.jsonl"
+    assert records[0].metadata["memory_id"] == first.memory_id
+    assert records[0].metadata["revision"] == 2
 
 
 def test_update_keeps_history_but_only_latest_is_effective(tmp_path):
