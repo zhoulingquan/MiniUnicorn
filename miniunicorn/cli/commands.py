@@ -82,6 +82,7 @@ from miniunicorn.cli._terminal_render import (
     _sanitize_surrogates,
     console,
 )
+from miniunicorn.cli.embedding_commands import embedding_app
 from miniunicorn.cli.stream import StreamRenderer, ThinkingSpinner
 from miniunicorn.config.paths import get_workspace_path, is_default_workspace
 from miniunicorn.config.schema import Config
@@ -1000,6 +1001,13 @@ plugins_app = typer.Typer(help="Manage channel plugins")
 app.add_typer(plugins_app, name="plugins")
 
 
+# ============================================================================
+# Embedding / Memory Commands
+# ============================================================================
+
+app.add_typer(embedding_app, name="embedding")
+
+
 @plugins_app.command("list")
 def plugins_list():
     """List all discovered channels (built-in and plugins)."""
@@ -1079,6 +1087,31 @@ def status():
                 console.print(
                     f"{spec.label}: {'[green]✓[/green]' if has_key else '[dim]not set[/dim]'}"
                 )
+
+    _print_embedding_memory_status(config)
+
+
+def _print_embedding_memory_status(config: Any) -> None:
+    """Print the embedding-memory status block for the `status` command."""
+    from miniunicorn.embedding.status_service import EmbeddingStatusService
+
+    status = EmbeddingStatusService.from_config(config).snapshot(
+        configured=bool(config.agents.defaults.vector_recall)
+    )
+    if not status.recall.configured:
+        console.print("Embedding Memory: [dim]disabled[/dim]")
+        return
+    recall_state = (
+        "active"
+        if status.recall.active
+        else str(status.recall.fallback_reason or "inactive")
+    )
+    console.print(
+        f"Embedding Memory: [green]enabled[/green] index={status.index.state} "
+        f"model={status.model.state} "
+        f"sources={status.sources.indexed}/{status.sources.discovered} "
+        f"recall={recall_state}"
+    )
 
 
 # ============================================================================

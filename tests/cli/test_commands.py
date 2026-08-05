@@ -1263,3 +1263,11 @@ def test_channels_login_requires_channel_name() -> None:
     result = runner.invoke(app, ["channels", "login"])
 
     assert result.exit_code == 2
+
+
+def test_main_help_lists_embedding_command_group() -> None:
+    """The ``embedding`` subcommand group must be registered on the main app."""
+    result = runner.invoke(app, ["--help"])
+
+    assert result.exit_code == 0
+    assert "embedding" in result.stdout
