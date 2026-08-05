@@ -491,10 +491,17 @@ class TestSingleWriterPathValidation:
             "memory/episodic.jsonl",
             "memory/procedural.jsonl",
             "memory/reflections.jsonl",
+            "memory/explicit.jsonl",
             "memory/shared/MEMORY_SHARED.md",
             "memory/shared/procedural_shared.jsonl",
         }
         assert expected_files.issubset(set(MemoryStore._WRITER_WHITELIST.keys()))
+
+    def test_explicit_memory_journal_is_whitelisted_for_explicit_memory_and_store(self):
+        """memory/explicit.jsonl 只允许 explicit_memory 与 memory_store 写入。"""
+        allowed = MemoryStore._WRITER_WHITELIST["memory/explicit.jsonl"]
+        assert allowed == {"explicit_memory", "memory_store"}
+        assert "main_agent" not in allowed
 
     def test_main_agent_only_allowed_to_write_notes(self):
         """主 Agent 只能写 notes.md，不能写其他结构化文件。"""

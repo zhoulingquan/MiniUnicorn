@@ -79,6 +79,7 @@ class MemoryStore:
         "memory/episodic.jsonl": {"dream", "memory_store"},
         "memory/procedural.jsonl": {"dream", "memory_store"},
         "memory/reflections.jsonl": {"dream", "reflection", "memory_store"},
+        "memory/explicit.jsonl": {"explicit_memory", "memory_store"},
         "memory/shared/MEMORY_SHARED.md": {"dream", "memory_store"},
         "memory/shared/procedural_shared.jsonl": {"dream", "memory_store"},
     }
@@ -104,6 +105,9 @@ class MemoryStore:
         # append-only JSONL, mirroring history.jsonl's on-disk format.
         self._episodic_file = self.memory_dir / "episodic.jsonl"
         self.procedural_file = self.memory_dir / "procedural.jsonl"
+        # Explicit memory revision journal (append-only, never rewritten).
+        # Written exclusively by ExplicitMemoryJournal (Task 12 semantic flow).
+        self.explicit_file = self.memory_dir / "explicit.jsonl"
         self._reflections_cursor_file = self.memory_dir / ".reflections_cursor"
         # Cross-session shared layer (P2-2): global facts and lessons that apply
         # to every session rather than just the current one. Lives under
