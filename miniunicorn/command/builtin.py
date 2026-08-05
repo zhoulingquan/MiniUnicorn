@@ -111,6 +111,20 @@ BUILTIN_COMMAND_SPECS: tuple[BuiltinCommandSpec, ...] = (
         "shield",
         "[list|approve <code>|deny <code>|revoke <user_id>]",
     ),
+    BuiltinCommandSpec(
+        "/remember",
+        "Remember something",
+        "Save the given fact to long-term memory.",
+        "book-mark",
+        "<内容>",
+    ),
+    BuiltinCommandSpec(
+        "/记住",
+        "记住某事",
+        "将给定事实保存到长期记忆。",
+        "book-mark",
+        "<内容>",
+    ),
 )
 
 
@@ -649,6 +663,25 @@ def build_help_text() -> str:
     return "\n".join(lines)
 
 
+async def cmd_remember(ctx: CommandContext) -> OutboundMessage:
+    """Forward an explicit-memory capture to the loop's capture flow.
+
+    The loop is the single writer for explicit memory files; this handler only
+    translates the command into the normal capture/confirmation flow.
+    """
+    loop = ctx.loop
+    session = ctx.session or loop.sessions.get_or_create(ctx.key)
+    reply = await loop._handle_explicit_memory(ctx.msg, session)
+    if reply is None:
+        return OutboundMessage(
+            channel=ctx.msg.channel,
+            chat_id=ctx.msg.chat_id,
+            content="无法识别要记住的内容，请重新输入，例如 /remember 我喜欢深色主题。",
+            metadata=dict(ctx.msg.metadata or {}),
+        )
+    return reply
+
+
 def register_builtin_commands(router: CommandRouter) -> None:
     """Register the default set of slash commands."""
     router.priority("/stop", cmd_stop)
@@ -670,3 +703,7 @@ def register_builtin_commands(router: CommandRouter) -> None:
     router.exact("/help", cmd_help)
     router.exact("/pairing", cmd_pairing)
     router.prefix("/pairing ", cmd_pairing)
+    router.exact("/remember", cmd_remember)
+    router.prefix("/remember ", cmd_remember)
+    router.exact("/记住", cmd_remember)
+    router.prefix("/记住 ", cmd_remember)

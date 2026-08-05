@@ -151,6 +151,17 @@ class StateMixin:
 
     async def _state_command(self: "AgentLoop", ctx: TurnContext) -> str:
         raw = ctx.msg.content.strip()
+        explicit_reply = await self._handle_explicit_memory(ctx.msg, ctx.session)
+        if explicit_reply is not None:
+            ctx.outbound = explicit_reply
+            if raw.lower() != "/new":
+                ctx.user_persisted_early = self._persist_user_message_early(
+                    ctx.msg, ctx.session, _command=True
+                )
+                ctx.session.add_message("assistant", explicit_reply.content, _command=True)
+                self.sessions.save(ctx.session)
+                self._clear_pending_user_turn(ctx.session)
+            return "shortcut"
         cmd_ctx = CommandContext(
             msg=ctx.msg, session=ctx.session, key=ctx.session_key, raw=raw, loop=self
         )
@@ -171,6 +182,72 @@ class StateMixin:
                 self._clear_pending_user_turn(ctx.session)
             return "shortcut"
         return "dispatch"
+
+    async def _handle_explicit_memory(
+        self: "AgentLoop", msg: InboundMessage, session: Session
+    ) -> OutboundMessage | None:
+        """Capture explicit-memory intents and confirmation resolutions.
+
+        Runs before ordinary command dispatch and before the main LLM call.
+        Returns an outbound reply when the message is an explicit-memory
+        trigger or resolution; ``None`` means the message should be processed
+        normally. Pending proposals are persisted to session metadata so the
+        confirmation flow survives a gateway restart.
+        """
+        from miniunicorn.agent.explicit_memory import MemoryProposal
+
+        reply_meta = dict(msg.metadata or {})
+        pending = session.metadata.get("pending_memory_proposal")
+        if pending:
+            resolution = self.explicit_memory.parse_resolution(msg.content)
+            if resolution is not None:
+                try:
+                    proposal = MemoryProposal.from_dict(pending)
+                except Exception:
+                    session.metadata.pop("pending_memory_proposal", None)
+                else:
+                    result = await self.explicit_memory.resolve(
+                        proposal, resolution, classifier=self._classify_memory_relation
+                    )
+                    session.metadata.pop("pending_memory_proposal", None)
+                    self.sessions.save(session)
+                    return OutboundMessage(
+                        channel=msg.channel,
+                        chat_id=msg.chat_id,
+                        content=result.user_message,
+                        metadata=reply_meta,
+                    )
+        intent = self.explicit_memory.detect(msg.content)
+        if intent.kind == "none":
+            return None
+        if intent.kind == "ambiguous":
+            session.metadata["pending_memory_proposal"] = self.explicit_memory.ambiguous(
+                intent
+            ).to_dict()
+            self.sessions.save(session)
+            return OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content="你希望我把这条保存为长期记忆吗？请回复“确认记住”或“不用记”。",
+                metadata=reply_meta,
+            )
+        proposal = await self.explicit_memory.propose(
+            intent.fact, self._classify_memory_relation
+        )
+        if proposal.action in ("confirmation_required", "clarification_required"):
+            session.metadata["pending_memory_proposal"] = proposal.to_dict()
+            self.sessions.save(session)
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=proposal.user_message,
+            metadata=reply_meta,
+        )
+
+    async def _classify_memory_relation(
+        self: "AgentLoop", raw_text: str, candidates
+    ) -> Any:
+        return await self.explicit_memory.classify(raw_text, candidates)
 
     async def _state_build(self: "AgentLoop", ctx: TurnContext) -> str:
         await self.consolidator.maybe_consolidate_by_tokens(

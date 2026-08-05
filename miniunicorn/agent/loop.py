@@ -355,6 +355,16 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             self.workspace, configured=vector_recall
         )
         self.context.memory.set_reconcile_hook(self.embedding_control.request_reconcile)
+        from miniunicorn.agent.explicit_memory import (
+            ExplicitMemoryJournal,
+            ExplicitMemoryService,
+        )
+
+        self.explicit_memory = ExplicitMemoryService(
+            ExplicitMemoryJournal(self.workspace),
+            control=self.embedding_control,
+            provider=provider,
+        )
         self.model_presets: dict[str, ModelPresetConfig] = model_presets or {}
         self._active_preset: str | None = None
         if model_preset:
