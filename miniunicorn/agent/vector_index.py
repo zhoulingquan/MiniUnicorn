@@ -9,7 +9,10 @@ build on this module; compatibility methods for the pre-Task-11 callers
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
+import shutil
 import sqlite3
 import struct
 import threading
@@ -18,11 +21,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, Literal, Sequence
+from typing import Any, Callable, Literal, Sequence
 
+from filelock import FileLock, Timeout
 from loguru import logger
 
-from miniunicorn.agent.memory_sources import MemorySourceRecord, SourceScan
+from miniunicorn.agent.memory_sources import MemorySourceCatalog, MemorySourceRecord, SourceScan
 from miniunicorn.embedding import MODEL_DIMENSION, MODEL_ID, MODEL_REVISION
 from miniunicorn.embedding.types import IndexStatus
 
@@ -31,6 +35,8 @@ SCHEMA_VERSION = "2"
 UpsertAction = Literal["inserted", "updated", "unchanged"]
 
 _EMBED_BATCH_SIZE = 32
+
+_REBUILD_LOCK_TIMEOUT = 60
 
 
 @dataclass(frozen=True)
@@ -67,6 +73,67 @@ class ReconcileReport:
     failures: tuple[dict[str, str], ...] = ()
 
 
+@dataclass(frozen=True)
+class ValidationReport:
+    ok: bool
+    checks: tuple[dict[str, object], ...] = ()
+    message: str = ""
+
+
+@dataclass(frozen=True)
+class RebuildReport:
+    state: Literal["ready", "failed", "cancelled"]
+    discovered: int = 0
+    inserted: int = 0
+    updated: int = 0
+    unchanged: int = 0
+    inactive: int = 0
+    invalid: int = 0
+    failed_count: int = 0
+    validated: bool = False
+    backup: str | None = None
+    message: str = ""
+
+    @classmethod
+    def ready(cls, report: ReconcileReport, validation: ValidationReport, backup: str | None) -> "RebuildReport":
+        return cls(
+            state="ready",
+            discovered=report.discovered,
+            inserted=report.inserted,
+            updated=report.updated,
+            unchanged=report.unchanged,
+            inactive=report.inactive,
+            invalid=report.invalid,
+            failed_count=report.failed,
+            validated=validation.ok,
+            backup=backup,
+            message=validation.message,
+        )
+
+    @classmethod
+    def failed(cls, report: ReconcileReport, validation: ValidationReport) -> "RebuildReport":
+        return cls(
+            state="failed",
+            discovered=report.discovered,
+            inserted=report.inserted,
+            updated=report.updated,
+            unchanged=report.unchanged,
+            inactive=report.inactive,
+            invalid=report.invalid,
+            failed_count=report.failed,
+            validated=False,
+            message=validation.message or "索引验证失败",
+        )
+
+    @classmethod
+    def cancelled(cls) -> "RebuildReport":
+        return cls(state="cancelled", message="rebuild 已取消")
+
+
+def _utc_file_stamp() -> str:
+    return datetime.now().strftime("%Y%m%d-%H%M%S")
+
+
 def _serialize_f32(vec: Sequence[float]) -> bytes:
     return struct.pack(f"{len(vec)}f", *(float(v) for v in vec))
 
@@ -90,6 +157,8 @@ class VectorIndexManager:
         model_id: str = MODEL_ID,
         model_revision: str = MODEL_REVISION,
         vector_dimension: int = MODEL_DIMENSION,
+        *,
+        create: bool = False,
     ) -> None:
         self.db_path = Path(db_path)
         self.model_id = model_id
@@ -100,6 +169,12 @@ class VectorIndexManager:
         self._error_code: str | None = None
         self._message = ""
         self._conn: sqlite3.Connection | None = None
+        if create:
+            for suffix in ("", "-wal", "-shm"):
+                try:
+                    Path(str(self.db_path) + suffix).unlink(missing_ok=True)
+                except OSError:
+                    pass
         self._init_db()
 
     # -- lifecycle ----------------------------------------------------------
@@ -311,12 +386,20 @@ class VectorIndexManager:
                 )
             return int(cur.rowcount)
 
-    async def reconcile(self, scan: SourceScan, embedder: Any) -> ReconcileReport:
+    async def reconcile(
+        self,
+        scan: SourceScan,
+        embedder: Any,
+        *,
+        progress: Callable[[int, int, str], None] | None = None,
+        cancel_event: asyncio.Event | None = None,
+    ) -> ReconcileReport:
         """Diff the authoritative scan against the index, embed only what
         changed, upsert in single transactions, and mark missing rows inactive.
 
         Embedding runs in batches of at most 32; a failed or short batch is
-        reported and skipped without blocking other batches.
+        reported and skipped without blocking other batches. A set
+        ``cancel_event`` aborts between batches with ``asyncio.CancelledError``.
         """
         current = self.source_fingerprints()
         changed = [
@@ -327,23 +410,31 @@ class VectorIndexManager:
         inserted = updated = 0
         failed = 0
         failures: list[dict[str, str]] = []
-        for start in range(0, len(changed), _EMBED_BATCH_SIZE):
+        total = len(changed)
+        completed = 0
+        for start in range(0, total, _EMBED_BATCH_SIZE):
+            if cancel_event is not None and cancel_event.is_set():
+                raise asyncio.CancelledError
             batch = changed[start : start + _EMBED_BATCH_SIZE]
             result = await embedder.embed([row.text for row in batch])
             if result.failure is not None:
                 failed += len(batch)
                 failures.append({"code": result.failure.code, "message": result.failure.message})
-                continue
-            if len(result.vectors) != len(batch):
+            elif len(result.vectors) != len(batch):
                 failed += len(batch)
                 failures.append(
                     {"code": "inference_failed", "message": "embedding 数量与输入不匹配"}
                 )
-                continue
-            for record, vector in zip(batch, result.vectors, strict=True):
-                action = self.upsert(record, vector)
-                inserted += action == "inserted"
-                updated += action == "updated"
+            else:
+                for record, vector in zip(batch, result.vectors, strict=True):
+                    action = self.upsert(record, vector)
+                    inserted += action == "inserted"
+                    updated += action == "updated"
+            completed += len(batch)
+            if progress is not None:
+                progress(completed, total, "嵌入中")
+        if cancel_event is not None and cancel_event.is_set():
+            raise asyncio.CancelledError
         active_ids = {record.source_id for record in scan.records if record.active}
         inactive = self.mark_inactive_except(active_ids)
         return ReconcileReport(
@@ -371,6 +462,15 @@ class VectorIndexManager:
             return 0
         with self._lock:
             row = self._conn.execute("SELECT COUNT(*) FROM sources").fetchone()
+        return int(row[0]) if row else 0
+
+    def count_active_sources(self) -> int:
+        if self._state != "ready" or self._conn is None:
+            return 0
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COUNT(*) FROM sources WHERE active=1"
+            ).fetchone()
         return int(row[0]) if row else 0
 
     def get_source(self, source_id: str) -> MemorySourceRecord | None:
@@ -456,6 +556,147 @@ class VectorIndexManager:
         except Exception:
             logger.exception("VectorIndexManager.search failed")
             return []
+
+    # -- rebuild / validation --------------------------------------------------
+
+    async def rebuild(
+        self,
+        catalog: MemorySourceCatalog,
+        embedder: Any,
+        *,
+        cancel_event: asyncio.Event | None = None,
+        progress: Callable[[int, int, str], None] | None = None,
+    ) -> RebuildReport:
+        """Full rebuild into ``memory.db.rebuilding``, then atomic replace.
+
+        The existing database is never touched until the temporary index
+        passes validation; a pre-existing database is copied to a timestamped
+        backup only after the replacement succeeds. A cross-process lock
+        serializes CLI/gateway rebuilds (timeout -> ``failed``).
+        """
+        target = self.db_path
+        rebuilding = target.with_name(target.name + ".rebuilding")
+        lock = FileLock(str(target) + ".lock", timeout=_REBUILD_LOCK_TIMEOUT)
+        try:
+            with lock:
+                rebuilding.unlink(missing_ok=True)
+                temporary = VectorIndexManager(rebuilding, create=True)
+                try:
+                    scan = catalog.scan()
+                    if cancel_event is not None and cancel_event.is_set():
+                        raise asyncio.CancelledError
+                    report = await temporary.reconcile(
+                        scan, embedder, progress=progress, cancel_event=cancel_event
+                    )
+                    validation = await temporary.validate(
+                        embedder, expected_active=len(scan.records)
+                    )
+                    if report.failed or not validation.ok:
+                        return RebuildReport.failed(report, validation)
+                    temporary.close()
+                    self.close()
+                    backup: str | None = None
+                    if target.exists():
+                        backup_path = target.with_name(
+                            f"{target.name}.backup.{_utc_file_stamp()}"
+                        )
+                        shutil.copy2(target, backup_path)
+                        backup = str(backup_path)
+                    os.replace(rebuilding, target)
+                    self._state = "failed"
+                    self._error_code = None
+                    self._message = ""
+                    self._conn = None
+                    self._init_db()
+                    return RebuildReport.ready(report, validation, backup)
+                finally:
+                    temporary.close()
+                    rebuilding.unlink(missing_ok=True)
+        except asyncio.CancelledError:
+            return RebuildReport.cancelled()
+        except Timeout:
+            return RebuildReport(
+                state="failed", message="获取索引重建锁超时", validated=False
+            )
+        except Exception:
+            logger.exception("VectorIndexManager.rebuild failed")
+            return RebuildReport(
+                state="failed", message="索引重建失败", validated=False
+            )
+
+    async def validate(
+        self,
+        embedder: Any,
+        *,
+        expected_active: int | None = None,
+    ) -> ValidationReport:
+        """Validate fingerprint, row parity, vector blobs and a real embedding."""
+        checks: list[dict[str, object]] = []
+
+        def check(name: str, ok: bool, detail: str = "") -> None:
+            checks.append({"check": name, "ok": ok, "detail": detail})
+
+        if self._state != "ready" or self._conn is None:
+            check("fingerprint", False, f"索引状态为 {self._state}")
+            return ValidationReport(ok=False, checks=tuple(checks), message="索引未就绪")
+
+        expected = {
+            "schema_version": SCHEMA_VERSION,
+            "model_id": self.model_id,
+            "model_revision": self.model_revision,
+            "vector_dimension": str(self.vector_dimension),
+        }
+        rows = {
+            r["key"]: r["value"]
+            for r in self._conn.execute("SELECT key, value FROM index_meta").fetchall()
+        }
+        check("fingerprint", rows == expected, str(rows))
+        active = self.count_active_sources()
+        if expected_active is not None:
+            check("active_count", active == expected_active, f"{active} != {expected_active}")
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT s.id, s.source_id, s.text, v.embedding FROM sources s "
+                "LEFT JOIN vectors v ON v.rowid = s.id WHERE s.active=1"
+            ).fetchall()
+        blobs = [row["embedding"] for row in rows]
+        for row in rows:
+            if row["embedding"] is None:
+                check("vector_parity", False, f"source {row['source_id']} 没有 vector row")
+        expected_blob_len = self.vector_dimension * 4
+        finite = True
+        for blob in blobs:
+            if blob is None:
+                continue
+            if len(blob) != expected_blob_len:
+                finite = False
+                check("blob_length", False, f"{len(blob)} != {expected_blob_len}")
+                break
+        if finite:
+            for blob in blobs:
+                if blob is None:
+                    continue
+                values = struct.unpack(f"{len(blob) // 4}f", blob)
+                if not all(v == v and abs(v) != float("inf") for v in values):
+                    check("finite", False, "向量含非有限值")
+                    break
+
+        ok = all(item["ok"] for item in checks)
+        if ok and blobs:
+            first = rows[0]
+            result = await embedder.embed([first["text"]])
+            if result.failure is None and result.vectors:
+                found = self.search(result.vectors[0], limit=5)
+                hit = any(
+                    isinstance(c, dict) and c.get("source_id") == first["source_id"]
+                    or not isinstance(c, dict) and c.source_id == first["source_id"]
+                    for c in found
+                )
+                check("embedding_roundtrip", hit, first["source_id"])
+        ok = all(item["ok"] for item in checks)
+        return ValidationReport(
+            ok=ok, checks=tuple(checks), message="" if ok else "索引验证未通过"
+        )
 
     # -- COMPAT: legacy maintenance/callers (removed in Task 11) -------------
 
