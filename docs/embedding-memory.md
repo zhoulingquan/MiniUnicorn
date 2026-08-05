@@ -211,6 +211,17 @@ rm workspace/memory/memory.db
 
 ---
 
+## 回滚
+
+如果向量记忆导致问题，可以安全回滚：
+
+1. **关闭向量召回**：在配置文件中设置 `"vectorRecall": false`，重启后不再加载模型、不再查询索引、不修改任何记忆文件。
+2. **删除索引数据库**：直接删除 `workspace/memory/memory.db`（及 `-wal`、`-shm` 文件），所有原始记忆仍保存在 `SOUL.md`、`USER.md`、`memory/MEMORY.md` 和 JSONL 文件中。
+3. **重建索引**：执行 `miniunicorn embedding rebuild` 从源文件完整重建。
+4. **卸载向量依赖**：`pip uninstall fastembed onnxruntime sqlite-vec` — 系统自动降级为全量文件记忆，聊天功能不受影响。
+
+---
+
 ## 发布证明
 
 发布前可运行以下命令验证本地向量记忆的完整功能：

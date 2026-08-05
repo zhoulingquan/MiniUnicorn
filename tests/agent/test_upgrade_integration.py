@@ -370,6 +370,30 @@ async def test_writers_request_reconcile_but_never_insert_directly(tmp_path):
     assert store.vector_store is None
 
 
+def test_runtime_has_one_vector_index_implementation():
+    """There is exactly one vector index implementation; the compat alias points to it."""
+    import miniunicorn.agent.vector_memory as compatibility
+    from miniunicorn.agent.vector_index import VectorIndexManager
+    assert compatibility.VectorMemoryStore is VectorIndexManager
+
+
+def test_memory_store_writes_sources_but_never_directly_inserts_vectors():
+    """MemoryStore triggers reconcile hooks but never calls .index() or references memory.db directly."""
+    from miniunicorn.agent.memory import MemoryStore
+    source = inspect.getsource(MemoryStore)
+    assert ".index(" not in source
+    assert "memory.db" not in source
+
+
+def test_explicit_false_constructs_no_embedding_runtime(tmp_path):
+    """vector_recall=False constructs a disabled control and never creates memory.db."""
+    loop = _make_loop(tmp_path, vector_recall=False)
+    assert loop.embedding_control.configured is False
+    assert not (tmp_path / "memory" / "memory.db").exists()
+    from miniunicorn.embedding.control import EmbeddingControl
+    EmbeddingControl._instances.clear()
+
+
 # ---------------------------------------------------------------------------
 # 5. TurnBudget tracking
 # ---------------------------------------------------------------------------

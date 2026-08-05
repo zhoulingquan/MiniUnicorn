@@ -1,14 +1,13 @@
-"""Compatibility export layer for the vector retrieval subsystem.
+"""Backward-compatible imports for the production vector index.
 
-The real implementation moved to :mod:`miniunicorn.agent.vector_index`
+The real implementation lives in :mod:`miniunicorn.agent.vector_index`
 (``VectorIndexManager``, version 2 provenance-aware schema). This module
-keeps the legacy names alive for pre-Task-11 callers:
+keeps the legacy names alive for pre-Task-11 callers that have not yet
+migrated. Production code (AgentLoop, MemoryStore, Dream, Consolidator)
+must import from ``vector_index`` directly.
 
-- ``create_vector_store()`` delegates to ``VectorIndexManager``;
-- ``VectorMemoryStore`` is an alias;
-- ``NoOpVectorStore`` remains until Task 11 migrates all callers.
-
-Task 11 removes these shims; no second database schema is maintained.
+Task 18 retires the prototype write paths; no second database schema
+is maintained.
 """
 
 from __future__ import annotations
@@ -20,7 +19,10 @@ from loguru import logger
 from miniunicorn.agent.vector_index import VectorIndexManager
 from miniunicorn.embedding import MODEL_DIMENSION, MODEL_ID, MODEL_REVISION
 
-#: Fingerprint schema version (mirrors vector_index.SCHEMA_VERSION).
+#: COMPAT alias; new code uses VectorIndexManager directly.
+VectorMemoryStore = VectorIndexManager
+
+#: COMPAT fingerprint schema version (mirrors vector_index.SCHEMA_VERSION).
 _VEC_SCHEMA_VERSION = "2"
 
 #: Default vector dimension for the local embedding model
@@ -50,49 +52,45 @@ def _try_load_sqlite_vec(conn: sqlite3.Connection) -> bool:
         return False
 
 
-#: COMPAT alias; new code uses VectorIndexManager directly.
-VectorMemoryStore = VectorIndexManager
-
-
 class NoOpVectorStore:
-    """Fallback when sqlite-vec is unavailable. All operations are no-ops."""
+    """Fallback when sqlite-vec is unavailable or the model fingerprint mismatches.
+
+    All operations are no-ops; ``reason`` explains why the store is disabled.
+    """
+
+    def __init__(self, reason: str = "disabled") -> None:
+        self.reason = reason
 
     @property
     def enabled(self) -> bool:
         return False
 
-    def index(self, text, embedding, kind="history", metadata=None, importance=0.5):
+    def index(self, *args, **kwargs):
         return None
 
-    def search(self, query_embedding, k=5, kind=None):
+    def search(self, *args, **kwargs):
         return []
 
-    def count(self, kind=None):
+    def count(self, *args, **kwargs) -> int:
         return 0
 
-    def decay_importance(self, days_threshold=30, decay_factor=0.9):
-        return 0
-
-    def archive_low_importance(self, threshold=0.2, min_age_days=60):
-        return 0
-
-    def close(self):
+    def close(self) -> None:
         pass
 
 
 def create_vector_store(
     db_path,
-    embedding_dim: int = _DEFAULT_EMBEDDING_DIM,
-    model_id: str = _DEFAULT_MODEL_ID,
+    embedding_dim: int = MODEL_DIMENSION,
+    model_id: str = MODEL_ID,
     model_revision: str = MODEL_REVISION,
 ):
     """COMPAT factory: delegate to the provenance-aware VectorIndexManager.
 
-    ``embedding_dim`` and ``model_id`` default to the local BGE model's
-    values (512 / ``BAAI/bge-small-zh-v1.5``) and are written to the
-    database fingerprint so a future model swap is detected rather than
-    silently mixing vectors.
+    Returns ``NoOpVectorStore`` when the requested fingerprint does not match
+    the pinned model; otherwise returns a ``VectorIndexManager``.
     """
+    if embedding_dim != MODEL_DIMENSION or model_id != MODEL_ID:
+        return NoOpVectorStore(reason="fingerprint_mismatch")
     return VectorIndexManager(
         db_path,
         model_id=model_id,

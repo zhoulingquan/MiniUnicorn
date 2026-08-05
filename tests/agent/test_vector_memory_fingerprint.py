@@ -96,20 +96,25 @@ class TestFingerprint:
         assert store2.status().state == "ready"
         store2.close()
 
-    def test_dimension_mismatch_yields_stale(self, vec_enabled):
+    def test_dimension_mismatch_returns_noop(self, vec_enabled):
         store1 = VectorMemoryStore(vec_enabled)
         assert store1.status().state == "ready"
         store1.close()
         store2 = create_vector_store(vec_enabled, embedding_dim=1536)
-        assert store2.status().state == "stale"
+        assert isinstance(store2, NoOpVectorStore)
+        assert store2.enabled is False
+        assert store2.reason == "fingerprint_mismatch"
+        assert store2.search([0.0] * 512, limit=5) == []
         store2.close()
 
-    def test_model_mismatch_yields_stale(self, vec_enabled):
+    def test_model_mismatch_returns_noop(self, vec_enabled):
         store1 = VectorMemoryStore(vec_enabled)
         assert store1.status().state == "ready"
         store1.close()
         store2 = create_vector_store(vec_enabled, model_id="text-embedding-3-small")
-        assert store2.status().state == "stale"
+        assert isinstance(store2, NoOpVectorStore)
+        assert store2.enabled is False
+        assert store2.reason == "fingerprint_mismatch"
         store2.close()
 
     def test_revision_mismatch_yields_stale(self, vec_enabled):
@@ -127,7 +132,8 @@ class TestFingerprint:
         store1.close()
         original_size = vec_enabled.stat().st_size
         store2 = create_vector_store(vec_enabled, embedding_dim=1536)
-        assert store2.status().state == "stale"
+        assert isinstance(store2, NoOpVectorStore)
+        assert store2.enabled is False
         store2.close()
         assert vec_enabled.stat().st_size == original_size
 
