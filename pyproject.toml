@@ -61,6 +61,7 @@ api = [
 vector = [
     "sqlite-vec>=0.1.0",
     "fastembed>=0.8.0,<0.9.0",
+    "huggingface-hub>=0.27.0,<2.0.0",
 ]
 langsmith = [
     "langsmith>=0.1.0",
