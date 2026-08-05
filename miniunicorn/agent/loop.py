@@ -24,7 +24,7 @@ from miniunicorn.agent._state_machine import (
     TurnState,
 )
 from miniunicorn.agent.autocompact import AutoCompact
-from miniunicorn.agent.context import ContextBuilder
+from miniunicorn.agent.context import ContextBuilder, MemoryPromptPolicy
 from miniunicorn.agent.hook import AgentHook, CompositeHook
 from miniunicorn.agent.memory import Consolidator, Dream
 from miniunicorn.agent.progress_hook import AgentProgressHook
@@ -341,29 +341,20 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             min_entries=defaults.dream.idle_trigger_min_entries,
             min_interval_s=defaults.dream.idle_trigger_min_interval_s,
         )
-        # Attach vector store to memory if enabled (optional sqlite-vec dependency).
-        # Vector memory uses a dedicated local CPU embedding provider
-        # (FastEmbed/BGE) that is independent of the chat LLM provider.
-        # Runtime chat-provider switching never touches ``_embedding_provider``.
+        # Shared single-process embedding-memory runtime (model manager,
+        # catalog, index, recall service, prompt policy and status). The
+        # disabled instance stays lazy: it never creates memory/memory.db and
+        # never loads the embedding model. The local CPU embedding provider
+        # (FastEmbed/BGE) is independent of the chat LLM provider, so runtime
+        # chat-provider switching never perturbs recall.
         self._vector_recall = vector_recall
         self._embedding_model = embedding_model
-        self._embedding_provider = None
-        if vector_recall:
-            from miniunicorn.agent.vector_memory import create_vector_store
-            from miniunicorn.providers.local_embedding import LocalEmbeddingProvider
+        from miniunicorn.embedding.control import EmbeddingControl
 
-            embedding_provider = LocalEmbeddingProvider(model_name=embedding_model)
-            vector_store = create_vector_store(
-                self.workspace / "memory" / "memory.db",
-                embedding_dim=embedding_provider.dimension,
-                model_id=embedding_provider.model_name,
-            )
-            self.context.memory.attach_vector_store(vector_store)
-            # MemoryStore.index_text and the recall tool read the provider
-            # back via MemoryStore._embed_provider, so hand them the same
-            # local instance rather than the chat provider.
-            self.context.memory.set_embed_provider(embedding_provider, model=embedding_model)
-            self._embedding_provider = embedding_provider
+        self.embedding_control = EmbeddingControl.for_workspace(
+            self.workspace, configured=vector_recall
+        )
+        self.context.memory.set_reconcile_hook(self.embedding_control.request_reconcile)
         self.model_presets: dict[str, ModelPresetConfig] = model_presets or {}
         self._active_preset: str | None = None
         if model_preset:
@@ -478,28 +469,6 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             return True
         return False
 
-    async def _compute_query_embedding(self, text: str) -> list[float] | None:
-        """Compute embedding for *text* when vector recall is enabled.
-
-        Uses the dedicated local embedding provider, never the chat provider,
-        so switching chat providers mid-session does not perturb recall.
-        """
-        if not self._vector_recall or not text:
-            return None
-        provider = self._embedding_provider
-        if provider is None:
-            return None
-        try:
-            embeddings = await provider.embed(
-                [text[:500]],
-                model=self._embedding_model,
-            )
-            if embeddings:
-                return embeddings[0]
-        except Exception:
-            logger.debug("Query embedding failed", exc_info=True)
-        return None
-
     async def _build_initial_messages(
         self,
         msg: InboundMessage,
@@ -510,7 +479,8 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
     ) -> list[dict[str, Any]]:
         """Build the initial message list for the LLM turn."""
         scope = self.workspace_scopes.for_message(msg, session.metadata)
-        query_embedding = await self._compute_query_embedding(msg.content)
+        recall = await self.embedding_control.recall_for_turn(msg.content)
+        memory_prompt = self.embedding_control.prompt_policy.build(recall)
         return self.context.build_messages(
             history=history,
             current_message=msg.content,
@@ -523,8 +493,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             workspace=scope.project_path,
             runtime_state=self,
             inbound_message=msg,
-            query_embedding=query_embedding,
-            vector_recall=self._vector_recall,
+            memory_prompt=memory_prompt,
             agent_override=agent_override,
         )
 
@@ -634,6 +603,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         pending_queue: asyncio.Queue | None = None,
         agent_override: SubagentDefinition | None = None,
         turn_hooks: list[AgentHook] | None = None,
+        turn_query: str | None = None,
     ) -> tuple[str | None, list[str], list[dict], str, bool]:
         """Run the agent iteration loop.
 
@@ -767,6 +737,21 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             if _goal_lines
             else SUSTAINED_GOAL_CONTINUE_PROMPT
         )
+        # Per-call memory refresh for the main dialogue: every real chat-provider
+        # call (including tool iterations and finalization retries) re-reads the
+        # index using the turn's original user query and splices only the marked
+        # memory section, so the prompt is refreshed, never duplicated.
+        before_provider_call = None
+        if turn_query is not None:
+            control = self.embedding_control
+
+            async def _refresh_memory(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+                recall = await control.recall_for_turn(turn_query)
+                payload = control.prompt_policy.build(recall)
+                MemoryPromptPolicy.replace_section(messages, payload)
+                return messages
+
+            before_provider_call = _refresh_memory
         try:
             result = await self.runner.run(
                 AgentRunSpec(
@@ -806,6 +791,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                     enable_reflection=self.enable_reflection,
                     reflection_interval=self.reflection_interval,
                     turn_budget=self._build_turn_budget(),
+                    before_provider_call=before_provider_call,
                 )
             )
         finally:
@@ -1136,9 +1122,6 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         history = session.get_history(**_hist_kwargs)
         current_role = "assistant" if is_subagent else "user"
         workspace_scope = self.workspace_scopes.for_message(msg, session.metadata)
-        query_embedding = await self._compute_query_embedding(
-            "" if is_subagent else msg.content,
-        )
 
         messages = self.context.build_messages(
             history=history,
@@ -1153,8 +1136,6 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             runtime_state=self,
             inbound_message=msg,
             skip_runtime_lines=is_subagent,
-            query_embedding=query_embedding,
-            vector_recall=self._vector_recall,
         )
         t_wall = time.time()
         final_content, _, all_msgs, stop_reason, _ = await self._run_agent_loop(

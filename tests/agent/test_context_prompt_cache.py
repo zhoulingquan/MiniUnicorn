@@ -375,19 +375,28 @@ def test_template_memory_md_is_skipped(tmp_path) -> None:
     assert "This file is automatically updated by MiniUnicorn" not in prompt
 
 
-def test_customized_memory_md_is_injected(tmp_path) -> None:
-    """A Dream-populated MEMORY.md should be injected normally."""
+def test_customized_memory_md_not_injected_without_memory_prompt(tmp_path) -> None:
+    """MEMORY.md is no longer injected wholesale; the bounded memory prompt
+    (always core + recall records) is built by the loop and passed in."""
     workspace = _make_workspace(tmp_path)
     from miniunicorn.utils.helpers import sync_workspace_templates
 
     sync_workspace_templates(workspace, silent=True)
 
     (workspace / "memory" / "MEMORY.md").write_text(
-        "# Long-term Memory\n\nUser prefers dark mode.\n", encoding="utf-8"
+        "# Always\n\nUser prefers dark mode.\n", encoding="utf-8"
     )
 
     builder = ContextBuilder(workspace)
     prompt = builder.build_system_prompt()
 
-    assert "# Memory\n\n## Long-term Memory" in prompt
-    assert "User prefers dark mode" in prompt
+    assert "# Long-term Memory" not in prompt
+    assert "User prefers dark mode" not in prompt
+
+    # The bounded memory prompt carries the always-core section.
+    from miniunicorn.agent.memory_prompt import MemoryPromptPolicy
+    from miniunicorn.agent.memory_recall import RecallOutcome
+
+    payload = MemoryPromptPolicy(workspace).build(RecallOutcome((), None, 1.0))
+    with_prompt = builder.build_system_prompt(memory_prompt=payload)
+    assert "User prefers dark mode" in with_prompt

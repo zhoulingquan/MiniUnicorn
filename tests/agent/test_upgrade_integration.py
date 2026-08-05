@@ -303,14 +303,7 @@ def test_create_vector_store_delegates_to_index_manager(tmp_path, monkeypatch):
     assert store.enabled is False
 
 
-def test_agent_loop_uses_memory_db_for_vector_recall(tmp_path, monkeypatch):
-    """Vector recall stores its internal index at memory/memory.db.
-
-    The local embedding provider (FastEmbed/BGE, dim=512) is wired in
-    alongside the chat provider; the chat provider is never used for
-    embeddings.
-    """
-    from miniunicorn.agent import vector_memory as vm
+def _make_loop(tmp_path, *, vector_recall: bool):
     from miniunicorn.agent.loop import AgentLoop
 
     provider = MagicMock(spec=LLMProvider)
@@ -320,27 +313,61 @@ def test_agent_loop_uses_memory_db_for_vector_recall(tmp_path, monkeypatch):
         temperature=0.1,
         reasoning_effort=None,
     )
-    vector_store = MagicMock()
-    create_vector_store = MagicMock(return_value=vector_store)
-    monkeypatch.setattr(vm, "create_vector_store", create_vector_store)
-
-    loop = AgentLoop(
+    return AgentLoop(
         bus=MessageBus(),
         provider=provider,
         workspace=tmp_path,
         model="test-model",
         context_window_tokens=128_000,
-        vector_recall=True,
+        vector_recall=vector_recall,
     )
 
-    create_vector_store.assert_called_once()
-    call_args = create_vector_store.call_args
-    assert call_args.args[0] == tmp_path / "memory" / "memory.db"
-    assert call_args.kwargs["embedding_dim"] == 512
-    assert call_args.kwargs["model_id"] == "BAAI/bge-small-zh-v1.5"
-    # The loop owns a dedicated local embedding provider, separate from chat.
-    assert loop._embedding_provider is not None
-    assert loop._embedding_provider is not provider
+
+def test_agent_loop_uses_shared_embedding_control_for_vector_recall(tmp_path):
+    """Vector recall wires the shared EmbeddingControl for the workspace."""
+    from miniunicorn.embedding.control import EmbeddingControl
+
+    loop = _make_loop(tmp_path, vector_recall=True)
+    assert loop.embedding_control is EmbeddingControl.for_workspace(tmp_path)
+    assert loop.embedding_control.configured is True
+    # The control stays lazy: no memory.db is created at loop startup.
+    assert not (tmp_path / "memory" / "memory.db").exists()
+    EmbeddingControl._instances.clear()
+
+
+def test_agent_loop_wires_reconcile_hook_when_vector_recall(tmp_path):
+    """Writers on MemoryStore trigger the shared control's reconcile."""
+    loop = _make_loop(tmp_path, vector_recall=True)
+    assert loop.context.memory._reconcile_hook is not None
+    assert loop.context.memory._reconcile_hook.__self__ is loop.embedding_control
+    assert not (tmp_path / "memory" / "memory.db").exists()
+
+
+def test_agent_loop_disabled_control_without_vector_recall(tmp_path):
+    """Without vector recall the control is disabled and stays lazy."""
+    from miniunicorn.embedding.control import EmbeddingControl
+
+    loop = _make_loop(tmp_path, vector_recall=False)
+    assert loop.embedding_control.configured is False
+    assert not (tmp_path / "memory" / "memory.db").exists()
+    EmbeddingControl._instances.clear()
+
+
+@pytest.mark.asyncio
+async def test_writers_request_reconcile_but_never_insert_directly(tmp_path):
+    """MemoryStore.index_text no longer indexes directly; it requests a
+    catalog reconcile, so repeated writes cannot grow the index twice."""
+    from miniunicorn.agent.memory import MemoryStore
+
+    store = MemoryStore(tmp_path)
+    calls: list[str] = []
+    store.set_reconcile_hook(lambda: calls.append("reconcile"))
+    await store.index_text("lesson one", kind="procedural", importance=0.8)
+    await store.index_text("lesson one", kind="procedural", importance=0.8)
+    assert calls == ["reconcile", "reconcile"]
+    # The compat store is never attached for direct inserts in the new runtime.
+    assert store._vector_store is None
+    assert store.vector_store is None
 
 
 # ---------------------------------------------------------------------------

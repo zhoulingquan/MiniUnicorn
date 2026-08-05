@@ -136,11 +136,10 @@ class MemoryStore:
                 "memory/shared/procedural_shared.jsonl",
             ],
         )
-        # Vector store for embedding-based retrieval. Lazy-initialized via
-        # attach_vector_store(); None means no vector retrieval (legacy mode).
+        # Vector store for embedding-based retrieval (COMPAT: pre-Task-11
+        # callers; the new runtime recalls through EmbeddingControl instead).
         self._vector_store: Any = None
-        self._embed_provider: Any = None
-        self._embed_model: str = "text-embedding-3-small"
+        self._reconcile_hook: Callable[[], None] | None = None
         self._maybe_migrate_legacy_history()
 
     @property
@@ -195,17 +194,19 @@ class MemoryStore:
                 allowed_roles,
             )
 
-    def attach_vector_store(self, vector_store: Any) -> None:
-        """Attach a VectorMemoryStore for embedding-based retrieval."""
-        self._vector_store = vector_store
+    def set_reconcile_hook(self, callback: Callable[[], None] | None) -> None:
+        """Set the fire-and-forget catalog reconcile trigger.
 
-    def set_embed_provider(self, provider: Any, model: str = "text-embedding-3-small") -> None:
-        """Set the provider used for generating embeddings."""
-        self._embed_provider = provider
-        self._embed_model = model
+        Writers (Consolidator/Dream) call ``index_text`` after writing; the
+        shared ``EmbeddingControl`` runtime then reconciles the authoritative
+        files through the catalog instead of re-embedding here.
+        """
+        self._reconcile_hook = callback
 
     @property
     def vector_store(self) -> Any:
+        # COMPAT: pre-Task-11 callers (tools/recall.py). The new runtime never
+        # attaches a store here; recall runs through EmbeddingControl.
         return self._vector_store
 
     async def index_text(
@@ -215,21 +216,18 @@ class MemoryStore:
         metadata: dict | None = None,
         importance: float = 0.5,
     ) -> None:
-        """Embed *text* and index it in the vector store (no-op if not attached)."""
-        vs = self._vector_store
-        if vs is None or not vs.enabled or not text:
-            return
-        provider = self._embed_provider
-        if provider is None:
+        """Request a catalog reconcile after writing *text*.
+
+        Indexing is unified through the catalog, so immediate embedding here
+        was removed to avoid duplicate rows; ``kind``/``metadata``/``importance``
+        are accepted for API compatibility.
+        """
+        if not text or self._reconcile_hook is None:
             return
         try:
-            embeddings = await provider.embed([text], model=self._embed_model)
-            if embeddings:
-                vs.index(text, embeddings[0], kind=kind, metadata=metadata, importance=importance)
-        except NotImplementedError:
-            pass  # provider doesn't support embeddings; silently skip
+            self._reconcile_hook()
         except Exception:
-            logger.debug("index_text failed for kind={}", kind)
+            logger.debug("index_text reconcile request failed for kind={}", kind)
 
     # -- layered memory: episodic / procedural (P1-1) -----------------------
     # append_* methods are synchronous and only write the JSONL file. Callers

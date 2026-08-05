@@ -559,3 +559,100 @@ async def test_runner_passes_reasoning_effort_to_provider():
     )
 
     assert captured["reasoning_effort"] == "high"
+
+
+# ---------------------------------------------------------------------------
+# Memory-refresh hook tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_runner_refreshes_memory_before_every_main_provider_call():
+    """before_provider_call runs before each chat_with_retry in the loop."""
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
+
+    calls: list[dict] = []
+    received_by_hook: list[list[dict]] = []
+    call_count = {"n": 0}
+
+    async def _refresh(messages: list[dict]) -> dict:
+        received_by_hook.append(list(messages))
+        return {"refreshed": True, "source": list(messages)}
+
+    async def chat_with_retry(*, messages, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return LLMResponse(
+                content="working",
+                tool_calls=[ToolCallRequest(id="call_1", name="noop", arguments={})],
+                usage={},
+            )
+        assert call_count["n"] == 2
+        calls.append(messages)
+        return LLMResponse(content="done", tool_calls=[], usage={})
+
+    provider = MagicMock(spec=LLMProvider)
+    provider.chat_with_retry = chat_with_retry
+    tools = MagicMock()
+    tools.get.return_value = None
+    tools.get_definitions.return_value = []
+    tools.execute = AsyncMock(return_value="tool result")
+
+    refreshed = AsyncMock(side_effect=_refresh)
+
+    runner = AgentRunner(provider)
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "do task"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=2,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            before_provider_call=refreshed,
+        )
+    )
+
+    assert result.stop_reason == "completed"
+    assert refreshed.await_count == 2
+    # The refreshed payload the hook returned reaches the provider unchanged,
+    # carrying the full message history as seen by the second main call.
+    assert calls == [{"refreshed": True, "source": received_by_hook[1]}]
+
+
+@pytest.mark.asyncio
+async def test_runner_refreshes_memory_before_finalization_retry():
+    """before_provider_call also fires before the empty-response finalization retry."""
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
+
+    call_count = {"n": 0}
+
+    async def chat_with_retry(*, messages, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 3:
+            return LLMResponse(content="done", tool_calls=[], usage={})
+        return LLMResponse(content="", tool_calls=[], usage={})
+
+    provider = MagicMock(spec=LLMProvider)
+    provider.chat_with_retry = chat_with_retry
+    tools = MagicMock()
+    tools.get_definitions.return_value = []
+    tools.execute = AsyncMock(return_value="tool result")
+
+    refreshed = AsyncMock(side_effect=lambda messages: messages)
+
+    runner = AgentRunner(provider)
+    result = await runner.run(
+        AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "do task"}],
+            tools=tools,
+            model="test-model",
+            max_iterations=5,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            before_provider_call=refreshed,
+        )
+    )
+
+    assert result.stop_reason == "completed"
+    assert result.final_content == "done"
+    # Two empty-response main calls plus one finalization retry.
+    assert refreshed.await_count == 3

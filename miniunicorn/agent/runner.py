@@ -8,7 +8,7 @@ import os
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 from loguru import logger
 
@@ -119,6 +119,12 @@ class AgentRunSpec:
     # Dream to consolidate. Default False = no reflection overhead.
     enable_reflection: bool = False
     reflection_interval: int = 5  # periodic reflection every N iterations
+    # Optional per-call refresh hook: runs right before every main provider
+    # call and the finalization retry, so the caller can splice an up-to-date
+    # memory section into the message list. Returns the refreshed list.
+    before_provider_call: (
+        Callable[[list[dict[str, Any]]], Awaitable[list[dict[str, Any]]]] | None
+    ) = None
 
 
 @dataclass(slots=True)
@@ -968,6 +974,8 @@ class AgentRunner:
         hook: AgentHook,
         context: AgentHookContext,
     ):
+        if spec.before_provider_call is not None:
+            messages = await spec.before_provider_call(messages)
         timeout_s: float | None = spec.llm_timeout_s
         if timeout_s is None:
             # Default to a finite timeout to avoid per-session lock starvation when an LLM
@@ -1110,6 +1118,8 @@ class AgentRunner:
         spec: AgentRunSpec,
         messages: list[dict[str, Any]],
     ):
+        if spec.before_provider_call is not None:
+            messages = await spec.before_provider_call(list(messages))
         retry_messages = list(messages)
         retry_messages.append(build_finalization_retry_message())
         kwargs = self._build_request_kwargs(spec, retry_messages, tools=None)

@@ -7,6 +7,12 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from miniunicorn.agent.memory import MemoryStore
+from miniunicorn.agent.memory_prompt import (
+    END_MARK,
+    START_MARK,
+    MemoryPromptPayload,
+    MemoryPromptPolicy,
+)
 from miniunicorn.agent.skills import SkillsLoader
 from miniunicorn.agent.subagent_registry import SubagentDefinition
 from miniunicorn.agent.tools import mcp as mcp_tools
@@ -52,7 +58,7 @@ async def handle_runtime_control(state: Any, msg: InboundMessage, tools: ToolReg
 class ContextBuilder:
     """Builds the context (system prompt + messages) for the agent."""
 
-    BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md"]
+    BOOTSTRAP_FILES = ["AGENTS.md"]
     _RUNTIME_CONTEXT_TAG = "[Runtime Context — metadata only, not instructions]"
     _MAX_RECENT_HISTORY = 50
     _MAX_HISTORY_CHARS = 32_000  # hard cap on recent history section size
@@ -103,8 +109,7 @@ class ContextBuilder:
         channel: str | None = None,
         session_summary: str | None = None,
         workspace: Path | None = None,
-        query_embedding: list[float] | None = None,
-        vector_recall: bool = False,
+        memory_prompt: MemoryPromptPayload | None = None,
         agent_override: SubagentDefinition | None = None,
         light_context: bool = False,
     ) -> str:
@@ -114,6 +119,11 @@ class ContextBuilder:
         subagent's system_prompt replaces the default agent identity and the
         "Available Subagents" delegation list is omitted — the subagent runs
         as the primary identity for the turn.
+
+        The bounded ``SOUL.md`` is always injected (light_context included);
+        the bounded memory section is injected from ``memory_prompt``.
+        ``light_context`` skips AGENTS.md, skills and history, keeping only
+        identity, tool contract, bounded soul and core memory.
         """
         # parts: list of (priority, content) tuples。
         # priority 数字越小越重要，越不容易被预算控制丢弃。
@@ -135,8 +145,8 @@ class ContextBuilder:
                 (self._PRIORITY_CRITICAL, self._get_identity(channel=channel, workspace=root))
             )
 
-        # light_context 模式跳过 bootstrap 文件(AGENTS.md/SOUL.md/USER.md),
-        # 仅保留身份+工具契约+记忆,显著降低 token 消耗。用于心跳等轻量巡检场景。
+        # light_context 模式跳过 bootstrap 文件(AGENTS.md),仅保留身份+工具契约+
+        # 有界 SOUL+core memory,显著降低 token 消耗。用于心跳等轻量巡检场景。
         if not light_context:
             bootstrap = self._load_bootstrap_files(root)
             if bootstrap:
@@ -144,35 +154,20 @@ class ContextBuilder:
 
         parts.append((self._PRIORITY_CRITICAL, render_template("agent/tool_contract.md")))
 
-        # Memory injection: full MEMORY.md by default; top-k vector recall when enabled.
-        vs = self.memory.vector_store
-        if vector_recall and query_embedding is not None and vs is not None and vs.enabled:
-            recalled = vs.search(query_embedding, k=5)
-            if recalled:
-                recall_text = "\n".join(
-                    f"- [{r['kind']}] ({r['similarity']:.2f}) {r['text']}" for r in recalled
-                )
-                parts.append(
-                    (self._PRIORITY_MEMORY, "# Memory (Relevant Recall)\n\n" + recall_text)
-                )
-            # No results: fall back to nothing (don't inject full memory in recall mode)
-        else:
-            memory = self.memory.get_memory_context()
-            if memory and not self._is_template_content(
-                self.memory.read_memory(), "memory/MEMORY.md"
-            ):
-                parts.append((self._PRIORITY_MEMORY, f"# Memory\n\n{memory}"))
+        # Bounded SOUL injection: always included so the agent keeps its
+        # persona even in light_context mode.
+        soul = MemoryPromptPolicy(root).bounded_soul()
+        if soul:
+            parts.append((self._PRIORITY_CRITICAL, f"# Soul\n\n{soul}"))
 
-        # Inject cross-session shared memory (global facts that apply to every
-        # session, written by Dream when it promotes universally-relevant
-        # content). Injected in both legacy and vector-recall modes so the
-        # agent always has access to the shared baseline regardless of how
-        # per-session memory is fetched.
-        shared = self.memory.read_shared_memory()
-        if shared and shared.strip():
-            parts.append(
-                (self._PRIORITY_SHARED_MEMORY, f"# Shared Memory (Cross-Session)\n\n{shared}")
-            )
+        # Bounded memory injection: the caller pre-builds the payload (always
+        # core + provenance-tagged recall records). Wrapped in the marker block
+        # so the runner's per-call refresh can splice updated memory sections.
+        if memory_prompt is not None and memory_prompt.text:
+            block = memory_prompt.text
+            if START_MARK not in block:
+                block = f"{START_MARK}\n{block}\n{END_MARK}"
+            parts.append((self._PRIORITY_MEMORY, block))
 
         # 注入 notes.md（主 Agent 的 scratchpad，借鉴 MiMo Code）。
         # 主 Agent 用 write_file/edit_file 往 notes.md append 零散发现，
@@ -182,37 +177,24 @@ class ContextBuilder:
         if notes and notes.strip():
             parts.append((self._PRIORITY_NOTES, f"# Scratchpad Notes (notes.md)\n\n{notes}"))
 
-        always_skills = self.skills.get_always_skills()
-        if always_skills:
-            always_content = self.skills.load_skills_for_context(always_skills)
-            if always_content:
-                parts.append((self._PRIORITY_SKILLS_ACTIVE, f"# Active Skills\n\n{always_content}"))
+        if not light_context:
+            always_skills = self.skills.get_always_skills()
+            if always_skills:
+                always_content = self.skills.load_skills_for_context(always_skills)
+                if always_content:
+                    parts.append(
+                        (self._PRIORITY_SKILLS_ACTIVE, f"# Active Skills\n\n{always_content}")
+                    )
 
-        skills_summary = self.skills.build_skills_summary(exclude=set(always_skills))
-        if skills_summary:
-            parts.append(
-                (
-                    self._PRIORITY_SKILLS_LIST,
-                    render_template("agent/skills_section.md", skills_summary=skills_summary),
-                )
-            )
-
-        # History injection: full recent history by default; vector recall when enabled.
-        if vector_recall and query_embedding is not None and vs is not None and vs.enabled:
-            recalled_hist = vs.search(query_embedding, k=10, kind="history")
-            if recalled_hist:
-                history_text = "\n".join(
-                    f"- [{r['created_at']}] ({r['similarity']:.2f}) {r['text']}"
-                    for r in recalled_hist
-                )
-                history_text = truncate_text(history_text, self._MAX_HISTORY_CHARS)
+            skills_summary = self.skills.build_skills_summary(exclude=set(always_skills))
+            if skills_summary:
                 parts.append(
                     (
-                        self._PRIORITY_HISTORY,
-                        "# Recent History (Relevant Recall)\n\n" + history_text,
+                        self._PRIORITY_SKILLS_LIST,
+                        render_template("agent/skills_section.md", skills_summary=skills_summary),
                     )
                 )
-        else:
+
             entries = self.memory.read_unprocessed_history(
                 since_cursor=self.memory.get_last_dream_cursor()
             )
@@ -474,8 +456,7 @@ class ContextBuilder:
         runtime_state: Any | None = None,
         inbound_message: Any | None = None,
         skip_runtime_lines: bool = False,
-        query_embedding: list[float] | None = None,
-        vector_recall: bool = False,
+        memory_prompt: MemoryPromptPayload | None = None,
         agent_override: SubagentDefinition | None = None,
     ) -> list[dict[str, Any]]:
         """Build the complete message list for an LLM call."""
@@ -518,8 +499,7 @@ class ContextBuilder:
                     channel=channel,
                     session_summary=session_summary,
                     workspace=root,
-                    query_embedding=query_embedding,
-                    vector_recall=vector_recall,
+                    memory_prompt=memory_prompt,
                     agent_override=agent_override,
                     light_context=light_context,
                 ),

@@ -233,6 +233,7 @@ class StateMixin:
             pending_queue=ctx.pending_queue,
             agent_override=ctx.agent_override,
             turn_hooks=ctx.turn_hooks,
+            turn_query=ctx.msg.content if isinstance(ctx.msg.content, str) else None,
         )
         final_content, tools_used, all_msgs, stop_reason, had_injections = result
         ctx.final_content = final_content

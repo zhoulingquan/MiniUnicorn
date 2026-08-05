@@ -5,6 +5,13 @@ from pathlib import Path
 import pytest
 
 from miniunicorn.agent.context import ContextBuilder
+from miniunicorn.agent.memory_prompt import (
+    END_MARK,
+    START_MARK,
+    MemoryPromptPayload,
+    MemoryPromptPolicy,
+)
+from miniunicorn.agent.memory_recall import RecallOutcome
 from miniunicorn.session.goal_state import GOAL_STATE_KEY
 
 # ---------------------------------------------------------------------------
@@ -128,9 +135,17 @@ class TestLoadBootstrapFiles:
         builder = _builder(tmp_path)
         result = builder._load_bootstrap_files()
         assert "## AGENTS.md" in result
-        assert "## SOUL.md" in result
+        assert "## SOUL.md" not in result
         assert "Rules." in result
-        assert "Soul." in result
+        assert "Soul." not in result
+
+    def test_soul_injected_via_bounded_soul_section(self, tmp_path):
+        (tmp_path / "SOUL.md").write_text("Be a helpful assistant.", encoding="utf-8")
+        builder = _builder(tmp_path)
+        result = builder.build_system_prompt()
+        assert "# Soul" in result
+        assert "Be a helpful assistant." in result
+        assert "## SOUL.md" not in result
 
     def test_all_bootstrap_files(self, tmp_path):
         for name in ContextBuilder.BOOTSTRAP_FILES:
@@ -301,6 +316,36 @@ class TestBuildSystemPrompt:
         result = builder.build_system_prompt()
         assert "## AGENTS.md" not in result
         assert "[Archived Context Summary]" not in result
+
+    def test_memory_prompt_injected_with_marker_block(self, tmp_path):
+        (tmp_path / "USER.md").write_text("# Always\n叫我小王", encoding="utf-8")
+        policy = MemoryPromptPolicy(tmp_path)
+        payload = policy.build(RecallOutcome((), None, 1.0))
+        builder = _builder(tmp_path)
+        result = builder.build_system_prompt(memory_prompt=payload)
+        assert START_MARK in result
+        assert END_MARK in result
+        assert "叫我小王" in result
+        assert "## USER.md" not in result
+
+    def test_empty_memory_prompt_not_injected(self, tmp_path):
+        builder = _builder(tmp_path)
+        result = builder.build_system_prompt(memory_prompt=None)
+        assert START_MARK not in result
+
+    def test_light_context_keeps_soul_and_core_memory(self, tmp_path):
+        (tmp_path / "SOUL.md").write_text("Soul text.", encoding="utf-8")
+        (tmp_path / "AGENTS.md").write_text("Agents rules.", encoding="utf-8")
+        (tmp_path / "USER.md").write_text("# Always\n核心记忆", encoding="utf-8")
+        policy = MemoryPromptPolicy(tmp_path)
+        payload = policy.build(RecallOutcome((), None, 1.0))
+        builder = _builder(tmp_path)
+        result = builder.build_system_prompt(memory_prompt=payload, light_context=True)
+        assert "Soul text." in result
+        assert "核心记忆" in result
+        assert "Agents rules." not in result
+        assert "# Active Skills" not in result
+        assert "# Recent History" not in result
 
 
 # ---------------------------------------------------------------------------
