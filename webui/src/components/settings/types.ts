@@ -3,6 +3,7 @@
 
 import {
   Activity,
+  BrainCircuit,
   Globe2,
   ImageIcon,
   LayoutGrid,
@@ -28,7 +29,8 @@ export type SettingsSectionKey =
   | "browser"
   | "images"
   | "advanced"
-  | "apps";
+  | "apps"
+  | "memory";
 
 export type LocalDensity = "comfortable" | "compact";
 export type LocalActivityMode = "auto" | "expanded";
@@ -130,6 +132,7 @@ export const SETTINGS_NAV_ITEMS: Array<{
   { key: "images", icon: ImageIcon, fallback: "Image" },
   { key: "advanced", icon: ShieldCheck, fallback: "Security" },
   { key: "apps", icon: LayoutGrid, fallback: "Apps" },
+  { key: "memory", icon: BrainCircuit, fallback: "Memory & Embedding" },
 ];
 
 export function readLocalPreferences(): LocalPreferences {

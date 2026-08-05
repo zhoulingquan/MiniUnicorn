@@ -1,0 +1,2223 @@
+[32m2026-07-27 23:44:52[0m | [1mINFO [0m | [36m-[0m | [1mRuntime model switched for next turn: laguna-s-2.1-free -> laguna-s-2.1-free[0m
+[32m2026-07-27 23:44:52[0m | [1mINFO [0m | [36m-[0m | [1mRegistered 23 tools: ['apply_patch', 'run_cli_app', 'complete_goal', 'create_agent', 'cron', 'deep_research', 'delegate', 'edit_file', 'exec', 'execute_plan', 'find_files', 'grep', 'list_dir', 'list_exec_sessions', 'long_task', 'message', 'read_file', 'spawn', 'web_fetch', 'web_search', 'write_file', 'write_stdin', 'my'][0m
+[32m2026-07-27 23:44:52[0m | [1mINFO [0m | [36m-[0m | [1mWebSocket channel enabled[0m
+[32m2026-07-27 23:44:52[0m | [1mINFO [0m | [36m-[0m | [1mCron: registered system job 'dream' (dream)[0m
+[32m2026-07-27 23:44:52[0m | [1mINFO [0m | [36m-[0m | [1mCron: registered system job 'heartbeat' (heartbeat)[0m
+[32m2026-07-27 23:44:52[0m | [1mINFO [0m | [36m-[0m | [1mCron service started with 2 jobs[0m
+[32m2026-07-27 23:44:53[0m | [1mINFO [0m | [36m-[0m | [1mStarting websocket channel...[0m
+[32m2026-07-27 23:44:53[0m | [1mINFO [0m | [36m-[0m | [1mOutbound dispatcher started[0m
+[32m2026-07-27 23:44:53[0m | [1mINFO [0m | [36mwebsocket[0m | [1mWebSocket server listening on ws://127.0.0.1:8765/[0m
+[32m2026-07-27 23:44:55[0m | [1mINFO [0m | [36m-[0m | [1mMCP server 'playwright': connected, 24 capabilities registered[0m
+Context7 Documentation MCP Server v3.2.5 running on stdio
+[32m2026-07-27 23:44:57[0m | [1mINFO [0m | [36m-[0m | [1mMCP server 'context7': connected, 2 capabilities registered[0m
+Sequential Thinking MCP Server running on stdio
+[32m2026-07-27 23:44:59[0m | [1mINFO [0m | [36m-[0m | [1mMCP server 'sequential-thinking': connected, 1 capabilities registered[0m
+npm error code E404
+npm error 404 Not Found - GET https://registry.npmjs.org/@modelcontextprotocol%2fserver-fetch - Not found
+npm error 404
+npm error 404  '@modelcontextprotocol/server-fetch@*' is not in this registry.
+npm error 404
+npm error 404 Note that you can also install from a
+npm error 404 tarball, folder, http url, or git url.
+npm error A complete log of this run can be found in: C:\Users\OOOH\AppData\Local\npm-cache\_logs\2026-07-27T15_45_00_048Z-debug-0.log
+[32m2026-07-27 23:45:01[0m | [31m[1mERROR[0m | [36m-[0m | [31m[1mMCP server 'fetch': failed to connect: [0m
+[33m[1mTraceback (most recent call last):[0m
+
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\[0m[32m[1m__main__.py[0m", line [33m10[0m, in [35m<module>[0m
+    [1msys[0m[35m[1m.[0m[1mexit[0m[1m([0m[1mapp[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│   │    └ [0m[36m[1m<typer.main.Typer object at 0x000001E04FBC80E0>[0m
+    [36m│   └ [0m[36m[1m<built-in function exit>[0m
+    [36m└ [0m[36m[1m<module 'sys' (built-in)>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1137, in __call__
+    return get_command(self)(*args, **kwargs)
+           │           │      │       └ {}
+           │           │      └ ()
+           │           └ <typer.main.Typer object at 0x000001E04FBC80E0>
+           └ <function get_command at 0x000001E04E007420>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 807, in __call__
+    return self.main(*args, **kwargs)
+           │    │     │       └ {}
+           │    │     └ ()
+           │    └ <function TyperGroup.main at 0x000001E04E006E80>
+           └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1193, in main
+    return _main(
+           └ <function _main at 0x000001E04E004FE0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 183, in _main
+    rv = self.invoke(ctx)
+         │    │      └ <typer._click.core.Context object at 0x000001E04FC1E4E0>
+         │    └ <function TyperGroup.invoke at 0x000001E04E006A20>
+         └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1115, in invoke
+    return _process_result(sub_ctx.command.invoke(sub_ctx))
+           │               │       │       │      └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │               │       │       └ <function Command.invoke at 0x000001E04DF59120>
+           │               │       └ <TyperCommand gateway>
+           │               └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           └ <function TyperGroup.invoke.<locals>._process_result at 0x000001E050CC6200>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 746, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           │   │      │    │           │   └ {'workspace': None, 'verbose': False, 'config': None}
+           │   │      │    │           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │   │      │    └ <function gateway at 0x000001E050CC5580>
+           │   │      └ <TyperCommand gateway>
+           │   └ <function Context.invoke at 0x000001E04DF584A0>
+           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 489, in invoke
+    return callback(*args, **kwargs)
+           │         │       └ {'workspace': None, 'verbose': False, 'config': None}
+           │         └ ()
+           └ <function gateway at 0x000001E050CC5580>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1515, in wrapper
+    return callback(**use_params)
+           │          └ {'workspace': None, 'verbose': False, 'config': None}
+           └ <function gateway at 0x000001E050CC4F40>
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1mcommands.py[0m", line [33m482[0m, in [35mgateway[0m
+    [1m_run_gateway[0m[1m([0m[1mcfg[0m[1m)[0m
+    [36m│            └ [0m[36m[1mConfig(agents=AgentsConfig(defaults=AgentDefaults(workspace='~/.miniUnicorn/workspace', model_preset='laguna-s-2-1-free', mod...[0m
+    [36m└ [0m[36m[1m<function _run_gateway at 0x000001E050CC4900>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1m_gateway_runner.py[0m", line [33m751[0m, in [35m_run_gateway[0m
+    [1masyncio[0m[35m[1m.[0m[1mrun[0m[1m([0m[1mrun[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│       │   └ [0m[36m[1m<function _run_gateway.<locals>.run at 0x000001E05106C680>[0m
+    [36m│       └ [0m[36m[1m<function run at 0x000001E04D8C8900>[0m
+    [36m└ [0m[36m[1m<module 'asyncio' from 'C:\\Users\\OOOH\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\asyncio\\__init__.py'>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+           │      │   └ <coroutine object _run_gateway.<locals>.run at 0x000001E050E3D6D0>
+           │      └ <function Runner.run at 0x000001E04D924EA0>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           │    │     │                  └ <Task pending name='Task-1' coro=<_run_gateway.<locals>.run() running at D:\MyProject\MiniUnicorn\miniunicorn\cli\_gateway_ru...
+           │    │     └ <function BaseEventLoop.run_until_complete at 0x000001E04D922A20>
+           │    └ <ProactorEventLoop running=True closed=False debug=False>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 678, in run_until_complete
+    self.run_forever()
+    │    └ <function ProactorEventLoop.run_forever at 0x000001E04DDE1580>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\windows_events.py", line 322, in run_forever
+    super().run_forever()
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 645, in run_forever
+    self._run_once()
+    │    └ <function BaseEventLoop._run_once at 0x000001E04D9247C0>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 1999, in _run_once
+    handle._run()
+    │      └ <function Handle._run at 0x000001E04D8ACC20>
+    └ <Handle Task.task_wakeup(<Future finished result=True>)>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+    │    │            │    │           │    └ <member '_args' of 'Handle' objects>
+    │    │            │    │           └ <Handle Task.task_wakeup(<Future finished result=True>)>
+    │    │            │    └ <member '_callback' of 'Handle' objects>
+    │    │            └ <Handle Task.task_wakeup(<Future finished result=True>)>
+    │    └ <member '_context' of 'Handle' objects>
+    └ <Handle Task.task_wakeup(<Future finished result=True>)>
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\agent\[0m[32m[1mloop.py[0m", line [33m825[0m, in [35mrun[0m
+    [35m[1mawait[0m [1mself[0m[35m[1m.[0m[1m_connect_mcp[0m[1m([0m[1m)[0m
+    [36m      │    └ [0m[36m[1m<function McpLifecycleMixin._connect_mcp at 0x000001E04FB7B060>[0m
+    [36m      └ [0m[36m[1m<miniunicorn.agent.loop.AgentLoop object at 0x000001E04FB31010>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\agent\[0m[32m[1m_mcp_lifecycle.py[0m", line [33m66[0m, in [35m_connect_mcp[0m
+    [35m[1mawait[0m [1magent_context[0m[35m[1m.[0m[1mconnect_mcp[0m[1m([0m[1mself[0m[1m,[0m [1mself[0m[35m[1m.[0m[1mtools[0m[1m)[0m
+    [36m      │             │           │     │    └ [0m[36m[1m<miniunicorn.agent.tools.registry.ToolRegistry object at 0x000001E050F17C50>[0m
+    [36m      │             │           │     └ [0m[36m[1m<miniunicorn.agent.loop.AgentLoop object at 0x000001E04FB31010>[0m
+    [36m      │             │           └ [0m[36m[1m<miniunicorn.agent.loop.AgentLoop object at 0x000001E04FB31010>[0m
+    [36m      │             └ [0m[36m[1m<function connect_mcp at 0x000001E04FB780E0>[0m
+    [36m      └ [0m[36m[1m<module 'miniunicorn.agent.context' from 'D:\\MyProject\\MiniUnicorn\\miniunicorn\\agent\\context.py'>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\agent\[0m[32m[1mcontext.py[0m", line [33m45[0m, in [35mconnect_mcp[0m
+    [35m[1mawait[0m [1mmcp_tools[0m[35m[1m.[0m[1mconnect_missing_servers[0m[1m([0m[1mstate[0m[1m,[0m [1mtools[0m[1m)[0m
+    [36m      │         │                       │      └ [0m[36m[1m<miniunicorn.agent.tools.registry.ToolRegistry object at 0x000001E050F17C50>[0m
+    [36m      │         │                       └ [0m[36m[1m<miniunicorn.agent.loop.AgentLoop object at 0x000001E04FB31010>[0m
+    [36m      │         └ [0m[36m[1m<function connect_missing_servers at 0x000001E04FB4F380>[0m
+    [36m      └ [0m[36m[1m<module 'miniunicorn.agent.tools.mcp' from 'D:\\MyProject\\MiniUnicorn\\miniunicorn\\agent\\tools\\mcp.py'>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\agent\tools\[0m[32m[1mmcp.py[0m", line [33m775[0m, in [35mconnect_missing_servers[0m
+    [1mconnected[0m [35m[1m=[0m [35m[1mawait[0m [1mconnect_mcp_servers[0m[1m([0m[1mmissing_servers[0m[1m,[0m [1mregistry[0m[1m)[0m
+    [36m                  │                   │                └ [0m[36m[1m<miniunicorn.agent.tools.registry.ToolRegistry object at 0x000001E050F17C50>[0m
+    [36m                  │                   └ [0m[36m[1m{'playwright': MCPServerConfig(type='stdio', command='npx', args=['-y', '@playwright/mcp@latest'], env={}, cwd='C:\\Users\\OO...[0m
+    [36m                  └ [0m[36m[1m<function connect_mcp_servers at 0x000001E04FB4E700>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\agent\tools\[0m[32m[1mmcp.py[0m", line [33m693[0m, in [35mconnect_mcp_servers[0m
+    [1mresult[0m [35m[1m=[0m [35m[1mawait[0m [1mconnect_single_server[0m[1m([0m[1mname[0m[1m,[0m [1mcfg[0m[1m)[0m
+    [36m               │                     │     └ [0m[36m[1mMCPServerConfig(type='stdio', command='npx', args=['-y', '@modelcontextprotocol/server-fetch'], env={}, cwd='C:\\Users\\OOOH\...[0m
+    [36m               │                     └ [0m[36m[1m'fetch'[0m
+    [36m               └ [0m[36m[1m<function connect_mcp_servers.<locals>.connect_single_server at 0x000001E05106D300>[0m
+
+> File "[32mD:\MyProject\MiniUnicorn\miniunicorn\agent\tools\[0m[32m[1mmcp.py[0m", line [33m590[0m, in [35mconnect_single_server[0m
+    [35m[1mawait[0m [1msession[0m[35m[1m.[0m[1minitialize[0m[1m([0m[1m)[0m
+    [36m      │       └ [0m[36m[1m<function ClientSession.initialize at 0x000001E05136EF20>[0m
+    [36m      └ [0m[36m[1m<mcp.client.session.ClientSession object at 0x000001E051B88830>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\mcp\client\session.py", line 183, in initialize
+    result = await self.send_request(
+                   │    └ <function BaseSession.send_request at 0x000001E05136D3A0>
+                   └ <mcp.client.session.ClientSession object at 0x000001E051B88830>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\mcp\shared\session.py", line 306, in send_request
+    raise McpError(response_or_error.error)
+          │        │                 └ ErrorData(code=-32000, message='Connection closed', data=None)
+          │        └ JSONRPCError(jsonrpc='2.0', id=0, error=ErrorData(code=-32000, message='Connection closed', data=None))
+          └ <class 'mcp.shared.exceptions.McpError'>
+
+[31m[1mmcp.shared.exceptions.McpError[0m:[1m Connection closed[0m
+Secure MCP Filesystem Server running on stdio
+Client does not support MCP Roots, using allowed directories set from server args: [ 'C:\\' ]
+[32m2026-07-27 23:45:04[0m | [1mINFO [0m | [36m-[0m | [1mMCP server 'filesystem': connected, 14 capabilities registered[0m
+Knowledge Graph MCP Server running on stdio
+[32m2026-07-27 23:45:06[0m | [1mINFO [0m | [36m-[0m | [1mMCP server 'memory': connected, 10 capabilities registered[0m
+[32m2026-07-27 23:45:08[0m | [1mINFO [0m | [36m-[0m | [1mMCP server 'puppeteer': connected, 8 capabilities registered[0m
+npm error code E404
+npm error 404 Not Found - GET https://registry.npmjs.org/@modelcontextprotocol%2fserver-time - Not found
+npm error 404
+npm error 404  '@modelcontextprotocol/server-time@*' is not in this registry.
+npm error 404
+npm error 404 Note that you can also install from a
+npm error 404 tarball, folder, http url, or git url.
+npm error A complete log of this run can be found in: C:\Users\OOOH\AppData\Local\npm-cache\_logs\2026-07-27T15_45_08_989Z-debug-0.log
+[32m2026-07-27 23:45:10[0m | [31m[1mERROR[0m | [36m-[0m | [31m[1mMCP server 'time': failed to connect: [0m
+[33m[1mTraceback (most recent call last):[0m
+
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\[0m[32m[1m__main__.py[0m", line [33m10[0m, in [35m<module>[0m
+    [1msys[0m[35m[1m.[0m[1mexit[0m[1m([0m[1mapp[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│   │    └ [0m[36m[1m<typer.main.Typer object at 0x000001E04FBC80E0>[0m
+    [36m│   └ [0m[36m[1m<built-in function exit>[0m
+    [36m└ [0m[36m[1m<module 'sys' (built-in)>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1137, in __call__
+    return get_command(self)(*args, **kwargs)
+           │           │      │       └ {}
+           │           │      └ ()
+           │           └ <typer.main.Typer object at 0x000001E04FBC80E0>
+           └ <function get_command at 0x000001E04E007420>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 807, in __call__
+    return self.main(*args, **kwargs)
+           │    │     │       └ {}
+           │    │     └ ()
+           │    └ <function TyperGroup.main at 0x000001E04E006E80>
+           └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1193, in main
+    return _main(
+           └ <function _main at 0x000001E04E004FE0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 183, in _main
+    rv = self.invoke(ctx)
+         │    │      └ <typer._click.core.Context object at 0x000001E04FC1E4E0>
+         │    └ <function TyperGroup.invoke at 0x000001E04E006A20>
+         └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1115, in invoke
+    return _process_result(sub_ctx.command.invoke(sub_ctx))
+           │               │       │       │      └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │               │       │       └ <function Command.invoke at 0x000001E04DF59120>
+           │               │       └ <TyperCommand gateway>
+           │               └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           └ <function TyperGroup.invoke.<locals>._process_result at 0x000001E050CC6200>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 746, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           │   │      │    │           │   └ {'workspace': None, 'verbose': False, 'config': None}
+           │   │      │    │           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │   │      │    └ <function gateway at 0x000001E050CC5580>
+           │   │      └ <TyperCommand gateway>
+           │   └ <function Context.invoke at 0x000001E04DF584A0>
+           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 489, in invoke
+    return callback(*args, **kwargs)
+           │         │       └ {'workspace': None, 'verbose': False, 'config': None}
+           │         └ ()
+           └ <function gateway at 0x000001E050CC5580>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1515, in wrapper
+    return callback(**use_params)
+           │          └ {'workspace': None, 'verbose': False, 'config': None}
+           └ <function gateway at 0x000001E050CC4F40>
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1mcommands.py[0m", line [33m482[0m, in [35mgateway[0m
+    [1m_run_gateway[0m[1m([0m[1mcfg[0m[1m)[0m
+    [36m│            └ [0m[36m[1mConfig(agents=AgentsConfig(defaults=AgentDefaults(workspace='~/.miniUnicorn/workspace', model_preset='laguna-s-2-1-free', mod...[0m
+    [36m└ [0m[36m[1m<function _run_gateway at 0x000001E050CC4900>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1m_gateway_runner.py[0m", line [33m751[0m, in [35m_run_gateway[0m
+    [1masyncio[0m[35m[1m.[0m[1mrun[0m[1m([0m[1mrun[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│       │   └ [0m[36m[1m<function _run_gateway.<locals>.run at 0x000001E05106C680>[0m
+    [36m│       └ [0m[36m[1m<function run at 0x000001E04D8C8900>[0m
+    [36m└ [0m[36m[1m<module 'asyncio' from 'C:\\Users\\OOOH\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\asyncio\\__init__.py'>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+           │      │   └ <coroutine object _run_gateway.<locals>.run at 0x000001E050E3D6D0>
+           │      └ <function Runner.run at 0x000001E04D924EA0>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           │    │     │                  └ <Task pending name='Task-1' coro=<_run_gateway.<locals>.run() running at D:\MyProject\MiniUnicorn\miniunicorn\cli\_gateway_ru...
+           │    │     └ <function BaseEventLoop.run_until_complete at 0x000001E04D922A20>
+           │    └ <ProactorEventLoop running=True closed=False debug=False>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 678, in run_until_complete
+    self.run_forever()
+    │    └ <function ProactorEventLoop.run_forever at 0x000001E04DDE1580>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\windows_events.py", line 322, in run_forever
+    super().run_forever()
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 645, in run_forever
+    self._run_once()
+    │    └ <function BaseEventLoop._run_once at 0x000001E04D9247C0>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 1999, in _run_once
+    handle._run()
+    │      └ <function Handle._run at 0x000001E04D8ACC20>
+    └ <Handle Task.task_wakeup(<Future finished result=True>)>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+    │    │            │    │           │    └ <member '_args' of 'Handle' objects>
+    │    │            │    │           └ <Handle Task.task_wakeup(<Future finished result=True>)>
+    │    │            │    └ <member '_callback' of 'Handle' objects>
+    │    │            └ <Handle Task.task_wakeup(<Future finished result=True>)>
+    │    └ <member '_context' of 'Handle' objects>
+    └ <Handle Task.task_wakeup(<Future finished result=True>)>
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\agent\[0m[32m[1mloop.py[0m", line [33m825[0m, in [35mrun[0m
+    [35m[1mawait[0m [1mself[0m[35m[1m.[0m[1m_connect_mcp[0m[1m([0m[1m)[0m
+    [36m      │    └ [0m[36m[1m<function McpLifecycleMixin._connect_mcp at 0x000001E04FB7B060>[0m
+    [36m      └ [0m[36m[1m<miniunicorn.agent.loop.AgentLoop object at 0x000001E04FB31010>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\agent\[0m[32m[1m_mcp_lifecycle.py[0m", line [33m66[0m, in [35m_connect_mcp[0m
+    [35m[1mawait[0m [1magent_context[0m[35m[1m.[0m[1mconnect_mcp[0m[1m([0m[1mself[0m[1m,[0m [1mself[0m[35m[1m.[0m[1mtools[0m[1m)[0m
+    [36m      │             │           │     │    └ [0m[36m[1m<miniunicorn.agent.tools.registry.ToolRegistry object at 0x000001E050F17C50>[0m
+    [36m      │             │           │     └ [0m[36m[1m<miniunicorn.agent.loop.AgentLoop object at 0x000001E04FB31010>[0m
+    [36m      │             │           └ [0m[36m[1m<miniunicorn.agent.loop.AgentLoop object at 0x000001E04FB31010>[0m
+    [36m      │             └ [0m[36m[1m<function connect_mcp at 0x000001E04FB780E0>[0m
+    [36m      └ [0m[36m[1m<module 'miniunicorn.agent.context' from 'D:\\MyProject\\MiniUnicorn\\miniunicorn\\agent\\context.py'>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\agent\[0m[32m[1mcontext.py[0m", line [33m45[0m, in [35mconnect_mcp[0m
+    [35m[1mawait[0m [1mmcp_tools[0m[35m[1m.[0m[1mconnect_missing_servers[0m[1m([0m[1mstate[0m[1m,[0m [1mtools[0m[1m)[0m
+    [36m      │         │                       │      └ [0m[36m[1m<miniunicorn.agent.tools.registry.ToolRegistry object at 0x000001E050F17C50>[0m
+    [36m      │         │                       └ [0m[36m[1m<miniunicorn.agent.loop.AgentLoop object at 0x000001E04FB31010>[0m
+    [36m      │         └ [0m[36m[1m<function connect_missing_servers at 0x000001E04FB4F380>[0m
+    [36m      └ [0m[36m[1m<module 'miniunicorn.agent.tools.mcp' from 'D:\\MyProject\\MiniUnicorn\\miniunicorn\\agent\\tools\\mcp.py'>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\agent\tools\[0m[32m[1mmcp.py[0m", line [33m775[0m, in [35mconnect_missing_servers[0m
+    [1mconnected[0m [35m[1m=[0m [35m[1mawait[0m [1mconnect_mcp_servers[0m[1m([0m[1mmissing_servers[0m[1m,[0m [1mregistry[0m[1m)[0m
+    [36m                  │                   │                └ [0m[36m[1m<miniunicorn.agent.tools.registry.ToolRegistry object at 0x000001E050F17C50>[0m
+    [36m                  │                   └ [0m[36m[1m{'playwright': MCPServerConfig(type='stdio', command='npx', args=['-y', '@playwright/mcp@latest'], env={}, cwd='C:\\Users\\OO...[0m
+    [36m                  └ [0m[36m[1m<function connect_mcp_servers at 0x000001E04FB4E700>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\agent\tools\[0m[32m[1mmcp.py[0m", line [33m693[0m, in [35mconnect_mcp_servers[0m
+    [1mresult[0m [35m[1m=[0m [35m[1mawait[0m [1mconnect_single_server[0m[1m([0m[1mname[0m[1m,[0m [1mcfg[0m[1m)[0m
+    [36m               │                     │     └ [0m[36m[1mMCPServerConfig(type='stdio', command='npx', args=['-y', '@modelcontextprotocol/server-time'], env={}, cwd='C:\\Users\\OOOH\\...[0m
+    [36m               │                     └ [0m[36m[1m'time'[0m
+    [36m               └ [0m[36m[1m<function connect_mcp_servers.<locals>.connect_single_server at 0x000001E05106D300>[0m
+
+> File "[32mD:\MyProject\MiniUnicorn\miniunicorn\agent\tools\[0m[32m[1mmcp.py[0m", line [33m590[0m, in [35mconnect_single_server[0m
+    [35m[1mawait[0m [1msession[0m[35m[1m.[0m[1minitialize[0m[1m([0m[1m)[0m
+    [36m      │       └ [0m[36m[1m<function ClientSession.initialize at 0x000001E05136EF20>[0m
+    [36m      └ [0m[36m[1m<mcp.client.session.ClientSession object at 0x000001E051CEB170>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\mcp\client\session.py", line 183, in initialize
+    result = await self.send_request(
+                   │    └ <function BaseSession.send_request at 0x000001E05136D3A0>
+                   └ <mcp.client.session.ClientSession object at 0x000001E051CEB170>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\mcp\shared\session.py", line 306, in send_request
+    raise McpError(response_or_error.error)
+          │        │                 └ ErrorData(code=-32000, message='Connection closed', data=None)
+          │        └ JSONRPCError(jsonrpc='2.0', id=0, error=ErrorData(code=-32000, message='Connection closed', data=None))
+          └ <class 'mcp.shared.exceptions.McpError'>
+
+[31m[1mmcp.shared.exceptions.McpError[0m:[1m Connection closed[0m
+[32m2026-07-27 23:45:10[0m | [1mINFO [0m | [36m-[0m | [1mMCP connected servers: ['context7', 'filesystem', 'memory', 'playwright', 'puppeteer', 'sequential-thinking'][0m
+[32m2026-07-27 23:45:10[0m | [1mINFO [0m | [36m-[0m | [1mAgent loop started[0m
+[32m2026-07-27 23:46:32[0m | [31m[1mERROR[0m | [36m-[0m | [31m[1m[websockets] opening handshake failed[0m
+[33m[1mTraceback (most recent call last):[0m
+
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\[0m[32m[1m__main__.py[0m", line [33m10[0m, in [35m<module>[0m
+    [1msys[0m[35m[1m.[0m[1mexit[0m[1m([0m[1mapp[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│   │    └ [0m[36m[1m<typer.main.Typer object at 0x000001E04FBC80E0>[0m
+    [36m│   └ [0m[36m[1m<built-in function exit>[0m
+    [36m└ [0m[36m[1m<module 'sys' (built-in)>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1137, in __call__
+    return get_command(self)(*args, **kwargs)
+           │           │      │       └ {}
+           │           │      └ ()
+           │           └ <typer.main.Typer object at 0x000001E04FBC80E0>
+           └ <function get_command at 0x000001E04E007420>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 807, in __call__
+    return self.main(*args, **kwargs)
+           │    │     │       └ {}
+           │    │     └ ()
+           │    └ <function TyperGroup.main at 0x000001E04E006E80>
+           └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1193, in main
+    return _main(
+           └ <function _main at 0x000001E04E004FE0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 183, in _main
+    rv = self.invoke(ctx)
+         │    │      └ <typer._click.core.Context object at 0x000001E04FC1E4E0>
+         │    └ <function TyperGroup.invoke at 0x000001E04E006A20>
+         └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1115, in invoke
+    return _process_result(sub_ctx.command.invoke(sub_ctx))
+           │               │       │       │      └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │               │       │       └ <function Command.invoke at 0x000001E04DF59120>
+           │               │       └ <TyperCommand gateway>
+           │               └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           └ <function TyperGroup.invoke.<locals>._process_result at 0x000001E050CC6200>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 746, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           │   │      │    │           │   └ {'workspace': None, 'verbose': False, 'config': None}
+           │   │      │    │           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │   │      │    └ <function gateway at 0x000001E050CC5580>
+           │   │      └ <TyperCommand gateway>
+           │   └ <function Context.invoke at 0x000001E04DF584A0>
+           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 489, in invoke
+    return callback(*args, **kwargs)
+           │         │       └ {'workspace': None, 'verbose': False, 'config': None}
+           │         └ ()
+           └ <function gateway at 0x000001E050CC5580>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1515, in wrapper
+    return callback(**use_params)
+           │          └ {'workspace': None, 'verbose': False, 'config': None}
+           └ <function gateway at 0x000001E050CC4F40>
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1mcommands.py[0m", line [33m482[0m, in [35mgateway[0m
+    [1m_run_gateway[0m[1m([0m[1mcfg[0m[1m)[0m
+    [36m│            └ [0m[36m[1mConfig(agents=AgentsConfig(defaults=AgentDefaults(workspace='~/.miniUnicorn/workspace', model_preset='laguna-s-2-1-free', mod...[0m
+    [36m└ [0m[36m[1m<function _run_gateway at 0x000001E050CC4900>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1m_gateway_runner.py[0m", line [33m751[0m, in [35m_run_gateway[0m
+    [1masyncio[0m[35m[1m.[0m[1mrun[0m[1m([0m[1mrun[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│       │   └ [0m[36m[1m<function _run_gateway.<locals>.run at 0x000001E05106C680>[0m
+    [36m│       └ [0m[36m[1m<function run at 0x000001E04D8C8900>[0m
+    [36m└ [0m[36m[1m<module 'asyncio' from 'C:\\Users\\OOOH\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\asyncio\\__init__.py'>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+           │      │   └ <coroutine object _run_gateway.<locals>.run at 0x000001E050E3D6D0>
+           │      └ <function Runner.run at 0x000001E04D924EA0>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           │    │     │                  └ <Task pending name='Task-1' coro=<_run_gateway.<locals>.run() running at D:\MyProject\MiniUnicorn\miniunicorn\cli\_gateway_ru...
+           │    │     └ <function BaseEventLoop.run_until_complete at 0x000001E04D922A20>
+           │    └ <ProactorEventLoop running=True closed=False debug=False>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 678, in run_until_complete
+    self.run_forever()
+    │    └ <function ProactorEventLoop.run_forever at 0x000001E04DDE1580>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\windows_events.py", line 322, in run_forever
+    super().run_forever()
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 645, in run_forever
+    self._run_once()
+    │    └ <function BaseEventLoop._run_once at 0x000001E04D9247C0>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 1999, in _run_once
+    handle._run()
+    │      └ <function Handle._run at 0x000001E04D8ACC20>
+    └ <Handle Task.task_wakeup(<Future finished result=None>)>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+    │    │            │    │           │    └ <member '_args' of 'Handle' objects>
+    │    │            │    │           └ <Handle Task.task_wakeup(<Future finished result=None>)>
+    │    │            │    └ <member '_callback' of 'Handle' objects>
+    │    │            └ <Handle Task.task_wakeup(<Future finished result=None>)>
+    │    └ <member '_context' of 'Handle' objects>
+    └ <Handle Task.task_wakeup(<Future finished result=None>)>
+> File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 356, in conn_handler
+    await connection.handshake(
+          │          └ <function ServerConnection.handshake at 0x000001E050D89080>
+          └ <websockets.asyncio.server.ServerConnection object at 0x000001E05105BB90>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 207, in handshake
+    raise self.protocol.handshake_exc
+          │    │        └ ImportError("cannot import name 'cli_apps_payload' from 'miniunicorn.channels.websocket.channel' (D:\\MyProject\\MiniUnicorn\...
+          │    └ <websockets.server.ServerProtocol object at 0x000001E05105BBF0>
+          └ <websockets.asyncio.server.ServerConnection object at 0x000001E05105BB90>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 149, in handshake
+    response = await response
+                     └ None
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1mchannel.py[0m", line [33m1036[0m, in [35mprocess_request[0m
+    [35m[1mreturn[0m [35m[1mawait[0m [1mself[0m[35m[1m.[0m[1m_dispatch_http[0m[1m([0m[1mconnection[0m[1m,[0m [1mrequest[0m[1m)[0m
+    [36m             │    │              │           └ [0m[36m[1mRequest(path='/api/settings/cli-apps', headers=Headers([('host', '127.0.0.1:8765'), ('connection', 'close'), ('accept', '*/*'...[0m
+    [36m             │    │              └ [0m[36m[1m<websockets.asyncio.server.ServerConnection object at 0x000001E05105BB90>[0m
+    [36m             │    └ [0m[36m[1m<function WebSocketChannel._dispatch_http at 0x000001E050E1E840>[0m
+    [36m             └ [0m[36m[1m<miniunicorn.channels.websocket.channel.WebSocketChannel object at 0x000001E04FAB60C0>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1mchannel.py[0m", line [33m566[0m, in [35m_dispatch_http[0m
+    [1mapi_response[0m [35m[1m=[0m [35m[1mawait[0m [1mrouter[0m[35m[1m.[0m[1mdispatch[0m[1m([0m[1mdeps[0m[1m,[0m [1mconnection[0m[1m,[0m [1mrequest[0m[1m)[0m
+    [36m                     │      │        │     │           └ [0m[36m[1mRequest(path='/api/settings/cli-apps', headers=Headers([('host', '127.0.0.1:8765'), ('connection', 'close'), ('accept', '*/*'...[0m
+    [36m                     │      │        │     └ [0m[36m[1m<websockets.asyncio.server.ServerConnection object at 0x000001E05105BB90>[0m
+    [36m                     │      │        └ [0m[36m[1mRouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn.webui.workspaces....[0m
+    [36m                     │      └ [0m[36m[1m<function HttpRouter.dispatch at 0x000001E050DDB6A0>[0m
+    [36m                     └ [0m[36m[1m<miniunicorn.channels.websocket._http_router.HttpRouter object at 0x000001E050DD3170>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1m_http_router.py[0m", line [33m294[0m, in [35mdispatch[0m
+    [35m[1mreturn[0m [35m[1mawait[0m [1mentry[0m[35m[1m.[0m[1minvoke[0m[1m([0m[1mctx[0m[1m)[0m
+    [36m             │     │      └ [0m[36m[1mRouteContext(deps=RouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn...[0m
+    [36m             │     └ [0m[36m[1m<function _HandlerEntry.invoke at 0x000001E050DDB060>[0m
+    [36m             └ [0m[36m[1m_HandlerEntry(fn=<function cli_apps at 0x000001E050E0A840>, meta=RouteMeta(methods=frozenset({'GET'}), public=False, origin_c...[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1m_http_router.py[0m", line [33m136[0m, in [35minvoke[0m
+    [1mresult[0m [35m[1m=[0m [1mself[0m[35m[1m.[0m[1mfn[0m[1m([0m[1mctx[0m[1m)[0m
+    [36m         │    │  └ [0m[36m[1mRouteContext(deps=RouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn...[0m
+    [36m         │    └ [0m[36m[1m<function cli_apps at 0x000001E050E0A840>[0m
+    [36m         └ [0m[36m[1m_HandlerEntry(fn=<function cli_apps at 0x000001E050E0A840>, meta=RouteMeta(methods=frozenset({'GET'}), public=False, origin_c...[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\handlers\[0m[32m[1msettings.py[0m", line [33m232[0m, in [35mcli_apps[0m
+    [35m[1mfrom[0m [1mminiunicorn[0m[35m[1m.[0m[1mchannels[0m[35m[1m.[0m[1mwebsocket[0m[35m[1m.[0m[1mchannel[0m [35m[1mimport[0m [1mcli_apps_payload[0m
+
+[31m[1mImportError[0m:[1m cannot import name 'cli_apps_payload' from 'miniunicorn.channels.websocket.channel' (D:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\channel.py)[0m
+[32m2026-07-27 23:46:37[0m | [31m[1mERROR[0m | [36m-[0m | [31m[1m[websockets] opening handshake failed[0m
+[33m[1mTraceback (most recent call last):[0m
+
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\[0m[32m[1m__main__.py[0m", line [33m10[0m, in [35m<module>[0m
+    [1msys[0m[35m[1m.[0m[1mexit[0m[1m([0m[1mapp[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│   │    └ [0m[36m[1m<typer.main.Typer object at 0x000001E04FBC80E0>[0m
+    [36m│   └ [0m[36m[1m<built-in function exit>[0m
+    [36m└ [0m[36m[1m<module 'sys' (built-in)>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1137, in __call__
+    return get_command(self)(*args, **kwargs)
+           │           │      │       └ {}
+           │           │      └ ()
+           │           └ <typer.main.Typer object at 0x000001E04FBC80E0>
+           └ <function get_command at 0x000001E04E007420>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 807, in __call__
+    return self.main(*args, **kwargs)
+           │    │     │       └ {}
+           │    │     └ ()
+           │    └ <function TyperGroup.main at 0x000001E04E006E80>
+           └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1193, in main
+    return _main(
+           └ <function _main at 0x000001E04E004FE0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 183, in _main
+    rv = self.invoke(ctx)
+         │    │      └ <typer._click.core.Context object at 0x000001E04FC1E4E0>
+         │    └ <function TyperGroup.invoke at 0x000001E04E006A20>
+         └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1115, in invoke
+    return _process_result(sub_ctx.command.invoke(sub_ctx))
+           │               │       │       │      └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │               │       │       └ <function Command.invoke at 0x000001E04DF59120>
+           │               │       └ <TyperCommand gateway>
+           │               └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           └ <function TyperGroup.invoke.<locals>._process_result at 0x000001E050CC6200>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 746, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           │   │      │    │           │   └ {'workspace': None, 'verbose': False, 'config': None}
+           │   │      │    │           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │   │      │    └ <function gateway at 0x000001E050CC5580>
+           │   │      └ <TyperCommand gateway>
+           │   └ <function Context.invoke at 0x000001E04DF584A0>
+           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 489, in invoke
+    return callback(*args, **kwargs)
+           │         │       └ {'workspace': None, 'verbose': False, 'config': None}
+           │         └ ()
+           └ <function gateway at 0x000001E050CC5580>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1515, in wrapper
+    return callback(**use_params)
+           │          └ {'workspace': None, 'verbose': False, 'config': None}
+           └ <function gateway at 0x000001E050CC4F40>
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1mcommands.py[0m", line [33m482[0m, in [35mgateway[0m
+    [1m_run_gateway[0m[1m([0m[1mcfg[0m[1m)[0m
+    [36m│            └ [0m[36m[1mConfig(agents=AgentsConfig(defaults=AgentDefaults(workspace='~/.miniUnicorn/workspace', model_preset='laguna-s-2-1-free', mod...[0m
+    [36m└ [0m[36m[1m<function _run_gateway at 0x000001E050CC4900>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1m_gateway_runner.py[0m", line [33m751[0m, in [35m_run_gateway[0m
+    [1masyncio[0m[35m[1m.[0m[1mrun[0m[1m([0m[1mrun[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│       │   └ [0m[36m[1m<function _run_gateway.<locals>.run at 0x000001E05106C680>[0m
+    [36m│       └ [0m[36m[1m<function run at 0x000001E04D8C8900>[0m
+    [36m└ [0m[36m[1m<module 'asyncio' from 'C:\\Users\\OOOH\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\asyncio\\__init__.py'>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+           │      │   └ <coroutine object _run_gateway.<locals>.run at 0x000001E050E3D6D0>
+           │      └ <function Runner.run at 0x000001E04D924EA0>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           │    │     │                  └ <Task pending name='Task-1' coro=<_run_gateway.<locals>.run() running at D:\MyProject\MiniUnicorn\miniunicorn\cli\_gateway_ru...
+           │    │     └ <function BaseEventLoop.run_until_complete at 0x000001E04D922A20>
+           │    └ <ProactorEventLoop running=True closed=False debug=False>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 678, in run_until_complete
+    self.run_forever()
+    │    └ <function ProactorEventLoop.run_forever at 0x000001E04DDE1580>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\windows_events.py", line 322, in run_forever
+    super().run_forever()
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 645, in run_forever
+    self._run_once()
+    │    └ <function BaseEventLoop._run_once at 0x000001E04D9247C0>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 1999, in _run_once
+    handle._run()
+    │      └ <function Handle._run at 0x000001E04D8ACC20>
+    └ <Handle Task.task_wakeup(<Future finished result=None>)>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+    │    │            │    │           │    └ <member '_args' of 'Handle' objects>
+    │    │            │    │           └ <Handle Task.task_wakeup(<Future finished result=None>)>
+    │    │            │    └ <member '_callback' of 'Handle' objects>
+    │    │            └ <Handle Task.task_wakeup(<Future finished result=None>)>
+    │    └ <member '_context' of 'Handle' objects>
+    └ <Handle Task.task_wakeup(<Future finished result=None>)>
+> File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 356, in conn_handler
+    await connection.handshake(
+          │          └ <function ServerConnection.handshake at 0x000001E050D89080>
+          └ <websockets.asyncio.server.ServerConnection object at 0x000001E05105BB30>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 207, in handshake
+    raise self.protocol.handshake_exc
+          │    │        └ ImportError("cannot import name 'cli_apps_payload' from 'miniunicorn.channels.websocket.channel' (D:\\MyProject\\MiniUnicorn\...
+          │    └ <websockets.server.ServerProtocol object at 0x000001E051B8BAA0>
+          └ <websockets.asyncio.server.ServerConnection object at 0x000001E05105BB30>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 149, in handshake
+    response = await response
+                     └ None
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1mchannel.py[0m", line [33m1036[0m, in [35mprocess_request[0m
+    [35m[1mreturn[0m [35m[1mawait[0m [1mself[0m[35m[1m.[0m[1m_dispatch_http[0m[1m([0m[1mconnection[0m[1m,[0m [1mrequest[0m[1m)[0m
+    [36m             │    │              │           └ [0m[36m[1mRequest(path='/api/settings/cli-apps', headers=Headers([('host', '127.0.0.1:8765'), ('connection', 'close'), ('accept', '*/*'...[0m
+    [36m             │    │              └ [0m[36m[1m<websockets.asyncio.server.ServerConnection object at 0x000001E05105BB30>[0m
+    [36m             │    └ [0m[36m[1m<function WebSocketChannel._dispatch_http at 0x000001E050E1E840>[0m
+    [36m             └ [0m[36m[1m<miniunicorn.channels.websocket.channel.WebSocketChannel object at 0x000001E04FAB60C0>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1mchannel.py[0m", line [33m566[0m, in [35m_dispatch_http[0m
+    [1mapi_response[0m [35m[1m=[0m [35m[1mawait[0m [1mrouter[0m[35m[1m.[0m[1mdispatch[0m[1m([0m[1mdeps[0m[1m,[0m [1mconnection[0m[1m,[0m [1mrequest[0m[1m)[0m
+    [36m                     │      │        │     │           └ [0m[36m[1mRequest(path='/api/settings/cli-apps', headers=Headers([('host', '127.0.0.1:8765'), ('connection', 'close'), ('accept', '*/*'...[0m
+    [36m                     │      │        │     └ [0m[36m[1m<websockets.asyncio.server.ServerConnection object at 0x000001E05105BB30>[0m
+    [36m                     │      │        └ [0m[36m[1mRouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn.webui.workspaces....[0m
+    [36m                     │      └ [0m[36m[1m<function HttpRouter.dispatch at 0x000001E050DDB6A0>[0m
+    [36m                     └ [0m[36m[1m<miniunicorn.channels.websocket._http_router.HttpRouter object at 0x000001E050DD3170>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1m_http_router.py[0m", line [33m294[0m, in [35mdispatch[0m
+    [35m[1mreturn[0m [35m[1mawait[0m [1mentry[0m[35m[1m.[0m[1minvoke[0m[1m([0m[1mctx[0m[1m)[0m
+    [36m             │     │      └ [0m[36m[1mRouteContext(deps=RouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn...[0m
+    [36m             │     └ [0m[36m[1m<function _HandlerEntry.invoke at 0x000001E050DDB060>[0m
+    [36m             └ [0m[36m[1m_HandlerEntry(fn=<function cli_apps at 0x000001E050E0A840>, meta=RouteMeta(methods=frozenset({'GET'}), public=False, origin_c...[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1m_http_router.py[0m", line [33m136[0m, in [35minvoke[0m
+    [1mresult[0m [35m[1m=[0m [1mself[0m[35m[1m.[0m[1mfn[0m[1m([0m[1mctx[0m[1m)[0m
+    [36m         │    │  └ [0m[36m[1mRouteContext(deps=RouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn...[0m
+    [36m         │    └ [0m[36m[1m<function cli_apps at 0x000001E050E0A840>[0m
+    [36m         └ [0m[36m[1m_HandlerEntry(fn=<function cli_apps at 0x000001E050E0A840>, meta=RouteMeta(methods=frozenset({'GET'}), public=False, origin_c...[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\handlers\[0m[32m[1msettings.py[0m", line [33m232[0m, in [35mcli_apps[0m
+    [35m[1mfrom[0m [1mminiunicorn[0m[35m[1m.[0m[1mchannels[0m[35m[1m.[0m[1mwebsocket[0m[35m[1m.[0m[1mchannel[0m [35m[1mimport[0m [1mcli_apps_payload[0m
+
+[31m[1mImportError[0m:[1m cannot import name 'cli_apps_payload' from 'miniunicorn.channels.websocket.channel' (D:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\channel.py)[0m
+[32m2026-07-27 23:46:38[0m | [31m[1mERROR[0m | [36m-[0m | [31m[1m[websockets] opening handshake failed[0m
+[33m[1mTraceback (most recent call last):[0m
+
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\[0m[32m[1m__main__.py[0m", line [33m10[0m, in [35m<module>[0m
+    [1msys[0m[35m[1m.[0m[1mexit[0m[1m([0m[1mapp[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│   │    └ [0m[36m[1m<typer.main.Typer object at 0x000001E04FBC80E0>[0m
+    [36m│   └ [0m[36m[1m<built-in function exit>[0m
+    [36m└ [0m[36m[1m<module 'sys' (built-in)>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1137, in __call__
+    return get_command(self)(*args, **kwargs)
+           │           │      │       └ {}
+           │           │      └ ()
+           │           └ <typer.main.Typer object at 0x000001E04FBC80E0>
+           └ <function get_command at 0x000001E04E007420>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 807, in __call__
+    return self.main(*args, **kwargs)
+           │    │     │       └ {}
+           │    │     └ ()
+           │    └ <function TyperGroup.main at 0x000001E04E006E80>
+           └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1193, in main
+    return _main(
+           └ <function _main at 0x000001E04E004FE0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 183, in _main
+    rv = self.invoke(ctx)
+         │    │      └ <typer._click.core.Context object at 0x000001E04FC1E4E0>
+         │    └ <function TyperGroup.invoke at 0x000001E04E006A20>
+         └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1115, in invoke
+    return _process_result(sub_ctx.command.invoke(sub_ctx))
+           │               │       │       │      └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │               │       │       └ <function Command.invoke at 0x000001E04DF59120>
+           │               │       └ <TyperCommand gateway>
+           │               └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           └ <function TyperGroup.invoke.<locals>._process_result at 0x000001E050CC6200>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 746, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           │   │      │    │           │   └ {'workspace': None, 'verbose': False, 'config': None}
+           │   │      │    │           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │   │      │    └ <function gateway at 0x000001E050CC5580>
+           │   │      └ <TyperCommand gateway>
+           │   └ <function Context.invoke at 0x000001E04DF584A0>
+           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 489, in invoke
+    return callback(*args, **kwargs)
+           │         │       └ {'workspace': None, 'verbose': False, 'config': None}
+           │         └ ()
+           └ <function gateway at 0x000001E050CC5580>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1515, in wrapper
+    return callback(**use_params)
+           │          └ {'workspace': None, 'verbose': False, 'config': None}
+           └ <function gateway at 0x000001E050CC4F40>
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1mcommands.py[0m", line [33m482[0m, in [35mgateway[0m
+    [1m_run_gateway[0m[1m([0m[1mcfg[0m[1m)[0m
+    [36m│            └ [0m[36m[1mConfig(agents=AgentsConfig(defaults=AgentDefaults(workspace='~/.miniUnicorn/workspace', model_preset='laguna-s-2-1-free', mod...[0m
+    [36m└ [0m[36m[1m<function _run_gateway at 0x000001E050CC4900>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1m_gateway_runner.py[0m", line [33m751[0m, in [35m_run_gateway[0m
+    [1masyncio[0m[35m[1m.[0m[1mrun[0m[1m([0m[1mrun[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│       │   └ [0m[36m[1m<function _run_gateway.<locals>.run at 0x000001E05106C680>[0m
+    [36m│       └ [0m[36m[1m<function run at 0x000001E04D8C8900>[0m
+    [36m└ [0m[36m[1m<module 'asyncio' from 'C:\\Users\\OOOH\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\asyncio\\__init__.py'>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+           │      │   └ <coroutine object _run_gateway.<locals>.run at 0x000001E050E3D6D0>
+           │      └ <function Runner.run at 0x000001E04D924EA0>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           │    │     │                  └ <Task pending name='Task-1' coro=<_run_gateway.<locals>.run() running at D:\MyProject\MiniUnicorn\miniunicorn\cli\_gateway_ru...
+           │    │     └ <function BaseEventLoop.run_until_complete at 0x000001E04D922A20>
+           │    └ <ProactorEventLoop running=True closed=False debug=False>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 678, in run_until_complete
+    self.run_forever()
+    │    └ <function ProactorEventLoop.run_forever at 0x000001E04DDE1580>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\windows_events.py", line 322, in run_forever
+    super().run_forever()
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 645, in run_forever
+    self._run_once()
+    │    └ <function BaseEventLoop._run_once at 0x000001E04D9247C0>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 1999, in _run_once
+    handle._run()
+    │      └ <function Handle._run at 0x000001E04D8ACC20>
+    └ <Handle Task.task_wakeup(<Future finished result=None>)>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+    │    │            │    │           │    └ <member '_args' of 'Handle' objects>
+    │    │            │    │           └ <Handle Task.task_wakeup(<Future finished result=None>)>
+    │    │            │    └ <member '_callback' of 'Handle' objects>
+    │    │            └ <Handle Task.task_wakeup(<Future finished result=None>)>
+    │    └ <member '_context' of 'Handle' objects>
+    └ <Handle Task.task_wakeup(<Future finished result=None>)>
+> File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 356, in conn_handler
+    await connection.handshake(
+          │          └ <function ServerConnection.handshake at 0x000001E050D89080>
+          └ <websockets.asyncio.server.ServerConnection object at 0x000001E051CF9CD0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 207, in handshake
+    raise self.protocol.handshake_exc
+          │    │        └ ImportError("cannot import name 'cli_apps_payload' from 'miniunicorn.channels.websocket.channel' (D:\\MyProject\\MiniUnicorn\...
+          │    └ <websockets.server.ServerProtocol object at 0x000001E051CFACF0>
+          └ <websockets.asyncio.server.ServerConnection object at 0x000001E051CF9CD0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 149, in handshake
+    response = await response
+                     └ None
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1mchannel.py[0m", line [33m1036[0m, in [35mprocess_request[0m
+    [35m[1mreturn[0m [35m[1mawait[0m [1mself[0m[35m[1m.[0m[1m_dispatch_http[0m[1m([0m[1mconnection[0m[1m,[0m [1mrequest[0m[1m)[0m
+    [36m             │    │              │           └ [0m[36m[1mRequest(path='/api/settings/cli-apps', headers=Headers([('host', '127.0.0.1:8765'), ('connection', 'close'), ('accept', '*/*'...[0m
+    [36m             │    │              └ [0m[36m[1m<websockets.asyncio.server.ServerConnection object at 0x000001E051CF9CD0>[0m
+    [36m             │    └ [0m[36m[1m<function WebSocketChannel._dispatch_http at 0x000001E050E1E840>[0m
+    [36m             └ [0m[36m[1m<miniunicorn.channels.websocket.channel.WebSocketChannel object at 0x000001E04FAB60C0>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1mchannel.py[0m", line [33m566[0m, in [35m_dispatch_http[0m
+    [1mapi_response[0m [35m[1m=[0m [35m[1mawait[0m [1mrouter[0m[35m[1m.[0m[1mdispatch[0m[1m([0m[1mdeps[0m[1m,[0m [1mconnection[0m[1m,[0m [1mrequest[0m[1m)[0m
+    [36m                     │      │        │     │           └ [0m[36m[1mRequest(path='/api/settings/cli-apps', headers=Headers([('host', '127.0.0.1:8765'), ('connection', 'close'), ('accept', '*/*'...[0m
+    [36m                     │      │        │     └ [0m[36m[1m<websockets.asyncio.server.ServerConnection object at 0x000001E051CF9CD0>[0m
+    [36m                     │      │        └ [0m[36m[1mRouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn.webui.workspaces....[0m
+    [36m                     │      └ [0m[36m[1m<function HttpRouter.dispatch at 0x000001E050DDB6A0>[0m
+    [36m                     └ [0m[36m[1m<miniunicorn.channels.websocket._http_router.HttpRouter object at 0x000001E050DD3170>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1m_http_router.py[0m", line [33m294[0m, in [35mdispatch[0m
+    [35m[1mreturn[0m [35m[1mawait[0m [1mentry[0m[35m[1m.[0m[1minvoke[0m[1m([0m[1mctx[0m[1m)[0m
+    [36m             │     │      └ [0m[36m[1mRouteContext(deps=RouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn...[0m
+    [36m             │     └ [0m[36m[1m<function _HandlerEntry.invoke at 0x000001E050DDB060>[0m
+    [36m             └ [0m[36m[1m_HandlerEntry(fn=<function cli_apps at 0x000001E050E0A840>, meta=RouteMeta(methods=frozenset({'GET'}), public=False, origin_c...[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1m_http_router.py[0m", line [33m136[0m, in [35minvoke[0m
+    [1mresult[0m [35m[1m=[0m [1mself[0m[35m[1m.[0m[1mfn[0m[1m([0m[1mctx[0m[1m)[0m
+    [36m         │    │  └ [0m[36m[1mRouteContext(deps=RouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn...[0m
+    [36m         │    └ [0m[36m[1m<function cli_apps at 0x000001E050E0A840>[0m
+    [36m         └ [0m[36m[1m_HandlerEntry(fn=<function cli_apps at 0x000001E050E0A840>, meta=RouteMeta(methods=frozenset({'GET'}), public=False, origin_c...[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\handlers\[0m[32m[1msettings.py[0m", line [33m232[0m, in [35mcli_apps[0m
+    [35m[1mfrom[0m [1mminiunicorn[0m[35m[1m.[0m[1mchannels[0m[35m[1m.[0m[1mwebsocket[0m[35m[1m.[0m[1mchannel[0m [35m[1mimport[0m [1mcli_apps_payload[0m
+
+[31m[1mImportError[0m:[1m cannot import name 'cli_apps_payload' from 'miniunicorn.channels.websocket.channel' (D:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\channel.py)[0m
+[32m2026-07-27 23:46:39[0m | [31m[1mERROR[0m | [36m-[0m | [31m[1m[websockets] opening handshake failed[0m
+[33m[1mTraceback (most recent call last):[0m
+
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\[0m[32m[1m__main__.py[0m", line [33m10[0m, in [35m<module>[0m
+    [1msys[0m[35m[1m.[0m[1mexit[0m[1m([0m[1mapp[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│   │    └ [0m[36m[1m<typer.main.Typer object at 0x000001E04FBC80E0>[0m
+    [36m│   └ [0m[36m[1m<built-in function exit>[0m
+    [36m└ [0m[36m[1m<module 'sys' (built-in)>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1137, in __call__
+    return get_command(self)(*args, **kwargs)
+           │           │      │       └ {}
+           │           │      └ ()
+           │           └ <typer.main.Typer object at 0x000001E04FBC80E0>
+           └ <function get_command at 0x000001E04E007420>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 807, in __call__
+    return self.main(*args, **kwargs)
+           │    │     │       └ {}
+           │    │     └ ()
+           │    └ <function TyperGroup.main at 0x000001E04E006E80>
+           └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1193, in main
+    return _main(
+           └ <function _main at 0x000001E04E004FE0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 183, in _main
+    rv = self.invoke(ctx)
+         │    │      └ <typer._click.core.Context object at 0x000001E04FC1E4E0>
+         │    └ <function TyperGroup.invoke at 0x000001E04E006A20>
+         └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1115, in invoke
+    return _process_result(sub_ctx.command.invoke(sub_ctx))
+           │               │       │       │      └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │               │       │       └ <function Command.invoke at 0x000001E04DF59120>
+           │               │       └ <TyperCommand gateway>
+           │               └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           └ <function TyperGroup.invoke.<locals>._process_result at 0x000001E050CC6200>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 746, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           │   │      │    │           │   └ {'workspace': None, 'verbose': False, 'config': None}
+           │   │      │    │           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │   │      │    └ <function gateway at 0x000001E050CC5580>
+           │   │      └ <TyperCommand gateway>
+           │   └ <function Context.invoke at 0x000001E04DF584A0>
+           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 489, in invoke
+    return callback(*args, **kwargs)
+           │         │       └ {'workspace': None, 'verbose': False, 'config': None}
+           │         └ ()
+           └ <function gateway at 0x000001E050CC5580>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1515, in wrapper
+    return callback(**use_params)
+           │          └ {'workspace': None, 'verbose': False, 'config': None}
+           └ <function gateway at 0x000001E050CC4F40>
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1mcommands.py[0m", line [33m482[0m, in [35mgateway[0m
+    [1m_run_gateway[0m[1m([0m[1mcfg[0m[1m)[0m
+    [36m│            └ [0m[36m[1mConfig(agents=AgentsConfig(defaults=AgentDefaults(workspace='~/.miniUnicorn/workspace', model_preset='laguna-s-2-1-free', mod...[0m
+    [36m└ [0m[36m[1m<function _run_gateway at 0x000001E050CC4900>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1m_gateway_runner.py[0m", line [33m751[0m, in [35m_run_gateway[0m
+    [1masyncio[0m[35m[1m.[0m[1mrun[0m[1m([0m[1mrun[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│       │   └ [0m[36m[1m<function _run_gateway.<locals>.run at 0x000001E05106C680>[0m
+    [36m│       └ [0m[36m[1m<function run at 0x000001E04D8C8900>[0m
+    [36m└ [0m[36m[1m<module 'asyncio' from 'C:\\Users\\OOOH\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\asyncio\\__init__.py'>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+           │      │   └ <coroutine object _run_gateway.<locals>.run at 0x000001E050E3D6D0>
+           │      └ <function Runner.run at 0x000001E04D924EA0>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           │    │     │                  └ <Task pending name='Task-1' coro=<_run_gateway.<locals>.run() running at D:\MyProject\MiniUnicorn\miniunicorn\cli\_gateway_ru...
+           │    │     └ <function BaseEventLoop.run_until_complete at 0x000001E04D922A20>
+           │    └ <ProactorEventLoop running=True closed=False debug=False>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 678, in run_until_complete
+    self.run_forever()
+    │    └ <function ProactorEventLoop.run_forever at 0x000001E04DDE1580>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\windows_events.py", line 322, in run_forever
+    super().run_forever()
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 645, in run_forever
+    self._run_once()
+    │    └ <function BaseEventLoop._run_once at 0x000001E04D9247C0>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 1999, in _run_once
+    handle._run()
+    │      └ <function Handle._run at 0x000001E04D8ACC20>
+    └ <Handle Task.task_wakeup(<Future finished result=None>)>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+    │    │            │    │           │    └ <member '_args' of 'Handle' objects>
+    │    │            │    │           └ <Handle Task.task_wakeup(<Future finished result=None>)>
+    │    │            │    └ <member '_callback' of 'Handle' objects>
+    │    │            └ <Handle Task.task_wakeup(<Future finished result=None>)>
+    │    └ <member '_context' of 'Handle' objects>
+    └ <Handle Task.task_wakeup(<Future finished result=None>)>
+> File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 356, in conn_handler
+    await connection.handshake(
+          │          └ <function ServerConnection.handshake at 0x000001E050D89080>
+          └ <websockets.asyncio.server.ServerConnection object at 0x000001E051CFA9F0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 207, in handshake
+    raise self.protocol.handshake_exc
+          │    │        └ ImportError("cannot import name 'cli_apps_payload' from 'miniunicorn.channels.websocket.channel' (D:\\MyProject\\MiniUnicorn\...
+          │    └ <websockets.server.ServerProtocol object at 0x000001E051CFA810>
+          └ <websockets.asyncio.server.ServerConnection object at 0x000001E051CFA9F0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 149, in handshake
+    response = await response
+                     └ None
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1mchannel.py[0m", line [33m1036[0m, in [35mprocess_request[0m
+    [35m[1mreturn[0m [35m[1mawait[0m [1mself[0m[35m[1m.[0m[1m_dispatch_http[0m[1m([0m[1mconnection[0m[1m,[0m [1mrequest[0m[1m)[0m
+    [36m             │    │              │           └ [0m[36m[1mRequest(path='/api/settings/cli-apps', headers=Headers([('host', '127.0.0.1:8765'), ('connection', 'close'), ('accept', '*/*'...[0m
+    [36m             │    │              └ [0m[36m[1m<websockets.asyncio.server.ServerConnection object at 0x000001E051CFA9F0>[0m
+    [36m             │    └ [0m[36m[1m<function WebSocketChannel._dispatch_http at 0x000001E050E1E840>[0m
+    [36m             └ [0m[36m[1m<miniunicorn.channels.websocket.channel.WebSocketChannel object at 0x000001E04FAB60C0>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1mchannel.py[0m", line [33m566[0m, in [35m_dispatch_http[0m
+    [1mapi_response[0m [35m[1m=[0m [35m[1mawait[0m [1mrouter[0m[35m[1m.[0m[1mdispatch[0m[1m([0m[1mdeps[0m[1m,[0m [1mconnection[0m[1m,[0m [1mrequest[0m[1m)[0m
+    [36m                     │      │        │     │           └ [0m[36m[1mRequest(path='/api/settings/cli-apps', headers=Headers([('host', '127.0.0.1:8765'), ('connection', 'close'), ('accept', '*/*'...[0m
+    [36m                     │      │        │     └ [0m[36m[1m<websockets.asyncio.server.ServerConnection object at 0x000001E051CFA9F0>[0m
+    [36m                     │      │        └ [0m[36m[1mRouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn.webui.workspaces....[0m
+    [36m                     │      └ [0m[36m[1m<function HttpRouter.dispatch at 0x000001E050DDB6A0>[0m
+    [36m                     └ [0m[36m[1m<miniunicorn.channels.websocket._http_router.HttpRouter object at 0x000001E050DD3170>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1m_http_router.py[0m", line [33m294[0m, in [35mdispatch[0m
+    [35m[1mreturn[0m [35m[1mawait[0m [1mentry[0m[35m[1m.[0m[1minvoke[0m[1m([0m[1mctx[0m[1m)[0m
+    [36m             │     │      └ [0m[36m[1mRouteContext(deps=RouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn...[0m
+    [36m             │     └ [0m[36m[1m<function _HandlerEntry.invoke at 0x000001E050DDB060>[0m
+    [36m             └ [0m[36m[1m_HandlerEntry(fn=<function cli_apps at 0x000001E050E0A840>, meta=RouteMeta(methods=frozenset({'GET'}), public=False, origin_c...[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1m_http_router.py[0m", line [33m136[0m, in [35minvoke[0m
+    [1mresult[0m [35m[1m=[0m [1mself[0m[35m[1m.[0m[1mfn[0m[1m([0m[1mctx[0m[1m)[0m
+    [36m         │    │  └ [0m[36m[1mRouteContext(deps=RouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn...[0m
+    [36m         │    └ [0m[36m[1m<function cli_apps at 0x000001E050E0A840>[0m
+    [36m         └ [0m[36m[1m_HandlerEntry(fn=<function cli_apps at 0x000001E050E0A840>, meta=RouteMeta(methods=frozenset({'GET'}), public=False, origin_c...[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\handlers\[0m[32m[1msettings.py[0m", line [33m232[0m, in [35mcli_apps[0m
+    [35m[1mfrom[0m [1mminiunicorn[0m[35m[1m.[0m[1mchannels[0m[35m[1m.[0m[1mwebsocket[0m[35m[1m.[0m[1mchannel[0m [35m[1mimport[0m [1mcli_apps_payload[0m
+
+[31m[1mImportError[0m:[1m cannot import name 'cli_apps_payload' from 'miniunicorn.channels.websocket.channel' (D:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\channel.py)[0m
+[32m2026-07-27 23:46:39[0m | [31m[1mERROR[0m | [36m-[0m | [31m[1m[websockets] opening handshake failed[0m
+[33m[1mTraceback (most recent call last):[0m
+
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\[0m[32m[1m__main__.py[0m", line [33m10[0m, in [35m<module>[0m
+    [1msys[0m[35m[1m.[0m[1mexit[0m[1m([0m[1mapp[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│   │    └ [0m[36m[1m<typer.main.Typer object at 0x000001E04FBC80E0>[0m
+    [36m│   └ [0m[36m[1m<built-in function exit>[0m
+    [36m└ [0m[36m[1m<module 'sys' (built-in)>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1137, in __call__
+    return get_command(self)(*args, **kwargs)
+           │           │      │       └ {}
+           │           │      └ ()
+           │           └ <typer.main.Typer object at 0x000001E04FBC80E0>
+           └ <function get_command at 0x000001E04E007420>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 807, in __call__
+    return self.main(*args, **kwargs)
+           │    │     │       └ {}
+           │    │     └ ()
+           │    └ <function TyperGroup.main at 0x000001E04E006E80>
+           └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1193, in main
+    return _main(
+           └ <function _main at 0x000001E04E004FE0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 183, in _main
+    rv = self.invoke(ctx)
+         │    │      └ <typer._click.core.Context object at 0x000001E04FC1E4E0>
+         │    └ <function TyperGroup.invoke at 0x000001E04E006A20>
+         └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1115, in invoke
+    return _process_result(sub_ctx.command.invoke(sub_ctx))
+           │               │       │       │      └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │               │       │       └ <function Command.invoke at 0x000001E04DF59120>
+           │               │       └ <TyperCommand gateway>
+           │               └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           └ <function TyperGroup.invoke.<locals>._process_result at 0x000001E050CC6200>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 746, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           │   │      │    │           │   └ {'workspace': None, 'verbose': False, 'config': None}
+           │   │      │    │           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │   │      │    └ <function gateway at 0x000001E050CC5580>
+           │   │      └ <TyperCommand gateway>
+           │   └ <function Context.invoke at 0x000001E04DF584A0>
+           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 489, in invoke
+    return callback(*args, **kwargs)
+           │         │       └ {'workspace': None, 'verbose': False, 'config': None}
+           │         └ ()
+           └ <function gateway at 0x000001E050CC5580>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1515, in wrapper
+    return callback(**use_params)
+           │          └ {'workspace': None, 'verbose': False, 'config': None}
+           └ <function gateway at 0x000001E050CC4F40>
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1mcommands.py[0m", line [33m482[0m, in [35mgateway[0m
+    [1m_run_gateway[0m[1m([0m[1mcfg[0m[1m)[0m
+    [36m│            └ [0m[36m[1mConfig(agents=AgentsConfig(defaults=AgentDefaults(workspace='~/.miniUnicorn/workspace', model_preset='laguna-s-2-1-free', mod...[0m
+    [36m└ [0m[36m[1m<function _run_gateway at 0x000001E050CC4900>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1m_gateway_runner.py[0m", line [33m751[0m, in [35m_run_gateway[0m
+    [1masyncio[0m[35m[1m.[0m[1mrun[0m[1m([0m[1mrun[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│       │   └ [0m[36m[1m<function _run_gateway.<locals>.run at 0x000001E05106C680>[0m
+    [36m│       └ [0m[36m[1m<function run at 0x000001E04D8C8900>[0m
+    [36m└ [0m[36m[1m<module 'asyncio' from 'C:\\Users\\OOOH\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\asyncio\\__init__.py'>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+           │      │   └ <coroutine object _run_gateway.<locals>.run at 0x000001E050E3D6D0>
+           │      └ <function Runner.run at 0x000001E04D924EA0>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           │    │     │                  └ <Task pending name='Task-1' coro=<_run_gateway.<locals>.run() running at D:\MyProject\MiniUnicorn\miniunicorn\cli\_gateway_ru...
+           │    │     └ <function BaseEventLoop.run_until_complete at 0x000001E04D922A20>
+           │    └ <ProactorEventLoop running=True closed=False debug=False>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 678, in run_until_complete
+    self.run_forever()
+    │    └ <function ProactorEventLoop.run_forever at 0x000001E04DDE1580>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\windows_events.py", line 322, in run_forever
+    super().run_forever()
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 645, in run_forever
+    self._run_once()
+    │    └ <function BaseEventLoop._run_once at 0x000001E04D9247C0>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 1999, in _run_once
+    handle._run()
+    │      └ <function Handle._run at 0x000001E04D8ACC20>
+    └ <Handle Task.task_wakeup(<Future finished result=None>)>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+    │    │            │    │           │    └ <member '_args' of 'Handle' objects>
+    │    │            │    │           └ <Handle Task.task_wakeup(<Future finished result=None>)>
+    │    │            │    └ <member '_callback' of 'Handle' objects>
+    │    │            └ <Handle Task.task_wakeup(<Future finished result=None>)>
+    │    └ <member '_context' of 'Handle' objects>
+    └ <Handle Task.task_wakeup(<Future finished result=None>)>
+> File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 356, in conn_handler
+    await connection.handshake(
+          │          └ <function ServerConnection.handshake at 0x000001E050D89080>
+          └ <websockets.asyncio.server.ServerConnection object at 0x000001E051CEB6E0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 207, in handshake
+    raise self.protocol.handshake_exc
+          │    │        └ ImportError("cannot import name 'cli_apps_payload' from 'miniunicorn.channels.websocket.channel' (D:\\MyProject\\MiniUnicorn\...
+          │    └ <websockets.server.ServerProtocol object at 0x000001E051CB2BD0>
+          └ <websockets.asyncio.server.ServerConnection object at 0x000001E051CEB6E0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 149, in handshake
+    response = await response
+                     └ None
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1mchannel.py[0m", line [33m1036[0m, in [35mprocess_request[0m
+    [35m[1mreturn[0m [35m[1mawait[0m [1mself[0m[35m[1m.[0m[1m_dispatch_http[0m[1m([0m[1mconnection[0m[1m,[0m [1mrequest[0m[1m)[0m
+    [36m             │    │              │           └ [0m[36m[1mRequest(path='/api/settings/cli-apps', headers=Headers([('host', '127.0.0.1:8765'), ('connection', 'close'), ('accept', '*/*'...[0m
+    [36m             │    │              └ [0m[36m[1m<websockets.asyncio.server.ServerConnection object at 0x000001E051CEB6E0>[0m
+    [36m             │    └ [0m[36m[1m<function WebSocketChannel._dispatch_http at 0x000001E050E1E840>[0m
+    [36m             └ [0m[36m[1m<miniunicorn.channels.websocket.channel.WebSocketChannel object at 0x000001E04FAB60C0>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1mchannel.py[0m", line [33m566[0m, in [35m_dispatch_http[0m
+    [1mapi_response[0m [35m[1m=[0m [35m[1mawait[0m [1mrouter[0m[35m[1m.[0m[1mdispatch[0m[1m([0m[1mdeps[0m[1m,[0m [1mconnection[0m[1m,[0m [1mrequest[0m[1m)[0m
+    [36m                     │      │        │     │           └ [0m[36m[1mRequest(path='/api/settings/cli-apps', headers=Headers([('host', '127.0.0.1:8765'), ('connection', 'close'), ('accept', '*/*'...[0m
+    [36m                     │      │        │     └ [0m[36m[1m<websockets.asyncio.server.ServerConnection object at 0x000001E051CEB6E0>[0m
+    [36m                     │      │        └ [0m[36m[1mRouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn.webui.workspaces....[0m
+    [36m                     │      └ [0m[36m[1m<function HttpRouter.dispatch at 0x000001E050DDB6A0>[0m
+    [36m                     └ [0m[36m[1m<miniunicorn.channels.websocket._http_router.HttpRouter object at 0x000001E050DD3170>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1m_http_router.py[0m", line [33m294[0m, in [35mdispatch[0m
+    [35m[1mreturn[0m [35m[1mawait[0m [1mentry[0m[35m[1m.[0m[1minvoke[0m[1m([0m[1mctx[0m[1m)[0m
+    [36m             │     │      └ [0m[36m[1mRouteContext(deps=RouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn...[0m
+    [36m             │     └ [0m[36m[1m<function _HandlerEntry.invoke at 0x000001E050DDB060>[0m
+    [36m             └ [0m[36m[1m_HandlerEntry(fn=<function cli_apps at 0x000001E050E0A840>, meta=RouteMeta(methods=frozenset({'GET'}), public=False, origin_c...[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1m_http_router.py[0m", line [33m136[0m, in [35minvoke[0m
+    [1mresult[0m [35m[1m=[0m [1mself[0m[35m[1m.[0m[1mfn[0m[1m([0m[1mctx[0m[1m)[0m
+    [36m         │    │  └ [0m[36m[1mRouteContext(deps=RouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn...[0m
+    [36m         │    └ [0m[36m[1m<function cli_apps at 0x000001E050E0A840>[0m
+    [36m         └ [0m[36m[1m_HandlerEntry(fn=<function cli_apps at 0x000001E050E0A840>, meta=RouteMeta(methods=frozenset({'GET'}), public=False, origin_c...[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\handlers\[0m[32m[1msettings.py[0m", line [33m232[0m, in [35mcli_apps[0m
+    [35m[1mfrom[0m [1mminiunicorn[0m[35m[1m.[0m[1mchannels[0m[35m[1m.[0m[1mwebsocket[0m[35m[1m.[0m[1mchannel[0m [35m[1mimport[0m [1mcli_apps_payload[0m
+
+[31m[1mImportError[0m:[1m cannot import name 'cli_apps_payload' from 'miniunicorn.channels.websocket.channel' (D:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\channel.py)[0m
+[32m2026-07-27 23:46:40[0m | [31m[1mERROR[0m | [36m-[0m | [31m[1m[websockets] opening handshake failed[0m
+[33m[1mTraceback (most recent call last):[0m
+
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\[0m[32m[1m__main__.py[0m", line [33m10[0m, in [35m<module>[0m
+    [1msys[0m[35m[1m.[0m[1mexit[0m[1m([0m[1mapp[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│   │    └ [0m[36m[1m<typer.main.Typer object at 0x000001E04FBC80E0>[0m
+    [36m│   └ [0m[36m[1m<built-in function exit>[0m
+    [36m└ [0m[36m[1m<module 'sys' (built-in)>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1137, in __call__
+    return get_command(self)(*args, **kwargs)
+           │           │      │       └ {}
+           │           │      └ ()
+           │           └ <typer.main.Typer object at 0x000001E04FBC80E0>
+           └ <function get_command at 0x000001E04E007420>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 807, in __call__
+    return self.main(*args, **kwargs)
+           │    │     │       └ {}
+           │    │     └ ()
+           │    └ <function TyperGroup.main at 0x000001E04E006E80>
+           └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1193, in main
+    return _main(
+           └ <function _main at 0x000001E04E004FE0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 183, in _main
+    rv = self.invoke(ctx)
+         │    │      └ <typer._click.core.Context object at 0x000001E04FC1E4E0>
+         │    └ <function TyperGroup.invoke at 0x000001E04E006A20>
+         └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1115, in invoke
+    return _process_result(sub_ctx.command.invoke(sub_ctx))
+           │               │       │       │      └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │               │       │       └ <function Command.invoke at 0x000001E04DF59120>
+           │               │       └ <TyperCommand gateway>
+           │               └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           └ <function TyperGroup.invoke.<locals>._process_result at 0x000001E050CC6200>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 746, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           │   │      │    │           │   └ {'workspace': None, 'verbose': False, 'config': None}
+           │   │      │    │           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │   │      │    └ <function gateway at 0x000001E050CC5580>
+           │   │      └ <TyperCommand gateway>
+           │   └ <function Context.invoke at 0x000001E04DF584A0>
+           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 489, in invoke
+    return callback(*args, **kwargs)
+           │         │       └ {'workspace': None, 'verbose': False, 'config': None}
+           │         └ ()
+           └ <function gateway at 0x000001E050CC5580>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1515, in wrapper
+    return callback(**use_params)
+           │          └ {'workspace': None, 'verbose': False, 'config': None}
+           └ <function gateway at 0x000001E050CC4F40>
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1mcommands.py[0m", line [33m482[0m, in [35mgateway[0m
+    [1m_run_gateway[0m[1m([0m[1mcfg[0m[1m)[0m
+    [36m│            └ [0m[36m[1mConfig(agents=AgentsConfig(defaults=AgentDefaults(workspace='~/.miniUnicorn/workspace', model_preset='laguna-s-2-1-free', mod...[0m
+    [36m└ [0m[36m[1m<function _run_gateway at 0x000001E050CC4900>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1m_gateway_runner.py[0m", line [33m751[0m, in [35m_run_gateway[0m
+    [1masyncio[0m[35m[1m.[0m[1mrun[0m[1m([0m[1mrun[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│       │   └ [0m[36m[1m<function _run_gateway.<locals>.run at 0x000001E05106C680>[0m
+    [36m│       └ [0m[36m[1m<function run at 0x000001E04D8C8900>[0m
+    [36m└ [0m[36m[1m<module 'asyncio' from 'C:\\Users\\OOOH\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\asyncio\\__init__.py'>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+           │      │   └ <coroutine object _run_gateway.<locals>.run at 0x000001E050E3D6D0>
+           │      └ <function Runner.run at 0x000001E04D924EA0>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           │    │     │                  └ <Task pending name='Task-1' coro=<_run_gateway.<locals>.run() running at D:\MyProject\MiniUnicorn\miniunicorn\cli\_gateway_ru...
+           │    │     └ <function BaseEventLoop.run_until_complete at 0x000001E04D922A20>
+           │    └ <ProactorEventLoop running=True closed=False debug=False>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 678, in run_until_complete
+    self.run_forever()
+    │    └ <function ProactorEventLoop.run_forever at 0x000001E04DDE1580>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\windows_events.py", line 322, in run_forever
+    super().run_forever()
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 645, in run_forever
+    self._run_once()
+    │    └ <function BaseEventLoop._run_once at 0x000001E04D9247C0>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 1999, in _run_once
+    handle._run()
+    │      └ <function Handle._run at 0x000001E04D8ACC20>
+    └ <Handle Task.task_wakeup(<Future finished result=None>)>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+    │    │            │    │           │    └ <member '_args' of 'Handle' objects>
+    │    │            │    │           └ <Handle Task.task_wakeup(<Future finished result=None>)>
+    │    │            │    └ <member '_callback' of 'Handle' objects>
+    │    │            └ <Handle Task.task_wakeup(<Future finished result=None>)>
+    │    └ <member '_context' of 'Handle' objects>
+    └ <Handle Task.task_wakeup(<Future finished result=None>)>
+> File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 356, in conn_handler
+    await connection.handshake(
+          │          └ <function ServerConnection.handshake at 0x000001E050D89080>
+          └ <websockets.asyncio.server.ServerConnection object at 0x000001E051CF9E80>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 207, in handshake
+    raise self.protocol.handshake_exc
+          │    │        └ ImportError("cannot import name 'cli_apps_payload' from 'miniunicorn.channels.websocket.channel' (D:\\MyProject\\MiniUnicorn\...
+          │    └ <websockets.server.ServerProtocol object at 0x000001E051CF9460>
+          └ <websockets.asyncio.server.ServerConnection object at 0x000001E051CF9E80>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 149, in handshake
+    response = await response
+                     └ None
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1mchannel.py[0m", line [33m1036[0m, in [35mprocess_request[0m
+    [35m[1mreturn[0m [35m[1mawait[0m [1mself[0m[35m[1m.[0m[1m_dispatch_http[0m[1m([0m[1mconnection[0m[1m,[0m [1mrequest[0m[1m)[0m
+    [36m             │    │              │           └ [0m[36m[1mRequest(path='/api/settings/cli-apps', headers=Headers([('host', '127.0.0.1:8765'), ('connection', 'close'), ('accept', '*/*'...[0m
+    [36m             │    │              └ [0m[36m[1m<websockets.asyncio.server.ServerConnection object at 0x000001E051CF9E80>[0m
+    [36m             │    └ [0m[36m[1m<function WebSocketChannel._dispatch_http at 0x000001E050E1E840>[0m
+    [36m             └ [0m[36m[1m<miniunicorn.channels.websocket.channel.WebSocketChannel object at 0x000001E04FAB60C0>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1mchannel.py[0m", line [33m566[0m, in [35m_dispatch_http[0m
+    [1mapi_response[0m [35m[1m=[0m [35m[1mawait[0m [1mrouter[0m[35m[1m.[0m[1mdispatch[0m[1m([0m[1mdeps[0m[1m,[0m [1mconnection[0m[1m,[0m [1mrequest[0m[1m)[0m
+    [36m                     │      │        │     │           └ [0m[36m[1mRequest(path='/api/settings/cli-apps', headers=Headers([('host', '127.0.0.1:8765'), ('connection', 'close'), ('accept', '*/*'...[0m
+    [36m                     │      │        │     └ [0m[36m[1m<websockets.asyncio.server.ServerConnection object at 0x000001E051CF9E80>[0m
+    [36m                     │      │        └ [0m[36m[1mRouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn.webui.workspaces....[0m
+    [36m                     │      └ [0m[36m[1m<function HttpRouter.dispatch at 0x000001E050DDB6A0>[0m
+    [36m                     └ [0m[36m[1m<miniunicorn.channels.websocket._http_router.HttpRouter object at 0x000001E050DD3170>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1m_http_router.py[0m", line [33m294[0m, in [35mdispatch[0m
+    [35m[1mreturn[0m [35m[1mawait[0m [1mentry[0m[35m[1m.[0m[1minvoke[0m[1m([0m[1mctx[0m[1m)[0m
+    [36m             │     │      └ [0m[36m[1mRouteContext(deps=RouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn...[0m
+    [36m             │     └ [0m[36m[1m<function _HandlerEntry.invoke at 0x000001E050DDB060>[0m
+    [36m             └ [0m[36m[1m_HandlerEntry(fn=<function cli_apps at 0x000001E050E0A840>, meta=RouteMeta(methods=frozenset({'GET'}), public=False, origin_c...[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1m_http_router.py[0m", line [33m136[0m, in [35minvoke[0m
+    [1mresult[0m [35m[1m=[0m [1mself[0m[35m[1m.[0m[1mfn[0m[1m([0m[1mctx[0m[1m)[0m
+    [36m         │    │  └ [0m[36m[1mRouteContext(deps=RouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn...[0m
+    [36m         │    └ [0m[36m[1m<function cli_apps at 0x000001E050E0A840>[0m
+    [36m         └ [0m[36m[1m_HandlerEntry(fn=<function cli_apps at 0x000001E050E0A840>, meta=RouteMeta(methods=frozenset({'GET'}), public=False, origin_c...[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\handlers\[0m[32m[1msettings.py[0m", line [33m232[0m, in [35mcli_apps[0m
+    [35m[1mfrom[0m [1mminiunicorn[0m[35m[1m.[0m[1mchannels[0m[35m[1m.[0m[1mwebsocket[0m[35m[1m.[0m[1mchannel[0m [35m[1mimport[0m [1mcli_apps_payload[0m
+
+[31m[1mImportError[0m:[1m cannot import name 'cli_apps_payload' from 'miniunicorn.channels.websocket.channel' (D:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\channel.py)[0m
+[32m2026-07-27 23:46:40[0m | [31m[1mERROR[0m | [36m-[0m | [31m[1m[websockets] opening handshake failed[0m
+[33m[1mTraceback (most recent call last):[0m
+
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\[0m[32m[1m__main__.py[0m", line [33m10[0m, in [35m<module>[0m
+    [1msys[0m[35m[1m.[0m[1mexit[0m[1m([0m[1mapp[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│   │    └ [0m[36m[1m<typer.main.Typer object at 0x000001E04FBC80E0>[0m
+    [36m│   └ [0m[36m[1m<built-in function exit>[0m
+    [36m└ [0m[36m[1m<module 'sys' (built-in)>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1137, in __call__
+    return get_command(self)(*args, **kwargs)
+           │           │      │       └ {}
+           │           │      └ ()
+           │           └ <typer.main.Typer object at 0x000001E04FBC80E0>
+           └ <function get_command at 0x000001E04E007420>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 807, in __call__
+    return self.main(*args, **kwargs)
+           │    │     │       └ {}
+           │    │     └ ()
+           │    └ <function TyperGroup.main at 0x000001E04E006E80>
+           └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1193, in main
+    return _main(
+           └ <function _main at 0x000001E04E004FE0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 183, in _main
+    rv = self.invoke(ctx)
+         │    │      └ <typer._click.core.Context object at 0x000001E04FC1E4E0>
+         │    └ <function TyperGroup.invoke at 0x000001E04E006A20>
+         └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1115, in invoke
+    return _process_result(sub_ctx.command.invoke(sub_ctx))
+           │               │       │       │      └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │               │       │       └ <function Command.invoke at 0x000001E04DF59120>
+           │               │       └ <TyperCommand gateway>
+           │               └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           └ <function TyperGroup.invoke.<locals>._process_result at 0x000001E050CC6200>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 746, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           │   │      │    │           │   └ {'workspace': None, 'verbose': False, 'config': None}
+           │   │      │    │           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │   │      │    └ <function gateway at 0x000001E050CC5580>
+           │   │      └ <TyperCommand gateway>
+           │   └ <function Context.invoke at 0x000001E04DF584A0>
+           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 489, in invoke
+    return callback(*args, **kwargs)
+           │         │       └ {'workspace': None, 'verbose': False, 'config': None}
+           │         └ ()
+           └ <function gateway at 0x000001E050CC5580>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1515, in wrapper
+    return callback(**use_params)
+           │          └ {'workspace': None, 'verbose': False, 'config': None}
+           └ <function gateway at 0x000001E050CC4F40>
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1mcommands.py[0m", line [33m482[0m, in [35mgateway[0m
+    [1m_run_gateway[0m[1m([0m[1mcfg[0m[1m)[0m
+    [36m│            └ [0m[36m[1mConfig(agents=AgentsConfig(defaults=AgentDefaults(workspace='~/.miniUnicorn/workspace', model_preset='laguna-s-2-1-free', mod...[0m
+    [36m└ [0m[36m[1m<function _run_gateway at 0x000001E050CC4900>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1m_gateway_runner.py[0m", line [33m751[0m, in [35m_run_gateway[0m
+    [1masyncio[0m[35m[1m.[0m[1mrun[0m[1m([0m[1mrun[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│       │   └ [0m[36m[1m<function _run_gateway.<locals>.run at 0x000001E05106C680>[0m
+    [36m│       └ [0m[36m[1m<function run at 0x000001E04D8C8900>[0m
+    [36m└ [0m[36m[1m<module 'asyncio' from 'C:\\Users\\OOOH\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\asyncio\\__init__.py'>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+           │      │   └ <coroutine object _run_gateway.<locals>.run at 0x000001E050E3D6D0>
+           │      └ <function Runner.run at 0x000001E04D924EA0>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           │    │     │                  └ <Task pending name='Task-1' coro=<_run_gateway.<locals>.run() running at D:\MyProject\MiniUnicorn\miniunicorn\cli\_gateway_ru...
+           │    │     └ <function BaseEventLoop.run_until_complete at 0x000001E04D922A20>
+           │    └ <ProactorEventLoop running=True closed=False debug=False>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 678, in run_until_complete
+    self.run_forever()
+    │    └ <function ProactorEventLoop.run_forever at 0x000001E04DDE1580>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\windows_events.py", line 322, in run_forever
+    super().run_forever()
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 645, in run_forever
+    self._run_once()
+    │    └ <function BaseEventLoop._run_once at 0x000001E04D9247C0>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 1999, in _run_once
+    handle._run()
+    │      └ <function Handle._run at 0x000001E04D8ACC20>
+    └ <Handle Task.task_wakeup(<Future finished result=None>)>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+    │    │            │    │           │    └ <member '_args' of 'Handle' objects>
+    │    │            │    │           └ <Handle Task.task_wakeup(<Future finished result=None>)>
+    │    │            │    └ <member '_callback' of 'Handle' objects>
+    │    │            └ <Handle Task.task_wakeup(<Future finished result=None>)>
+    │    └ <member '_context' of 'Handle' objects>
+    └ <Handle Task.task_wakeup(<Future finished result=None>)>
+> File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 356, in conn_handler
+    await connection.handshake(
+          │          └ <function ServerConnection.handshake at 0x000001E050D89080>
+          └ <websockets.asyncio.server.ServerConnection object at 0x000001E051CF9BB0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 207, in handshake
+    raise self.protocol.handshake_exc
+          │    │        └ ImportError("cannot import name 'cli_apps_payload' from 'miniunicorn.channels.websocket.channel' (D:\\MyProject\\MiniUnicorn\...
+          │    └ <websockets.server.ServerProtocol object at 0x000001E051CFAB40>
+          └ <websockets.asyncio.server.ServerConnection object at 0x000001E051CF9BB0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 149, in handshake
+    response = await response
+                     └ None
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1mchannel.py[0m", line [33m1036[0m, in [35mprocess_request[0m
+    [35m[1mreturn[0m [35m[1mawait[0m [1mself[0m[35m[1m.[0m[1m_dispatch_http[0m[1m([0m[1mconnection[0m[1m,[0m [1mrequest[0m[1m)[0m
+    [36m             │    │              │           └ [0m[36m[1mRequest(path='/api/settings/cli-apps', headers=Headers([('host', '127.0.0.1:8765'), ('connection', 'close'), ('accept', '*/*'...[0m
+    [36m             │    │              └ [0m[36m[1m<websockets.asyncio.server.ServerConnection object at 0x000001E051CF9BB0>[0m
+    [36m             │    └ [0m[36m[1m<function WebSocketChannel._dispatch_http at 0x000001E050E1E840>[0m
+    [36m             └ [0m[36m[1m<miniunicorn.channels.websocket.channel.WebSocketChannel object at 0x000001E04FAB60C0>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1mchannel.py[0m", line [33m566[0m, in [35m_dispatch_http[0m
+    [1mapi_response[0m [35m[1m=[0m [35m[1mawait[0m [1mrouter[0m[35m[1m.[0m[1mdispatch[0m[1m([0m[1mdeps[0m[1m,[0m [1mconnection[0m[1m,[0m [1mrequest[0m[1m)[0m
+    [36m                     │      │        │     │           └ [0m[36m[1mRequest(path='/api/settings/cli-apps', headers=Headers([('host', '127.0.0.1:8765'), ('connection', 'close'), ('accept', '*/*'...[0m
+    [36m                     │      │        │     └ [0m[36m[1m<websockets.asyncio.server.ServerConnection object at 0x000001E051CF9BB0>[0m
+    [36m                     │      │        └ [0m[36m[1mRouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn.webui.workspaces....[0m
+    [36m                     │      └ [0m[36m[1m<function HttpRouter.dispatch at 0x000001E050DDB6A0>[0m
+    [36m                     └ [0m[36m[1m<miniunicorn.channels.websocket._http_router.HttpRouter object at 0x000001E050DD3170>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1m_http_router.py[0m", line [33m294[0m, in [35mdispatch[0m
+    [35m[1mreturn[0m [35m[1mawait[0m [1mentry[0m[35m[1m.[0m[1minvoke[0m[1m([0m[1mctx[0m[1m)[0m
+    [36m             │     │      └ [0m[36m[1mRouteContext(deps=RouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn...[0m
+    [36m             │     └ [0m[36m[1m<function _HandlerEntry.invoke at 0x000001E050DDB060>[0m
+    [36m             └ [0m[36m[1m_HandlerEntry(fn=<function cli_apps at 0x000001E050E0A840>, meta=RouteMeta(methods=frozenset({'GET'}), public=False, origin_c...[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1m_http_router.py[0m", line [33m136[0m, in [35minvoke[0m
+    [1mresult[0m [35m[1m=[0m [1mself[0m[35m[1m.[0m[1mfn[0m[1m([0m[1mctx[0m[1m)[0m
+    [36m         │    │  └ [0m[36m[1mRouteContext(deps=RouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn...[0m
+    [36m         │    └ [0m[36m[1m<function cli_apps at 0x000001E050E0A840>[0m
+    [36m         └ [0m[36m[1m_HandlerEntry(fn=<function cli_apps at 0x000001E050E0A840>, meta=RouteMeta(methods=frozenset({'GET'}), public=False, origin_c...[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\handlers\[0m[32m[1msettings.py[0m", line [33m232[0m, in [35mcli_apps[0m
+    [35m[1mfrom[0m [1mminiunicorn[0m[35m[1m.[0m[1mchannels[0m[35m[1m.[0m[1mwebsocket[0m[35m[1m.[0m[1mchannel[0m [35m[1mimport[0m [1mcli_apps_payload[0m
+
+[31m[1mImportError[0m:[1m cannot import name 'cli_apps_payload' from 'miniunicorn.channels.websocket.channel' (D:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\channel.py)[0m
+[32m2026-07-27 23:46:41[0m | [31m[1mERROR[0m | [36m-[0m | [31m[1m[websockets] opening handshake failed[0m
+[33m[1mTraceback (most recent call last):[0m
+
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\[0m[32m[1m__main__.py[0m", line [33m10[0m, in [35m<module>[0m
+    [1msys[0m[35m[1m.[0m[1mexit[0m[1m([0m[1mapp[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│   │    └ [0m[36m[1m<typer.main.Typer object at 0x000001E04FBC80E0>[0m
+    [36m│   └ [0m[36m[1m<built-in function exit>[0m
+    [36m└ [0m[36m[1m<module 'sys' (built-in)>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1137, in __call__
+    return get_command(self)(*args, **kwargs)
+           │           │      │       └ {}
+           │           │      └ ()
+           │           └ <typer.main.Typer object at 0x000001E04FBC80E0>
+           └ <function get_command at 0x000001E04E007420>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 807, in __call__
+    return self.main(*args, **kwargs)
+           │    │     │       └ {}
+           │    │     └ ()
+           │    └ <function TyperGroup.main at 0x000001E04E006E80>
+           └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1193, in main
+    return _main(
+           └ <function _main at 0x000001E04E004FE0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 183, in _main
+    rv = self.invoke(ctx)
+         │    │      └ <typer._click.core.Context object at 0x000001E04FC1E4E0>
+         │    └ <function TyperGroup.invoke at 0x000001E04E006A20>
+         └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1115, in invoke
+    return _process_result(sub_ctx.command.invoke(sub_ctx))
+           │               │       │       │      └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │               │       │       └ <function Command.invoke at 0x000001E04DF59120>
+           │               │       └ <TyperCommand gateway>
+           │               └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           └ <function TyperGroup.invoke.<locals>._process_result at 0x000001E050CC6200>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 746, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           │   │      │    │           │   └ {'workspace': None, 'verbose': False, 'config': None}
+           │   │      │    │           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │   │      │    └ <function gateway at 0x000001E050CC5580>
+           │   │      └ <TyperCommand gateway>
+           │   └ <function Context.invoke at 0x000001E04DF584A0>
+           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 489, in invoke
+    return callback(*args, **kwargs)
+           │         │       └ {'workspace': None, 'verbose': False, 'config': None}
+           │         └ ()
+           └ <function gateway at 0x000001E050CC5580>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1515, in wrapper
+    return callback(**use_params)
+           │          └ {'workspace': None, 'verbose': False, 'config': None}
+           └ <function gateway at 0x000001E050CC4F40>
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1mcommands.py[0m", line [33m482[0m, in [35mgateway[0m
+    [1m_run_gateway[0m[1m([0m[1mcfg[0m[1m)[0m
+    [36m│            └ [0m[36m[1mConfig(agents=AgentsConfig(defaults=AgentDefaults(workspace='~/.miniUnicorn/workspace', model_preset='laguna-s-2-1-free', mod...[0m
+    [36m└ [0m[36m[1m<function _run_gateway at 0x000001E050CC4900>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1m_gateway_runner.py[0m", line [33m751[0m, in [35m_run_gateway[0m
+    [1masyncio[0m[35m[1m.[0m[1mrun[0m[1m([0m[1mrun[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│       │   └ [0m[36m[1m<function _run_gateway.<locals>.run at 0x000001E05106C680>[0m
+    [36m│       └ [0m[36m[1m<function run at 0x000001E04D8C8900>[0m
+    [36m└ [0m[36m[1m<module 'asyncio' from 'C:\\Users\\OOOH\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\asyncio\\__init__.py'>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+           │      │   └ <coroutine object _run_gateway.<locals>.run at 0x000001E050E3D6D0>
+           │      └ <function Runner.run at 0x000001E04D924EA0>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           │    │     │                  └ <Task pending name='Task-1' coro=<_run_gateway.<locals>.run() running at D:\MyProject\MiniUnicorn\miniunicorn\cli\_gateway_ru...
+           │    │     └ <function BaseEventLoop.run_until_complete at 0x000001E04D922A20>
+           │    └ <ProactorEventLoop running=True closed=False debug=False>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 678, in run_until_complete
+    self.run_forever()
+    │    └ <function ProactorEventLoop.run_forever at 0x000001E04DDE1580>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\windows_events.py", line 322, in run_forever
+    super().run_forever()
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 645, in run_forever
+    self._run_once()
+    │    └ <function BaseEventLoop._run_once at 0x000001E04D9247C0>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 1999, in _run_once
+    handle._run()
+    │      └ <function Handle._run at 0x000001E04D8ACC20>
+    └ <Handle Task.task_wakeup(<Future finished result=None>)>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+    │    │            │    │           │    └ <member '_args' of 'Handle' objects>
+    │    │            │    │           └ <Handle Task.task_wakeup(<Future finished result=None>)>
+    │    │            │    └ <member '_callback' of 'Handle' objects>
+    │    │            └ <Handle Task.task_wakeup(<Future finished result=None>)>
+    │    └ <member '_context' of 'Handle' objects>
+    └ <Handle Task.task_wakeup(<Future finished result=None>)>
+> File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 356, in conn_handler
+    await connection.handshake(
+          │          └ <function ServerConnection.handshake at 0x000001E050D89080>
+          └ <websockets.asyncio.server.ServerConnection object at 0x000001E051CFBEF0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 207, in handshake
+    raise self.protocol.handshake_exc
+          │    │        └ ImportError("cannot import name 'cli_apps_payload' from 'miniunicorn.channels.websocket.channel' (D:\\MyProject\\MiniUnicorn\...
+          │    └ <websockets.server.ServerProtocol object at 0x000001E051CF9C70>
+          └ <websockets.asyncio.server.ServerConnection object at 0x000001E051CFBEF0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 149, in handshake
+    response = await response
+                     └ None
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1mchannel.py[0m", line [33m1036[0m, in [35mprocess_request[0m
+    [35m[1mreturn[0m [35m[1mawait[0m [1mself[0m[35m[1m.[0m[1m_dispatch_http[0m[1m([0m[1mconnection[0m[1m,[0m [1mrequest[0m[1m)[0m
+    [36m             │    │              │           └ [0m[36m[1mRequest(path='/api/settings/cli-apps', headers=Headers([('host', '127.0.0.1:8765'), ('connection', 'close'), ('accept', '*/*'...[0m
+    [36m             │    │              └ [0m[36m[1m<websockets.asyncio.server.ServerConnection object at 0x000001E051CFBEF0>[0m
+    [36m             │    └ [0m[36m[1m<function WebSocketChannel._dispatch_http at 0x000001E050E1E840>[0m
+    [36m             └ [0m[36m[1m<miniunicorn.channels.websocket.channel.WebSocketChannel object at 0x000001E04FAB60C0>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1mchannel.py[0m", line [33m566[0m, in [35m_dispatch_http[0m
+    [1mapi_response[0m [35m[1m=[0m [35m[1mawait[0m [1mrouter[0m[35m[1m.[0m[1mdispatch[0m[1m([0m[1mdeps[0m[1m,[0m [1mconnection[0m[1m,[0m [1mrequest[0m[1m)[0m
+    [36m                     │      │        │     │           └ [0m[36m[1mRequest(path='/api/settings/cli-apps', headers=Headers([('host', '127.0.0.1:8765'), ('connection', 'close'), ('accept', '*/*'...[0m
+    [36m                     │      │        │     └ [0m[36m[1m<websockets.asyncio.server.ServerConnection object at 0x000001E051CFBEF0>[0m
+    [36m                     │      │        └ [0m[36m[1mRouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn.webui.workspaces....[0m
+    [36m                     │      └ [0m[36m[1m<function HttpRouter.dispatch at 0x000001E050DDB6A0>[0m
+    [36m                     └ [0m[36m[1m<miniunicorn.channels.websocket._http_router.HttpRouter object at 0x000001E050DD3170>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1m_http_router.py[0m", line [33m294[0m, in [35mdispatch[0m
+    [35m[1mreturn[0m [35m[1mawait[0m [1mentry[0m[35m[1m.[0m[1minvoke[0m[1m([0m[1mctx[0m[1m)[0m
+    [36m             │     │      └ [0m[36m[1mRouteContext(deps=RouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn...[0m
+    [36m             │     └ [0m[36m[1m<function _HandlerEntry.invoke at 0x000001E050DDB060>[0m
+    [36m             └ [0m[36m[1m_HandlerEntry(fn=<function cli_apps at 0x000001E050E0A840>, meta=RouteMeta(methods=frozenset({'GET'}), public=False, origin_c...[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1m_http_router.py[0m", line [33m136[0m, in [35minvoke[0m
+    [1mresult[0m [35m[1m=[0m [1mself[0m[35m[1m.[0m[1mfn[0m[1m([0m[1mctx[0m[1m)[0m
+    [36m         │    │  └ [0m[36m[1mRouteContext(deps=RouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn...[0m
+    [36m         │    └ [0m[36m[1m<function cli_apps at 0x000001E050E0A840>[0m
+    [36m         └ [0m[36m[1m_HandlerEntry(fn=<function cli_apps at 0x000001E050E0A840>, meta=RouteMeta(methods=frozenset({'GET'}), public=False, origin_c...[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\handlers\[0m[32m[1msettings.py[0m", line [33m232[0m, in [35mcli_apps[0m
+    [35m[1mfrom[0m [1mminiunicorn[0m[35m[1m.[0m[1mchannels[0m[35m[1m.[0m[1mwebsocket[0m[35m[1m.[0m[1mchannel[0m [35m[1mimport[0m [1mcli_apps_payload[0m
+
+[31m[1mImportError[0m:[1m cannot import name 'cli_apps_payload' from 'miniunicorn.channels.websocket.channel' (D:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\channel.py)[0m
+[32m2026-07-27 23:46:42[0m | [31m[1mERROR[0m | [36m-[0m | [31m[1m[websockets] opening handshake failed[0m
+[33m[1mTraceback (most recent call last):[0m
+
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\[0m[32m[1m__main__.py[0m", line [33m10[0m, in [35m<module>[0m
+    [1msys[0m[35m[1m.[0m[1mexit[0m[1m([0m[1mapp[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│   │    └ [0m[36m[1m<typer.main.Typer object at 0x000001E04FBC80E0>[0m
+    [36m│   └ [0m[36m[1m<built-in function exit>[0m
+    [36m└ [0m[36m[1m<module 'sys' (built-in)>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1137, in __call__
+    return get_command(self)(*args, **kwargs)
+           │           │      │       └ {}
+           │           │      └ ()
+           │           └ <typer.main.Typer object at 0x000001E04FBC80E0>
+           └ <function get_command at 0x000001E04E007420>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 807, in __call__
+    return self.main(*args, **kwargs)
+           │    │     │       └ {}
+           │    │     └ ()
+           │    └ <function TyperGroup.main at 0x000001E04E006E80>
+           └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1193, in main
+    return _main(
+           └ <function _main at 0x000001E04E004FE0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 183, in _main
+    rv = self.invoke(ctx)
+         │    │      └ <typer._click.core.Context object at 0x000001E04FC1E4E0>
+         │    └ <function TyperGroup.invoke at 0x000001E04E006A20>
+         └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1115, in invoke
+    return _process_result(sub_ctx.command.invoke(sub_ctx))
+           │               │       │       │      └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │               │       │       └ <function Command.invoke at 0x000001E04DF59120>
+           │               │       └ <TyperCommand gateway>
+           │               └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           └ <function TyperGroup.invoke.<locals>._process_result at 0x000001E050CC6200>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 746, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           │   │      │    │           │   └ {'workspace': None, 'verbose': False, 'config': None}
+           │   │      │    │           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │   │      │    └ <function gateway at 0x000001E050CC5580>
+           │   │      └ <TyperCommand gateway>
+           │   └ <function Context.invoke at 0x000001E04DF584A0>
+           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 489, in invoke
+    return callback(*args, **kwargs)
+           │         │       └ {'workspace': None, 'verbose': False, 'config': None}
+           │         └ ()
+           └ <function gateway at 0x000001E050CC5580>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1515, in wrapper
+    return callback(**use_params)
+           │          └ {'workspace': None, 'verbose': False, 'config': None}
+           └ <function gateway at 0x000001E050CC4F40>
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1mcommands.py[0m", line [33m482[0m, in [35mgateway[0m
+    [1m_run_gateway[0m[1m([0m[1mcfg[0m[1m)[0m
+    [36m│            └ [0m[36m[1mConfig(agents=AgentsConfig(defaults=AgentDefaults(workspace='~/.miniUnicorn/workspace', model_preset='laguna-s-2-1-free', mod...[0m
+    [36m└ [0m[36m[1m<function _run_gateway at 0x000001E050CC4900>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1m_gateway_runner.py[0m", line [33m751[0m, in [35m_run_gateway[0m
+    [1masyncio[0m[35m[1m.[0m[1mrun[0m[1m([0m[1mrun[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│       │   └ [0m[36m[1m<function _run_gateway.<locals>.run at 0x000001E05106C680>[0m
+    [36m│       └ [0m[36m[1m<function run at 0x000001E04D8C8900>[0m
+    [36m└ [0m[36m[1m<module 'asyncio' from 'C:\\Users\\OOOH\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\asyncio\\__init__.py'>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+           │      │   └ <coroutine object _run_gateway.<locals>.run at 0x000001E050E3D6D0>
+           │      └ <function Runner.run at 0x000001E04D924EA0>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           │    │     │                  └ <Task pending name='Task-1' coro=<_run_gateway.<locals>.run() running at D:\MyProject\MiniUnicorn\miniunicorn\cli\_gateway_ru...
+           │    │     └ <function BaseEventLoop.run_until_complete at 0x000001E04D922A20>
+           │    └ <ProactorEventLoop running=True closed=False debug=False>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 678, in run_until_complete
+    self.run_forever()
+    │    └ <function ProactorEventLoop.run_forever at 0x000001E04DDE1580>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\windows_events.py", line 322, in run_forever
+    super().run_forever()
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 645, in run_forever
+    self._run_once()
+    │    └ <function BaseEventLoop._run_once at 0x000001E04D9247C0>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 1999, in _run_once
+    handle._run()
+    │      └ <function Handle._run at 0x000001E04D8ACC20>
+    └ <Handle Task.task_wakeup(<Future finished result=None>)>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+    │    │            │    │           │    └ <member '_args' of 'Handle' objects>
+    │    │            │    │           └ <Handle Task.task_wakeup(<Future finished result=None>)>
+    │    │            │    └ <member '_callback' of 'Handle' objects>
+    │    │            └ <Handle Task.task_wakeup(<Future finished result=None>)>
+    │    └ <member '_context' of 'Handle' objects>
+    └ <Handle Task.task_wakeup(<Future finished result=None>)>
+> File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 356, in conn_handler
+    await connection.handshake(
+          │          └ <function ServerConnection.handshake at 0x000001E050D89080>
+          └ <websockets.asyncio.server.ServerConnection object at 0x000001E051CFA810>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 207, in handshake
+    raise self.protocol.handshake_exc
+          │    │        └ ImportError("cannot import name 'cli_apps_payload' from 'miniunicorn.channels.websocket.channel' (D:\\MyProject\\MiniUnicorn\...
+          │    └ <websockets.server.ServerProtocol object at 0x000001E051CFB9B0>
+          └ <websockets.asyncio.server.ServerConnection object at 0x000001E051CFA810>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 149, in handshake
+    response = await response
+                     └ None
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1mchannel.py[0m", line [33m1036[0m, in [35mprocess_request[0m
+    [35m[1mreturn[0m [35m[1mawait[0m [1mself[0m[35m[1m.[0m[1m_dispatch_http[0m[1m([0m[1mconnection[0m[1m,[0m [1mrequest[0m[1m)[0m
+    [36m             │    │              │           └ [0m[36m[1mRequest(path='/api/settings/cli-apps', headers=Headers([('host', '127.0.0.1:8765'), ('connection', 'close'), ('accept', '*/*'...[0m
+    [36m             │    │              └ [0m[36m[1m<websockets.asyncio.server.ServerConnection object at 0x000001E051CFA810>[0m
+    [36m             │    └ [0m[36m[1m<function WebSocketChannel._dispatch_http at 0x000001E050E1E840>[0m
+    [36m             └ [0m[36m[1m<miniunicorn.channels.websocket.channel.WebSocketChannel object at 0x000001E04FAB60C0>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1mchannel.py[0m", line [33m566[0m, in [35m_dispatch_http[0m
+    [1mapi_response[0m [35m[1m=[0m [35m[1mawait[0m [1mrouter[0m[35m[1m.[0m[1mdispatch[0m[1m([0m[1mdeps[0m[1m,[0m [1mconnection[0m[1m,[0m [1mrequest[0m[1m)[0m
+    [36m                     │      │        │     │           └ [0m[36m[1mRequest(path='/api/settings/cli-apps', headers=Headers([('host', '127.0.0.1:8765'), ('connection', 'close'), ('accept', '*/*'...[0m
+    [36m                     │      │        │     └ [0m[36m[1m<websockets.asyncio.server.ServerConnection object at 0x000001E051CFA810>[0m
+    [36m                     │      │        └ [0m[36m[1mRouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn.webui.workspaces....[0m
+    [36m                     │      └ [0m[36m[1m<function HttpRouter.dispatch at 0x000001E050DDB6A0>[0m
+    [36m                     └ [0m[36m[1m<miniunicorn.channels.websocket._http_router.HttpRouter object at 0x000001E050DD3170>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1m_http_router.py[0m", line [33m294[0m, in [35mdispatch[0m
+    [35m[1mreturn[0m [35m[1mawait[0m [1mentry[0m[35m[1m.[0m[1minvoke[0m[1m([0m[1mctx[0m[1m)[0m
+    [36m             │     │      └ [0m[36m[1mRouteContext(deps=RouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn...[0m
+    [36m             │     └ [0m[36m[1m<function _HandlerEntry.invoke at 0x000001E050DDB060>[0m
+    [36m             └ [0m[36m[1m_HandlerEntry(fn=<function cli_apps at 0x000001E050E0A840>, meta=RouteMeta(methods=frozenset({'GET'}), public=False, origin_c...[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1m_http_router.py[0m", line [33m136[0m, in [35minvoke[0m
+    [1mresult[0m [35m[1m=[0m [1mself[0m[35m[1m.[0m[1mfn[0m[1m([0m[1mctx[0m[1m)[0m
+    [36m         │    │  └ [0m[36m[1mRouteContext(deps=RouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn...[0m
+    [36m         │    └ [0m[36m[1m<function cli_apps at 0x000001E050E0A840>[0m
+    [36m         └ [0m[36m[1m_HandlerEntry(fn=<function cli_apps at 0x000001E050E0A840>, meta=RouteMeta(methods=frozenset({'GET'}), public=False, origin_c...[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\handlers\[0m[32m[1msettings.py[0m", line [33m232[0m, in [35mcli_apps[0m
+    [35m[1mfrom[0m [1mminiunicorn[0m[35m[1m.[0m[1mchannels[0m[35m[1m.[0m[1mwebsocket[0m[35m[1m.[0m[1mchannel[0m [35m[1mimport[0m [1mcli_apps_payload[0m
+
+[31m[1mImportError[0m:[1m cannot import name 'cli_apps_payload' from 'miniunicorn.channels.websocket.channel' (D:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\channel.py)[0m
+[32m2026-07-27 23:46:42[0m | [31m[1mERROR[0m | [36m-[0m | [31m[1m[websockets] opening handshake failed[0m
+[33m[1mTraceback (most recent call last):[0m
+
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\[0m[32m[1m__main__.py[0m", line [33m10[0m, in [35m<module>[0m
+    [1msys[0m[35m[1m.[0m[1mexit[0m[1m([0m[1mapp[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│   │    └ [0m[36m[1m<typer.main.Typer object at 0x000001E04FBC80E0>[0m
+    [36m│   └ [0m[36m[1m<built-in function exit>[0m
+    [36m└ [0m[36m[1m<module 'sys' (built-in)>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1137, in __call__
+    return get_command(self)(*args, **kwargs)
+           │           │      │       └ {}
+           │           │      └ ()
+           │           └ <typer.main.Typer object at 0x000001E04FBC80E0>
+           └ <function get_command at 0x000001E04E007420>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 807, in __call__
+    return self.main(*args, **kwargs)
+           │    │     │       └ {}
+           │    │     └ ()
+           │    └ <function TyperGroup.main at 0x000001E04E006E80>
+           └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1193, in main
+    return _main(
+           └ <function _main at 0x000001E04E004FE0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 183, in _main
+    rv = self.invoke(ctx)
+         │    │      └ <typer._click.core.Context object at 0x000001E04FC1E4E0>
+         │    └ <function TyperGroup.invoke at 0x000001E04E006A20>
+         └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1115, in invoke
+    return _process_result(sub_ctx.command.invoke(sub_ctx))
+           │               │       │       │      └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │               │       │       └ <function Command.invoke at 0x000001E04DF59120>
+           │               │       └ <TyperCommand gateway>
+           │               └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           └ <function TyperGroup.invoke.<locals>._process_result at 0x000001E050CC6200>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 746, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           │   │      │    │           │   └ {'workspace': None, 'verbose': False, 'config': None}
+           │   │      │    │           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │   │      │    └ <function gateway at 0x000001E050CC5580>
+           │   │      └ <TyperCommand gateway>
+           │   └ <function Context.invoke at 0x000001E04DF584A0>
+           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 489, in invoke
+    return callback(*args, **kwargs)
+           │         │       └ {'workspace': None, 'verbose': False, 'config': None}
+           │         └ ()
+           └ <function gateway at 0x000001E050CC5580>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1515, in wrapper
+    return callback(**use_params)
+           │          └ {'workspace': None, 'verbose': False, 'config': None}
+           └ <function gateway at 0x000001E050CC4F40>
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1mcommands.py[0m", line [33m482[0m, in [35mgateway[0m
+    [1m_run_gateway[0m[1m([0m[1mcfg[0m[1m)[0m
+    [36m│            └ [0m[36m[1mConfig(agents=AgentsConfig(defaults=AgentDefaults(workspace='~/.miniUnicorn/workspace', model_preset='laguna-s-2-1-free', mod...[0m
+    [36m└ [0m[36m[1m<function _run_gateway at 0x000001E050CC4900>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1m_gateway_runner.py[0m", line [33m751[0m, in [35m_run_gateway[0m
+    [1masyncio[0m[35m[1m.[0m[1mrun[0m[1m([0m[1mrun[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│       │   └ [0m[36m[1m<function _run_gateway.<locals>.run at 0x000001E05106C680>[0m
+    [36m│       └ [0m[36m[1m<function run at 0x000001E04D8C8900>[0m
+    [36m└ [0m[36m[1m<module 'asyncio' from 'C:\\Users\\OOOH\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\asyncio\\__init__.py'>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+           │      │   └ <coroutine object _run_gateway.<locals>.run at 0x000001E050E3D6D0>
+           │      └ <function Runner.run at 0x000001E04D924EA0>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           │    │     │                  └ <Task pending name='Task-1' coro=<_run_gateway.<locals>.run() running at D:\MyProject\MiniUnicorn\miniunicorn\cli\_gateway_ru...
+           │    │     └ <function BaseEventLoop.run_until_complete at 0x000001E04D922A20>
+           │    └ <ProactorEventLoop running=True closed=False debug=False>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 678, in run_until_complete
+    self.run_forever()
+    │    └ <function ProactorEventLoop.run_forever at 0x000001E04DDE1580>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\windows_events.py", line 322, in run_forever
+    super().run_forever()
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 645, in run_forever
+    self._run_once()
+    │    └ <function BaseEventLoop._run_once at 0x000001E04D9247C0>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 1999, in _run_once
+    handle._run()
+    │      └ <function Handle._run at 0x000001E04D8ACC20>
+    └ <Handle Task.task_wakeup(<Future finished result=None>)>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+    │    │            │    │           │    └ <member '_args' of 'Handle' objects>
+    │    │            │    │           └ <Handle Task.task_wakeup(<Future finished result=None>)>
+    │    │            │    └ <member '_callback' of 'Handle' objects>
+    │    │            └ <Handle Task.task_wakeup(<Future finished result=None>)>
+    │    └ <member '_context' of 'Handle' objects>
+    └ <Handle Task.task_wakeup(<Future finished result=None>)>
+> File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 356, in conn_handler
+    await connection.handshake(
+          │          └ <function ServerConnection.handshake at 0x000001E050D89080>
+          └ <websockets.asyncio.server.ServerConnection object at 0x000001E051CFA000>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 207, in handshake
+    raise self.protocol.handshake_exc
+          │    │        └ ImportError("cannot import name 'cli_apps_payload' from 'miniunicorn.channels.websocket.channel' (D:\\MyProject\\MiniUnicorn\...
+          │    └ <websockets.server.ServerProtocol object at 0x000001E051CF8920>
+          └ <websockets.asyncio.server.ServerConnection object at 0x000001E051CFA000>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 149, in handshake
+    response = await response
+                     └ None
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1mchannel.py[0m", line [33m1036[0m, in [35mprocess_request[0m
+    [35m[1mreturn[0m [35m[1mawait[0m [1mself[0m[35m[1m.[0m[1m_dispatch_http[0m[1m([0m[1mconnection[0m[1m,[0m [1mrequest[0m[1m)[0m
+    [36m             │    │              │           └ [0m[36m[1mRequest(path='/api/settings/cli-apps', headers=Headers([('host', '127.0.0.1:8765'), ('connection', 'close'), ('accept', '*/*'...[0m
+    [36m             │    │              └ [0m[36m[1m<websockets.asyncio.server.ServerConnection object at 0x000001E051CFA000>[0m
+    [36m             │    └ [0m[36m[1m<function WebSocketChannel._dispatch_http at 0x000001E050E1E840>[0m
+    [36m             └ [0m[36m[1m<miniunicorn.channels.websocket.channel.WebSocketChannel object at 0x000001E04FAB60C0>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1mchannel.py[0m", line [33m566[0m, in [35m_dispatch_http[0m
+    [1mapi_response[0m [35m[1m=[0m [35m[1mawait[0m [1mrouter[0m[35m[1m.[0m[1mdispatch[0m[1m([0m[1mdeps[0m[1m,[0m [1mconnection[0m[1m,[0m [1mrequest[0m[1m)[0m
+    [36m                     │      │        │     │           └ [0m[36m[1mRequest(path='/api/settings/cli-apps', headers=Headers([('host', '127.0.0.1:8765'), ('connection', 'close'), ('accept', '*/*'...[0m
+    [36m                     │      │        │     └ [0m[36m[1m<websockets.asyncio.server.ServerConnection object at 0x000001E051CFA000>[0m
+    [36m                     │      │        └ [0m[36m[1mRouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn.webui.workspaces....[0m
+    [36m                     │      └ [0m[36m[1m<function HttpRouter.dispatch at 0x000001E050DDB6A0>[0m
+    [36m                     └ [0m[36m[1m<miniunicorn.channels.websocket._http_router.HttpRouter object at 0x000001E050DD3170>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1m_http_router.py[0m", line [33m294[0m, in [35mdispatch[0m
+    [35m[1mreturn[0m [35m[1mawait[0m [1mentry[0m[35m[1m.[0m[1minvoke[0m[1m([0m[1mctx[0m[1m)[0m
+    [36m             │     │      └ [0m[36m[1mRouteContext(deps=RouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn...[0m
+    [36m             │     └ [0m[36m[1m<function _HandlerEntry.invoke at 0x000001E050DDB060>[0m
+    [36m             └ [0m[36m[1m_HandlerEntry(fn=<function cli_apps at 0x000001E050E0A840>, meta=RouteMeta(methods=frozenset({'GET'}), public=False, origin_c...[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1m_http_router.py[0m", line [33m136[0m, in [35minvoke[0m
+    [1mresult[0m [35m[1m=[0m [1mself[0m[35m[1m.[0m[1mfn[0m[1m([0m[1mctx[0m[1m)[0m
+    [36m         │    │  └ [0m[36m[1mRouteContext(deps=RouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn...[0m
+    [36m         │    └ [0m[36m[1m<function cli_apps at 0x000001E050E0A840>[0m
+    [36m         └ [0m[36m[1m_HandlerEntry(fn=<function cli_apps at 0x000001E050E0A840>, meta=RouteMeta(methods=frozenset({'GET'}), public=False, origin_c...[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\handlers\[0m[32m[1msettings.py[0m", line [33m232[0m, in [35mcli_apps[0m
+    [35m[1mfrom[0m [1mminiunicorn[0m[35m[1m.[0m[1mchannels[0m[35m[1m.[0m[1mwebsocket[0m[35m[1m.[0m[1mchannel[0m [35m[1mimport[0m [1mcli_apps_payload[0m
+
+[31m[1mImportError[0m:[1m cannot import name 'cli_apps_payload' from 'miniunicorn.channels.websocket.channel' (D:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\channel.py)[0m
+[32m2026-07-27 23:46:42[0m | [31m[1mERROR[0m | [36m-[0m | [31m[1m[websockets] opening handshake failed[0m
+[33m[1mTraceback (most recent call last):[0m
+
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\[0m[32m[1m__main__.py[0m", line [33m10[0m, in [35m<module>[0m
+    [1msys[0m[35m[1m.[0m[1mexit[0m[1m([0m[1mapp[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│   │    └ [0m[36m[1m<typer.main.Typer object at 0x000001E04FBC80E0>[0m
+    [36m│   └ [0m[36m[1m<built-in function exit>[0m
+    [36m└ [0m[36m[1m<module 'sys' (built-in)>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1137, in __call__
+    return get_command(self)(*args, **kwargs)
+           │           │      │       └ {}
+           │           │      └ ()
+           │           └ <typer.main.Typer object at 0x000001E04FBC80E0>
+           └ <function get_command at 0x000001E04E007420>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 807, in __call__
+    return self.main(*args, **kwargs)
+           │    │     │       └ {}
+           │    │     └ ()
+           │    └ <function TyperGroup.main at 0x000001E04E006E80>
+           └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1193, in main
+    return _main(
+           └ <function _main at 0x000001E04E004FE0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 183, in _main
+    rv = self.invoke(ctx)
+         │    │      └ <typer._click.core.Context object at 0x000001E04FC1E4E0>
+         │    └ <function TyperGroup.invoke at 0x000001E04E006A20>
+         └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1115, in invoke
+    return _process_result(sub_ctx.command.invoke(sub_ctx))
+           │               │       │       │      └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │               │       │       └ <function Command.invoke at 0x000001E04DF59120>
+           │               │       └ <TyperCommand gateway>
+           │               └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           └ <function TyperGroup.invoke.<locals>._process_result at 0x000001E050CC6200>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 746, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           │   │      │    │           │   └ {'workspace': None, 'verbose': False, 'config': None}
+           │   │      │    │           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │   │      │    └ <function gateway at 0x000001E050CC5580>
+           │   │      └ <TyperCommand gateway>
+           │   └ <function Context.invoke at 0x000001E04DF584A0>
+           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 489, in invoke
+    return callback(*args, **kwargs)
+           │         │       └ {'workspace': None, 'verbose': False, 'config': None}
+           │         └ ()
+           └ <function gateway at 0x000001E050CC5580>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1515, in wrapper
+    return callback(**use_params)
+           │          └ {'workspace': None, 'verbose': False, 'config': None}
+           └ <function gateway at 0x000001E050CC4F40>
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1mcommands.py[0m", line [33m482[0m, in [35mgateway[0m
+    [1m_run_gateway[0m[1m([0m[1mcfg[0m[1m)[0m
+    [36m│            └ [0m[36m[1mConfig(agents=AgentsConfig(defaults=AgentDefaults(workspace='~/.miniUnicorn/workspace', model_preset='laguna-s-2-1-free', mod...[0m
+    [36m└ [0m[36m[1m<function _run_gateway at 0x000001E050CC4900>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1m_gateway_runner.py[0m", line [33m751[0m, in [35m_run_gateway[0m
+    [1masyncio[0m[35m[1m.[0m[1mrun[0m[1m([0m[1mrun[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│       │   └ [0m[36m[1m<function _run_gateway.<locals>.run at 0x000001E05106C680>[0m
+    [36m│       └ [0m[36m[1m<function run at 0x000001E04D8C8900>[0m
+    [36m└ [0m[36m[1m<module 'asyncio' from 'C:\\Users\\OOOH\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\asyncio\\__init__.py'>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+           │      │   └ <coroutine object _run_gateway.<locals>.run at 0x000001E050E3D6D0>
+           │      └ <function Runner.run at 0x000001E04D924EA0>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           │    │     │                  └ <Task pending name='Task-1' coro=<_run_gateway.<locals>.run() running at D:\MyProject\MiniUnicorn\miniunicorn\cli\_gateway_ru...
+           │    │     └ <function BaseEventLoop.run_until_complete at 0x000001E04D922A20>
+           │    └ <ProactorEventLoop running=True closed=False debug=False>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 678, in run_until_complete
+    self.run_forever()
+    │    └ <function ProactorEventLoop.run_forever at 0x000001E04DDE1580>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\windows_events.py", line 322, in run_forever
+    super().run_forever()
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 645, in run_forever
+    self._run_once()
+    │    └ <function BaseEventLoop._run_once at 0x000001E04D9247C0>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 1999, in _run_once
+    handle._run()
+    │      └ <function Handle._run at 0x000001E04D8ACC20>
+    └ <Handle Task.task_wakeup(<Future finished result=None>)>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+    │    │            │    │           │    └ <member '_args' of 'Handle' objects>
+    │    │            │    │           └ <Handle Task.task_wakeup(<Future finished result=None>)>
+    │    │            │    └ <member '_callback' of 'Handle' objects>
+    │    │            └ <Handle Task.task_wakeup(<Future finished result=None>)>
+    │    └ <member '_context' of 'Handle' objects>
+    └ <Handle Task.task_wakeup(<Future finished result=None>)>
+> File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 356, in conn_handler
+    await connection.handshake(
+          │          └ <function ServerConnection.handshake at 0x000001E050D89080>
+          └ <websockets.asyncio.server.ServerConnection object at 0x000001E051CEBC20>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 207, in handshake
+    raise self.protocol.handshake_exc
+          │    │        └ ImportError("cannot import name 'cli_apps_payload' from 'miniunicorn.channels.websocket.channel' (D:\\MyProject\\MiniUnicorn\...
+          │    └ <websockets.server.ServerProtocol object at 0x000001E051CEBEF0>
+          └ <websockets.asyncio.server.ServerConnection object at 0x000001E051CEBC20>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 149, in handshake
+    response = await response
+                     └ None
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1mchannel.py[0m", line [33m1036[0m, in [35mprocess_request[0m
+    [35m[1mreturn[0m [35m[1mawait[0m [1mself[0m[35m[1m.[0m[1m_dispatch_http[0m[1m([0m[1mconnection[0m[1m,[0m [1mrequest[0m[1m)[0m
+    [36m             │    │              │           └ [0m[36m[1mRequest(path='/api/settings/cli-apps', headers=Headers([('host', '127.0.0.1:8765'), ('connection', 'close'), ('accept', '*/*'...[0m
+    [36m             │    │              └ [0m[36m[1m<websockets.asyncio.server.ServerConnection object at 0x000001E051CEBC20>[0m
+    [36m             │    └ [0m[36m[1m<function WebSocketChannel._dispatch_http at 0x000001E050E1E840>[0m
+    [36m             └ [0m[36m[1m<miniunicorn.channels.websocket.channel.WebSocketChannel object at 0x000001E04FAB60C0>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1mchannel.py[0m", line [33m566[0m, in [35m_dispatch_http[0m
+    [1mapi_response[0m [35m[1m=[0m [35m[1mawait[0m [1mrouter[0m[35m[1m.[0m[1mdispatch[0m[1m([0m[1mdeps[0m[1m,[0m [1mconnection[0m[1m,[0m [1mrequest[0m[1m)[0m
+    [36m                     │      │        │     │           └ [0m[36m[1mRequest(path='/api/settings/cli-apps', headers=Headers([('host', '127.0.0.1:8765'), ('connection', 'close'), ('accept', '*/*'...[0m
+    [36m                     │      │        │     └ [0m[36m[1m<websockets.asyncio.server.ServerConnection object at 0x000001E051CEBC20>[0m
+    [36m                     │      │        └ [0m[36m[1mRouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn.webui.workspaces....[0m
+    [36m                     │      └ [0m[36m[1m<function HttpRouter.dispatch at 0x000001E050DDB6A0>[0m
+    [36m                     └ [0m[36m[1m<miniunicorn.channels.websocket._http_router.HttpRouter object at 0x000001E050DD3170>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1m_http_router.py[0m", line [33m294[0m, in [35mdispatch[0m
+    [35m[1mreturn[0m [35m[1mawait[0m [1mentry[0m[35m[1m.[0m[1minvoke[0m[1m([0m[1mctx[0m[1m)[0m
+    [36m             │     │      └ [0m[36m[1mRouteContext(deps=RouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn...[0m
+    [36m             │     └ [0m[36m[1m<function _HandlerEntry.invoke at 0x000001E050DDB060>[0m
+    [36m             └ [0m[36m[1m_HandlerEntry(fn=<function cli_apps at 0x000001E050E0A840>, meta=RouteMeta(methods=frozenset({'GET'}), public=False, origin_c...[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1m_http_router.py[0m", line [33m136[0m, in [35minvoke[0m
+    [1mresult[0m [35m[1m=[0m [1mself[0m[35m[1m.[0m[1mfn[0m[1m([0m[1mctx[0m[1m)[0m
+    [36m         │    │  └ [0m[36m[1mRouteContext(deps=RouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn...[0m
+    [36m         │    └ [0m[36m[1m<function cli_apps at 0x000001E050E0A840>[0m
+    [36m         └ [0m[36m[1m_HandlerEntry(fn=<function cli_apps at 0x000001E050E0A840>, meta=RouteMeta(methods=frozenset({'GET'}), public=False, origin_c...[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\handlers\[0m[32m[1msettings.py[0m", line [33m232[0m, in [35mcli_apps[0m
+    [35m[1mfrom[0m [1mminiunicorn[0m[35m[1m.[0m[1mchannels[0m[35m[1m.[0m[1mwebsocket[0m[35m[1m.[0m[1mchannel[0m [35m[1mimport[0m [1mcli_apps_payload[0m
+
+[31m[1mImportError[0m:[1m cannot import name 'cli_apps_payload' from 'miniunicorn.channels.websocket.channel' (D:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\channel.py)[0m
+[32m2026-07-27 23:46:53[0m | [31m[1mERROR[0m | [36m-[0m | [31m[1m[websockets] opening handshake failed[0m
+[33m[1mTraceback (most recent call last):[0m
+
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\[0m[32m[1m__main__.py[0m", line [33m10[0m, in [35m<module>[0m
+    [1msys[0m[35m[1m.[0m[1mexit[0m[1m([0m[1mapp[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│   │    └ [0m[36m[1m<typer.main.Typer object at 0x000001E04FBC80E0>[0m
+    [36m│   └ [0m[36m[1m<built-in function exit>[0m
+    [36m└ [0m[36m[1m<module 'sys' (built-in)>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1137, in __call__
+    return get_command(self)(*args, **kwargs)
+           │           │      │       └ {}
+           │           │      └ ()
+           │           └ <typer.main.Typer object at 0x000001E04FBC80E0>
+           └ <function get_command at 0x000001E04E007420>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 807, in __call__
+    return self.main(*args, **kwargs)
+           │    │     │       └ {}
+           │    │     └ ()
+           │    └ <function TyperGroup.main at 0x000001E04E006E80>
+           └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1193, in main
+    return _main(
+           └ <function _main at 0x000001E04E004FE0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 183, in _main
+    rv = self.invoke(ctx)
+         │    │      └ <typer._click.core.Context object at 0x000001E04FC1E4E0>
+         │    └ <function TyperGroup.invoke at 0x000001E04E006A20>
+         └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1115, in invoke
+    return _process_result(sub_ctx.command.invoke(sub_ctx))
+           │               │       │       │      └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │               │       │       └ <function Command.invoke at 0x000001E04DF59120>
+           │               │       └ <TyperCommand gateway>
+           │               └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           └ <function TyperGroup.invoke.<locals>._process_result at 0x000001E050CC6200>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 746, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           │   │      │    │           │   └ {'workspace': None, 'verbose': False, 'config': None}
+           │   │      │    │           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │   │      │    └ <function gateway at 0x000001E050CC5580>
+           │   │      └ <TyperCommand gateway>
+           │   └ <function Context.invoke at 0x000001E04DF584A0>
+           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 489, in invoke
+    return callback(*args, **kwargs)
+           │         │       └ {'workspace': None, 'verbose': False, 'config': None}
+           │         └ ()
+           └ <function gateway at 0x000001E050CC5580>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1515, in wrapper
+    return callback(**use_params)
+           │          └ {'workspace': None, 'verbose': False, 'config': None}
+           └ <function gateway at 0x000001E050CC4F40>
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1mcommands.py[0m", line [33m482[0m, in [35mgateway[0m
+    [1m_run_gateway[0m[1m([0m[1mcfg[0m[1m)[0m
+    [36m│            └ [0m[36m[1mConfig(agents=AgentsConfig(defaults=AgentDefaults(workspace='~/.miniUnicorn/workspace', model_preset='laguna-s-2-1-free', mod...[0m
+    [36m└ [0m[36m[1m<function _run_gateway at 0x000001E050CC4900>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1m_gateway_runner.py[0m", line [33m751[0m, in [35m_run_gateway[0m
+    [1masyncio[0m[35m[1m.[0m[1mrun[0m[1m([0m[1mrun[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│       │   └ [0m[36m[1m<function _run_gateway.<locals>.run at 0x000001E05106C680>[0m
+    [36m│       └ [0m[36m[1m<function run at 0x000001E04D8C8900>[0m
+    [36m└ [0m[36m[1m<module 'asyncio' from 'C:\\Users\\OOOH\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\asyncio\\__init__.py'>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+           │      │   └ <coroutine object _run_gateway.<locals>.run at 0x000001E050E3D6D0>
+           │      └ <function Runner.run at 0x000001E04D924EA0>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           │    │     │                  └ <Task pending name='Task-1' coro=<_run_gateway.<locals>.run() running at D:\MyProject\MiniUnicorn\miniunicorn\cli\_gateway_ru...
+           │    │     └ <function BaseEventLoop.run_until_complete at 0x000001E04D922A20>
+           │    └ <ProactorEventLoop running=True closed=False debug=False>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 678, in run_until_complete
+    self.run_forever()
+    │    └ <function ProactorEventLoop.run_forever at 0x000001E04DDE1580>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\windows_events.py", line 322, in run_forever
+    super().run_forever()
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 645, in run_forever
+    self._run_once()
+    │    └ <function BaseEventLoop._run_once at 0x000001E04D9247C0>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 1999, in _run_once
+    handle._run()
+    │      └ <function Handle._run at 0x000001E04D8ACC20>
+    └ <Handle Task.task_wakeup(<Future finished result=None>)>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+    │    │            │    │           │    └ <member '_args' of 'Handle' objects>
+    │    │            │    │           └ <Handle Task.task_wakeup(<Future finished result=None>)>
+    │    │            │    └ <member '_callback' of 'Handle' objects>
+    │    │            └ <Handle Task.task_wakeup(<Future finished result=None>)>
+    │    └ <member '_context' of 'Handle' objects>
+    └ <Handle Task.task_wakeup(<Future finished result=None>)>
+> File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 356, in conn_handler
+    await connection.handshake(
+          │          └ <function ServerConnection.handshake at 0x000001E050D89080>
+          └ <websockets.asyncio.server.ServerConnection object at 0x000001E051CFAED0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 207, in handshake
+    raise self.protocol.handshake_exc
+          │    │        └ ImportError("cannot import name 'cli_apps_payload' from 'miniunicorn.channels.websocket.channel' (D:\\MyProject\\MiniUnicorn\...
+          │    └ <websockets.server.ServerProtocol object at 0x000001E051A954F0>
+          └ <websockets.asyncio.server.ServerConnection object at 0x000001E051CFAED0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 149, in handshake
+    response = await response
+                     └ None
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1mchannel.py[0m", line [33m1036[0m, in [35mprocess_request[0m
+    [35m[1mreturn[0m [35m[1mawait[0m [1mself[0m[35m[1m.[0m[1m_dispatch_http[0m[1m([0m[1mconnection[0m[1m,[0m [1mrequest[0m[1m)[0m
+    [36m             │    │              │           └ [0m[36m[1mRequest(path='/api/settings/cli-apps', headers=Headers([('host', '127.0.0.1:8765'), ('connection', 'close'), ('accept', '*/*'...[0m
+    [36m             │    │              └ [0m[36m[1m<websockets.asyncio.server.ServerConnection object at 0x000001E051CFAED0>[0m
+    [36m             │    └ [0m[36m[1m<function WebSocketChannel._dispatch_http at 0x000001E050E1E840>[0m
+    [36m             └ [0m[36m[1m<miniunicorn.channels.websocket.channel.WebSocketChannel object at 0x000001E04FAB60C0>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1mchannel.py[0m", line [33m566[0m, in [35m_dispatch_http[0m
+    [1mapi_response[0m [35m[1m=[0m [35m[1mawait[0m [1mrouter[0m[35m[1m.[0m[1mdispatch[0m[1m([0m[1mdeps[0m[1m,[0m [1mconnection[0m[1m,[0m [1mrequest[0m[1m)[0m
+    [36m                     │      │        │     │           └ [0m[36m[1mRequest(path='/api/settings/cli-apps', headers=Headers([('host', '127.0.0.1:8765'), ('connection', 'close'), ('accept', '*/*'...[0m
+    [36m                     │      │        │     └ [0m[36m[1m<websockets.asyncio.server.ServerConnection object at 0x000001E051CFAED0>[0m
+    [36m                     │      │        └ [0m[36m[1mRouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn.webui.workspaces....[0m
+    [36m                     │      └ [0m[36m[1m<function HttpRouter.dispatch at 0x000001E050DDB6A0>[0m
+    [36m                     └ [0m[36m[1m<miniunicorn.channels.websocket._http_router.HttpRouter object at 0x000001E050DD3170>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1m_http_router.py[0m", line [33m294[0m, in [35mdispatch[0m
+    [35m[1mreturn[0m [35m[1mawait[0m [1mentry[0m[35m[1m.[0m[1minvoke[0m[1m([0m[1mctx[0m[1m)[0m
+    [36m             │     │      └ [0m[36m[1mRouteContext(deps=RouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn...[0m
+    [36m             │     └ [0m[36m[1m<function _HandlerEntry.invoke at 0x000001E050DDB060>[0m
+    [36m             └ [0m[36m[1m_HandlerEntry(fn=<function cli_apps at 0x000001E050E0A840>, meta=RouteMeta(methods=frozenset({'GET'}), public=False, origin_c...[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1m_http_router.py[0m", line [33m136[0m, in [35minvoke[0m
+    [1mresult[0m [35m[1m=[0m [1mself[0m[35m[1m.[0m[1mfn[0m[1m([0m[1mctx[0m[1m)[0m
+    [36m         │    │  └ [0m[36m[1mRouteContext(deps=RouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn...[0m
+    [36m         │    └ [0m[36m[1m<function cli_apps at 0x000001E050E0A840>[0m
+    [36m         └ [0m[36m[1m_HandlerEntry(fn=<function cli_apps at 0x000001E050E0A840>, meta=RouteMeta(methods=frozenset({'GET'}), public=False, origin_c...[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\handlers\[0m[32m[1msettings.py[0m", line [33m232[0m, in [35mcli_apps[0m
+    [35m[1mfrom[0m [1mminiunicorn[0m[35m[1m.[0m[1mchannels[0m[35m[1m.[0m[1mwebsocket[0m[35m[1m.[0m[1mchannel[0m [35m[1mimport[0m [1mcli_apps_payload[0m
+
+[31m[1mImportError[0m:[1m cannot import name 'cli_apps_payload' from 'miniunicorn.channels.websocket.channel' (D:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\channel.py)[0m
+[32m2026-07-27 23:50:27[0m | [31m[1mERROR[0m | [36m-[0m | [31m[1m[websockets] opening handshake failed[0m
+[33m[1mTraceback (most recent call last):[0m
+
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\[0m[32m[1m__main__.py[0m", line [33m10[0m, in [35m<module>[0m
+    [1msys[0m[35m[1m.[0m[1mexit[0m[1m([0m[1mapp[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│   │    └ [0m[36m[1m<typer.main.Typer object at 0x000001E04FBC80E0>[0m
+    [36m│   └ [0m[36m[1m<built-in function exit>[0m
+    [36m└ [0m[36m[1m<module 'sys' (built-in)>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1137, in __call__
+    return get_command(self)(*args, **kwargs)
+           │           │      │       └ {}
+           │           │      └ ()
+           │           └ <typer.main.Typer object at 0x000001E04FBC80E0>
+           └ <function get_command at 0x000001E04E007420>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 807, in __call__
+    return self.main(*args, **kwargs)
+           │    │     │       └ {}
+           │    │     └ ()
+           │    └ <function TyperGroup.main at 0x000001E04E006E80>
+           └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1193, in main
+    return _main(
+           └ <function _main at 0x000001E04E004FE0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 183, in _main
+    rv = self.invoke(ctx)
+         │    │      └ <typer._click.core.Context object at 0x000001E04FC1E4E0>
+         │    └ <function TyperGroup.invoke at 0x000001E04E006A20>
+         └ <TyperGroup miniunicorn>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\core.py", line 1115, in invoke
+    return _process_result(sub_ctx.command.invoke(sub_ctx))
+           │               │       │       │      └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │               │       │       └ <function Command.invoke at 0x000001E04DF59120>
+           │               │       └ <TyperCommand gateway>
+           │               └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           └ <function TyperGroup.invoke.<locals>._process_result at 0x000001E050CC6200>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 746, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           │   │      │    │           │   └ {'workspace': None, 'verbose': False, 'config': None}
+           │   │      │    │           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+           │   │      │    └ <function gateway at 0x000001E050CC5580>
+           │   │      └ <TyperCommand gateway>
+           │   └ <function Context.invoke at 0x000001E04DF584A0>
+           └ <typer._click.core.Context object at 0x000001E04F75B5F0>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\_click\core.py", line 489, in invoke
+    return callback(*args, **kwargs)
+           │         │       └ {'workspace': None, 'verbose': False, 'config': None}
+           │         └ ()
+           └ <function gateway at 0x000001E050CC5580>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\typer\main.py", line 1515, in wrapper
+    return callback(**use_params)
+           │          └ {'workspace': None, 'verbose': False, 'config': None}
+           └ <function gateway at 0x000001E050CC4F40>
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1mcommands.py[0m", line [33m482[0m, in [35mgateway[0m
+    [1m_run_gateway[0m[1m([0m[1mcfg[0m[1m)[0m
+    [36m│            └ [0m[36m[1mConfig(agents=AgentsConfig(defaults=AgentDefaults(workspace='~/.miniUnicorn/workspace', model_preset='laguna-s-2-1-free', mod...[0m
+    [36m└ [0m[36m[1m<function _run_gateway at 0x000001E050CC4900>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\cli\[0m[32m[1m_gateway_runner.py[0m", line [33m751[0m, in [35m_run_gateway[0m
+    [1masyncio[0m[35m[1m.[0m[1mrun[0m[1m([0m[1mrun[0m[1m([0m[1m)[0m[1m)[0m
+    [36m│       │   └ [0m[36m[1m<function _run_gateway.<locals>.run at 0x000001E05106C680>[0m
+    [36m│       └ [0m[36m[1m<function run at 0x000001E04D8C8900>[0m
+    [36m└ [0m[36m[1m<module 'asyncio' from 'C:\\Users\\OOOH\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\asyncio\\__init__.py'>[0m
+
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+           │      │   └ <coroutine object _run_gateway.<locals>.run at 0x000001E050E3D6D0>
+           │      └ <function Runner.run at 0x000001E04D924EA0>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           │    │     │                  └ <Task pending name='Task-1' coro=<_run_gateway.<locals>.run() running at D:\MyProject\MiniUnicorn\miniunicorn\cli\_gateway_ru...
+           │    │     └ <function BaseEventLoop.run_until_complete at 0x000001E04D922A20>
+           │    └ <ProactorEventLoop running=True closed=False debug=False>
+           └ <asyncio.runners.Runner object at 0x000001E050CB4920>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 678, in run_until_complete
+    self.run_forever()
+    │    └ <function ProactorEventLoop.run_forever at 0x000001E04DDE1580>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\windows_events.py", line 322, in run_forever
+    super().run_forever()
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 645, in run_forever
+    self._run_once()
+    │    └ <function BaseEventLoop._run_once at 0x000001E04D9247C0>
+    └ <ProactorEventLoop running=True closed=False debug=False>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 1999, in _run_once
+    handle._run()
+    │      └ <function Handle._run at 0x000001E04D8ACC20>
+    └ <Handle Task.task_wakeup(<Future finished result=None>)>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+    │    │            │    │           │    └ <member '_args' of 'Handle' objects>
+    │    │            │    │           └ <Handle Task.task_wakeup(<Future finished result=None>)>
+    │    │            │    └ <member '_callback' of 'Handle' objects>
+    │    │            └ <Handle Task.task_wakeup(<Future finished result=None>)>
+    │    └ <member '_context' of 'Handle' objects>
+    └ <Handle Task.task_wakeup(<Future finished result=None>)>
+> File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 356, in conn_handler
+    await connection.handshake(
+          │          └ <function ServerConnection.handshake at 0x000001E050D89080>
+          └ <websockets.asyncio.server.ServerConnection object at 0x000001E051B29A00>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 207, in handshake
+    raise self.protocol.handshake_exc
+          │    │        └ ImportError("cannot import name 'cli_apps_payload' from 'miniunicorn.channels.websocket.channel' (D:\\MyProject\\MiniUnicorn\...
+          │    └ <websockets.server.ServerProtocol object at 0x000001E05105AE70>
+          └ <websockets.asyncio.server.ServerConnection object at 0x000001E051B29A00>
+  File "C:\Users\OOOH\AppData\Local\Programs\Python\Python312\Lib\site-packages\websockets\asyncio\server.py", line 149, in handshake
+    response = await response
+                     └ None
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1mchannel.py[0m", line [33m1036[0m, in [35mprocess_request[0m
+    [35m[1mreturn[0m [35m[1mawait[0m [1mself[0m[35m[1m.[0m[1m_dispatch_http[0m[1m([0m[1mconnection[0m[1m,[0m [1mrequest[0m[1m)[0m
+    [36m             │    │              │           └ [0m[36m[1mRequest(path='/api/settings/cli-apps', headers=Headers([('host', '127.0.0.1:8765'), ('connection', 'close'), ('accept', '*/*'...[0m
+    [36m             │    │              └ [0m[36m[1m<websockets.asyncio.server.ServerConnection object at 0x000001E051B29A00>[0m
+    [36m             │    └ [0m[36m[1m<function WebSocketChannel._dispatch_http at 0x000001E050E1E840>[0m
+    [36m             └ [0m[36m[1m<miniunicorn.channels.websocket.channel.WebSocketChannel object at 0x000001E04FAB60C0>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1mchannel.py[0m", line [33m566[0m, in [35m_dispatch_http[0m
+    [1mapi_response[0m [35m[1m=[0m [35m[1mawait[0m [1mrouter[0m[35m[1m.[0m[1mdispatch[0m[1m([0m[1mdeps[0m[1m,[0m [1mconnection[0m[1m,[0m [1mrequest[0m[1m)[0m
+    [36m                     │      │        │     │           └ [0m[36m[1mRequest(path='/api/settings/cli-apps', headers=Headers([('host', '127.0.0.1:8765'), ('connection', 'close'), ('accept', '*/*'...[0m
+    [36m                     │      │        │     └ [0m[36m[1m<websockets.asyncio.server.ServerConnection object at 0x000001E051B29A00>[0m
+    [36m                     │      │        └ [0m[36m[1mRouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn.webui.workspaces....[0m
+    [36m                     │      └ [0m[36m[1m<function HttpRouter.dispatch at 0x000001E050DDB6A0>[0m
+    [36m                     └ [0m[36m[1m<miniunicorn.channels.websocket._http_router.HttpRouter object at 0x000001E050DD3170>[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1m_http_router.py[0m", line [33m294[0m, in [35mdispatch[0m
+    [35m[1mreturn[0m [35m[1mawait[0m [1mentry[0m[35m[1m.[0m[1minvoke[0m[1m([0m[1mctx[0m[1m)[0m
+    [36m             │     │      └ [0m[36m[1mRouteContext(deps=RouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn...[0m
+    [36m             │     └ [0m[36m[1m<function _HandlerEntry.invoke at 0x000001E050DDB060>[0m
+    [36m             └ [0m[36m[1m_HandlerEntry(fn=<function cli_apps at 0x000001E050E0A840>, meta=RouteMeta(methods=frozenset({'GET'}), public=False, origin_c...[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\[0m[32m[1m_http_router.py[0m", line [33m136[0m, in [35minvoke[0m
+    [1mresult[0m [35m[1m=[0m [1mself[0m[35m[1m.[0m[1mfn[0m[1m([0m[1mctx[0m[1m)[0m
+    [36m         │    │  └ [0m[36m[1mRouteContext(deps=RouteDeps(workspace_path=WindowsPath('C:/Users/OOOH/.miniunicorn/workspace'), webui_workspaces=<miniunicorn...[0m
+    [36m         │    └ [0m[36m[1m<function cli_apps at 0x000001E050E0A840>[0m
+    [36m         └ [0m[36m[1m_HandlerEntry(fn=<function cli_apps at 0x000001E050E0A840>, meta=RouteMeta(methods=frozenset({'GET'}), public=False, origin_c...[0m
+
+  File "[32mD:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\handlers\[0m[32m[1msettings.py[0m", line [33m232[0m, in [35mcli_apps[0m
+    [35m[1mfrom[0m [1mminiunicorn[0m[35m[1m.[0m[1mchannels[0m[35m[1m.[0m[1mwebsocket[0m[35m[1m.[0m[1mchannel[0m [35m[1mimport[0m [1mcli_apps_payload[0m
+
+[31m[1mImportError[0m:[1m cannot import name 'cli_apps_payload' from 'miniunicorn.channels.websocket.channel' (D:\MyProject\MiniUnicorn\miniunicorn\channels\websocket\channel.py)[0m

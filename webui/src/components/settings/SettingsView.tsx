@@ -35,6 +35,7 @@ import { AppsSettings } from "./sections/AppsSettings";
 import { ModelsSettings } from "./sections/ModelsSettings";
 import { ProvidersSettings } from "./sections/ProvidersSettings";
 import { AdvancedSettings } from "./sections/AdvancedSettings";
+import { MemoryEmbeddingSettings } from "./sections/MemoryEmbeddingSettings";
 import { NewModelConfigurationDialog } from "./sections/NewModelConfigurationDialog";
 import { WebSearchSettings } from "./sections/WebSearchSettings";
 import { ImageGenerationSettings } from "./sections/ImageGenerationSettings";
@@ -203,6 +204,8 @@ export function SettingsView({
         );
       case "apps":
         return <AppsSettings />;
+      case "memory":
+        return <MemoryEmbeddingSettings token={token} />;
       default:
         return null;
     }

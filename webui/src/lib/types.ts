@@ -226,6 +226,81 @@ export interface RuntimeCapabilities {
   can_export_diagnostics: boolean;
 }
 
+export interface EmbeddingModelStatus {
+  state: "not_downloaded" | "downloading" | "verifying" | "ready" | "corrupt" | "failed";
+  model_id?: string | null;
+  revision?: string | null;
+  dimension?: number | null;
+  cache_path?: string | null;
+  bytes: number;
+  last_self_test?: string | null;
+  last_error_code?: string | null;
+  message: string;
+}
+
+export interface EmbeddingIndexStatus {
+  state: "missing" | "building" | "ready" | "stale" | "corrupt" | "failed";
+  path?: string | null;
+  bytes: number;
+  last_rebuild?: string | null;
+  last_error_code?: string | null;
+  message: string;
+}
+
+export interface EmbeddingSourcesStatus {
+  discovered: number;
+  indexed: number;
+  pending: number;
+  stale: number;
+  invalid: number;
+  inactive: number;
+  errors: Array<Record<string, unknown>>;
+}
+
+export interface EmbeddingRecallStatus {
+  configured: boolean;
+  active: boolean;
+  fallback_reason?: string | null;
+  last_self_test?: string | null;
+  last_latency_ms?: number | null;
+}
+
+export interface EmbeddingOperation {
+  id: string;
+  kind: "setup" | "verify" | "rebuild";
+  state: "running" | "succeeded" | "failed" | "cancelled";
+  completed: number;
+  total: number;
+  message: string;
+}
+
+export interface EmbeddingStatusPayload {
+  model: EmbeddingModelStatus;
+  index: EmbeddingIndexStatus;
+  sources: EmbeddingSourcesStatus;
+  recall: EmbeddingRecallStatus;
+  operation?: EmbeddingOperation | null;
+}
+
+export interface EmbeddingSearchResult {
+  source_id: string;
+  source_type: string;
+  source_file: string;
+  source_revision: string;
+  text: string;
+  content_hash: string;
+  similarity: number;
+  score: number;
+  token_count: number;
+  synchronized: boolean;
+}
+
+export interface EmbeddingSearchPayload {
+  results: EmbeddingSearchResult[];
+  fallback_reason: string | null;
+  latency_ms: number;
+}
+
 export interface SettingsPayload {
   surface?: RuntimeSurface;
   runtime_surface?: RuntimeSurface;

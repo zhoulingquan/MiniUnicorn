@@ -9,6 +9,8 @@ import type {
   CronJobCreate,
   CronJobPayload,
   CronJobsPayload,
+  EmbeddingSearchPayload,
+  EmbeddingStatusPayload,
   ImageGenerationSettingsUpdate,
   McpPresetsPayload,
   ModelConfigurationCreate,
@@ -1090,6 +1092,38 @@ export async function pollChannelQrStatus(
   if (domain) query.set("domain", domain);
   return request<ChannelQrStatusPayload>(
     `${base}/api/channels/qrcode/status?${query}`,
+    token,
+  );
+}
+
+export function fetchEmbeddingStatus(
+  token: string,
+  base: string = "",
+): Promise<EmbeddingStatusPayload> {
+  return request<EmbeddingStatusPayload>(`${base}/api/embedding/status`, token);
+}
+
+export function startEmbeddingOperation(
+  token: string,
+  kind: "setup" | "verify" | "rebuild",
+  base: string = "",
+): Promise<{ accepted: boolean; operation: NonNullable<EmbeddingStatusPayload["operation"]> }> {
+  return request(
+    `${base}/api/embedding/${kind}`,
+    token,
+    { method: "POST" },
+  );
+}
+
+export function searchEmbeddingMemory(
+  token: string,
+  query: string,
+  base: string = "",
+): Promise<EmbeddingSearchPayload> {
+  const q = new URLSearchParams();
+  q.set("q", query);
+  return request<EmbeddingSearchPayload>(
+    `${base}/api/embedding/search?${q}`,
     token,
   );
 }
