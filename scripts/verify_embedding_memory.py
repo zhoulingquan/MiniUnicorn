@@ -22,14 +22,13 @@ import sys
 import tempfile
 from pathlib import Path
 
-from miniunicorn.embedding import MODEL_DIMENSION, MODEL_ID, MODEL_REVISION
-from miniunicorn.embedding.model_manager import EmbeddingModelManager
-from miniunicorn.embedding.types import ModelStatus
-from miniunicorn.providers.local_embedding import LocalEmbeddingProvider
+from miniunicorn.agent.memory_prompt import MemoryPromptPolicy
+from miniunicorn.agent.memory_recall import MemoryRecallService
 from miniunicorn.agent.memory_sources import MemorySourceCatalog
 from miniunicorn.agent.vector_index import VectorIndexManager
-from miniunicorn.agent.memory_recall import MemoryRecallService, RecallOutcome
-from miniunicorn.agent.memory_prompt import MemoryPromptPolicy
+from miniunicorn.embedding import MODEL_DIMENSION
+from miniunicorn.embedding.model_manager import EmbeddingModelManager
+from miniunicorn.providers.local_embedding import LocalEmbeddingProvider
 
 #: The 13 evidence items that must all pass for a release-ready embedding memory.
 REQUIRED_EVIDENCE: set[str] = {

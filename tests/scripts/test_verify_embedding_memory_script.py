@@ -5,9 +5,7 @@ without executing the real embedding model. The actual proof must be run
 separately via `python scripts/verify_embedding_memory.py`.
 """
 
-import ast
 import importlib.util
-import sys
 from pathlib import Path
 
 import pytest

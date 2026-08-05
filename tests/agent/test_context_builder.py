@@ -8,7 +8,6 @@ from miniunicorn.agent.context import ContextBuilder
 from miniunicorn.agent.memory_prompt import (
     END_MARK,
     START_MARK,
-    MemoryPromptPayload,
     MemoryPromptPolicy,
 )
 from miniunicorn.agent.memory_recall import RecallOutcome
