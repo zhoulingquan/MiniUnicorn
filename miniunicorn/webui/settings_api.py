@@ -27,6 +27,7 @@ from ._runtime import (
     restart_behavior_by_section,
     runtime_capabilities,
 )
+from .embedding_memory_api import embedding_memory_payload
 from .image_generation_api import (
     image_generation_payload,
     update_image_generation_settings,
@@ -74,6 +75,7 @@ def settings_payload(
     payload.update(runtime_payload(config))
     payload.update(advanced_payload(config))
     payload.update(image_generation_payload(config))
+    payload.update(embedding_memory_payload(config))
     payload["requires_restart"] = requires_restart
     return decorate_settings_payload(
         payload,
@@ -94,6 +96,7 @@ __all__ = [
     "delete_all_providers",
     "delete_model_configuration",
     "delete_provider_settings",
+    "embedding_memory_payload",
     "image_generation_payload",
     "list_provider_models",
     "login_oauth_provider",

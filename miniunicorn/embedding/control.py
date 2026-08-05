@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 from miniunicorn.agent.memory_prompt import MemoryPromptPolicy
 from miniunicorn.agent.memory_recall import MemoryRecallService, RecallOutcome
@@ -28,6 +30,24 @@ logger = logging.getLogger(__name__)
 
 #: Index states that a background full rebuild can recover from.
 _REBUILDABLE = ("index_stale", "index_corrupt")
+
+OperationKind = Literal["setup", "verify", "rebuild"]
+OperationState_ = Literal["running", "succeeded", "failed", "cancelled"]
+
+
+@dataclass
+class OperationState:
+    """Tracks a long-running setup/verify/rebuild for the status API."""
+
+    id: str
+    kind: OperationKind
+    state: OperationState_
+    completed: int = 0
+    total: int = 0
+    message: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
 
 
 class EmbeddingControl:
@@ -49,6 +69,8 @@ class EmbeddingControl:
         self._rebuild_task: asyncio.Task[Any] | None = None
         self._reconcile_task: asyncio.Task[Any] | None = None
         self.last_recall: RecallOutcome | None = None
+        self._operation: OperationState | None = None
+        self._operation_task: asyncio.Task[Any] | None = None
 
     @classmethod
     def for_workspace(
@@ -146,6 +168,55 @@ class EmbeddingControl:
 
     # --------------------------------------------------------------- status
 
+    @property
+    def operation_running(self) -> bool:
+        """Whether a setup/verify/rebuild operation is currently in progress."""
+        return self._operation is not None and self._operation.state == "running"
+
+    def start_operation(self, kind: OperationKind) -> OperationState:
+        """Start a background setup/verify/rebuild; raise if one is running.
+
+        Returns the initial ``OperationState`` (state=running). The caller
+        polls ``status()`` to observe progress and completion.
+        """
+        if self.operation_running:
+            raise RuntimeError("operation_already_running")
+        if not self.configured:
+            raise RuntimeError("embedding_disabled")
+        operation = OperationState(id=uuid.uuid4().hex[:12], kind=kind, state="running")
+        self._operation = operation
+        self._operation_task = asyncio.get_running_loop().create_task(
+            self._run_operation(operation)
+        )
+        return operation
+
+    async def _run_operation(self, operation: OperationState) -> None:
+        """Execute the operation, updating state on success/failure."""
+        try:
+            if operation.kind == "setup":
+                await self.model_manager.setup(force=False)
+            elif operation.kind == "verify":
+                await self.model_manager.verify(run_self_test=True)
+            elif operation.kind == "rebuild":
+                index = VectorIndexManager(self.db_path)
+                try:
+                    report = await index.rebuild(self.catalog, self._provider)
+                    if report.state != "ready":
+                        operation.state = "failed"
+                        operation.message = report.message or "索引重建失败"
+                        return
+                finally:
+                    index.close()
+            operation.state = "succeeded"
+            operation.message = ""
+        except asyncio.CancelledError:
+            operation.state = "cancelled"
+            raise
+        except Exception as exc:
+            operation.state = "failed"
+            operation.message = str(exc)
+            logger.exception("embedding operation %s failed", operation.kind)
+
     def status(self, *, configured: bool) -> EmbeddingStatus:
         """One consistent status snapshot over the shared components."""
         if self._status_service is None:
@@ -158,7 +229,13 @@ class EmbeddingControl:
                 catalog=self.catalog,
                 index_manager=index,
             )
-        return self._status_service.snapshot(configured=configured)
+        snapshot = self._status_service.snapshot(configured=configured)
+        # Embed the live operation snapshot so the WebUI can poll progress.
+        if self._operation is not None:
+            object.__setattr__(
+                snapshot, "operation", self._operation.to_dict()  # type: ignore[arg-type]
+            )
+        return snapshot
 
     # --------------------------------------------------------------- helpers
 

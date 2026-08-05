@@ -22,6 +22,7 @@ from . import (  # noqa: F401
     bootstrap_file,
     channels,
     cron,
+    embedding,
     media,
     misc,
     sessions,

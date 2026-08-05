@@ -1011,3 +1011,79 @@ async def test_state_change_with_allowed_origin_succeeds(
     finally:
         await channel.stop()
         await server_task
+
+
+@pytest.mark.asyncio
+async def test_embedding_endpoints_require_bearer_token(
+    bus: MagicMock, tmp_path: Path
+) -> None:
+    """Every /api/embedding/* endpoint must return 401 without a token."""
+    sm = _seed_session(tmp_path, key="websocket:emb")
+    channel = _ch(bus, session_manager=sm, port=29936)
+    server_task = asyncio.create_task(channel.start())
+    await asyncio.sleep(0.3)
+    try:
+        for path in (
+            "/api/embedding/status",
+            "/api/embedding/setup",
+            "/api/embedding/verify",
+            "/api/embedding/rebuild",
+            "/api/embedding/search?q=test",
+        ):
+            resp = await _http_get(f"http://127.0.0.1:29936{path}")
+            assert resp.status_code == 401, f"{path} returned {resp.status_code}"
+    finally:
+        await channel.stop()
+        await server_task
+
+
+@pytest.mark.asyncio
+async def test_embedding_status_returns_shared_contract(
+    bus: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """/api/embedding/status returns the four-section shared contract."""
+    from miniunicorn.embedding.types import (
+        EmbeddingStatus,
+        IndexStatus,
+        ModelStatus,
+        RecallStatus,
+        SourceStatus,
+    )
+
+    fake_status = EmbeddingStatus(
+        model=ModelStatus(state="not_downloaded", message="模型尚未下载"),
+        index=IndexStatus(state="missing"),
+        sources=SourceStatus(
+            discovered=0, indexed=0, pending=0, stale=0, invalid=0, inactive=0
+        ),
+        recall=RecallStatus(
+            configured=True, active=False, fallback_reason="index_missing"
+        ),
+    )
+
+    class _FakeControl:
+        configured = True
+
+        def status(self, *, configured: bool):  # noqa: ARG002
+            return fake_status
+
+    monkeypatch.setattr(
+        "miniunicorn.webui.embedding_api.EmbeddingControl.for_workspace",
+        lambda workspace, configured=True: _FakeControl(),  # noqa: ARG005
+    )
+    sm = _seed_session(tmp_path, key="websocket:emb2")
+    channel = _ch(bus, session_manager=sm, port=29937)
+    server_task = asyncio.create_task(channel.start())
+    await asyncio.sleep(0.3)
+    try:
+        boot = await _http_get("http://127.0.0.1:29937/webui/bootstrap")
+        token = boot.json()["token"]
+        auth = {"Authorization": f"Bearer {token}"}
+        resp = await _http_get("http://127.0.0.1:29937/api/embedding/status", headers=auth)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert set(body) >= {"model", "index", "sources", "recall"}
+        assert body["model"]["state"] == "not_downloaded"
+    finally:
+        await channel.stop()
+        await server_task
