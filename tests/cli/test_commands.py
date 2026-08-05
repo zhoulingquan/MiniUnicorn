@@ -31,11 +31,18 @@ class _StopGatewayError(RuntimeError):
 @pytest.fixture
 def mock_paths():
     """Mock config/workspace paths for test isolation."""
+    from miniunicorn.embedding.types import ModelStatus
+
     with (
         patch("miniunicorn.config.loader.get_config_path") as mock_cp,
         patch("miniunicorn.config.loader.save_config") as mock_sc,
         patch("miniunicorn.config.loader.load_config") as mock_lc,
         patch("miniunicorn.cli.commands.get_workspace_path") as mock_ws,
+        patch(
+            "miniunicorn.cli.commands._setup_embedding_after_onboard",
+            new_callable=AsyncMock,
+            return_value=ModelStatus(state="not_downloaded"),
+        ),
     ):
         base_dir = Path("./test_onboard_data")
         if base_dir.exists():
@@ -57,6 +64,12 @@ def mock_paths():
         mock_sc.side_effect = _save_config
 
         yield config_file, workspace_dir, mock_ws
+
+        # Clear cached EmbeddingControl instances so they don't hold file
+        # handles into the test workspace (Windows locks open files).
+        from miniunicorn.embedding.control import EmbeddingControl
+
+        EmbeddingControl._instances.clear()
 
         if base_dir.exists():
             shutil.rmtree(base_dir)
@@ -202,6 +215,63 @@ def test_onboard_wizard_preserves_explicit_config_in_next_steps(tmp_path, monkey
     resolved_config = str(config_path.resolve())
     assert f'miniunicorn agent -m "Hello!" --config {resolved_config}' in compact_output
     assert f"miniunicorn gateway --config {resolved_config}" in compact_output
+
+
+def test_onboard_attempts_embedding_setup_but_download_failure_is_nonfatal(mock_paths, monkeypatch):
+    """Onboard attempts embedding setup; a download failure must not block onboard."""
+    from miniunicorn.embedding.types import ModelStatus
+
+    setup_mock = AsyncMock(
+        return_value=ModelStatus(state="failed", last_error_code="download_failed")
+    )
+    monkeypatch.setattr(
+        "miniunicorn.cli.commands._setup_embedding_after_onboard", setup_mock
+    )
+
+    result = runner.invoke(app, ["onboard"])
+
+    assert result.exit_code == 0
+    setup_mock.assert_awaited_once()
+    assert "聊天仍可正常使用" in result.stdout
+
+
+def test_onboard_skips_embedding_when_vector_recall_disabled(mock_paths, monkeypatch):
+    """When vector_recall is disabled in config, onboard must not attempt setup."""
+    config_file, workspace_dir, _ = mock_paths
+    config_file.write_text("{}")
+
+    disabled_config = Config()
+    disabled_config.agents.defaults.vector_recall = False
+    monkeypatch.setattr(
+        "miniunicorn.config.loader.load_config",
+        lambda _config_path=None: disabled_config,
+    )
+
+    setup_mock = AsyncMock(return_value=None)
+    monkeypatch.setattr(
+        "miniunicorn.cli.commands._setup_embedding_after_onboard", setup_mock
+    )
+
+    result = runner.invoke(app, ["onboard"], input="n\n")
+
+    assert result.exit_code == 0
+    setup_mock.assert_not_called()
+    assert "向量记忆已按配置关闭" in result.stdout
+
+
+def test_onboard_embedding_ready_shows_success(mock_paths, monkeypatch):
+    """When embedding setup succeeds, onboard reports the model is ready."""
+    from miniunicorn.embedding.types import ModelStatus
+
+    setup_mock = AsyncMock(return_value=ModelStatus(state="ready"))
+    monkeypatch.setattr(
+        "miniunicorn.cli.commands._setup_embedding_after_onboard", setup_mock
+    )
+
+    result = runner.invoke(app, ["onboard"])
+
+    assert result.exit_code == 0
+    assert "本地 Embedding 模型已就绪" in result.stdout
 
 
 def test_provider_logout_rejects_unknown_provider():

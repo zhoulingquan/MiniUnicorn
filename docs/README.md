@@ -26,6 +26,7 @@
 | 主题 | 文档 | 内容 |
 |---|---|---|
 | 记忆系统 | [`memory.md`](./memory.md) | MiniUnicorn 如何存储、整合与恢复记忆 |
+| 向量记忆 | [`embedding-memory.md`](./embedding-memory.md) | 本地 Embedding 模型安装、检索机制、查看修复与隐私边界 |
 | Python SDK | [`python-sdk.md`](./python-sdk.md) | 以库形式在 Python 中调用 MiniUnicorn |
 | 频道插件指南 | [`channel-plugin-guide.md`](./channel-plugin-guide.md) | 构建并测试自定义聊天频道插件 |
 | WebSocket 频道 | [`websocket.md`](./websocket.md) | 实时 WebSocket 接入与协议细节 |

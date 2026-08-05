@@ -31,7 +31,7 @@ import signal
 import sys
 from contextlib import suppress
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 # Force UTF-8 encoding for Windows console
 if sys.platform == "win32":
@@ -93,6 +93,9 @@ from miniunicorn.utils.restart import (
     should_show_cli_restart_notice,
 )
 
+if TYPE_CHECKING:
+    from miniunicorn.embedding.types import ModelStatus
+
 app = typer.Typer(
     name="miniunicorn",
     context_settings={"help_option_names": ["-h", "--help"]},
@@ -134,6 +137,47 @@ def main(
 _BLOCKED_CONFIG_PATHS: frozenset[str] = frozenset(
     {"/etc", "/usr", "/bin", "/sbin", "/var", "/boot", "/sys", "/proc"}
 )
+
+
+async def _setup_embedding_after_onboard(
+    workspace: Path, *, vector_recall: bool
+) -> "ModelStatus | None":
+    """Attempt embedding model setup; return None if disabled, ModelStatus otherwise.
+
+    Defined at module level so tests can monkeypatch it. Fail-open: any
+    unexpected exception is converted to a ``failed`` ModelStatus so the
+    onboard flow never blocks on embedding setup.
+    """
+    if not vector_recall:
+        return None
+    try:
+        from miniunicorn.embedding.control import EmbeddingControl
+
+        control = EmbeddingControl.for_workspace(workspace, configured=True)
+        return await control.model_manager.setup(force=False)
+    except Exception:
+        # fail-open: return a failed status so onboard still succeeds
+        from miniunicorn.embedding.types import ModelStatus
+
+        return ModelStatus(state="failed", last_error_code="setup_exception")
+
+
+def _report_embedding_onboard(status: "ModelStatus | None") -> None:
+    """Print user-friendly embedding status after onboard.
+
+    Defined at module level so tests can monkeypatch it. ``None`` means the
+    feature is disabled by config; a ``ready`` status is celebrated; anything
+    else is a non-fatal warning that still leaves chat usable.
+    """
+    if status is None:
+        console.print("[dim]向量记忆已按配置关闭。[/dim]")
+    elif status.state == "ready":
+        console.print("[green]✓[/green] 本地 Embedding 模型已就绪。")
+    else:
+        console.print(
+            "[yellow]Embedding 模型暂未就绪；聊天仍可正常使用。"
+            "稍后运行 `miniunicorn embedding setup` 重试。[/yellow]"
+        )
 
 
 @app.command()
@@ -221,6 +265,20 @@ def onboard(
         console.print(f"[green]✓[/green] Created workspace at {workspace_path}")
 
     sync_workspace_templates(workspace_path)
+
+    # Attempt embedding model setup (fail-open: never block onboard)
+    vector_recall = getattr(config.agents.defaults, "vector_recall", True)
+    _embedding_status: "ModelStatus | None" = None
+    if vector_recall:
+        try:
+            _embedding_status = asyncio.run(
+                _setup_embedding_after_onboard(workspace_path, vector_recall=vector_recall)
+            )
+        except Exception:
+            from miniunicorn.embedding.types import ModelStatus
+
+            _embedding_status = ModelStatus(state="failed", last_error_code="setup_exception")
+    _report_embedding_onboard(_embedding_status)
 
     agent_cmd = 'miniunicorn agent -m "Hello!"'
     gateway_cmd = "miniunicorn gateway"

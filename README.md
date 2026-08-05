@@ -192,9 +192,10 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 ## 安装
 
 ```bash
-# 从源码（最新特性）
-git clone https://github.com/zhoulingquan/miniunicorn.git
-cd miniunicorn
+# 推荐：完整安装（含本地向量记忆）
+pip install "miniunicorn-ai[vector]"
+
+# 基础安装（不含向量记忆，聊天功能不受影响）
 pip install -e .
 
 # 可选附加依赖
