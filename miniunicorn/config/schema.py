@@ -234,7 +234,7 @@ class AgentDefaults(Base):
         serialization_alias="checkpointRatio",
     )  # 提前 checkpoint 触发比例 (0.7 = 70% 预算时触发归档，借鉴 MiMo Code 提前提取思想；1.0 = 旧行为)
     vector_recall: bool = Field(
-        default=False,
+        default=True,
         validation_alias=AliasChoices("vectorRecall"),
         serialization_alias="vectorRecall",
     )  # Enable vector-based memory recall instead of full MEMORY.md injection

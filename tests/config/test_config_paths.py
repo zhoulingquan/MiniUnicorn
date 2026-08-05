@@ -4,9 +4,11 @@ from miniunicorn.config.paths import (
     get_cli_history_path,
     get_cron_dir,
     get_data_dir,
+    get_embedding_model_dir,
     get_legacy_sessions_dir,
     get_logs_dir,
     get_media_dir,
+    get_models_dir,
     get_runtime_subdir,
     get_workspace_path,
     is_default_workspace,
@@ -34,6 +36,16 @@ def test_media_dir_supports_channel_namespace(monkeypatch, tmp_path: Path) -> No
 def test_shared_and_legacy_paths_remain_global() -> None:
     assert get_cli_history_path() == Path.home() / ".miniunicorn" / "history" / "cli_history"
     assert get_legacy_sessions_dir() == Path.home() / ".miniunicorn" / "sessions"
+
+
+def test_models_dir_follows_config_path(monkeypatch, tmp_path: Path) -> None:
+    config_file = tmp_path / "instance-c" / "config.json"
+    monkeypatch.setattr("miniunicorn.config.paths.get_config_path", lambda: config_file)
+
+    assert get_models_dir() == config_file.parent / "models"
+    assert get_embedding_model_dir() == (
+        config_file.parent / "models" / "bge-small-zh-v1.5" / "7999e1d3359715c523056ef9478215996d62a620"
+    )
 
 
 def test_workspace_path_is_explicitly_resolved() -> None:

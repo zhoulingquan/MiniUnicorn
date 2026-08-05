@@ -34,6 +34,18 @@ def get_media_dir(channel: str | None = None) -> Path:
     return ensure_dir(base / channel) if channel else base
 
 
+def get_models_dir() -> Path:
+    """Return the runtime model asset directory."""
+    return get_runtime_subdir("models")
+
+
+def get_embedding_model_dir() -> Path:
+    """Return the pinned local embedding model directory."""
+    from miniunicorn.embedding import MODEL_REVISION
+
+    return ensure_dir(get_models_dir() / "bge-small-zh-v1.5" / MODEL_REVISION)
+
+
 def get_cron_dir() -> Path:
     """Return the cron storage directory."""
     return get_runtime_subdir("cron")
