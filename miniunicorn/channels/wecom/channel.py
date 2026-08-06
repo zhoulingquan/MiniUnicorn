@@ -23,6 +23,7 @@ from miniunicorn.config.paths import get_media_dir
 from miniunicorn.config.schema import Base
 
 WECOM_AVAILABLE = importlib.util.find_spec("wecom_aibot_sdk") is not None
+SDK_AVAILABLE = WECOM_AVAILABLE
 
 # Upload safety limits (matching QQ channel defaults)
 WECOM_UPLOAD_MAX_BYTES = 1024 * 1024 * 200  # 200MB
@@ -96,7 +97,7 @@ class WecomChannel(BaseChannel):
     async def start(self) -> None:
         """Start the WeCom bot with WebSocket long connection."""
         if not WECOM_AVAILABLE:
-            self.logger.error("SDK not installed. Run: miniunicorn plugins enable wecom")
+            self.logger.error("SDK not installed. Run: pip install -e \".[wecom]\"")
             return
 
         if not self.config.bot_id or not self.config.secret:

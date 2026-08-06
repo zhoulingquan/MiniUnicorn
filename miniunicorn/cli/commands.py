@@ -26,8 +26,10 @@ patch ``commands._PROMPT_SESSION`` and the helpers reach it through
 """
 
 import asyncio
+import importlib
 import os
 import signal
+import subprocess
 import sys
 from contextlib import suppress
 from pathlib import Path
@@ -61,6 +63,7 @@ _log_handler_id = logger.add(
 )
 
 from prompt_toolkit import PromptSession
+from rich.markup import escape
 from rich.table import Table
 
 from miniunicorn import __logo__, __version__
@@ -1012,6 +1015,59 @@ def channels_status(
     console.print(table)
 
 
+_CHANNEL_SDK_PACKAGES: dict[str, str] = {
+    "feishu": "lark-oapi",
+    "dingtalk": "dingtalk-stream",
+    "qq": "qq-botpy",
+    "wecom": "wecom_aibot_sdk",
+}
+
+
+def _ensure_channel_sdk(channel_name: str, channel_cls: type) -> bool:
+    """Ensure the channel's third-party SDK is importable before login.
+
+    Built-in channels degrade gracefully when their SDK is missing, so the
+    failure would otherwise surface only later at ``start()``. Instead, offer
+    to install the required package on demand and re-check afterwards.
+    """
+    try:
+        mod = importlib.import_module(channel_cls.__module__)
+        available = bool(getattr(mod, "SDK_AVAILABLE", True))
+    except Exception:
+        available = True
+
+    if available:
+        return True
+
+    pkg = _CHANNEL_SDK_PACKAGES.get(channel_name)
+    if pkg is None:
+        console.print(f"[red]{channel_name}: SDK not installed and no known pip package.[/red]")
+        return False
+
+    console.print(
+        f"[yellow]{channel_name} requires the '{pkg}' SDK, which is not installed.[/yellow]"
+    )
+    if not typer.confirm("Install it now with pip?", default=True):
+        manual = 'pip install -e ".[{}]"'.format(channel_name)
+        console.print(f"[red]Aborted. Install manually: {escape(manual)}[/red]")
+        return False
+
+    try:
+        result = subprocess.run([sys.executable, "-m", "pip", "install", pkg])
+    except Exception as e:
+        console.print(f"[red]Failed to run pip: {e}[/red]")
+        return False
+    if result.returncode != 0:
+        console.print("[red]pip install failed. Install manually and retry.[/red]")
+        return False
+
+    try:
+        reloaded = importlib.reload(importlib.import_module(channel_cls.__module__))
+        return bool(getattr(reloaded, "SDK_AVAILABLE", True))
+    except Exception:
+        return True
+
+
 @channels_app.command("login")
 def channels_login(
     channel_name: str = typer.Argument(
@@ -1043,6 +1099,9 @@ def channels_login(
     console.print(f"{__logo__} {all_channels[channel_name].display_name} Login\n")
 
     channel_cls = all_channels[channel_name]
+    if not _ensure_channel_sdk(channel_name, channel_cls):
+        raise typer.Exit(1)
+
     channel = channel_cls(channel_cfg, bus=None)
 
     success = asyncio.run(channel.login(force=force))

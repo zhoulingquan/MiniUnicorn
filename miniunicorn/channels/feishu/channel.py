@@ -7,8 +7,10 @@ import importlib.util
 import json
 import os
 import re
+import sys
 import threading
 import time
+import types
 import uuid
 from contextlib import suppress
 from datetime import UTC, datetime
@@ -45,6 +47,34 @@ if TYPE_CHECKING:
     from lark_oapi.api.im.v1.model import MentionEvent, P2ImMessageReceiveV1
 
 FEISHU_AVAILABLE = importlib.util.find_spec("lark_oapi") is not None
+SDK_AVAILABLE = FEISHU_AVAILABLE
+
+_LARK_PKG_RESOURCES_SHIM: types.ModuleType | None = None
+
+
+def _ensure_pkg_resources_declare_namespace() -> None:
+    """Guarantee ``pkg_resources.declare_namespace`` while lark-oapi loads.
+
+    setuptools>=82 removed ``declare_namespace`` from ``pkg_resources``, but
+    lark-oapi's vendored protobuf package init still calls it; without a
+    shim, ``import lark_oapi`` crashes on such environments. The no-op shim
+    is installed once (idempotent) and kept in ``sys.modules`` because
+    lark-oapi may defer its own ``pkg_resources`` imports to runtime.
+    """
+    global _LARK_PKG_RESOURCES_SHIM
+    if _LARK_PKG_RESOURCES_SHIM is not None:
+        return
+    try:
+        import pkg_resources as pkg_resources_mod
+    except ImportError:
+        shim = types.ModuleType("pkg_resources")
+        shim.declare_namespace = lambda _name: None  # type: ignore[attr-defined]
+        sys.modules.setdefault("pkg_resources", shim)
+        _LARK_PKG_RESOURCES_SHIM = shim
+        return
+    if not hasattr(pkg_resources_mod, "declare_namespace"):
+        setattr(pkg_resources_mod, "declare_namespace", lambda _name: None)
+    _LARK_PKG_RESOURCES_SHIM = pkg_resources_mod
 
 
 def _identity_timestamp() -> str:
@@ -78,6 +108,7 @@ def _load_lark_runtime() -> tuple[Any, str, str]:
     """
     import sys
 
+    _ensure_pkg_resources_declare_namespace()
     ws_client_already_imported = "lark_oapi.ws.client" in sys.modules
     import lark_oapi as lark
     import lark_oapi.ws.client as lark_ws_client
@@ -304,7 +335,7 @@ class FeishuChannel(BaseChannel):
     async def start(self) -> None:
         """Start the Feishu bot with WebSocket long connection."""
         if not FEISHU_AVAILABLE:
-            self.logger.error("SDK not installed. Run: miniunicorn plugins enable feishu")
+            self.logger.error("SDK not installed. Run: pip install -e \".[feishu]\"")
             return
 
         if not self.config.app_id or not self.config.app_secret:

@@ -49,6 +49,8 @@ except ImportError:
     AckMessage = None  # type: ignore[assignment,misc]
     ChatbotMessage = None  # type: ignore[assignment,misc]
 
+SDK_AVAILABLE = DINGTALK_AVAILABLE
+
 
 class MiniunicornDingTalkHandler(CallbackHandler):
     """
@@ -239,7 +241,7 @@ class DingTalkChannel(BaseChannel):
         try:
             if not DINGTALK_AVAILABLE:
                 self.logger.error(
-                    "Stream SDK not installed. Run: miniunicorn plugins enable dingtalk"
+                    "Stream SDK not installed. Run: pip install -e \".[dingtalk]\""
                 )
                 return
 

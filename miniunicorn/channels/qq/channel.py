@@ -61,6 +61,8 @@ except ImportError:  # pragma: no cover
     botpy = None
     Route = None
 
+SDK_AVAILABLE = QQ_AVAILABLE
+
 if TYPE_CHECKING:
     from botpy.message import BaseMessage, C2CMessage, GroupMessage
     from botpy.types.message import Media
@@ -180,7 +182,7 @@ class QQChannel(BaseChannel):
         """Start the QQ bot with auto-reconnect loop."""
         redirect_lib_logging("botpy", level="WARNING")
         if not QQ_AVAILABLE:
-            self.logger.error("SDK not installed. Run: miniunicorn plugins enable qq")
+            self.logger.error("SDK not installed. Run: pip install -e \".[qq]\"")
             return
 
         if not self.config.app_id or not self.config.secret:
