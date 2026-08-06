@@ -45,8 +45,9 @@ HF_SEARCH_TIMEOUT_S = 8.0
 HF_SEARCH_MAX_CANDIDATES = 5
 
 # ModelScope (阿里魔搭) — 国产模型仓库,作为 HF 的 fallback。
-# 国内站点,不需要代理;httpx 默认会读取 HTTP_PROXY/HTTPS_PROXY 环境变量,
-# 这里在请求时用 trust_env=False 绕过,避免把国内请求走代理。
+# 国内站点,默认直连不走代理;httpx 默认会读取 HTTP_PROXY/HTTPS_PROXY 环境变量,
+# 这里在请求时用 trust_env=False 绕过,避免把国内请求走代理。海外/企业代理环境
+# 可通过 MINIUNICORN_MODELSCOPE_TRUST_ENV=1 恢复读取代理环境变量。
 MODELSCOPE_API_BASE = "https://modelscope.cn/api/v1/models"
 MODELSCOPE_RAW_BASE = "https://modelscope.cn/api/v1/models"
 MODELSCOPE_QUERY_TIMEOUT_S = 6.0
@@ -54,6 +55,22 @@ MODELSCOPE_SEARCH_TIMEOUT_S = 8.0
 MODELSCOPE_SEARCH_MAX_CANDIDATES = 5
 
 ENV_NO_AUTO_LOOKUP = "MINIUNICORN_NO_AUTO_LOOKUP"
+ENV_MODELSCOPE_TRUST_ENV = "MINIUNICORN_MODELSCOPE_TRUST_ENV"
+
+
+def _modelscope_http_client(*, timeout: float) -> httpx.Client:
+    """Build the HTTP client for ModelScope queries (domestic, no proxy by default).
+
+    ModelScope 是国内站点,默认 ``trust_env=False`` 直连;海外或强制代理的网络
+    环境设置 ``MINIUNICORN_MODELSCOPE_TRUST_ENV=1`` 后改为读取
+    ``HTTP_PROXY``/``HTTPS_PROXY`` 环境变量。
+    """
+    trust_env = os.environ.get(ENV_MODELSCOPE_TRUST_ENV, "").lower() not in (
+        "",
+        "0",
+        "false",
+    )
+    return httpx.Client(timeout=timeout, trust_env=trust_env)
 
 
 def _system_proxy_url() -> str | None:
@@ -969,8 +986,8 @@ def _search_modelscope_models(model_key: str) -> list[str]:
     seen: set[str] = set()
     for query in queries:
         try:
-            # trust_env=False: ModelScope 是国内站点,不走代理。
-            with httpx.Client(trust_env=False) as client:
+            # ModelScope 是国内站点,默认直连不走代理(可用环境变量恢复)。
+            with _modelscope_http_client(timeout=MODELSCOPE_SEARCH_TIMEOUT_S) as client:
                 resp = client.put(
                     MODELSCOPE_API_BASE,
                     json={
@@ -978,7 +995,6 @@ def _search_modelscope_models(model_key: str) -> list[str]:
                         "PageNumber": 1,
                         "Name": query,
                     },
-                    timeout=MODELSCOPE_SEARCH_TIMEOUT_S,
                     follow_redirects=True,
                 )
             if resp.status_code != 200:
@@ -1020,12 +1036,11 @@ def _query_modelscope_config(model_id: str) -> tuple[int, str] | None:
     Returns ``(limit, source)`` or ``None`` on failure.
     """
     try:
-        # trust_env=False: ModelScope 是国内站点,不走代理。
-        with httpx.Client(trust_env=False) as client:
+        # ModelScope 是国内站点,默认直连不走代理(可用环境变量恢复)。
+        with _modelscope_http_client(timeout=MODELSCOPE_QUERY_TIMEOUT_S) as client:
             resp = client.get(
                 f"{MODELSCOPE_RAW_BASE}/{model_id}/repo",
                 params={"Revision": "master", "FilePath": "config.json"},
-                timeout=MODELSCOPE_QUERY_TIMEOUT_S,
                 follow_redirects=True,
             )
         if resp.status_code != 200:
