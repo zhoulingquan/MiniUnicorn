@@ -56,6 +56,50 @@ MODELSCOPE_SEARCH_MAX_CANDIDATES = 5
 ENV_NO_AUTO_LOOKUP = "MINIUNICORN_NO_AUTO_LOOKUP"
 
 
+def _system_proxy_url() -> str | None:
+    """Read the OS-level proxy as a fallback for external (HF) requests.
+
+    ``httpx`` only honors ``HTTP_PROXY``/``HTTPS_PROXY`` env vars
+    (``trust_env``) and never reads the system proxy itself. On Windows the
+    common proxy clients (Clash, V2rayN, Shadowsocks, ...) write their local
+    listening address into the registry ``Internet Settings``, which browsers
+    use; ``getproxies_registry()`` exposes that value. Returns ``None`` when
+    no system proxy is configured (non-Windows, ``ProxyEnable=0``, ...).
+
+    Note: ``urllib.request.getproxies()`` is deliberately *not* used here —
+    it is ``getproxies_environment() or getproxies_registry()``, so a mere
+    ``NO_PROXY`` env var would short-circuit the registry lookup.
+    """
+    from miniunicorn.utils.proxy import system_proxy_url
+
+    return system_proxy_url()
+
+
+def _hf_http_client(*, timeout: float) -> httpx.Client:
+    """Build the HTTP client for Hugging Face queries (proxy-first).
+
+    Resolution order:
+    1. ``HTTP_PROXY``/``HTTPS_PROXY`` env vars — honored via ``trust_env``
+       (httpx native behavior) so explicit configuration always wins;
+    2. OS-level system proxy (Windows registry via :func:`_system_proxy_url`)
+       — covers local proxy clients (Clash, V2rayN, ...) without env vars;
+    3. direct connection.
+
+    The proxy address is never hardcoded; whatever client the user runs
+    (any local port, or a corporate proxy) is discovered automatically.
+    """
+    try:
+        import urllib.request
+
+        env = urllib.request.getproxies_environment()
+    except Exception:
+        env = {}
+    proxy = None
+    if not any(env.get(key) for key in ("http", "https", "all")):
+        proxy = _system_proxy_url()
+    return httpx.Client(timeout=timeout, trust_env=True, proxy=proxy)
+
+
 def _is_model_id_relevant(query_key: str, candidate_id: str) -> bool:
     """判断 HF/ModelScope 搜索候选 model_id 是否与用户查询的模型相关。
 
@@ -575,12 +619,12 @@ def _search_hf_models(model_key: str) -> list[str]:
     seen: set[str] = set()
     for query in queries:
         try:
-            resp = httpx.get(
-                HF_SEARCH_BASE,
-                params={"search": query, "limit": HF_SEARCH_MAX_CANDIDATES * 2},
-                timeout=HF_SEARCH_TIMEOUT_S,
-                follow_redirects=True,
-            )
+            with _hf_http_client(timeout=HF_SEARCH_TIMEOUT_S) as client:
+                resp = client.get(
+                    HF_SEARCH_BASE,
+                    params={"search": query, "limit": HF_SEARCH_MAX_CANDIDATES * 2},
+                    follow_redirects=True,
+                )
             resp.raise_for_status()
             items = resp.json()
             if not isinstance(items, list):
@@ -725,11 +769,11 @@ def _query_hf_card_and_configs(model_id: str) -> tuple[int, str] | None:
     """
     # 1) Model card metadata.
     try:
-        resp = httpx.get(
-            f"{HF_API_BASE}/{model_id}",
-            timeout=HF_QUERY_TIMEOUT_S,
-            follow_redirects=True,
-        )
+        with _hf_http_client(timeout=HF_QUERY_TIMEOUT_S) as client:
+            resp = client.get(
+                f"{HF_API_BASE}/{model_id}",
+                follow_redirects=True,
+            )
         if resp.status_code != 404:
             resp.raise_for_status()
             payload = resp.json()
@@ -742,11 +786,11 @@ def _query_hf_card_and_configs(model_id: str) -> tuple[int, str] | None:
 
     # 2) Raw config.json.
     try:
-        resp = httpx.get(
-            f"{HF_RAW_BASE}/{model_id}/resolve/main/config.json",
-            timeout=HF_QUERY_TIMEOUT_S,
-            follow_redirects=True,
-        )
+        with _hf_http_client(timeout=HF_QUERY_TIMEOUT_S) as client:
+            resp = client.get(
+                f"{HF_RAW_BASE}/{model_id}/resolve/main/config.json",
+                follow_redirects=True,
+            )
         if resp.status_code == 200:
             cfg = resp.json()
             limit = _extract_context_from_config_json(cfg)
@@ -757,11 +801,11 @@ def _query_hf_card_and_configs(model_id: str) -> tuple[int, str] | None:
 
     # 3) Raw tokenizer_config.json.
     try:
-        resp = httpx.get(
-            f"{HF_RAW_BASE}/{model_id}/resolve/main/tokenizer_config.json",
-            timeout=HF_QUERY_TIMEOUT_S,
-            follow_redirects=True,
-        )
+        with _hf_http_client(timeout=HF_QUERY_TIMEOUT_S) as client:
+            resp = client.get(
+                f"{HF_RAW_BASE}/{model_id}/resolve/main/tokenizer_config.json",
+                follow_redirects=True,
+            )
         if resp.status_code == 200:
             tc = resp.json()
             limit = _extract_context_from_tokenizer_config(tc)

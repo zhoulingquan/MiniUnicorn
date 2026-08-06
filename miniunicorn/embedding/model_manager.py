@@ -119,7 +119,10 @@ class EmbeddingModelManager:
             from huggingface_hub import snapshot_download
 
             downloader = snapshot_download
-        downloader(repo_id=MODEL_DOWNLOAD_REPO, local_dir=str(self.model_dir))
+        from miniunicorn.utils.proxy import env_proxy_fallback
+
+        with env_proxy_fallback():
+            downloader(repo_id=MODEL_DOWNLOAD_REPO, local_dir=str(self.model_dir))
 
     # ------------------------------------------------------------------ verify
 
