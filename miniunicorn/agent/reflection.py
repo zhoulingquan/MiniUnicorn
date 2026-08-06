@@ -12,6 +12,7 @@ module is self-contained and does not modify the existing ReAct loop.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from datetime import datetime
@@ -20,6 +21,8 @@ from typing import Any
 
 from loguru import logger
 
+from miniunicorn.utils.file_lock import file_path_lock
+from miniunicorn.utils.llm_runtime import resolve_llm_timeout
 from miniunicorn.utils.prompt_templates import render_template
 
 # Hard cap on reflection text length to keep reflections.jsonl compact.
@@ -75,27 +78,30 @@ class Reflection:
         try:
             # Build a compact context from recent messages (last 6)
             recent = self._format_recent_messages(messages[-6:])
-            response = await self.provider.chat_with_retry(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": render_template(
-                            "agent/reflection_system.md",
-                            strip=True,
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": (
-                            f"## Trigger\n{trigger} (iteration {iteration})\n\n"
-                            f"## What Happened\n{context_summary[:500]}\n\n"
-                            f"## Recent Conversation\n{recent}"
-                        ),
-                    },
-                ],
-                tools=None,
-                tool_choice=None,
+            response = await asyncio.wait_for(
+                self.provider.chat_with_retry(
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": render_template(
+                                "agent/reflection_system.md",
+                                strip=True,
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": (
+                                f"## Trigger\n{trigger} (iteration {iteration})\n\n"
+                                f"## What Happened\n{context_summary[:500]}\n\n"
+                                f"## Recent Conversation\n{recent}"
+                            ),
+                        },
+                    ],
+                    tools=None,
+                    tool_choice=None,
+                ),
+                timeout=resolve_llm_timeout(),
             )
             reflection_text = (response.content or "").strip()
             # Truncate to keep file compact
@@ -150,15 +156,21 @@ class Reflection:
         assert self._reflections_file is not None
         try:
             self._reflections_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self._reflections_file, "a", encoding="utf-8") as f:
-                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-            # Rotate if too large
-            self._maybe_rotate()
+            # 与 MemoryStore.prune_reflections_after_cursor 共享同一把文件锁:
+            # append + rotate 整体持锁,避免与截断读-改-写交错导致丢行。
+            with file_path_lock(self._reflections_file):
+                with open(self._reflections_file, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                # Rotate if too large
+                self._maybe_rotate()
         except Exception:
             logger.exception("Failed to append reflection")
 
     def _maybe_rotate(self) -> None:
-        """Drop oldest entries if file exceeds _MAX_REFLECTIONS lines."""
+        """Drop oldest entries if file exceeds _MAX_REFLECTIONS lines.
+
+        Caller must hold ``file_path_lock(self._reflections_file)``.
+        """
         assert self._reflections_file is not None
         try:
             with open(self._reflections_file, "r", encoding="utf-8") as f:

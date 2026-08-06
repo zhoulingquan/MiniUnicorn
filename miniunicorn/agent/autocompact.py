@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Collection
 from datetime import datetime
-from typing import TYPE_CHECKING, Callable, Coroutine
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 from loguru import logger
 
@@ -73,6 +73,14 @@ class AutoCompact:
                     self._archiving.discard(key)
                     raise
 
+    @staticmethod
+    def _parse_last_active(meta: dict[str, Any]) -> "datetime | None":
+        """Parse ``meta["last_active"]``; corrupted metadata must not crash a turn."""
+        try:
+            return datetime.fromisoformat(meta["last_active"])
+        except (KeyError, TypeError, ValueError):
+            return None
+
     async def _archive(self, key: str) -> None:
         try:
             summary = await self.consolidator.compact_idle_session(
@@ -83,10 +91,9 @@ class AutoCompact:
                 session = self.sessions.get_or_create(key)
                 meta = session.metadata.get("_last_summary")
                 if isinstance(meta, dict):
-                    self._summaries[key] = (
-                        meta["text"],
-                        datetime.fromisoformat(meta["last_active"]),
-                    )
+                    last_active = self._parse_last_active(meta)
+                    if last_active is not None:
+                        self._summaries[key] = (meta["text"], last_active)
         except Exception:
             logger.exception("Auto-compact: failed for {}", key)
         finally:
@@ -105,7 +112,7 @@ class AutoCompact:
         # Cold path: summary persisted in session metadata (process restarted).
         meta = session.metadata.get("_last_summary")
         if isinstance(meta, dict):
-            return session, self._format_summary(
-                meta["text"], datetime.fromisoformat(meta["last_active"])
-            )
+            last_active = self._parse_last_active(meta)
+            if last_active is not None:
+                return session, self._format_summary(meta["text"], last_active)
         return session, None

@@ -184,8 +184,12 @@ class ChannelManager:
         """Pick the API key for the configured transcription provider."""
         try:
             if provider == "openai":
-                # OpenAI Whisper transcription reads the key directly from env.
-                # (openai LLM provider 已从 ProvidersConfig 移除，不再作为字段存在。)
+                # Prefer an explicit provider config; fall back to env var.
+                openai_cfg = getattr(self.config.providers, "openai", None)
+                if openai_cfg is not None:
+                    key = getattr(openai_cfg, "api_key", "") or ""
+                    if key:
+                        return key
                 return os.environ.get("OPENAI_API_KEY", "") or ""
             return self.config.providers.groq.api_key
         except AttributeError:
@@ -195,7 +199,12 @@ class ChannelManager:
         """Pick the API base URL for the configured transcription provider."""
         try:
             if provider == "openai":
-                # OpenAI Whisper 默认走官方端点；用户可设 OPENAI_API_BASE 覆盖。
+                # Prefer an explicit provider config; fall back to env var.
+                openai_cfg = getattr(self.config.providers, "openai", None)
+                if openai_cfg is not None:
+                    base = getattr(openai_cfg, "api_base", "") or ""
+                    if base:
+                        return base
                 return os.environ.get("OPENAI_API_BASE", "") or ""
             return self.config.providers.groq.api_base or ""
         except AttributeError:

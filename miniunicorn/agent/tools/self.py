@@ -10,10 +10,19 @@ from loguru import logger
 from miniunicorn.agent.tools.base import Tool
 from miniunicorn.agent.tools.context import ContextAware, RequestContext
 from miniunicorn.agent.tools.runtime_state import RuntimeState
+from miniunicorn.agent.turn_stats import current_turn_stats
 from miniunicorn.config.schema import Base
 
 if TYPE_CHECKING:
     from miniunicorn.agent.subagent import SubagentStatus
+
+# Turn-local attributes: when a turn is active in the current task, reads go
+# through the task-local TurnStats holder instead of the shared loop attrs.
+_STATS_FIELDS = {
+    "_current_iteration": "iteration",
+    "_last_usage": "usage",
+    "_last_call_usage": "last_call_usage",
+}
 
 
 class MyToolConfig(Base):
@@ -255,6 +264,10 @@ class MyTool(Tool, ContextAware):
                     else:
                         return None, f"'{part}' not found in dict"
                 else:
+                    stats = current_turn_stats()
+                    if stats is not None and part in _STATS_FIELDS:
+                        obj = getattr(stats, _STATS_FIELDS[part])
+                        continue
                     obj = getattr(obj, part)
             except (KeyError, AttributeError) as e:
                 return None, f"'{part}' not found: {e}"
@@ -421,9 +434,15 @@ class MyTool(Tool, ContextAware):
             "subagents",
         ):
             if _has_real_attr(state, k):
-                parts.append(self._format_value(getattr(state, k, None), k))
+                if k == "_current_iteration":
+                    stats = current_turn_stats()
+                    value = stats.iteration if stats is not None else getattr(state, k, None)
+                else:
+                    value = getattr(state, k, None)
+                parts.append(self._format_value(value, k))
         # Token usage
-        usage = state._last_usage
+        stats = current_turn_stats()
+        usage = stats.last_call_usage if stats is not None else state._last_usage
         if usage:
             parts.append(self._format_value(usage, "_last_usage"))
         rv = state._runtime_vars

@@ -9,6 +9,7 @@ LLM 关系判断，以及冲突确认/保留/分场景的业务状态机。潜�
 新旧内容并由用户选择，任何解析或 LLM 失败都不写 journal。
 """
 
+import asyncio
 import json
 import os
 import re
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import Literal
 
 from miniunicorn.agent.memory_sources import SourceParseError
+from miniunicorn.utils.llm_runtime import resolve_llm_timeout
 
 
 @dataclass(frozen=True)
@@ -404,11 +406,14 @@ class ExplicitMemoryService:
                 ),
             },
         ]
-        response = await self.provider.chat_with_retry(
-            messages,
-            max_tokens=256,
-            temperature=0.0,
-            retry_mode=None,
+        response = await asyncio.wait_for(
+            self.provider.chat_with_retry(
+                messages,
+                max_tokens=256,
+                temperature=0.0,
+                retry_mode=None,
+            ),
+            timeout=resolve_llm_timeout(),
         )
         return _parse_relation_json(response.content, candidates)
 

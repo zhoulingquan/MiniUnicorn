@@ -1,5 +1,6 @@
 """Tests for GitStore — line_ages() and core git operations."""
 
+import shutil
 import subprocess
 import time
 from datetime import datetime, timedelta, timezone
@@ -8,6 +9,8 @@ from unittest.mock import patch
 import pytest
 
 from miniunicorn.utils.gitstore import GitStore
+
+_GIT_AVAILABLE = shutil.which("git") is not None
 
 
 @pytest.fixture
@@ -174,6 +177,7 @@ class TestNestedRepoProtection:
         assert result is True
         assert (workspace / ".git").is_dir()
 
+    @pytest.mark.skipif(not _GIT_AVAILABLE, reason="git CLI not available")
     def test_init_refuses_inside_git_worktree(self, tmp_path):
         """init() should refuse when the parent checkout is a git worktree."""
         repo = tmp_path / "repo"

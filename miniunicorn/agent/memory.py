@@ -18,6 +18,7 @@ from loguru import logger
 from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 from miniunicorn.agent.tools.registry import ToolRegistry
 from miniunicorn.session.manager import Session
+from miniunicorn.utils.file_lock import file_path_lock
 from miniunicorn.utils.gitstore import GitStore
 from miniunicorn.utils.helpers import (
     ensure_dir,
@@ -27,6 +28,7 @@ from miniunicorn.utils.helpers import (
     strip_think,
     truncate_text,
 )
+from miniunicorn.utils.llm_runtime import resolve_llm_timeout
 from miniunicorn.utils.prompt_templates import render_template
 
 if TYPE_CHECKING:
@@ -252,8 +254,9 @@ class MemoryStore:
                 "session_key": session_key,
                 "content": content,
             }
-            with open(self._episodic_file, "a", encoding="utf-8") as f:
-                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            with file_path_lock(self._episodic_file):
+                with open(self._episodic_file, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
             return self._count_lines(self._episodic_file)
         except Exception:
             logger.exception("append_episodic failed")
@@ -272,20 +275,21 @@ class MemoryStore:
         """
         self._assert_path_in_workspace(self.procedural_file)
         self._assert_writer_allowed("dream", "memory/procedural.jsonl")
-        cursor = self._next_procedural_cursor()
-        entry = {
-            "cursor": cursor,
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "content": lesson,
-            "source": source_reflection,
-        }
-        try:
-            with open(self.procedural_file, "a", encoding="utf-8") as f:
-                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-            return cursor
-        except Exception:
-            logger.exception("append_procedural failed")
-            return cursor
+        with file_path_lock(self.procedural_file):
+            cursor = self._next_procedural_cursor()
+            entry = {
+                "cursor": cursor,
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "content": lesson,
+                "source": source_reflection,
+            }
+            try:
+                with open(self.procedural_file, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                return cursor
+            except Exception:
+                logger.exception("append_procedural failed")
+                return cursor
 
     def _next_procedural_cursor(self) -> int:
         """Get next cursor for procedural file (1-based, monotonic)."""
@@ -359,23 +363,22 @@ class MemoryStore:
         """截断 JSONL 文件，只保留最后 *max_entries* 行。
 
         原子写入（tmp + os.replace），失败时返回 0 且不修改文件。
+        读-改-写区间整体持有进程内文件锁，避免与并发 append 交错丢行。
         返回截断的行数。
         """
         if max_entries <= 0 or not path.exists():
             return 0
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-        except Exception:
-            return 0
-        if len(lines) <= max_entries:
-            return 0
-        kept = lines[-max_entries:]
-        tmp = path.with_suffix(".tmp")
-        try:
-            with open(tmp, "w", encoding="utf-8") as f:
-                f.writelines(kept)
-            os.replace(tmp, path)
+            with file_path_lock(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    lines = f.readlines()
+                if len(lines) <= max_entries:
+                    return 0
+                kept = lines[-max_entries:]
+                tmp = path.with_suffix(".tmp")
+                with open(tmp, "w", encoding="utf-8") as f:
+                    f.writelines(kept)
+                os.replace(tmp, path)
         except Exception:
             logger.exception("_truncate_jsonl_tail write failed for {}", path)
             return 0
@@ -444,7 +447,8 @@ class MemoryStore:
         self._assert_path_in_workspace(self._reflections_cursor_file)
         self._assert_writer_allowed("dream", "memory/.reflections_cursor")
         try:
-            self._reflections_cursor_file.write_text(str(cursor), encoding="utf-8")
+            with file_path_lock(self._reflections_cursor_file):
+                self._atomic_write_text(self._reflections_cursor_file, str(cursor))
         except Exception:
             logger.exception("set_last_reflections_cursor failed")
 
@@ -492,25 +496,25 @@ class MemoryStore:
         if cursor <= 0 or not rf.exists():
             return 0
         try:
-            with open(rf, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-        except Exception:
-            return 0
-        # cursor 是 1-based 行号，保留 cursor 之后（未处理）的行
-        kept = lines[cursor:]
-        if len(kept) == len(lines):
-            # 没有可截断的（cursor 超出文件范围等）
-            return 0
-        tmp = rf.with_suffix(".tmp")
-        try:
-            with open(tmp, "w", encoding="utf-8") as f:
-                f.writelines(kept)
-            os.replace(tmp, rf)
+            # 与 Reflection._append_reflection 共享同一把文件锁,避免截断与
+            # 追加交错:read 之后、os.replace 之前的并发 append 会写到旧 inode 而丢失。
+            with file_path_lock(rf):
+                with open(rf, "r", encoding="utf-8") as f:
+                    lines = f.readlines()
+                # cursor 是 1-based 行号，保留 cursor 之后（未处理）的行
+                kept = lines[cursor:]
+                if len(kept) == len(lines):
+                    # 没有可截断的（cursor 超出文件范围等）
+                    return 0
+                tmp = rf.with_suffix(".tmp")
+                with open(tmp, "w", encoding="utf-8") as f:
+                    f.writelines(kept)
+                os.replace(tmp, rf)
+                # 重置 cursor：截断后未处理条目从行 1 开始
+                self.set_last_reflections_cursor(0)
         except Exception:
             logger.exception("prune_reflections_after_cursor write failed")
             return 0
-        # 重置 cursor：截断后未处理条目从行 1 开始
-        self.set_last_reflections_cursor(0)
         pruned = len(lines) - len(kept)
         logger.info(
             "Pruned {} processed reflection(s), {} remaining",
@@ -848,10 +852,23 @@ class MemoryStore:
         self._assert_path_in_workspace(self._cursor_file)
         self._assert_writer_allowed("consolidator", "memory/history.jsonl")
         self._assert_writer_allowed("consolidator", "memory/.cursor")
-        with open(self.history_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
-        self._cursor_file.write_text(str(cursor), encoding="utf-8")
+        # 条目追加与 cursor 更新在同一把文件锁内完成,避免并发 prune/追加
+        # 交错;追加先 fsync 落盘、cursor 再原子替换,保证崩溃后 cursor
+        # 永远不超前于已持久化的条目(否则条目会丢失且不被处理)。
+        with file_path_lock(self.history_file):
+            with open(self.history_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+            self._atomic_write_text(self._cursor_file, str(cursor))
         return cursor
+
+    @staticmethod
+    def _atomic_write_text(path: Path, text: str) -> None:
+        """Atomically replace *path* with *text* (tmp file + os.replace)."""
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
 
     @staticmethod
     def _valid_cursor(value: Any) -> int | None:
@@ -1306,20 +1323,23 @@ class Consolidator:
                     f"{formatted}\n\n## Agent Scratchpad Notes (from notes.md)\n{notes_content}"
                 )
             formatted = self._truncate_to_token_budget(formatted)
-            response = await self.provider.chat_with_retry(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": render_template(
-                            "agent/consolidator_archive.md",
-                            strip=True,
-                        ),
-                    },
-                    {"role": "user", "content": formatted},
-                ],
-                tools=None,
-                tool_choice=None,
+            response = await asyncio.wait_for(
+                self.provider.chat_with_retry(
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": render_template(
+                                "agent/consolidator_archive.md",
+                                strip=True,
+                            ),
+                        },
+                        {"role": "user", "content": formatted},
+                    ],
+                    tools=None,
+                    tool_choice=None,
+                ),
+                timeout=resolve_llm_timeout(),
             )
             if response.finish_reason == "error":
                 raise RuntimeError(f"LLM returned error: {response.content}")
@@ -1607,6 +1627,15 @@ class Dream:
         self.annotate_line_ages = annotate_line_ages
         self._runner = AgentRunner(provider)
         self._tools = self._build_tools()
+        # Serializes concurrent run() invocations (idle trigger, cron, /dream).
+        # Created lazily on first run() so construction outside an event loop
+        # is safe; Python 3.12 asyncio.Lock binds on first use.
+        self._run_lock: asyncio.Lock | None = None
+
+    def _ensure_run_lock(self) -> asyncio.Lock:
+        if self._run_lock is None:
+            self._run_lock = asyncio.Lock()
+        return self._run_lock
 
     def set_provider(self, provider: LLMProvider, model: str) -> None:
         self.provider = provider
@@ -1727,7 +1756,22 @@ class Dream:
         return result
 
     async def run(self) -> bool:
-        """Process unprocessed history entries. Returns True if work was done."""
+        """Process unprocessed history entries. Returns True if work was done.
+
+        Concurrent invocations (idle trigger, cron, ``/dream``) are
+        serialized via an internal lock: a caller that arrives while a
+        dream is already running returns immediately (False) instead of
+        starting a second pass over the same cursor.
+        """
+        lock = self._ensure_run_lock()
+        if lock.locked():
+            logger.debug("Dream: already running, skipping concurrent invocation")
+            return False
+        async with lock:
+            return await self._run_once()
+
+    async def _run_once(self) -> bool:
+        """Single Dream pass: read unprocessed entries and consolidate them."""
         from miniunicorn.agent.skills import BUILTIN_SKILLS_DIR
 
         last_cursor = self.store.get_last_dream_cursor()
@@ -1818,21 +1862,24 @@ class Dream:
         )
 
         try:
-            phase1_response = await self.provider.chat_with_retry(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": render_template(
-                            "agent/dream_phase1.md",
-                            strip=True,
-                            stale_threshold_days=_STALE_THRESHOLD_DAYS,
-                        ),
-                    },
-                    {"role": "user", "content": phase1_prompt},
-                ],
-                tools=None,
-                tool_choice=None,
+            phase1_response = await asyncio.wait_for(
+                self.provider.chat_with_retry(
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": render_template(
+                                "agent/dream_phase1.md",
+                                strip=True,
+                                stale_threshold_days=_STALE_THRESHOLD_DAYS,
+                            ),
+                        },
+                        {"role": "user", "content": phase1_prompt},
+                    ],
+                    tools=None,
+                    tool_choice=None,
+                ),
+                timeout=resolve_llm_timeout(),
             )
             analysis = phase1_response.content or ""
             logger.debug("Dream Phase 1 analysis ({} chars): {}", len(analysis), analysis[:500])

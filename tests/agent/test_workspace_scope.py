@@ -126,12 +126,12 @@ async def test_exec_tool_uses_scope_project_as_default_cwd(tmp_path: Path) -> No
     )
     token = bind_workspace_scope(scope)
     try:
-        result = await tool.execute(command="printf ok > scoped-marker.txt")
+        result = await tool.execute(command="echo ok > scoped-marker.txt")
     finally:
         reset_workspace_scope(token)
 
     assert "Exit code: 0" in result
-    assert (project / "scoped-marker.txt").read_text() == "ok"
+    assert (project / "scoped-marker.txt").read_text().strip() == "ok"
 
 
 @pytest.mark.asyncio
@@ -149,13 +149,13 @@ async def test_exec_full_scope_allows_explicit_cwd_outside_project(tmp_path: Pat
     token = bind_workspace_scope(scope)
     try:
         result = await tool.execute(
-            command="printf ok > outside-marker.txt", working_dir=str(outside)
+            command="echo ok > outside-marker.txt", working_dir=str(outside)
         )
     finally:
         reset_workspace_scope(token)
 
     assert "Exit code: 0" in result
-    assert (outside / "outside-marker.txt").read_text() == "ok"
+    assert (outside / "outside-marker.txt").read_text().strip() == "ok"
 
 
 def test_message_media_scope_restricted_blocks_outside_and_full_allows(tmp_path: Path) -> None:

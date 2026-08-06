@@ -140,6 +140,10 @@ class MemoryRecallService:
             return self._fallback(_map_failure(embedded.failure.code), started)
         if not self.index.is_search_ready():
             return self._fallback(self.index.fallback_reason(), started)
+        # Embedder may legitimately return an empty vector set (or a zero-length
+        # vector) for degenerate inputs; guard before indexing into it.
+        if not embedded.vectors or not embedded.vectors[0]:
+            return self._fallback("inference_failed", started)
         candidates = self.index.search(list(embedded.vectors[0]), limit=self.overfetch)
         core_hashes = {_content_hash(text) for text in core_texts if text.strip()}
         selected: list[RecallRecord] = []

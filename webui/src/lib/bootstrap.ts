@@ -40,8 +40,11 @@ export function loadSavedSecret(): string {
   }
 }
 
-/** Persist the bootstrap secret so page reloads don't re-prompt. */
+/** Persist the bootstrap secret so page reloads don't re-prompt.
+ *
+ * 只保存非空值:空串(无认证模式)不应写入,否则会掩盖真实的未配置状态。 */
 export function saveSecret(secret: string): void {
+  if (!secret) return;
   try {
     window.localStorage.setItem(SECRET_STORAGE_KEY, secret);
   } catch {

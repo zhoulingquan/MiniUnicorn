@@ -1,7 +1,8 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { searchEmbeddingMemory, startEmbeddingOperation } from "@/lib/api";
-import type { EmbeddingSearchResult, EmbeddingStatusPayload } from "@/lib/types";
+import type { EmbeddingSearchResult } from "@/lib/types";
 
 import { useEmbeddingStatus } from "../hooks/useEmbeddingStatus";
 
@@ -44,6 +45,7 @@ function StatusCard({
 }
 
 export function MemoryEmbeddingSettings({ token }: { token: string }) {
+  const { t } = useTranslation();
   const { status, error, refresh } = useEmbeddingStatus(token);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<EmbeddingSearchResult[] | null>(null);
@@ -82,14 +84,17 @@ export function MemoryEmbeddingSettings({ token }: { token: string }) {
   }
 
   if (!status) {
-    return <div className="p-4 text-muted-foreground">Loading...</div>;
+    return <div className="p-4 text-muted-foreground">{t("memoryEmbedding.loading")}</div>;
   }
 
   const modelDetail = [status.model.model_id, status.model.dimension ? `${status.model.dimension}d` : null]
     .filter(Boolean)
     .join(" ");
   const indexDetail = status.index.bytes ? `${status.index.bytes}B` : undefined;
-  const sourcesDetail = `${status.sources.indexed}/${status.sources.discovered} indexed`;
+  const sourcesDetail = t("memoryEmbedding.indexed", {
+    indexed: status.sources.indexed,
+    discovered: status.sources.discovered,
+  });
   const recallDetail = status.recall.last_latency_ms
     ? `${status.recall.last_latency_ms.toFixed(1)}ms`
     : undefined;
@@ -97,11 +102,11 @@ export function MemoryEmbeddingSettings({ token }: { token: string }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <StatusCard label="模型" state={status.model.state} detail={modelDetail} />
-        <StatusCard label="索引" state={status.index.state} detail={indexDetail} />
-        <StatusCard label="来源同步" state={status.sources.indexed > 0 ? "ready" : "missing"} detail={sourcesDetail} />
+        <StatusCard label={t("memoryEmbedding.model")} state={status.model.state} detail={modelDetail} />
+        <StatusCard label={t("memoryEmbedding.index")} state={status.index.state} detail={indexDetail} />
+        <StatusCard label={t("memoryEmbedding.sources")} state={status.sources.indexed > 0 ? "ready" : "missing"} detail={sourcesDetail} />
         <StatusCard
-          label="实际检索"
+          label={t("memoryEmbedding.recall")}
           state={status.recall.active ? "active" : status.recall.fallback_reason ?? "inactive"}
           detail={recallDetail}
         />
@@ -110,7 +115,11 @@ export function MemoryEmbeddingSettings({ token }: { token: string }) {
       {operationRunning && status.operation && (
         <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-4">
           <div className="text-sm font-medium text-blue-500">
-            {`${status.operation.kind} 进行中… ${status.operation.completed} / ${status.operation.total}`}
+            {t("memoryEmbedding.operationRunning", {
+              kind: status.operation.kind,
+              completed: status.operation.completed,
+              total: status.operation.total,
+            })}
           </div>
           {status.operation.message && (
             <div className="mt-1 text-xs text-muted-foreground">{status.operation.message}</div>
@@ -125,7 +134,7 @@ export function MemoryEmbeddingSettings({ token }: { token: string }) {
           disabled={operationRunning}
           onClick={() => void handleOperation("setup")}
         >
-          重新下载模型
+          {t("memoryEmbedding.downloadModel")}
         </button>
         <button
           type="button"
@@ -133,7 +142,7 @@ export function MemoryEmbeddingSettings({ token }: { token: string }) {
           disabled={operationRunning}
           onClick={() => void handleOperation("verify")}
         >
-          校验模型
+          {t("memoryEmbedding.verifyModel")}
         </button>
         <button
           type="button"
@@ -141,12 +150,12 @@ export function MemoryEmbeddingSettings({ token }: { token: string }) {
           disabled={operationRunning}
           onClick={() => void handleOperation("rebuild")}
         >
-          重建索引
+          {t("memoryEmbedding.rebuildIndex")}
         </button>
       </div>
 
       <details className="rounded-lg border border-border">
-        <summary className="cursor-pointer p-4 text-sm font-medium">技术详情</summary>
+        <summary className="cursor-pointer p-4 text-sm font-medium">{t("memoryEmbedding.technicalDetails")}</summary>
         <div className="space-y-3 p-4 pt-0 text-xs">
           <div>
             <strong>Model:</strong> {status.model.model_id ?? "-"} / rev {status.model.revision ?? "-"} /{" "}
@@ -173,7 +182,7 @@ export function MemoryEmbeddingSettings({ token }: { token: string }) {
             type="search"
             role="searchbox"
             className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm"
-            placeholder="搜索记忆…"
+            placeholder={t("memoryEmbedding.searchPlaceholder")}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -186,14 +195,14 @@ export function MemoryEmbeddingSettings({ token }: { token: string }) {
             disabled={searching || !searchQuery.trim()}
             onClick={() => void handleSearch()}
           >
-            搜索记忆
+            {t("memoryEmbedding.search")}
           </button>
         </div>
         {searchError && <div className="text-sm text-red-500">{searchError}</div>}
         {searchResults && (
           <div className="space-y-2">
             {searchResults.length === 0 && (
-              <div className="text-sm text-muted-foreground">未找到相关记忆。</div>
+              <div className="text-sm text-muted-foreground">{t("memoryEmbedding.noResults")}</div>
             )}
             {searchResults.map((row) => (
               <div key={row.source_id} className="rounded-md border border-border p-3 text-sm">

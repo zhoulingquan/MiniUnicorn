@@ -1251,5 +1251,21 @@
         "poll_timeout_desc": "长轮询超时秒数"
       }
     }
+  },
+  "memoryEmbedding": {
+    "model": "模型",
+    "index": "索引",
+    "sources": "来源同步",
+    "recall": "实际检索",
+    "indexed": "{{indexed}}/{{discovered}} 已索引",
+    "operationRunning": "{{kind}} 进行中… {{completed}} / {{total}}",
+    "downloadModel": "重新下载模型",
+    "verifyModel": "校验模型",
+    "rebuildIndex": "重建索引",
+    "technicalDetails": "技术详情",
+    "searchPlaceholder": "搜索记忆…",
+    "search": "搜索记忆",
+    "noResults": "未找到相关记忆。",
+    "loading": "加载中…"
   }
 }

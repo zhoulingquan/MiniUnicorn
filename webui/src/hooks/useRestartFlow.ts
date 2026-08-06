@@ -30,8 +30,18 @@ export interface UseRestartFlowOptions {
 export function useRestartFlow({ client, activeChatId }: UseRestartFlowOptions) {
   const { t } = useTranslation();
   const restartSawDisconnectRef = useRef(false);
+  // 浏览器环境 window.setTimeout 返回 number;显式标注避免 Node 类型干扰。
+  const toastTimerRef = useRef<number | null>(null);
   const [restartToast, setRestartToast] = useState<string | null>(null);
   const [isRestarting, setIsRestarting] = useState(false);
+
+  const dismissToast = useCallback(() => {
+    if (toastTimerRef.current !== null) {
+      clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
+    setRestartToast(null);
+  }, []);
 
   const onRestart = useCallback(() => {
     if (!activeChatId) return;
@@ -70,9 +80,17 @@ export function useRestartFlow({ client, activeChatId }: UseRestartFlowOptions) 
       setRestartToast(
         t("app.restart.completed", { seconds: (elapsedMs / 1000).toFixed(1) }),
       );
-      window.setTimeout(() => setRestartToast(null), 3_500);
+      if (toastTimerRef.current !== null) {
+        clearTimeout(toastTimerRef.current);
+      }
+      toastTimerRef.current = window.setTimeout(() => {
+        toastTimerRef.current = null;
+        setRestartToast(null);
+      }, 3_500);
     });
   }, [client, t]);
+
+  useEffect(() => () => dismissToast(), [dismissToast]);
 
   return {
     isRestarting,

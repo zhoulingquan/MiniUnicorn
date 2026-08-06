@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from miniunicorn.agent.tools.shell import ExecTool
+from miniunicorn.agent.tools.shell import ExecTool, _windows_powershell
 
 _WINDOWS_ENV_KEYS = {
     "APPDATA",
@@ -167,7 +167,7 @@ class TestSpawnWindows:
             await ExecTool._spawn('python -c "print(1)\nprint(2)"', r"C:\work", env)
 
         args = mock_exec.call_args[0]
-        assert args[0] == "powershell"
+        assert args[0] == _windows_powershell()
         assert "-NoProfile" in args
         assert "-Command" in args
         assert "print(1)" in args[-1]
@@ -418,7 +418,7 @@ class TestWindowsMultilineExec:
         assert "2" in result
         assert "Exit code: 0" in result
         args = mock_exec.call_args[0]
-        assert args[0] == "powershell"
+        assert args[0] == _windows_powershell()
 
     @pytest.mark.asyncio
     async def test_multiline_node_uses_powershell(self):
@@ -437,7 +437,7 @@ class TestWindowsMultilineExec:
 
         assert "1" in result
         args = mock_exec.call_args[0]
-        assert args[0] == "powershell"
+        assert args[0] == _windows_powershell()
 
     @pytest.mark.asyncio
     async def test_single_line_uses_shell(self):

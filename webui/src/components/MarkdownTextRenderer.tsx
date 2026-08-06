@@ -23,6 +23,21 @@ interface MarkdownTextRendererProps {
 const remarkPlugins = [remarkBreaks, remarkGfm, remarkMath];
 const rehypePlugins = [rehypeKatex];
 
+/** Markdown 链接 scheme 白名单:只允许普通网页链接。
+ *
+ * react-markdown 不做 URL 净化,模型输出中的 ``[x](javascript:...)`` 会被
+ * 原样放进 ``href``,点击即执行。白名单外的 href 一律降级为纯文本。 */
+function safeLinkHref(href: string | undefined): string | null {
+  if (!href) return null;
+  try {
+    const protocol = new URL(href).protocol;
+    if (protocol === "http:" || protocol === "https:") return href;
+  } catch {
+    // 解析失败(非绝对 URL)不是可点击的网页链接。
+  }
+  return null;
+}
+
 /**
  * Heavy markdown stack (GFM, math, KaTeX, syntax highlighting) kept in a
  * separate chunk so the app shell can paint sooner on refresh.
@@ -100,9 +115,13 @@ export default function MarkdownTextRenderer({
         );
       },
       a({ href, children: markdownChildren, ...props }) {
+        const safeHref = safeLinkHref(href);
+        if (!safeHref) {
+          return <span className="text-foreground/90 underline decoration-dotted">{markdownChildren}</span>;
+        }
         return (
           <a
-            href={href}
+            href={safeHref}
             target="_blank"
             rel="noreferrer noopener"
             className="text-primary underline underline-offset-2 hover:opacity-80"

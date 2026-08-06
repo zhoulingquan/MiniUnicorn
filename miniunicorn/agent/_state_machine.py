@@ -324,7 +324,18 @@ class StateMixin:
         if ctx.final_content is None or not ctx.final_content.strip():
             ctx.final_content = EMPTY_FINAL_RESPONSE_MESSAGE
 
-        ctx.save_skip = 1 + len(ctx.history) + (1 if ctx.user_persisted_early else 0)
+        # ``initial_messages`` covers system + history + (usually) the current
+        # user message. When the last history entry has the same role as the
+        # current message, ``build_messages`` MERGES the user message into that
+        # entry instead of appending (context.py), so ``initial_messages`` is
+        # one shorter. ``save_skip`` must therefore only count the extra user
+        # entry when it actually exists — otherwise ``messages[skip:]`` drops
+        # the first new message of the turn (typically the assistant reply).
+        base = 1 + len(ctx.history)
+        merged_into_history = len(ctx.initial_messages) == base
+        ctx.save_skip = base + (1 if ctx.user_persisted_early else 0) - (
+            1 if (merged_into_history and ctx.user_persisted_early) else 0
+        )
 
         ctx.turn_latency_ms = max(0, int((time.time() - ctx.turn_wall_started_at) * 1000))
         self._save_turn(

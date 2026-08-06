@@ -40,10 +40,10 @@ describe("MemoryEmbeddingSettings", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     renderComponent();
-    expect(await screen.findByText("模型")).toBeInTheDocument();
-    expect(screen.getByText("索引")).toBeInTheDocument();
-    expect(screen.getByText("来源同步")).toBeInTheDocument();
-    expect(screen.getByText("实际检索")).toBeInTheDocument();
+    expect(await screen.findByText("Model")).toBeInTheDocument();
+    expect(screen.getByText("Index")).toBeInTheDocument();
+    expect(screen.getByText("Source sync")).toBeInTheDocument();
+    expect(screen.getByText("Live recall")).toBeInTheDocument();
   });
 
   it("disables every operation while rebuild is running", async () => {
@@ -61,9 +61,9 @@ describe("MemoryEmbeddingSettings", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderComponent();
     expect(await screen.findByText((content) => content.includes("2 / 8"))).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "重新下载模型" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "校验模型" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "重建索引" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Re-download model" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Verify model" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Rebuild index" })).toBeDisabled();
   });
 
   it("shows source identity but never raw vectors", async () => {
@@ -96,7 +96,7 @@ describe("MemoryEmbeddingSettings", () => {
     renderComponent();
     const searchbox = await screen.findByRole("searchbox");
     fireEvent.change(searchbox, { target: { value: "主题" } });
-    fireEvent.click(screen.getByRole("button", { name: "搜索记忆" }));
+    fireEvent.click(screen.getByRole("button", { name: "Search memory" }));
     expect(await screen.findByText("USER.md · user:preferences:1")).toBeInTheDocument();
     expect(screen.queryByText(/embedding.*\[/i)).not.toBeInTheDocument();
   });

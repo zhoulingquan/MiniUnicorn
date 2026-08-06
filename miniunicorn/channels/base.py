@@ -233,6 +233,15 @@ class BaseChannel(ABC):
         if not self.is_allowed(sender_id):
             if is_dm:
                 code = generate_code(self.name, str(sender_id))
+                if not code:
+                    # 配对码队列已满(见 pairing.store._MAX_PENDING_CODES),
+                    # 静默拒绝,避免向陌生 sender 返回空码。
+                    self.logger.warning(
+                        "Pairing queue full; no code issued to sender {} in chat {}",
+                        sender_id,
+                        chat_id,
+                    )
+                    return
                 await self.send(
                     OutboundMessage(
                         channel=self.name,

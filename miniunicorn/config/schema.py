@@ -510,6 +510,18 @@ class ToolsConfig(Base):
         default_factory=list
     )  # CIDR ranges to exempt from SSRF blocking (e.g. ["100.64.0.0/10"] for Tailscale)
 
+    def __init__(self, **values: Any) -> None:
+        """Ensure forward refs are resolved before instantiation.
+
+        ``_resolve_tool_config_refs()`` may fail during the initial import of
+        ``schema.py`` due to circular imports (tool modules import ``Base`` from
+        here).  When that happens, ``ToolsConfig`` is left in an incomplete state
+        and ``model_rebuild()`` must be retried before the model can be used.
+        """
+        if not type(self).__pydantic_complete__:
+            _resolve_tool_config_refs()
+        super().__init__(**values)
+
 
 class Config(BaseSettings):
     """Root configuration for MiniUnicorn."""

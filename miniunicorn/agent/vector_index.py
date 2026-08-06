@@ -528,13 +528,25 @@ class VectorIndexManager:
             return []
         blob = _serialize_f32(query_embedding)
         try:
+            # Legacy ``kind`` filter pushed into SQL: filtering in Python after
+            # a small fetch pool under-fills results when few candidates of
+            # the requested kind exist (the pool is then exhausted by other
+            # kinds and ``[:k]`` comes back short).
+            params: list[Any] = [blob]
+            kind_clause = ""
+            if kind:
+                kind_clause = " AND s.source_type = ?"
+                params.append(kind)
+            params.append(max(limit * 3, k or limit))
             with self._lock:
                 rows = self._conn.execute(
                     "SELECT v.rowid, v.distance, s.source_id, s.source_type, s.source_file, "
                     "s.source_revision, s.content_hash, s.text, s.importance, s.metadata_json, "
                     "s.updated_at FROM vectors v JOIN sources s ON s.id = v.rowid "
-                    "WHERE v.embedding MATCH ? AND s.active = 1 AND k = ? ORDER BY v.distance",
-                    (blob, max(limit * 3, k or limit)),
+                    "WHERE v.embedding MATCH ? AND s.active = 1 AND k = ?"
+                    + kind_clause
+                    + " ORDER BY v.distance",
+                    params,
                 ).fetchall()
             candidates = [
                 IndexCandidate(
@@ -564,7 +576,6 @@ class VectorIndexManager:
                         "score": c.similarity * (0.5 + 0.5 * c.importance),
                     }
                     for c in candidates
-                    if kind is None or c.source_type == kind
                 ][:k]
             return sorted(candidates, key=lambda c: c.similarity, reverse=True)[:limit]
         except Exception:
@@ -608,20 +619,24 @@ class VectorIndexManager:
                     if report.failed or not validation.ok:
                         return RebuildReport.failed(report, validation)
                     temporary.close()
-                    self.close()
-                    backup: str | None = None
-                    if target.exists():
-                        backup_path = target.with_name(
-                            f"{target.name}.backup.{_utc_file_stamp()}"
-                        )
-                        shutil.copy2(target, backup_path)
-                        backup = str(backup_path)
-                    os.replace(rebuilding, target)
-                    self._state = "failed"
-                    self._error_code = None
-                    self._message = ""
-                    self._conn = None
-                    self._init_db()
+                    # 换库区间必须在 _lock 内完成:close→replace→_init_db 期间
+                    # 并发的 search()/count() 可能读到已关闭的连接或半初始化的
+                    # 状态,原子换库保证读者要么用旧库要么用新库。
+                    with self._lock:
+                        self.close()
+                        backup: str | None = None
+                        if target.exists():
+                            backup_path = target.with_name(
+                                f"{target.name}.backup.{_utc_file_stamp()}"
+                            )
+                            shutil.copy2(target, backup_path)
+                            backup = str(backup_path)
+                        os.replace(rebuilding, target)
+                        self._state = "failed"
+                        self._error_code = None
+                        self._message = ""
+                        self._conn = None
+                        self._init_db()
                     return RebuildReport.ready(report, validation, backup)
                 finally:
                     temporary.close()

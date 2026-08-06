@@ -293,12 +293,14 @@ def test_exec_guard_blocks_quoted_home_path_outside_workspace(tmp_path) -> None:
 
 
 def test_exec_guard_allows_media_path_outside_workspace(tmp_path, monkeypatch) -> None:
+    import miniunicorn.agent.tools.shell as shell_mod
+
     media_dir = tmp_path / "media"
     media_dir.mkdir()
     media_file = media_dir / "photo.jpg"
     media_file.write_text("ok", encoding="utf-8")
 
-    monkeypatch.setattr("miniunicorn.agent.tools.shell.get_media_dir", lambda: media_dir)
+    monkeypatch.setattr(shell_mod, "get_media_dir", lambda: media_dir)
 
     tool = ExecTool(restrict_to_workspace=True)
     error = tool._guard_command(f'cat "{media_file}"', str(tmp_path / "workspace"))
@@ -645,7 +647,14 @@ async def test_exec_timeout_parameter() -> None:
     """LLM-supplied timeout should override the constructor default."""
     tool = ExecTool(timeout=60)
     # A very short timeout should cause the command to be killed
-    result = await tool.execute(command="sleep 10", timeout=1)
+    # Use Python for cross-platform sleep (``sleep`` is Unix-only)
+    if sys.platform == "win32":
+        sleep_cmd = subprocess.list2cmdline(
+            [sys.executable, "-c", "import time; time.sleep(10)"]
+        )
+    else:
+        sleep_cmd = "sleep 10"
+    result = await tool.execute(command=sleep_cmd, timeout=1)
     assert "timed out" in result
     assert "1 seconds" in result
 

@@ -355,8 +355,10 @@ class OpenAICompatProvider(LLMProvider):
         _is_direct = spec is None or spec.is_direct
         self._api_type = api_type if _is_direct else "auto"
 
-        if api_key and spec and spec.env_key:
-            self._setup_env(api_key, api_base)
+        # NOTE: the API key is deliberately NOT written to os.environ. Putting
+        # it there would leak it into every child process (shell tools,
+        # subagents, MCP stdio servers) via inherited environment variables.
+        # The key travels only inside the OpenAI client via api_key=.
 
         effective_base = api_base or (spec.default_api_base if spec else None) or None
         self._effective_base = effective_base
@@ -474,17 +476,6 @@ class OpenAICompatProvider(LLMProvider):
         except Exception:
             logger.exception("embed() failed for model {}", model)
             raise
-
-    def _setup_env(self, api_key: str, api_base: str | None) -> None:
-        """Set environment variables based on provider spec."""
-        spec = self._spec
-        if not spec or not spec.env_key:
-            return
-        os.environ.setdefault(spec.env_key, api_key)
-        effective_base = api_base or spec.default_api_base
-        for env_name, env_val in spec.env_extras:
-            resolved = env_val.replace("{api_key}", api_key).replace("{api_base}", effective_base)
-            os.environ.setdefault(env_name, resolved)
 
     @classmethod
     def _apply_cache_control(

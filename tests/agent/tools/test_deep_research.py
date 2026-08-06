@@ -91,6 +91,15 @@ def _make_tool(
         return BackendResponse(backend="test", results=results)
 
     tool.aggregator.search = _fake_search
+
+    # Mock web_fetch to avoid real network calls during tests
+    async def _fake_execute_batch(urls, **kwargs):
+        return [(url, f"Mock content for {url}") for url in urls]
+
+    mock_web_fetch = MagicMock()
+    mock_web_fetch.execute_batch = _fake_execute_batch
+    tool._web_fetch = mock_web_fetch
+
     return tool
 
 

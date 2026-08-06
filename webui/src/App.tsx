@@ -33,6 +33,7 @@ import {
 } from "@/i18n/config";
 import {
   BootstrapError,
+  clearSavedSecret,
   deriveWsUrl,
   fetchBootstrapWithRetry,
   loadSavedSecret,
@@ -310,6 +311,8 @@ export default function App() {
                   // Saved secret no longer valid: close the old client
                   // (cancels reconnection and pending reconnect timers)
                   // and transition to auth so the user can re-enter it.
+                  // 同时清除本地残留的失效 secret,避免下次刷新重试旧值。
+                  clearSavedSecret();
                   client.close();
                   setState({ status: "auth", failed: true });
                 }
@@ -339,6 +342,9 @@ export default function App() {
         } catch (e) {
           if (cancelled) return;
           if (e instanceof BootstrapError && e.isAuth) {
+            // 已保存的 secret 失效:清掉本地残留,避免每次刷新都拿旧值
+            // 重试一次注定失败的 bootstrap;用户重输的新值在成功后重新保存。
+            clearSavedSecret();
             setState({ status: "auth", failed: true });
           } else {
             setState({ status: "error", message: (e as Error).message });
@@ -406,6 +412,8 @@ export default function App() {
           // Saved secret no longer valid: close the old client (cancels
           // reconnection and pending reconnect timers) and the old refresh
           // timer (this effect's cleanup), then transition to auth.
+          // 同时清除本地残留的失效 secret,避免下次刷新重试旧值。
+          clearSavedSecret();
           client.close();
           setState({ status: "auth", failed: true });
         }
@@ -516,6 +524,8 @@ function Shell({
     useState<boolean>(readSidebarOpen);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [settingsSnapshot, setSettingsSnapshot] = useState<SettingsPayload | null>(null);
+  /** 序号守卫:丢弃晚到的旧 settings 响应(见 onRuntimeModelUpdate 刷新路径)。 */
+  const settingsFetchSeqRef = useRef(0);
   /** Currently selected subagent id (routes outbound turns to that agent). */
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
 
@@ -816,9 +826,15 @@ function Shell({
     return client.onRuntimeModelUpdate((modelName) => {
       onModelNameChange(modelName);
       // 模型变化通常伴随 provider/preset 切换,同步刷新 settings 以更新 TopBar 的 provider 切换器。
+      // 序号守卫:burst 内的旧响应可能晚到,只应用最新一次请求的结果。
+      const seq = (settingsFetchSeqRef.current += 1);
       fetchSettings(token)
-        .then(setSettingsSnapshot)
+        .then((payload) => {
+          if (seq !== settingsFetchSeqRef.current) return;
+          setSettingsSnapshot(payload);
+        })
         .catch(() => {
+          if (seq !== settingsFetchSeqRef.current) return;
           // 忽略:settings 会在下次 token 变化时重新拉取。
         });
     });

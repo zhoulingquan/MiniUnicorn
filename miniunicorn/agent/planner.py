@@ -12,6 +12,7 @@ is True; otherwise the legacy loop runs unchanged.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from dataclasses import dataclass, field
@@ -20,6 +21,7 @@ from typing import Any
 
 from loguru import logger
 
+from miniunicorn.utils.llm_runtime import resolve_llm_timeout
 from miniunicorn.utils.prompt_templates import render_template
 
 
@@ -115,20 +117,23 @@ class Planner:
     async def create_plan(self, task: str, tools_summary: str) -> Plan:
         """Ask the LLM to decompose *task* into a structured Plan."""
         try:
-            response = await self.provider.chat_with_retry(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": render_template("agent/planner_system.md", strip=True),
-                    },
-                    {
-                        "role": "user",
-                        "content": f"## Task\n{task}\n\n## Available Tools\n{tools_summary}",
-                    },
-                ],
-                tools=None,
-                tool_choice=None,
+            response = await asyncio.wait_for(
+                self.provider.chat_with_retry(
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": render_template("agent/planner_system.md", strip=True),
+                        },
+                        {
+                            "role": "user",
+                            "content": f"## Task\n{task}\n\n## Available Tools\n{tools_summary}",
+                        },
+                    ],
+                    tools=None,
+                    tool_choice=None,
+                ),
+                timeout=resolve_llm_timeout(),
             )
             return self._parse_plan_response(response.content or "", task)
         except Exception:
@@ -160,29 +165,32 @@ class Planner:
             "\n".join(f"- Step {s.id} (DONE): {s.action}" for s in plan.completed_steps) or "(none)"
         )
         try:
-            response = await self.provider.chat_with_retry(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": render_template("agent/planner_replan.md", strip=True),
-                    },
-                    {
-                        "role": "user",
-                        "content": (
-                            f"## Original Task\n{task}\n\n"
-                            f"## Original Goal\n{plan.goal}\n\n"
-                            f"## Completed Steps\n{completed_summary}\n\n"
-                            f"## Failed Step\n- Step {failed_step.id}: {failed_step.action}\n"
-                            f"  Failure reason: {failure_reason}\n\n"
-                            f"## Available Tools\n{tools_summary}\n\n"
-                            f"## Remaining Steps to Replan\n"
-                            f"Produce a new plan for the remaining work, avoiding the failed approach."
-                        ),
-                    },
-                ],
-                tools=None,
-                tool_choice=None,
+            response = await asyncio.wait_for(
+                self.provider.chat_with_retry(
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": render_template("agent/planner_replan.md", strip=True),
+                        },
+                        {
+                            "role": "user",
+                            "content": (
+                                f"## Original Task\n{task}\n\n"
+                                f"## Original Goal\n{plan.goal}\n\n"
+                                f"## Completed Steps\n{completed_summary}\n\n"
+                                f"## Failed Step\n- Step {failed_step.id}: {failed_step.action}\n"
+                                f"  Failure reason: {failure_reason}\n\n"
+                                f"## Available Tools\n{tools_summary}\n\n"
+                                f"## Remaining Steps to Replan\n"
+                                f"Produce a new plan for the remaining work, avoiding the failed approach."
+                            ),
+                        },
+                    ],
+                    tools=None,
+                    tool_choice=None,
+                ),
+                timeout=resolve_llm_timeout(),
             )
             new_plan = self._parse_plan_response(response.content or "", task)
             # Preserve completion history

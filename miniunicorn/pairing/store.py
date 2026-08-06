@@ -28,6 +28,10 @@ _ALPHABET = string.ascii_uppercase + string.digits
 _CODE_LENGTH = 8  # e.g. ABCD-EFGH
 _TTL_DEFAULT_S = 600  # 10 minutes
 
+# Pending 配对码上限:恶意/异常客户端可大量请求配对码(每个 sender_id 一个),
+# 若不设上限,未过期的 pending 码会撑大 pairing.json。超限时拒绝签发新码。
+_MAX_PENDING_CODES = 1000
+
 
 def _store_path() -> Path:
     return get_data_dir() / "pairing.json"
@@ -93,15 +97,25 @@ def generate_code(
 ) -> str:
     """Create a new pairing code for *sender_id* on *channel*.
 
-    Returns the code (e.g. ``"ABCD-EFGH"``).
+    Returns the code (e.g. ``"ABCD-EFGH"``), or ``""`` when the pending
+    queue is full (``_MAX_PENDING_CODES``) — callers should treat an empty
+    code as "no code issued".
     """
     with _LOCK:
         data = _load()
         _gc_pending(data)
+        pending = data.setdefault("pending", {})
+        if len(pending) >= _MAX_PENDING_CODES:
+            logger.warning(
+                "Pairing code rejected: {} pending codes exceeds cap {}",
+                len(pending),
+                _MAX_PENDING_CODES,
+            )
+            return ""
         raw = "".join(secrets.choice(_ALPHABET) for _ in range(_CODE_LENGTH))
         code = f"{raw[:4]}-{raw[4:]}"
 
-        data.setdefault("pending", {})[code] = {
+        pending[code] = {
             "channel": channel,
             "sender_id": sender_id,
             "created_at": time.time(),

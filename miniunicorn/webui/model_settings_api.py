@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 from miniunicorn.config.loader import load_config, save_config
 from miniunicorn.config.schema import ModelPresetConfig
 from miniunicorn.providers.registry import PROVIDERS, find_by_name
+from miniunicorn.security.network import create_ssrf_safe_client, validate_url_target_async
 
 from ._query import QueryParams, _query_first, _query_first_alias
 from ._runtime import WebUISettingsError, _mask_secret_hint
@@ -684,7 +685,22 @@ async def list_provider_models(query: QueryParams) -> dict[str, Any]:
 
         if not api_key and not (spec.is_local or spec.is_direct):
             raise WebUISettingsError("api_key is required to fetch models")
-        client = AsyncOpenAI(api_key=api_key or "unused", base_url=api_base)
+        if spec.is_local or spec.is_direct:
+            # 本地/直连 provider(ollama、vLLM 等)本来就指向回环或内网地址,
+            # 跳过 SSRF 校验,直接使用 SDK 默认 client。
+            client = AsyncOpenAI(api_key=api_key or "unused", base_url=api_base)
+        else:
+            # 远程 provider:api_base 可能来自用户输入或配置。先做 SSRF 预检
+            # (拦截内网/云元数据地址),再用 SSRF-safe client 执行请求
+            # (dial 前 DNS pin + 二次校验,防 rebinding)。
+            ok, err = await validate_url_target_async(api_base, allow_loopback=False)
+            if not ok:
+                raise WebUISettingsError(f"api_base blocked by SSRF guard: {err}")
+            client = AsyncOpenAI(
+                api_key=api_key or "unused",
+                base_url=api_base,
+                http_client=create_ssrf_safe_client(timeout=10.0),
+            )
         models = await client.models.list()
         model_ids = sorted(
             [m.id for m in models.data if m.id],
@@ -692,6 +708,8 @@ async def list_provider_models(query: QueryParams) -> dict[str, Any]:
         )
         await client.close()
         return {"provider": provider_name, "models": model_ids}
+    except WebUISettingsError:
+        raise
     except Exception as exc:
         raise WebUISettingsError(f"Failed to fetch models: {exc}") from exc
 

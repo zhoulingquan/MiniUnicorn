@@ -10,6 +10,7 @@ through multiple inheritance (see :class:`McpLifecycleMixin`).
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from typing import TYPE_CHECKING
 
 from loguru import logger
@@ -19,6 +20,11 @@ from miniunicorn.agent.tools.self import MyTool
 
 if TYPE_CHECKING:
     from miniunicorn.agent.loop import AgentLoop
+
+# Bounded shutdown: give background tasks this long to finish before we
+# cancel them, and this long for cancellation to take effect.
+_BACKGROUND_DRAIN_TIMEOUT_S = 20.0
+_BACKGROUND_CANCEL_TIMEOUT_S = 5.0
 
 
 class McpLifecycleMixin:
@@ -66,9 +72,34 @@ class McpLifecycleMixin:
         await agent_context.connect_mcp(self, self.tools)
 
     async def close_mcp(self: "AgentLoop") -> None:
-        """Drain pending background archives, then close MCP connections."""
+        """Cancel in-flight turns, drain background tasks, then close MCP connections.
+
+        Shutdown is bounded: in-flight dispatch tasks are cancelled (their
+        CancelledError handler restores partial context checkpoints) and
+        background tasks are drained with a deadline, so a hung consolidation
+        or exec session cannot wedge shutdown forever.
+        """
+        # 1) Cancel in-flight per-session turns so session saves do not race
+        # process teardown (partial JSONL writes).
+        await self._cancel_all_active_tasks()
+        # 2) Drain background tasks (consolidation, dream, exec sessions) with
+        # a bounded deadline; cancel stragglers.
         if self._background_tasks:
-            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            _done, pending = await asyncio.wait(
+                self._background_tasks,
+                timeout=_BACKGROUND_DRAIN_TIMEOUT_S,
+                return_when=asyncio.ALL_COMPLETED,
+            )
+            if pending:
+                logger.warning(
+                    "Shutdown: {} background task(s) still running after {:.0f}s; cancelling",
+                    len(pending),
+                    _BACKGROUND_DRAIN_TIMEOUT_S,
+                )
+                for task in pending:
+                    task.cancel()
+                with suppress(asyncio.TimeoutError):
+                    await asyncio.wait(pending, timeout=_BACKGROUND_CANCEL_TIMEOUT_S)
             self._background_tasks.clear()
         for name, stack in self._mcp_stacks.items():
             try:

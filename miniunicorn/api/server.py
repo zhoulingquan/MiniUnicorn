@@ -24,6 +24,7 @@ import asyncio
 import contextlib
 import hmac
 import json as _json
+import re
 import time
 import uuid
 from collections import OrderedDict
@@ -65,6 +66,63 @@ _PUBLIC_PATHS = frozenset({"/health"})
 # session_locks LRU 上限,避免恶意/异常客户端用大量不同 session_id 耗尽内存。
 # 超过上限时驱逐最久未使用的 session 锁(仅驱逐引用计数为零且未持有的锁)。
 _MAX_SESSION_LOCKS = 1000
+
+# session_id 用于生成持久化 session key(会落到磁盘),必须限制长度与字符集,
+# 否则任意超长/异常 session_id 可导致 session 文件膨胀或 session_locks 内存滥用。
+_MAX_SESSION_ID_LEN = 64
+_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
+
+# 简单进程内固定窗口限流。不能替代代理层限流,但可防止无认证开发模式下
+# 的单客户端刷接口。仅信任 aiohttp 的 peer 地址(request.remote),不信任
+# X-Forwarded-For(伪造头可绕过限流)。
+_DEFAULT_RATE_LIMIT_PER_MIN = 60
+_RATE_WINDOW_S = 60.0
+
+
+def _validate_session_id(session_id: str) -> str | None:
+    """Return an error message for malformed session_id, else None."""
+    if len(session_id) > _MAX_SESSION_ID_LEN:
+        return f"session_id too long (max {_MAX_SESSION_ID_LEN} chars)"
+    if not _SESSION_ID_RE.fullmatch(session_id):
+        return (
+            "session_id contains invalid characters; "
+            "allowed: letters, digits, '.', '_', ':', '-'"
+        )
+    return None
+
+
+@dataclass
+class _RateBucket:
+    count: int = 0
+    window_start: float = 0.0
+
+
+class _RateLimiter:
+    """Fixed-window in-memory rate limiter with lazy cleanup."""
+
+    def __init__(self, limit_per_min: int) -> None:
+        self.limit = max(1, limit_per_min)
+        self._buckets: dict[tuple[str, str], _RateBucket] = {}
+        self._lock = asyncio.Lock()
+
+    async def allow(self, key: tuple[str, str]) -> bool:
+        now = time.monotonic()
+        async with self._lock:
+            if len(self._buckets) > 10_000:
+                cutoff = now - 600.0
+                self._buckets = {
+                    k: b for k, b in self._buckets.items() if b.window_start >= cutoff
+                }
+            bucket = self._buckets.get(key)
+            if bucket is None:
+                self._buckets[key] = _RateBucket(count=1, window_start=now)
+                return True
+            if now - bucket.window_start >= _RATE_WINDOW_S:
+                bucket.count = 1
+                bucket.window_start = now
+                return True
+            bucket.count += 1
+            return bucket.count <= self.limit
 
 
 @dataclass
@@ -303,6 +361,10 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
     if requested_model and requested_model != model_name:
         return _error_json(400, f"Only configured model '{model_name}' is available")
 
+    if session_id is not None and not isinstance(session_id, str):
+        return _error_json(400, "session_id must be a string")
+    if session_id and (err := _validate_session_id(session_id)):
+        return _error_json(400, err)
     session_key = f"api:{session_id}" if session_id else API_SESSION_KEY
     session_locks: "OrderedDict[str, _SessionLockEntry]" = request.app["session_locks"]
     # LRU 策略:命中则移到末尾 (最近使用);未命中则新建并在超出上限时驱逐最旧。
@@ -473,6 +535,27 @@ async def handle_health(request: web.Request) -> web.Response:
 
 
 @web.middleware
+async def _rate_limit_middleware(request: web.Request, handler):
+    """Fixed-window rate limit for /v1/* endpoints (per client IP + path).
+
+    Applies regardless of whether an api_key is configured; without auth
+    it is the only thing standing between the server and a trivial flood.
+    """
+    path = request.path
+    if len(path) > 1 and path.endswith("/"):
+        path = path.rstrip("/")
+    if not path.startswith("/v1/"):
+        return await handler(request)
+
+    limiter: _RateLimiter = request.app["rate_limiter"]
+    client = request.remote or "unknown"
+    if not await limiter.allow((path, client)):
+        logger.warning("Rate limit exceeded for {} from {}", path, client)
+        return _error_json(429, "Too many requests", err_type="rate_limit_error")
+    return await handler(request)
+
+
+@web.middleware
 async def _auth_middleware(request: web.Request, handler):
     """Bearer-token auth for /v1/* endpoints.
 
@@ -519,6 +602,7 @@ def create_app(
     model_name: str = "MiniUnicorn",
     request_timeout: float = 120.0,
     api_key: str = "",
+    rate_limit_per_min: int = _DEFAULT_RATE_LIMIT_PER_MIN,
 ) -> web.Application:
     """Create the aiohttp application.
 
@@ -527,15 +611,17 @@ def create_app(
         model_name: Model name reported in responses.
         request_timeout: Per-request timeout in seconds.
         api_key: Bearer token required for /v1/* endpoints. Empty = no auth.
+        rate_limit_per_min: Per-IP fixed-window limit for /v1/* endpoints.
     """
     app = web.Application(
         client_max_size=20 * 1024 * 1024,  # 20MB for base64 images
-        middlewares=[_auth_middleware],
+        middlewares=[_auth_middleware, _rate_limit_middleware],
     )
     app["agent_loop"] = agent_loop
     app["model_name"] = model_name
     app["request_timeout"] = request_timeout
     app["api_key"] = api_key
+    app["rate_limiter"] = _RateLimiter(rate_limit_per_min)
     # 使用 OrderedDict 实现 LRU:命中时 move_to_end,超过 _MAX_SESSION_LOCKS
     # 时 popitem(last=False) 驱逐最久未使用的 session 锁。
     app["session_locks"] = OrderedDict()  # per-user locks, keyed by session_key

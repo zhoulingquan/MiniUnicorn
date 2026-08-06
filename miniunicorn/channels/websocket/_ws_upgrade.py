@@ -191,12 +191,15 @@ class WebSocketConfig(Base):
 
     @model_validator(mode="after")
     def wildcard_host_requires_auth(self) -> Self:
-        if self.host not in ("0.0.0.0", "::"):
+        # 除回环地址外,绑定到任何地址都必须配置 token 或 token_issue_secret,
+        # 否则拒绝启动(未认证即开放的服务器会被公网扫描器滥用)。
+        host = self.host.strip().lower()
+        if host in ("localhost", "::1") or host.startswith("127."):
             return self
         if self.token.strip() or self.token_issue_secret.strip():
             return self
         raise ValueError(
-            "host is 0.0.0.0 (all interfaces) but neither token nor "
+            f"host is '{self.host}' (non-loopback) but neither token nor "
             "token_issue_secret is set — set one to prevent unauthenticated access"
         )
 

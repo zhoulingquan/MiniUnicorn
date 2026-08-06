@@ -6,7 +6,7 @@ import asyncio
 import dataclasses
 import os
 import time
-from contextlib import AsyncExitStack, nullcontext, suppress
+from contextlib import AsyncExitStack, nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 from weakref import WeakValueDictionary
@@ -39,6 +39,7 @@ from miniunicorn.agent.tools.context import (
 from miniunicorn.agent.tools.file_state import FileStateStore, bind_file_states, reset_file_states
 from miniunicorn.agent.tools.message import MessageTool
 from miniunicorn.agent.tools.registry import ToolRegistry
+from miniunicorn.agent.turn_stats import bind_turn_stats, current_turn_stats
 from miniunicorn.bus.events import InboundMessage, OutboundMessage, make_session_key
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.command import CommandContext, CommandRouter, register_builtin_commands
@@ -93,6 +94,9 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
 
     @property
     def current_iteration(self) -> int:
+        stats = current_turn_stats()
+        if stats is not None:
+            return stats.iteration
         return self._current_iteration
 
     @property
@@ -526,13 +530,16 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         """Cancel and await all active tasks and subagents for *key*.
 
         Returns the total number of cancelled tasks + subagents.
+
+        Uses a single overall deadline for the whole batch (not one 10s
+        timeout per task), so a stack of N stuck tasks cannot wedge /stop for
+        N*10s; a stuck task is cancelled and detached instead.
         """
         tasks = self._active_tasks.pop(key, [])
         cancelled = sum(1 for t in tasks if not t.done() and t.cancel())
-        # 为每个任务等待设置超时，避免 /stop 因单个任务卡死而长时间阻塞
-        for t in tasks:
-            with suppress(asyncio.CancelledError, Exception):
-                await asyncio.wait_for(t, timeout=10.0)
+        if tasks:
+            # 单个整体 deadline：避免多个卡死任务串行等待造成长时间阻塞。
+            await asyncio.wait(tasks, timeout=10.0, return_when=asyncio.ALL_COMPLETED)
         # subagents 取消也加超时保护，超时则返回已取消的部分
         try:
             sub_cancelled = await asyncio.wait_for(
@@ -541,6 +548,35 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         except asyncio.TimeoutError:
             sub_cancelled = 0
         return cancelled + sub_cancelled
+
+    async def _cancel_all_active_tasks(self) -> None:
+        """Cancel and await every in-flight dispatch task across all sessions.
+
+        Used during gateway shutdown so a running turn cannot race process
+        teardown (e.g. mid ``sessions.save``). The ``_dispatch``
+        ``CancelledError`` handler restores partial context checkpoints, so
+        cancellation is safe. A task that ignores cancellation is detached
+        after the deadline instead of blocking shutdown forever.
+        """
+        all_tasks: list[asyncio.Task] = []
+        for tasks in self._active_tasks.values():
+            all_tasks.extend(tasks)
+        self._active_tasks.clear()
+        if not all_tasks:
+            return
+        cancelled = sum(1 for t in all_tasks if not t.done() and t.cancel())
+        if cancelled:
+            logger.info("Shutdown: cancelled {} in-flight turn task(s)", cancelled)
+        done, pending = await asyncio.wait(
+            all_tasks,
+            timeout=15.0,
+            return_when=asyncio.ALL_COMPLETED,
+        )
+        for t in pending:
+            logger.warning(
+                "Shutdown: turn task {} ignored cancellation; detaching",
+                t.get_name(),
+            )
 
     def _effective_session_key(self, msg: InboundMessage) -> str:
         """Return the session key used for task routing and mid-turn injections."""
@@ -630,6 +666,12 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         """
         self._sync_subagent_runtime_limits()
 
+        turn_stats = bind_turn_stats()
+
+        def _on_iteration(iteration: int) -> None:
+            self._current_iteration = iteration
+            turn_stats.iteration = iteration
+
         loop_hook = AgentProgressHook(
             on_progress=on_progress,
             on_stream=on_stream,
@@ -641,7 +683,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             session_key=session_key,
             tool_hint_max_length=self.tool_hint_max_length,
             set_tool_context=self._set_tool_context,
-            on_iteration=lambda iteration: setattr(self, "_current_iteration", iteration),
+            on_iteration=_on_iteration,
         )
         # Per-turn hooks take precedence over loop-level _extra_hooks so the
         # SDK can pass distinct hooks for concurrent runs without serializing
@@ -810,6 +852,8 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             reset_file_states(file_state_token)
         self._last_usage = result.usage
         self._last_call_usage = result.last_call_usage
+        turn_stats.usage = result.usage
+        turn_stats.last_call_usage = result.last_call_usage
         if result.stop_reason == "max_iterations":
             logger.warning("Max iterations ({}) reached", self.max_iterations)
             # Push final content through stream so streaming channels (e.g. Feishu)
@@ -998,11 +1042,14 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                         )
                     if msg.channel == "websocket":
                         turn_lat = self._pending_turn_latency_ms.pop(session_key, None)
+                        stats = current_turn_stats()
                         await self._webui_turns.handle_turn_end(
                             msg,
                             session_key=session_key,
                             latency_ms=turn_lat,
-                            context_usage=self._last_call_usage,
+                            context_usage=(
+                                stats.last_call_usage if stats is not None else self._last_call_usage
+                            ),
                         )
                 except asyncio.CancelledError:
                     logger.info("Task cancelled for session {}", session_key)
@@ -1082,8 +1129,22 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         task.add_done_callback(self._background_tasks.discard)
 
     def stop(self) -> None:
-        """Stop the agent loop."""
+        """Stop the agent loop.
+
+        Sets ``_running = False`` so the run loop exits, and synchronously
+        cancels any still-in-flight dispatch/background tasks. Callers that
+        need to await task teardown should prefer ``await close_mcp()``.
+        """
         self._running = False
+        active = [t for tasks in self._active_tasks.values() for t in tasks]
+        if active:
+            cancelled = sum(1 for t in active if not t.done() and t.cancel())
+            if cancelled:
+                logger.info("Agent loop stopping: cancelled {} in-flight task(s)", cancelled)
+        if self._background_tasks:
+            stuck = sum(1 for t in self._background_tasks if not t.done() and t.cancel())
+            if stuck:
+                logger.info("Agent loop stopping: cancelled {} background task(s)", stuck)
         logger.info("Agent loop stopping")
 
     async def _process_system_message(

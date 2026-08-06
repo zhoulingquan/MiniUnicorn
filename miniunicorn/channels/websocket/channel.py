@@ -280,10 +280,16 @@ class WebSocketChannel(BaseChannel):
         return ip in _LOCALHOSTS
 
     def _check_rate_limit(self, limiter: _RateLimiter, connection: Any, label: str) -> bool:
-        """Return True if the request passes the rate limit, else log and return False."""
+        """Return True if the request passes the rate limit, else log and return False.
+
+        无法解析客户端 IP 时按 fail-closed 处理:所有未知来源共享一个 ``<unknown>``
+        限流桶,超限即拒绝,而不是放行(避免攻击者通过异常连接结构绕过限流)。
+        该做法不阻断合法流量:真实 TCP 连接总有 ``remote_address``;unix socket
+        连接只会与本地 WebUI 共享桶,正常使用远低于阈值。
+        """
         ip = self._get_real_client_ip(connection)
         if not ip:
-            return True  # Unknown peer — don't block (other auth guards apply).
+            ip = "<unknown>"
         if not limiter.check(ip):
             self.logger.warning("rate limit exceeded for {} ({})", ip, label)
             return False
@@ -510,11 +516,15 @@ class WebSocketChannel(BaseChannel):
         if secret:
             if not _issue_route_secret_matches(request.headers, secret):
                 return connection.respond(401, "Unauthorized")
-        else:
+        elif not _is_localhost(connection):
+            # 无 secret 时仅允许本机回环请求签发令牌:否则任何能访问该端口的
+            # 客户端都能拿到连接令牌,绕过 websocket_requires_token。
             self.logger.warning(
-                "token_issue_path is set but token_issue_secret is empty; "
-                "any client can obtain connection tokens — set token_issue_secret for production."
+                "token_issue_path requested without token_issue_secret from "
+                "non-loopback client; rejecting — set token_issue_secret to "
+                "allow remote token issuance"
             )
+            return connection.respond(403, "token issuance disabled for non-loopback clients")
         # Per-IP token issuance rate limit (5/min).
         if not self._check_rate_limit(self._token_rate_limiter, connection, "token_issue"):
             return _http_json_response({"error": "rate limited"}, status=429)
@@ -690,23 +700,15 @@ class WebSocketChannel(BaseChannel):
     # -- HTTP route handlers ------------------------------------------------
 
     def _check_api_token(self, request: WsRequest) -> bool:
-        """Validate a request against the API token pool (multi-use, TTL-bound)."""
+        """Validate a request against the API token pool (multi-use, TTL-bound).
+
+        只接受 ``Authorization: Bearer <token>`` 头;不再支持 ``?token=`` 查询参数
+        回退(token 会出现在 URL/Referer/日志/浏览器历史中,且 fetch/XHR 均可设置
+        请求头,无需 URL 携带)。WebSocket 握手路径仍允许 ``?token=``,因为浏览器
+        WebSocket API 无法自定义请求头,见 ``_authorize_websocket_handshake``。
+        """
         self._purge_expired_api_tokens()
-        # 安全提示:推荐客户端使用 ``Authorization: Bearer <token>`` 头传递 token,
-        # 避免出现在 URL/Referer/日志中。``?token=`` 查询参数仅作为旧客户端的
-        # 向后兼容回退保留,且仅在 Authorization 头缺失时才被读取(短路求值)。
-        # 注意:不要在此方法或调用方记录完整 request.path,以免 token 泄漏到日志。
         token = _bearer_token(request.headers)
-        if not token:
-            # 仅当 Authorization 头缺失时回退到 ?token= 查询参数(向后兼容)。
-            token = _query_first(_parse_query(request.path), "token")
-            if token:
-                # 废弃警告:?token= 会出现在 URL 中,可能被日志/Referer/浏览器历史记录泄漏。
-                # 建议客户端迁移到 Authorization: Bearer <token> 头。每次回退使用时只警告一次
-                # 太吵,这里每次都记录(warning 级别),便于监控存量客户端迁移进度。
-                self.logger.warning(
-                    "使用 ?token= 查询参数鉴权已废弃,请改用 Authorization 头;token 可能泄漏到日志/Referer/浏览器历史"
-                )
         if not token:
             return False
         expiry = self._api_tokens.get(token)

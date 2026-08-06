@@ -109,18 +109,24 @@ class DreamIdleTrigger:
             return
         if len(unprocessed) < self.min_entries:
             return
-        # 满足所有条件，后台触发
+        # 满足所有条件，后台触发。先置运行标志再创建任务：`_safe_run`
+        # 要等到任务真正被调度才执行，期间若再次调用 maybe_trigger，
+        # 仅靠 `_safe_run` 内部的标志置位会让两次触发并发启动。
         self._last_trigger_ts = now
+        self._running = True
         logger.info(
             "Dream idle trigger: {} unprocessed entries, triggering background dream",
             len(unprocessed),
         )
-        # 跟踪后台 dream 任务，避免被 GC 回收
-        self._dream_task = asyncio.create_task(self._safe_run())
+        try:
+            # 跟踪后台 dream 任务，避免被 GC 回收
+            self._dream_task = asyncio.create_task(self._safe_run())
+        except Exception:
+            self._running = False
+            raise
 
     async def _safe_run(self) -> None:
         """安全执行 Dream.run()，捕获异常并重置运行标志。"""
-        self._running = True
         try:
             import time as _time
 

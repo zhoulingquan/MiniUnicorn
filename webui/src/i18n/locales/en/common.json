@@ -1251,5 +1251,21 @@
         "poll_timeout_desc": "Long-poll timeout in seconds"
       }
     }
+  },
+  "memoryEmbedding": {
+    "model": "Model",
+    "index": "Index",
+    "sources": "Source sync",
+    "recall": "Live recall",
+    "indexed": "{{indexed}}/{{discovered}} indexed",
+    "operationRunning": "{{kind}} in progress… {{completed}} / {{total}}",
+    "downloadModel": "Re-download model",
+    "verifyModel": "Verify model",
+    "rebuildIndex": "Rebuild index",
+    "technicalDetails": "Technical details",
+    "searchPlaceholder": "Search memory…",
+    "search": "Search memory",
+    "noResults": "No matching memories found.",
+    "loading": "Loading…"
   }
 }

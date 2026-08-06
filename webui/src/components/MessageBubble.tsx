@@ -301,9 +301,28 @@ function MessageMedia({
   );
 }
 
+/** 允许渲染为可点击/可播放媒体的 URL scheme 白名单。
+ *
+ * 媒体 URL 可能来自服务端签名路径或用户本地的 data:/blob: URL,但模型输出
+ * 或会话回放中混入 ``javascript:`` 等危险 scheme 时,``<a href>`` 点击即可
+ * 执行脚本。白名单之外的 URL 一律退化为 inert 占位,不渲染为链接。 */
+const SAFE_MEDIA_SCHEMES = new Set(["http:", "https:", "data:", "blob:"]);
+
+function isSafeMediaUrl(url: string): boolean {
+  try {
+    // 相对路径(如 /api/media/sig/...)解析到页面源后一定是 http(s),放行;
+    // 绝对 URL 只放行白名单 scheme,``javascript:`` 等一律拒绝。
+    const resolved = new URL(url, typeof window === "undefined" ? undefined : window.location.href);
+    return SAFE_MEDIA_SCHEMES.has(resolved.protocol);
+  } catch {
+    return false;
+  }
+}
+
 function MediaCell({ media }: { media: UIMediaAttachment }) {
   const { t } = useTranslation();
-  const hasUrl = typeof media.url === "string" && media.url.length > 0;
+  const hasUrl =
+    typeof media.url === "string" && media.url.length > 0 && isSafeMediaUrl(media.url);
 
   if (media.kind === "video" && hasUrl) {
     return (

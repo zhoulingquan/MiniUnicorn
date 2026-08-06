@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -80,7 +81,7 @@ function utf8ByteLength(text: string): number {
   return new TextEncoder().encode(text).byteLength;
 }
 
-export function ThreadComposer({
+export const ThreadComposer = memo(function ThreadComposer({
   onSend,
   disabled,
   placeholder,
@@ -348,6 +349,8 @@ export function ThreadComposer({
     // 复刻 ``MiniunicornClient.sendMessage`` 的 wire 帧结构,计算精确字节数,
     // 再为 envelope 外层字段(chat_id/webui=true/metadata 等)预留安全余量。
     // 超限直接拦截、保留文本和附件草稿,避免服务端 1009 关闭连接后丢失输入。
+    // 注意:ThreadShell 的 onSend 包装还会附加 workspace_scope,估算时必须
+    // 一并计入,否则实际 frame 可能超出预算。
     const limit =
       typeof maxMessageBytes === "number" && maxMessageBytes > 0
         ? maxMessageBytes
@@ -363,6 +366,9 @@ export function ThreadComposer({
     }
     if (options?.agentId) {
       wireFrame.metadata = { agent_id: options.agentId };
+    }
+    if (workspaceScope) {
+      wireFrame.workspace_scope = workspaceScope;
     }
     const frameBytes = utf8ByteLength(JSON.stringify(wireFrame));
     const budget = Math.max(0, limit - FRAME_FRAMING_MARGIN_BYTES);
@@ -398,6 +404,7 @@ export function ThreadComposer({
     selectedAgentId,
     t,
     value,
+    workspaceScope,
   ]);
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
@@ -828,4 +835,4 @@ export function ThreadComposer({
       </div>
     </form>
   );
-}
+});

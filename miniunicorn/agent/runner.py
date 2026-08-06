@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import os
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,6 +35,7 @@ from miniunicorn.utils.helpers import (
     strip_think,
     truncate_text,
 )
+from miniunicorn.utils.llm_runtime import resolve_llm_timeout
 from miniunicorn.utils.progress_events import (
     invoke_file_edit_progress,
     on_progress_accepts_file_edit_events,
@@ -976,18 +976,10 @@ class AgentRunner:
     ):
         if spec.before_provider_call is not None:
             messages = await spec.before_provider_call(messages)
-        timeout_s: float | None = spec.llm_timeout_s
-        if timeout_s is None:
-            # Default to a finite timeout to avoid per-session lock starvation when an LLM
-            # request hangs indefinitely (e.g. gateway/network stall).
-            # Set MINIUNICORN_LLM_TIMEOUT_S=0 to disable.
-            raw = os.environ.get("MINIUNICORN_LLM_TIMEOUT_S", "300").strip()
-            try:
-                timeout_s = float(raw)
-            except (TypeError, ValueError):
-                timeout_s = 300.0
-        if timeout_s is not None and timeout_s <= 0:
-            timeout_s = None
+        # Default to a finite timeout to avoid per-session lock starvation when
+        # an LLM request hangs indefinitely (e.g. gateway/network stall).
+        # Set MINIUNICORN_LLM_TIMEOUT_S=0 to disable.
+        timeout_s = resolve_llm_timeout(spec.llm_timeout_s)
 
         kwargs = self._build_request_kwargs(
             spec,
@@ -1123,7 +1115,10 @@ class AgentRunner:
         retry_messages = list(messages)
         retry_messages.append(build_finalization_retry_message())
         kwargs = self._build_request_kwargs(spec, retry_messages, tools=None)
-        return await self.provider.chat_with_retry(**kwargs)
+        return await asyncio.wait_for(
+            self.provider.chat_with_retry(**kwargs),
+            timeout=resolve_llm_timeout(),
+        )
 
     @staticmethod
     def _usage_dict(usage: dict[str, Any] | None) -> dict[str, int]:
