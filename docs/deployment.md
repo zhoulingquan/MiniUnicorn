@@ -1,5 +1,42 @@
 # Deployment
 
+## Runtime Topology
+
+MiniUnicorn runs on a durable Runtime with two modes (see
+[Configuration → Runtime](configuration.md#runtime)):
+
+- **`lightweight`** — a single process. Default for the one-shot `agent` and
+  `serve` commands, and suitable for dev/single-slot deployments.
+- **`supervised`** — the default for the long-running `gateway` command: one
+  Control Plane process plus Worker child processes (default `workerCount=3`,
+  minimum `2`), each with `workerConcurrency=1` (fixed).
+
+Select the mode with `--runtime-mode supervised` (or `lightweight`), the
+`MINIUNICORN_RUNTIME_MODE` environment variable, or `runtime.mode` in
+`config.json`. Resolution precedence is CLI > env > config > launcher default.
+
+### Process ownership (supervised mode)
+
+| Process | Owns |
+|---------|------|
+| Launcher / Supervisor | Child process lifecycle — start/stop/restart, backoff. |
+| Control Plane | Ingress, Channels, Outbox sender, Cron enqueue. |
+| Workers | Agent execution, Provider calls, tool execution (ToolGateway), session commit. |
+
+### Graceful shutdown
+
+The graceful-shutdown grace period is `runtime.shutdownGraceS` (default `60s`).
+For Docker, set `stop_grace_period` to cover the grace period plus child-tree
+termination:
+
+- **`75s`** for supervised mode (60s grace + child-tree termination).
+- **`30s`** for lightweight mode.
+
+The supervisor drains in-flight work within the grace window, then terminates
+the child process tree. Expired task leases and expired `SENDING` Outbox rows
+are reclaimed on the next scan, so a stopped container never permanently wedges
+a session or target queue.
+
 ## Docker
 
 > [!TIP]
@@ -86,7 +123,9 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/miniunicorn gateway
+# `gateway` defaults to supervised mode already; set --runtime-mode explicitly
+# to pin it (values: lightweight | supervised), or use runtime.mode in config.json.
+ExecStart=%h/.local/bin/miniunicorn gateway --runtime-mode supervised
 Restart=always
 RestartSec=10
 NoNewPrivileges=yes

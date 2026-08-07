@@ -25,6 +25,26 @@ class AutoCompact:
         self._ttl = session_ttl_minutes
         self._archiving: set[str] = set()
         self._summaries: dict[str, tuple[str, datetime]] = {}
+        # Durable enqueue callback (design §22.3). When set, check_expired
+        # enqueues a MEMORY_CONSOLIDATION task instead of owning the work
+        # through asyncio.create_task. The callback receives the session key
+        # (used as source revision) and returns the task_id or None.
+        self._enqueue_callback: (
+            Callable[[str], Coroutine[Any, Any, str | None]] | None
+        ) = None
+
+    def set_enqueue_callback(
+        self,
+        callback: Callable[[str], Coroutine[Any, Any, str | None]] | None,
+    ) -> None:
+        """Set the durable enqueue callback (design §22.3, §29.16).
+
+        When set, ``check_expired`` enqueues a durable
+        ``MEMORY_CONSOLIDATION`` task for each expired session instead of
+        scheduling ``_archive`` via ``asyncio.create_task``. The actual
+        archival is then owned by a maintenance Worker.
+        """
+        self._enqueue_callback = callback
 
     def _is_expired(self, ts: datetime | str | None, now: datetime | None = None) -> bool:
         if self._ttl <= 0 or not ts:
@@ -56,7 +76,13 @@ class AutoCompact:
         schedule_background: Callable[[Coroutine], None],
         active_session_keys: Collection[str] = (),
     ) -> None:
-        """Schedule archival for idle sessions, skipping those with in-flight agent tasks."""
+        """Schedule archival for idle sessions, skipping those with in-flight agent tasks.
+
+        When ``enqueue_callback`` is set (durable mode, design §22.3), each
+        expired session enqueues a ``MEMORY_CONSOLIDATION`` task instead of
+        calling ``schedule_background``. The source revision is the session
+        key so repeated submissions deduplicate (design §13.1).
+        """
         now = datetime.now()
         for info in self.sessions.list_sessions():
             key = info.get("key", "")
@@ -68,7 +94,25 @@ class AutoCompact:
                 self._archiving.add(key)
                 # 先标记再调度，调度失败需回滚标记，避免任务集泄漏
                 try:
-                    schedule_background(self._archive(key))
+                    if self._enqueue_callback is not None:
+                        # Durable mode: enqueue a MEMORY_CONSOLIDATION task.
+                        # Use asyncio.ensure_future to fire-and-forget the
+                        # coroutine; errors are logged inside the callback.
+                        import asyncio
+
+                        async def _enqueue():
+                            try:
+                                await self._enqueue_callback(key)
+                            except Exception:
+                                logger.exception(
+                                    "Auto-compact: enqueue failed for {}", key
+                                )
+                            finally:
+                                self._archiving.discard(key)
+
+                        asyncio.ensure_future(_enqueue())
+                    else:
+                        schedule_background(self._archive(key))
                 except Exception:
                     self._archiving.discard(key)
                     raise

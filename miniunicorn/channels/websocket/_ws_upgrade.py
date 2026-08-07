@@ -21,6 +21,7 @@ from typing import Any, Self
 from pydantic import Field, field_validator, model_validator
 
 from miniunicorn.config.schema import Base
+from miniunicorn.webui._http import _case_insensitive_header  # noqa: F401 — re-exported
 
 
 def _strip_trailing_slash(path: str) -> str:
@@ -31,20 +32,6 @@ def _strip_trailing_slash(path: str) -> str:
 
 def _normalize_config_path(path: str) -> str:
     return _strip_trailing_slash(path)
-
-
-def _case_insensitive_header(headers: Any, key: str) -> str:
-    """Read a header from websockets/http test stubs without assuming casing."""
-    try:
-        value = headers.get(key)
-    except Exception:
-        value = None
-    if value is None:
-        try:
-            value = headers.get(key.lower())
-        except Exception:
-            value = None
-    return str(value or "").strip()
 
 
 def _safe_host_header(value: str) -> str:

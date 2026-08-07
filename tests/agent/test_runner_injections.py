@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from miniunicorn.config.schema import AgentDefaults
 from miniunicorn.providers.base import LLMResponse, ToolCallRequest
+from tests.agent.conftest import FakeToolExecutionPort
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
@@ -234,6 +234,7 @@ async def test_checkpoint1_injects_after_tool_execution():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "hello"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=5,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -298,6 +299,7 @@ async def test_checkpoint2_injects_after_final_response_with_resuming_stream():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "hello"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=5,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -348,6 +350,7 @@ async def test_checkpoint2_preserves_final_response_in_history_before_followup()
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "hello"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=5,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -414,15 +417,15 @@ async def test_loop_injected_followup_preserves_image_media(tmp_path):
         )
     )
 
-    final_content, _, _, _, had_injections = await loop._run_agent_loop(
+    result = await loop._run_agent_loop(
         [{"role": "user", "content": "hello"}],
         channel="cli",
         chat_id="c",
         pending_queue=pending_queue,
     )
 
-    assert final_content == "second answer"
-    assert had_injections is True
+    assert result.final_content == "second answer"
+    assert result.had_injections is True
     assert call_count["n"] == 2
     injected_user_messages = [
         message
@@ -476,6 +479,7 @@ async def test_runner_merges_multiple_injected_user_messages_without_losing_medi
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "hello"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=5,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -535,6 +539,7 @@ async def test_injection_cycles_capped_at_max():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "start"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=20,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -566,6 +571,7 @@ async def test_no_injections_flag_is_false_by_default():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "hi"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=1,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -573,95 +579,6 @@ async def test_no_injections_flag_is_false_by_default():
     )
 
     assert result.had_injections is False
-
-
-@pytest.mark.asyncio
-async def test_pending_queue_cleanup_on_dispatch(tmp_path):
-    """_pending_queues should be cleaned up after _dispatch completes."""
-    loop = _make_loop(tmp_path)
-
-    async def chat_with_retry(**kwargs):
-        return LLMResponse(content="done", tool_calls=[], usage={})
-
-    loop.provider.chat_with_retry = chat_with_retry
-
-    from miniunicorn.bus.events import InboundMessage
-
-    msg = InboundMessage(channel="cli", sender_id="u", chat_id="c", content="hello")
-    # The queue should not exist before dispatch
-    assert msg.session_key not in loop._pending_queues
-
-    await loop._dispatch(msg)
-
-    # The queue should be cleaned up after dispatch
-    assert msg.session_key not in loop._pending_queues
-
-
-@pytest.mark.asyncio
-async def test_waiting_dispatch_does_not_replace_active_pending_queue(tmp_path):
-    """A queued dispatch must not steal the active task's injection queue."""
-    from miniunicorn.bus.events import InboundMessage
-
-    loop = _make_loop(tmp_path)
-    session_key = "cli:c"
-    lock = loop._session_locks.setdefault(session_key, asyncio.Lock())
-    await lock.acquire()
-    active_pending = asyncio.Queue(maxsize=1)
-    loop._pending_queues[session_key] = active_pending
-
-    waiting_at_lock = asyncio.Event()
-    original_acquire = asyncio.Lock.acquire
-
-    async def _patched_acquire(self, *args, **kwargs):
-        if self is lock:
-            waiting_at_lock.set()
-        return await original_acquire(self, *args, **kwargs)
-
-    with patch.object(asyncio.Lock, "acquire", _patched_acquire):
-        waiting = asyncio.create_task(
-            loop._dispatch(
-                InboundMessage(channel="cli", sender_id="u", chat_id="c", content="queued")
-            )
-        )
-        await asyncio.wait_for(waiting_at_lock.wait(), timeout=2.0)
-
-    assert loop._pending_queues[session_key] is active_pending
-
-    waiting.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await waiting
-    lock.release()
-
-
-@pytest.mark.asyncio
-async def test_followup_routed_to_pending_queue(tmp_path):
-    """Unified-session follow-ups should route into the active pending queue."""
-    from miniunicorn.agent.loop import UNIFIED_SESSION_KEY
-    from miniunicorn.bus.events import InboundMessage
-
-    loop = _make_loop(tmp_path)
-    loop._unified_session = True
-    loop._dispatch = AsyncMock()  # type: ignore[method-assign]
-
-    pending = asyncio.Queue(maxsize=20)
-    loop._pending_queues[UNIFIED_SESSION_KEY] = pending
-
-    run_task = asyncio.create_task(loop.run())
-    msg = InboundMessage(channel="discord", sender_id="u", chat_id="c", content="follow-up")
-    await loop.bus.publish_inbound(msg)
-
-    deadline = time.time() + 2
-    while pending.empty() and time.time() < deadline:
-        await asyncio.sleep(0.01)
-
-    loop.stop()
-    await asyncio.wait_for(run_task, timeout=2)
-
-    assert loop._dispatch.await_count == 0
-    assert not pending.empty()
-    queued_msg = pending.get_nowait()
-    assert queued_msg.content == "follow-up"
-    assert queued_msg.session_key == UNIFIED_SESSION_KEY
 
 
 @pytest.mark.asyncio
@@ -699,15 +616,15 @@ async def test_pending_queue_preserves_overflow_for_next_injection_cycle(tmp_pat
             )
         )
 
-    final_content, _, _, _, had_injections = await loop._run_agent_loop(
+    result = await loop._run_agent_loop(
         [{"role": "user", "content": "hello"}],
         channel="cli",
         chat_id="c",
         pending_queue=pending_queue,
     )
 
-    assert final_content == "answer-3"
-    assert had_injections is True
+    assert result.final_content == "answer-3"
+    assert result.had_injections is True
     assert call_count["n"] == 3
     flattened_user_content = "\n".join(
         message["content"]
@@ -717,85 +634,6 @@ async def test_pending_queue_preserves_overflow_for_next_injection_cycle(tmp_pat
     for idx in range(total_followups):
         assert f"follow-up-{idx}" in flattened_user_content
     assert pending_queue.empty()
-
-
-@pytest.mark.asyncio
-async def test_pending_queue_full_falls_back_to_queued_task(tmp_path):
-    """QueueFull should preserve the message by dispatching a queued task."""
-    from miniunicorn.bus.events import InboundMessage
-
-    loop = _make_loop(tmp_path)
-    loop._dispatch = AsyncMock()  # type: ignore[method-assign]
-
-    pending = asyncio.Queue(maxsize=1)
-    pending.put_nowait(
-        InboundMessage(channel="cli", sender_id="u", chat_id="c", content="already queued")
-    )
-    loop._pending_queues["cli:c"] = pending
-
-    run_task = asyncio.create_task(loop.run())
-    msg = InboundMessage(channel="cli", sender_id="u", chat_id="c", content="follow-up")
-    await loop.bus.publish_inbound(msg)
-
-    deadline = time.time() + 2
-    while loop._dispatch.await_count == 0 and time.time() < deadline:
-        await asyncio.sleep(0.01)
-
-    loop.stop()
-    await asyncio.wait_for(run_task, timeout=2)
-
-    assert loop._dispatch.await_count == 1
-    dispatched_msg = loop._dispatch.await_args.args[0]
-    assert dispatched_msg.content == "follow-up"
-    assert pending.qsize() == 1
-
-
-@pytest.mark.asyncio
-async def test_dispatch_republishes_leftover_queue_messages(tmp_path):
-    """Messages left in the pending queue after _dispatch are re-published to the bus.
-
-    This tests the finally-block cleanup that prevents message loss when
-    the runner exits early (e.g., max_iterations, tool_error) with messages
-    still in the queue.
-    """
-    from miniunicorn.bus.events import InboundMessage
-
-    loop = _make_loop(tmp_path)
-    bus = loop.bus
-
-    # Simulate a completed dispatch by manually registering a queue
-    # with leftover messages, then running the cleanup logic directly.
-    pending = asyncio.Queue(maxsize=20)
-    session_key = "cli:c"
-    loop._pending_queues[session_key] = pending
-    pending.put_nowait(
-        InboundMessage(channel="cli", sender_id="u", chat_id="c", content="leftover-1")
-    )
-    pending.put_nowait(
-        InboundMessage(channel="cli", sender_id="u", chat_id="c", content="leftover-2")
-    )
-
-    # Execute the cleanup logic from the finally block
-    queue = loop._pending_queues.pop(session_key, None)
-    assert queue is not None
-    leftover = 0
-    while True:
-        try:
-            item = queue.get_nowait()
-        except asyncio.QueueEmpty:
-            break
-        await bus.publish_inbound(item)
-        leftover += 1
-
-    assert leftover == 2
-
-    # Verify the messages are now on the bus
-    msgs = []
-    while not bus.inbound.empty():
-        msgs.append(await asyncio.wait_for(bus.consume_inbound(), timeout=0.5))
-    contents = [m.content for m in msgs]
-    assert "leftover-1" in contents
-    assert "leftover-2" in contents
 
 
 @pytest.mark.asyncio
@@ -835,6 +673,7 @@ async def test_drain_injections_on_fatal_tool_error():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "hello"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=5,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -897,6 +736,7 @@ async def test_drain_injections_on_llm_error():
                 {"role": "user", "content": "trigger error"},
             ],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=5,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -950,6 +790,7 @@ async def test_drain_injections_on_empty_final_response():
                 {"role": "user", "content": "trigger empty"},
             ],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=10,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -1010,6 +851,7 @@ async def test_drain_injections_on_max_iterations():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "hello"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=2,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -1079,6 +921,7 @@ async def test_drain_injections_set_flag_when_followup_arrives_after_last_iterat
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "hello"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=2,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -1141,6 +984,7 @@ async def test_injection_cycle_cap_on_error_path():
                 {"role": "user", "content": "trigger error"},
             ],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=20,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,

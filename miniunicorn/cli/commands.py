@@ -9,8 +9,9 @@ heavy lifting has been split into three sibling modules:
   ``_print_interactive_progress_line`` …).
 - ``_heartbeat.py`` — heartbeat preamble text, cached HEARTBEAT.md template
   loader, and the heartbeat-specific provider builder.
-- ``_gateway_runner.py`` — the shared ``_run_gateway`` runtime plus the
-  cron-job dispatcher (``on_cron_job``) and its branch helpers.
+- ``_gateway_runner.py`` — the shared ``_run_gateway`` thin launcher
+  (cron-job dispatch was removed in Task 9 Step 6; maintenance now
+  enqueues durable tasks through ``_wire_maintenance_callbacks``).
 
 A few names are looked up by tests via ``unittest.mock.patch`` on this
 module's namespace (e.g. ``patch("miniunicorn.cli.commands.PromptSession",
@@ -67,28 +68,22 @@ from rich.markup import escape
 from rich.table import Table
 
 from miniunicorn import __logo__, __version__
-from miniunicorn.agent.loop import AgentLoop
 from miniunicorn.cli._gateway_runner import _run_gateway
 from miniunicorn.cli._terminal_render import (
-    _flush_cli_reasoning,
     _flush_pending_tty_input,
     _init_prompt_session,
     _is_exit_command,
-    _maybe_print_interactive_progress,
     _print_agent_response,
-    _print_cli_progress_line,
-    _print_cli_reasoning,
-    _print_interactive_response,
     _read_interactive_input_async,
-    _ReasoningBuffer,
     _restore_terminal,
     _sanitize_surrogates,
     console,
 )
 from miniunicorn.cli.embedding_commands import embedding_app
-from miniunicorn.cli.stream import StreamRenderer, ThinkingSpinner
+from miniunicorn.cli.stream import StreamRenderer
 from miniunicorn.config.paths import get_workspace_path, is_default_workspace
-from miniunicorn.config.schema import Config
+from miniunicorn.config.runtime import RuntimeMode, resolve_runtime_mode
+from miniunicorn.config.schema import Config, validate_api_bind_security
 from miniunicorn.utils.helpers import sync_workspace_templates
 from miniunicorn.utils.restart import (
     consume_restart_notice_from_env,
@@ -401,6 +396,23 @@ def _warn_deprecated_config_keys(config_path: Path | None) -> None:
         )
 
 
+def _resolve_runtime_mode(
+    config: "Config",
+    cli_value: str | None,
+    launcher_default: RuntimeMode,
+) -> RuntimeMode:
+    """Validate and resolve the runtime mode from CLI, env, config, or default."""
+    if cli_value is not None and cli_value not in ("lightweight", "supervised"):
+        console.print(f"[red]Error: invalid --runtime-mode {cli_value!r}[/red]")
+        raise typer.Exit(1)
+    return resolve_runtime_mode(
+        configured=config.runtime.mode,
+        cli_value=cli_value,  # type: ignore[arg-type]
+        environment=os.getenv("MINIUNICORN_RUNTIME_MODE"),  # type: ignore[arg-type]
+        launcher_default=launcher_default,
+    )
+
+
 def _migrate_cron_store(config: "Config") -> None:
     """One-time migration: move legacy global cron store into the workspace."""
     from miniunicorn.config.paths import get_cron_dir
@@ -429,6 +441,9 @@ def serve(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show MiniUnicorn runtime logs"),
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    runtime_mode: str | None = typer.Option(
+        None, "--runtime-mode", help="Runtime mode: lightweight or supervised"
+    ),
 ):
     """Start the OpenAI-compatible API server (/v1/chat/completions)."""
     try:
@@ -442,8 +457,7 @@ def serve(
     from loguru import logger
 
     from miniunicorn.api.server import create_app
-    from miniunicorn.bus.queue import MessageBus
-    from miniunicorn.session.manager import SessionManager
+    from miniunicorn.runtime.bootstrap import build_lightweight_runtime
 
     if verbose:
         logger.enable("miniunicorn")
@@ -451,19 +465,24 @@ def serve(
         logger.disable("miniunicorn")
 
     runtime_config = _load_runtime_config(config, workspace)
+    _resolve_runtime_mode(runtime_config, runtime_mode, "lightweight")
     api_cfg = runtime_config.api
     host = host if host is not None else api_cfg.host
     port = port if port is not None else api_cfg.port
     timeout = timeout if timeout is not None else api_cfg.timeout
-    sync_workspace_templates(runtime_config.workspace_path)
-    bus = MessageBus()
-    session_manager = SessionManager(runtime_config.workspace_path)
     try:
-        agent_loop = AgentLoop.from_config(
-            runtime_config,
-            bus,
-            session_manager=session_manager,
+        validate_api_bind_security(
+            host,
+            api_cfg.api_key,
+            api_cfg.allow_insecure_public_bind,
         )
+    except ValueError as exc:
+        console.print(f"[red]Error: {exc}[/red]")
+        raise typer.Exit(1) from exc
+    sync_workspace_templates(runtime_config.workspace_path)
+
+    try:
+        resources = build_lightweight_runtime(runtime_config)
     except ValueError as exc:
         console.print(f"[red]Error: {exc}[/red]")
         raise typer.Exit(1) from exc
@@ -495,17 +514,18 @@ def serve(
     console.print()
 
     api_app = create_app(
-        agent_loop,
+        resources.application,
         model_name=model_name,
         request_timeout=timeout,
         api_key=api_key,
+        config=runtime_config,
     )
 
     async def on_startup(_app):
-        await agent_loop._connect_mcp()
+        await resources.start()
 
     async def on_cleanup(_app):
-        await agent_loop.close_mcp()
+        await resources.stop()
 
     api_app.on_startup.append(on_startup)
     api_app.on_cleanup.append(on_cleanup)
@@ -523,6 +543,9 @@ def gateway(
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    runtime_mode: str | None = typer.Option(
+        None, "--runtime-mode", help="Runtime mode: lightweight or supervised"
+    ),
 ):
     """Start the MiniUnicorn gateway."""
     if verbose:
@@ -540,8 +563,12 @@ def gateway(
             filter=lambda record: record["extra"].setdefault("channel", "-") or True,
         )
     cfg = _load_runtime_config(config, workspace)
+    mode = _resolve_runtime_mode(cfg, runtime_mode, "supervised")
     _ensure_local_allow_from(cfg)
-    _run_gateway(cfg)
+    sync_workspace_templates(cfg.workspace_path)
+    if is_default_workspace(cfg.workspace_path):
+        _migrate_cron_store(cfg)
+    _run_gateway(cfg, runtime_mode=mode)
 
 
 def _ensure_local_allow_from(cfg: Config) -> None:
@@ -653,6 +680,9 @@ def desktop_gateway(
     ),
     config: str | None = typer.Option(None, "--config", "-c", help="Desktop config file"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+    runtime_mode: str | None = typer.Option(
+        None, "--runtime-mode", help="Runtime mode: lightweight or supervised"
+    ),
 ):
     """Start the private local gateway used by MiniUnicorn Desktop."""
     if not token_issue_secret.strip():
@@ -676,14 +706,19 @@ def desktop_gateway(
             filter=lambda record: record["extra"].setdefault("channel", "-") or True,
         )
     cfg = _load_or_create_desktop_config(config, workspace)
+    mode = _resolve_runtime_mode(cfg, runtime_mode, "supervised")
     _configure_desktop_gateway(
         cfg,
         webui_port=webui_port,
         webui_socket=webui_socket,
         token_issue_secret=token_issue_secret,
     )
+    sync_workspace_templates(cfg.workspace_path)
+    if is_default_workspace(cfg.workspace_path):
+        _migrate_cron_store(cfg)
     _run_gateway(
         cfg,
+        runtime_mode=mode,
         webui_static_dist=False,
         webui_runtime_surface="native",
         webui_runtime_capabilities={
@@ -712,25 +747,24 @@ def agent(
     logs: bool = typer.Option(
         False, "--logs/--no-logs", help="Show MiniUnicorn runtime logs during chat"
     ),
+    runtime_mode: str | None = typer.Option(
+        None, "--runtime-mode", help="Runtime mode: lightweight or supervised"
+    ),
 ):
     """Interact with the agent directly."""
     from loguru import logger
 
-    from miniunicorn.bus.queue import MessageBus
-    from miniunicorn.cron.service import CronService
+    from miniunicorn.runtime.application import RuntimeInboundRequest
+    from miniunicorn.runtime.bootstrap import build_lightweight_runtime
+    from miniunicorn.runtime.ingress import local_request_scope
 
     config = _load_runtime_config(config, workspace)
+    _resolve_runtime_mode(config, runtime_mode, "lightweight")
     sync_workspace_templates(config.workspace_path)
-
-    bus = MessageBus()
 
     # Preserve existing single-workspace installs, but keep custom workspaces clean.
     if is_default_workspace(config.workspace_path):
         _migrate_cron_store(config)
-
-    # Create cron service with workspace-scoped store
-    cron_store_path = config.workspace_path / "cron" / "jobs.json"
-    cron = CronService(cron_store_path)
 
     if logs:
         logger.enable("miniunicorn")
@@ -738,11 +772,7 @@ def agent(
         logger.disable("miniunicorn")
 
     try:
-        agent_loop = AgentLoop.from_config(
-            config,
-            bus,
-            cron_service=cron,
-        )
+        resources = build_lightweight_runtime(config)
     except ValueError as exc:
         console.print(f"[red]Error: {exc}[/red]")
         raise typer.Exit(1) from exc
@@ -753,73 +783,42 @@ def agent(
             render_markdown=False,
         )
 
-    # Shared reference for progress callbacks
-    _thinking: ThinkingSpinner | None = None
-
-    def _make_progress(renderer: StreamRenderer | None = None):
-        reasoning_buffer = _ReasoningBuffer()
-
-        async def _cli_progress(
-            content: str, *, tool_hint: bool = False, reasoning: bool = False, **_kwargs: Any
-        ) -> None:
-            ch = agent_loop.channels_config
-
-            if _kwargs.get("reasoning_end"):
-                if ch and not ch.show_reasoning:
-                    reasoning_buffer.clear()
-                else:
-                    _flush_cli_reasoning(reasoning_buffer, _thinking, renderer)
-                return
-
-            if reasoning:
-                if ch and not ch.show_reasoning:
-                    reasoning_buffer.clear()
-                    return
-                text = reasoning_buffer.add(content)
-                if text:
-                    _print_cli_reasoning(text, _thinking, renderer)
-                return
-            if ch and tool_hint and not ch.send_tool_hints:
-                return
-            if ch and not tool_hint and not ch.send_progress:
-                return
-            _print_cli_progress_line(content, _thinking, renderer)
-
-        return _cli_progress
+    scope = local_request_scope(config)
 
     if message:
-        # Single message mode — direct call, no bus needed
+        # Single message mode — durable submit_and_wait (Task 6 Step 3)
         async def run_once():
-            renderer = StreamRenderer(
-                render_markdown=markdown,
-                bot_name=config.agents.defaults.bot_name,
-                bot_icon=config.agents.defaults.bot_icon,
-            )
-            response = await agent_loop.process_direct(
-                message,
-                session_id,
-                on_progress=_make_progress(renderer),
-                on_stream=renderer.on_delta,
-                on_stream_end=renderer.on_end,
-            )
-            if not renderer.streamed:
-                await renderer.close()
-                print_kwargs: dict[str, Any] = {}
-                if renderer.header_printed:
-                    print_kwargs["show_header"] = False
-                _print_agent_response(
-                    response.content if response else "",
-                    render_markdown=markdown,
-                    metadata=response.metadata if response else None,
-                    **print_kwargs,
+            await resources.start()
+            try:
+                result = await resources.application.submit_and_wait(
+                    RuntimeInboundRequest(
+                        content=message,
+                        media=(),
+                        metadata={},
+                        session_key=session_id,
+                        channel="cli",
+                        channel_account="local-user",
+                        channel_message_id=None,
+                        scope=scope,
+                        target_key="direct",
+                    ),
+                    timeout_s=float(config.api.timeout),
                 )
-            await agent_loop.close_mcp()
+                reply_text = result.reply.content or ""
+                if not reply_text.strip():
+                    from miniunicorn.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
+
+                    reply_text = EMPTY_FINAL_RESPONSE_MESSAGE
+                _print_agent_response(
+                    reply_text,
+                    render_markdown=markdown,
+                )
+            finally:
+                await resources.stop()
 
         asyncio.run(run_once())
     else:
-        # Interactive mode — route through bus like other channels
-        from miniunicorn.bus.events import InboundMessage
-
+        # Interactive mode — durable submit + subscribe + wait per prompt
         _init_prompt_session()
         _model, _preset_tag = _model_display(config)
         console.print(
@@ -827,9 +826,9 @@ def agent(
         )
 
         if ":" in session_id:
-            cli_channel, cli_chat_id = session_id.split(":", 1)
+            cli_channel, _cli_chat_id = session_id.split(":", 1)
         else:
-            cli_channel, cli_chat_id = "cli", session_id
+            cli_channel, _cli_chat_id = "cli", session_id
 
         def _handle_signal(signum, frame):
             sig_name = signal.Signals(signum).name
@@ -847,67 +846,58 @@ def agent(
         if hasattr(signal, "SIGPIPE"):
             signal.signal(signal.SIGPIPE, signal.SIG_IGN)
 
-        async def run_interactive():
-            bus_task = asyncio.create_task(agent_loop.run())
-            turn_done = asyncio.Event()
-            turn_done.set()
-            turn_response: list[tuple[str, dict]] = []
-            renderer: StreamRenderer | None = None
-            reasoning_buffer = _ReasoningBuffer()
-
-            async def _consume_outbound():
-                while True:
-                    try:
-                        msg = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
-
-                        if msg.metadata.get("_stream_delta"):
-                            if renderer:
-                                await renderer.on_delta(msg.content)
+        async def _run_turn(user_input: str, renderer: StreamRenderer) -> str:
+            """Submit one prompt durably, stream deltas, return final text."""
+            handle = await resources.application.submit(
+                RuntimeInboundRequest(
+                    content=user_input,
+                    media=(),
+                    metadata={},
+                    session_key=session_id,
+                    channel=cli_channel,
+                    channel_account="local-user",
+                    channel_message_id=None,
+                    scope=scope,
+                    target_key="direct",
+                )
+            )
+            wait_task = asyncio.create_task(
+                resources.application.wait(scope, handle.task_id, None)
+            )
+            try:
+                async with resources.application.subscribe(handle.task_id) as queue:
+                    while True:
+                        if wait_task.done():
+                            break
+                        try:
+                            event = await asyncio.wait_for(queue.get(), timeout=0.1)
+                        except asyncio.TimeoutError:
                             continue
-                        if msg.metadata.get("_stream_end"):
-                            if renderer:
-                                await renderer.on_end(
-                                    resuming=msg.metadata.get("_resuming", False),
-                                )
-                            continue
-                        if msg.metadata.get("_streamed"):
-                            turn_done.set()
-                            continue
-
-                        if await _maybe_print_interactive_progress(
-                            msg,
-                            renderer,
-                            agent_loop.channels_config,
-                            renderer,
-                            reasoning_buffer,
-                        ):
-                            continue
-
-                        if not turn_done.is_set():
-                            if msg.content:
-                                turn_response.append((msg.content, dict(msg.metadata or {})))
-                            turn_done.set()
-                        elif msg.content:
-                            await _print_interactive_response(
-                                msg.content,
-                                render_markdown=markdown,
-                                metadata=msg.metadata,
+                        event_type = event.get("event")
+                        if event_type == "delta":
+                            text = event.get("text", "")
+                            if text:
+                                await renderer.on_delta(text)
+                        elif event_type == "stream_end":
+                            await renderer.on_end(
+                                resuming=False,
                             )
+                _snapshot = await wait_task
+            finally:
+                if not wait_task.done():
+                    wait_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await wait_task
 
-                    except asyncio.TimeoutError:
-                        continue
-                    except asyncio.CancelledError:
-                        break
+            reply = resources.application.read_reply(scope, handle.task_id)
+            return reply.content or ""
 
-            outbound_task = asyncio.create_task(_consume_outbound())
-
+        async def run_interactive():
+            await resources.start()
             try:
                 while True:
                     try:
                         _flush_pending_tty_input()
-                        # Stop spinner before user input to avoid prompt_toolkit conflicts
-                        if renderer:
-                            renderer.stop_for_input()
                         user_input = _sanitize_surrogates(await _read_interactive_input_async())
                         command = user_input.strip()
                         if not command:
@@ -918,43 +908,22 @@ def agent(
                             console.print("\nGoodbye!")
                             break
 
-                        turn_done.clear()
-                        turn_response.clear()
-                        reasoning_buffer.clear()
                         renderer = StreamRenderer(
                             render_markdown=markdown,
                             bot_name=config.agents.defaults.bot_name,
                             bot_icon=config.agents.defaults.bot_icon,
                         )
-
-                        await bus.publish_inbound(
-                            InboundMessage(
-                                channel=cli_channel,
-                                sender_id="user",
-                                chat_id=cli_chat_id,
-                                content=user_input,
-                                metadata={"_wants_stream": True},
-                            )
-                        )
-
-                        await turn_done.wait()
-
-                        if turn_response:
-                            content, meta = turn_response[0]
-                            if content and not meta.get("_streamed"):
-                                if renderer:
-                                    await renderer.close()
-                                print_kwargs: dict[str, Any] = {}
-                                if renderer and renderer.header_printed:
-                                    print_kwargs["show_header"] = False
-                                _print_agent_response(
-                                    content,
-                                    render_markdown=markdown,
-                                    metadata=meta,
-                                    **print_kwargs,
-                                )
-                        elif renderer and not renderer.streamed:
+                        final_text = await _run_turn(user_input, renderer)
+                        if not renderer.streamed:
                             await renderer.close()
+                            print_kwargs: dict[str, Any] = {}
+                            if renderer.header_printed:
+                                print_kwargs["show_header"] = False
+                            _print_agent_response(
+                                final_text,
+                                render_markdown=markdown,
+                                **print_kwargs,
+                            )
                     except KeyboardInterrupt:
                         _restore_terminal()
                         console.print("\nGoodbye!")
@@ -964,10 +933,7 @@ def agent(
                         console.print("\nGoodbye!")
                         break
             finally:
-                agent_loop.stop()
-                outbound_task.cancel()
-                await asyncio.gather(bus_task, outbound_task, return_exceptions=True)
-                await agent_loop.close_mcp()
+                await resources.stop()
 
         asyncio.run(run_interactive())
 
@@ -1275,8 +1241,14 @@ def provider_logout(
 from miniunicorn.cli._terminal_render import (  # noqa: F401 — compat re-exports
     FileHistory,
     SafeFileHistory,
+    _flush_cli_reasoning,
+    _maybe_print_interactive_progress,
+    _print_cli_progress_line,
+    _print_cli_reasoning,
     _print_interactive_line,
     _print_interactive_progress_line,
+    _print_interactive_response,
+    _ReasoningBuffer,
     _render_interactive_ansi,
     _response_renderable,
     patch_stdout,
@@ -1290,6 +1262,7 @@ __all___compat__ = (
     "SafeFileHistory",
     "patch_stdout",
     "_print_agent_response",
+    "_print_cli_progress_line",
     "_print_cli_reasoning",
     "_print_interactive_line",
     "_print_interactive_progress_line",

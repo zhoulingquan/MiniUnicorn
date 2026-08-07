@@ -15,12 +15,14 @@ def test_sanitize_persisted_blocks_truncate_text_shadowing_regression() -> None:
     """
 
     from miniunicorn.agent.loop import AgentLoop
+    from miniunicorn.agent.turn_persistence import TurnPersistence
 
     sig = inspect.signature(AgentLoop._sanitize_persisted_blocks)
     assert "should_truncate_text" in sig.parameters
     assert "truncate_text" not in sig.parameters
 
     dummy = SimpleNamespace(max_tool_result_chars=5)
+    dummy._turn_persistence = TurnPersistence(dummy)  # type: ignore[attr-defined]
     content = [{"type": "text", "text": "0123456789"}]
 
     out = AgentLoop._sanitize_persisted_blocks(dummy, content, should_truncate_text=True)

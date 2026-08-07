@@ -23,6 +23,7 @@ from loguru import logger
 
 from miniunicorn.agent.subagent_registry import SubagentDefinition
 from miniunicorn.agent.tools.message import MessageTool
+from miniunicorn.agent.turn_runtime import SESSION_LAST_CALL_USAGE_KEY, SESSION_LAST_USAGE_KEY
 from miniunicorn.bus.events import InboundMessage, OutboundMessage
 from miniunicorn.command import CommandContext
 from miniunicorn.session.webui_turns import mark_webui_session
@@ -71,6 +72,8 @@ class TurnContext:
     all_messages: list[dict[str, Any]] = field(default_factory=list)
     stop_reason: str = ""
     had_injections: bool = False
+    usage: dict[str, int] = field(default_factory=dict)
+    last_call_usage: dict[str, int] = field(default_factory=dict)
 
     user_persisted_early: bool = False
     save_skip: int = 0
@@ -107,7 +110,7 @@ class StateMixin:
     """
 
     async def _state_restore(self: "AgentLoop", ctx: TurnContext) -> TurnState:
-        """Restore checkpoint / pending user turn; extract documents."""
+        """Prepare media and session scope for the turn."""
         msg = ctx.msg
 
         if msg.media:
@@ -124,11 +127,6 @@ class StateMixin:
             ctx.session = self.sessions.get_or_create(ctx.session_key)
         mark_webui_session(ctx.session, msg.metadata)
         self.workspace_scopes.persist_message_scope(ctx.session, msg)
-
-        if self._restore_runtime_checkpoint(ctx.session):
-            self.sessions.save(ctx.session)
-        if self._restore_pending_user_turn(ctx.session):
-            self.sessions.save(ctx.session)
 
         return "ok"
 
@@ -179,7 +177,6 @@ class StateMixin:
                 )
                 ctx.session.add_message("assistant", result.content, _command=True)
                 self.sessions.save(ctx.session)
-                self._clear_pending_user_turn(ctx.session)
             return "shortcut"
         return "dispatch"
 
@@ -312,12 +309,13 @@ class StateMixin:
             turn_hooks=ctx.turn_hooks,
             turn_query=ctx.msg.content if isinstance(ctx.msg.content, str) else None,
         )
-        final_content, tools_used, all_msgs, stop_reason, had_injections = result
-        ctx.final_content = final_content
-        ctx.tools_used = tools_used
-        ctx.all_messages = all_msgs
-        ctx.stop_reason = stop_reason
-        ctx.had_injections = had_injections
+        ctx.final_content = result.final_content
+        ctx.tools_used = result.tools_used
+        ctx.all_messages = result.messages
+        ctx.stop_reason = result.stop_reason
+        ctx.had_injections = result.had_injections
+        ctx.usage = dict(result.usage)
+        ctx.last_call_usage = dict(result.last_call_usage)
         return "ok"
 
     async def _state_save(self: "AgentLoop", ctx: TurnContext) -> str:
@@ -338,17 +336,15 @@ class StateMixin:
         )
 
         ctx.turn_latency_ms = max(0, int((time.time() - ctx.turn_wall_started_at) * 1000))
+        ctx.session.metadata[SESSION_LAST_USAGE_KEY] = dict(ctx.usage)
+        ctx.session.metadata[SESSION_LAST_CALL_USAGE_KEY] = dict(ctx.last_call_usage)
         self._save_turn(
             ctx.session,
             ctx.all_messages,
             ctx.save_skip,
             turn_latency_ms=ctx.turn_latency_ms,
         )
-        if ctx.msg.channel == "websocket":
-            self._pending_turn_latency_ms[ctx.session_key] = ctx.turn_latency_ms
         ctx.session.enforce_file_cap(on_archive=self.context.memory.raw_archive)
-        self._clear_pending_user_turn(ctx.session)
-        self._clear_runtime_checkpoint(ctx.session)
         self.sessions.save(ctx.session)
         self._schedule_background(
             self.consolidator.maybe_consolidate_by_tokens(

@@ -39,6 +39,8 @@ import {
   type ModelConfigurationDraft,
   type ProviderForm,
 } from "../types";
+import { useSaveAction } from "./useSaveAction";
+import type { SaveActionExternalLock, SaveActionSharedDeps } from "./useSaveAction";
 import type { UseSectionShared } from "./useWebSearchSection";
 
 /** 主 hook 传入的共享依赖 + 本 section 独有依赖 */
@@ -212,6 +214,44 @@ export function useModelsAndProvidersSection(
   const [providerForms, setProviderForms] = useState<Record<string, ProviderForm>>({});
   const [visibleProviderKeys, setVisibleProviderKeys] = useState<Record<string, boolean>>({});
   const [editingProviderKeys, setEditingProviderKeys] = useState<Record<string, boolean>>({});
+
+  // Shared deps for useSaveAction (activate/delete preset).
+  const presetSharedDeps: SaveActionSharedDeps = {
+    applyPayload,
+    setError,
+    setPendingRestartSections,
+    maybeRestartHostEngine,
+  };
+  // External lock wrapping `providerSaving` so activate/delete participate in
+  // the same mutex as saveProvider / saveCustomConfig / OAuth handlers.
+  const presetLock: SaveActionExternalLock = useMemo(
+    () => ({
+      isHeld: () => providerSaving !== null,
+      acquire: () => setProviderSaving("__preset_activate__"),
+      release: () => setProviderSaving(null),
+    }),
+    [providerSaving],
+  );
+  const activatePresetAction = useSaveAction<string, string>({
+    shared: presetSharedDeps,
+    token,
+    enabled: !!settings,
+    buildPayload: (presetName) => presetName,
+    apiCall: (tok, presetName) => updateSettings(tok, { modelPreset: presetName }),
+    restartSectionKey: "runtime",
+    onApplied: (payload) => onModelNameChange(payload.agent.model || null),
+    externalLock: presetLock,
+  });
+  const deletePresetAction = useSaveAction<string, string>({
+    shared: presetSharedDeps,
+    token,
+    enabled: !!settings,
+    buildPayload: (presetName) => presetName,
+    apiCall: (tok, presetName) => deleteModelConfiguration(tok, presetName),
+    restartSectionKey: "runtime",
+    onApplied: (payload) => onModelNameChange(payload.agent.model || null),
+    externalLock: presetLock,
+  });
 
   const settingsProviders = settings?.providers;
   const settingsModelPresets = settings?.model_presets;
@@ -628,44 +668,6 @@ export function useModelsAndProvidersSection(
     }
   }, [customConfigModelsLoading, customConfigDraft, token, setError]);
 
-  const activateModelPreset = useCallback(async (presetName: string) => {
-    if (!settings) return;
-    setProviderSaving("__preset_activate__");
-    try {
-      const payload: SettingsPayload = await updateSettings(token, { modelPreset: presetName });
-      applyPayload(payload);
-      onModelNameChange(payload.agent.model || null);
-      if (payload.requires_restart) {
-        setPendingRestartSections((prev) => ({ ...prev, runtime: true }));
-      }
-      await maybeRestartHostEngine(payload);
-      setError(null);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setProviderSaving(null);
-    }
-  }, [settings, token, applyPayload, onModelNameChange, setPendingRestartSections, maybeRestartHostEngine, setError]);
-
-  const deletePreset = useCallback(async (presetName: string) => {
-    if (!settings || providerSaving) return;
-    setProviderSaving("__preset_activate__");
-    try {
-      const payload: SettingsPayload = await deleteModelConfiguration(token, presetName);
-      applyPayload(payload);
-      onModelNameChange(payload.agent.model || null);
-      if (payload.requires_restart) {
-        setPendingRestartSections((prev) => ({ ...prev, runtime: true }));
-      }
-      await maybeRestartHostEngine(payload);
-      setError(null);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setProviderSaving(null);
-    }
-  }, [settings, providerSaving, token, applyPayload, onModelNameChange, setPendingRestartSections, maybeRestartHostEngine, setError]);
-
   const resetProviderDraft = useCallback((providerName: string) => {
     const provider = settingsProviders?.find((item) => item.name === providerName);
     if (!provider) return;
@@ -806,18 +808,16 @@ export function useModelsAndProvidersSection(
           apiBase: providerForm.apiBase.trim() || undefined,
         });
       } else {
+        // Single atomic request: credentials + optional model selection.
+        // The backend updates provider credentials and the active
+        // provider/model on one config object and calls save_config() once.
         payload = await updateProviderSettings(token, {
           provider: providerName,
           apiKey: apiKey || undefined,
           apiBase: providerForm.apiBase.trim(),
           apiType: providerForm.apiType,
+          model: modelId || undefined,
         });
-        if (modelId) {
-          payload = await updateSettings(token, {
-            provider: providerName,
-            model: modelId,
-          });
-        }
       }
       applyPayload(payload);
       onModelNameChange(payload.agent.model || null);
@@ -1069,8 +1069,8 @@ export function useModelsAndProvidersSection(
     saveProvider,
     fetchProviderModelList,
     runProviderOAuth,
-    activateModelPreset,
-    deletePreset,
+    activateModelPreset: activatePresetAction.save,
+    deletePreset: deletePresetAction.save,
     customPresetLabel,
     setCustomPresetLabel,
     saveCustomConfiguration,

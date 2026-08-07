@@ -1,14 +1,10 @@
 [project]
 name = "miniunicorn-ai"
-version = "0.2.0"
+version = "0.3.0"
 description = "A personal AI agent framework with a lightweight, auditable core"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
 license = {text = "MIT"}
-authors = [
-    {name = "Xubin Ren"},
-    {name = "the MiniUnicorn contributors"}
-]
 keywords = ["ai", "agent", "chatbot"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -94,6 +90,7 @@ dev = [
     "build>=1.2.0,<2.0.0",
     "respx>=0.22.0,<1.0.0",
     "lark-oapi>=1.4.0,<2.0.0",
+    "tzdata>=2025.2; sys_platform == 'win32'",
 ]
 
 [project.scripts]
@@ -186,6 +183,16 @@ ignore = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# `slow` covers the 1,000-task load gate (tests/runtime/test_runtime_load.py)
+# and the crash/fault-injection suite; run the full gate explicitly with
+# `python -m pytest -m slow` or `python -m pytest tests/runtime/test_runtime_load.py`.
+markers = [
+    "core: fast correctness gate for orchestration, sessions, providers, config, and security",
+    "integration: multi-component integration test",
+    "channel: external channel adapter test",
+    "platform: operating-system-specific test",
+    "slow: test intentionally excluded from the fast gate",
+]
 
 [tool.coverage.run]
 source = ["miniunicorn"]

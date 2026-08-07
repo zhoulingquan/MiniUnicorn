@@ -3,6 +3,7 @@
 import asyncio
 import time
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -986,3 +987,93 @@ async def test_subagent_build_tools_isolates_file_read_state(tmp_path):
     second_result = await second_read.execute(path="note.txt")
     assert second_result.startswith("1| hello")
     assert "File unchanged" not in second_result
+
+
+# ---------------------------------------------------------------------------
+# _resolve_tool_execution_port (Task 6 Step 6)
+# ---------------------------------------------------------------------------
+
+
+class TestResolveToolExecutionPort:
+    """Task 6 Step 6: subagent must derive from the root ToolExecutionPort.
+
+    When the parent turn is running under the durable runtime, the
+    subagent's ``ToolExecutionPort`` is derived from the root task's
+    port via ``derive(f"sub:{task_id}")`` so tool calls route through
+    the same ``ToolGateway`` with namespaced call IDs.
+
+    Legacy (non-durable) turns fall back to
+    :class:`DirectToolExecutionPort` so existing unit tests work without
+    a durable host.
+    """
+
+    def test_derives_from_root_port_when_durable(self, tmp_path):
+        """When a TurnRuntime is bound with a tool_execution_port, the
+        subagent derives from it (Task 6 Step 6)."""
+        from miniunicorn.agent.turn_runtime import (
+            TurnRuntime,
+            bind_turn_runtime,
+            reset_turn_runtime,
+        )
+
+        captured_lineage: list[str] = []
+
+        class _StubRootPort:
+            """Records the lineage passed to derive()."""
+
+            def derive(self, lineage: str) -> "_StubRootPort":
+                captured_lineage.append(lineage)
+                return self
+
+            async def execute(self, request: Any) -> Any:  # pragma: no cover
+                raise AssertionError("should not be called in this test")
+
+        sm = _manager(tmp_path)
+        runtime = TurnRuntime(
+            turn_id="t1",
+            session_key="s1",
+            task_id="root-task-1",
+            tool_execution_port=_StubRootPort(),
+        )
+        token = bind_turn_runtime(runtime)
+        try:
+            tools = sm._build_tools()
+            port = sm._resolve_tool_execution_port("sub-abc", tools)
+            # The derived port is the same stub (derive returns self).
+            assert isinstance(port, _StubRootPort)
+            assert captured_lineage == ["sub:sub-abc"], (
+                f"expected derive('sub:sub-abc'), got {captured_lineage}"
+            )
+        finally:
+            reset_turn_runtime(token)
+
+    def test_falls_back_to_direct_port_when_no_runtime(self, tmp_path):
+        """Without a bound TurnRuntime, the subagent uses DirectToolExecutionPort."""
+        from miniunicorn.agent.agent_run_adapter import DirectToolExecutionPort
+
+        sm = _manager(tmp_path)
+        tools = sm._build_tools()
+        port = sm._resolve_tool_execution_port("sub-xyz", tools)
+        assert isinstance(port, DirectToolExecutionPort), (
+            f"expected DirectToolExecutionPort fallback, got {type(port).__name__}"
+        )
+
+    def test_falls_back_when_root_port_is_none(self, tmp_path):
+        """A bound TurnRuntime without a tool_execution_port falls back."""
+        from miniunicorn.agent.agent_run_adapter import DirectToolExecutionPort
+        from miniunicorn.agent.turn_runtime import (
+            TurnRuntime,
+            bind_turn_runtime,
+            reset_turn_runtime,
+        )
+
+        sm = _manager(tmp_path)
+        # task_id is None -> not durable; tool_execution_port is None.
+        runtime = TurnRuntime(turn_id="t1", session_key="s1")
+        token = bind_turn_runtime(runtime)
+        try:
+            tools = sm._build_tools()
+            port = sm._resolve_tool_execution_port("sub-def", tools)
+            assert isinstance(port, DirectToolExecutionPort)
+        finally:
+            reset_turn_runtime(token)

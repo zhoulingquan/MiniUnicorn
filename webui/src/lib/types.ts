@@ -95,8 +95,8 @@ export interface AgentUIBlob {
 /** WebSocket snapshot for sustained goals (`goal_state` events; keyed by ``chat_id``). */
 export interface GoalStateWsPayload {
   active: boolean;
-  ui_summary?: string;
-  objective?: string;
+  ui_summary?: string | null;
+  objective?: string | null;
 }
 
 export interface ToolProgressEvent {
@@ -112,20 +112,20 @@ export interface ToolProgressEvent {
 }
 
 export interface UIFileEdit {
-  version?: number;
+  version?: number | null;
   call_id: string;
   tool: string;
   path: string;
-  absolute_path?: string;
-  phase?: "start" | "end" | "error" | string;
-  added: number;
-  deleted: number;
-  approximate?: boolean;
+  absolute_path?: string | null;
+  phase?: "start" | "end" | "error" | string | null;
+  added?: number;
+  deleted?: number;
+  approximate?: boolean | null;
   status: "editing" | "done" | "error";
-  operation?: "edit" | "delete" | string;
-  binary?: boolean;
-  error?: string;
-  pending?: boolean;
+  operation?: "edit" | "delete" | string | null;
+  binary?: boolean | null;
+  error?: string | null;
+  pending?: boolean | null;
 }
 
 export interface ChatSummary {
@@ -148,9 +148,9 @@ export type WebuiDefaultAccessMode = "default" | "full";
 
 export interface WorkspaceScopePayload {
   project_path: string;
-  project_name?: string;
+  project_name?: string | null;
   access_mode: WorkspaceAccessMode;
-  restrict_to_workspace?: boolean;
+  restrict_to_workspace?: boolean | null;
   sandbox_status?: {
     restrict_to_workspace: boolean;
     workspace_root: string;
@@ -159,7 +159,7 @@ export interface WorkspaceScopePayload {
     provider: string;
     provider_label: string;
     summary: string;
-  };
+  } | null;
 }
 
 export interface WorkspacesPayload {
@@ -711,6 +711,9 @@ export interface ProviderSettingsUpdate {
   apiKey?: string;
   apiBase?: string;
   apiType?: "auto" | "chat_completions" | "responses";
+  /** Optional model selection; when set, the backend updates the active
+   * provider/model atomically in the same request as the credentials. */
+  model?: string;
 }
 
 export interface WebFetchSettingsUpdate {
@@ -946,93 +949,13 @@ export type ConnectionStatus =
 /** Token usage from the last LLM call in a turn (pushed via ``turn_end``).
  *  ``prompt_tokens`` approximates the current context window footprint. */
 export interface ContextUsagePayload {
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-  cached_tokens: number;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  cached_tokens?: number;
 }
 
-export type InboundEvent =
-  | { event: "ready"; chat_id: string; client_id: string }
-  | { event: "attached"; chat_id: string; request_id?: string }
-  | {
-      event: "message";
-      chat_id: string;
-      text: string;
-      reply_to?: string;
-      media?: string[];
-      media_urls?: Array<{ url: string; name?: string }>;
-      tool_events?: ToolProgressEvent[];
-      /** Present when the frame is an agent breadcrumb (e.g. tool hint,
-       * generic progress line) rather than a conversational reply. */
-      kind?: "tool_hint" | "progress" | "reasoning";
-      /** Server-measured turn wall time when this frame finishes an assistant reply. */
-      latency_ms?: number;
-      /** Optional structured payload on progress frames (channel-specific). */
-      agent_ui?: AgentUIBlob;
-    }
-  | {
-      event: "file_edit";
-      chat_id: string;
-      edits: UIFileEdit[];
-    }
-  | {
-      event: "delta";
-      chat_id: string;
-      text: string;
-      stream_id?: string;
-    }
-  | {
-      event: "stream_end";
-      chat_id: string;
-      stream_id?: string;
-      text?: string;
-    }
-  | {
-      event: "reasoning_delta";
-      chat_id: string;
-      text: string;
-      stream_id?: string;
-    }
-  | {
-      event: "reasoning_end";
-      chat_id: string;
-      stream_id?: string;
-    }
-  | {
-      event: "runtime_model_updated";
-      model_name: string;
-      model_preset?: string | null;
-    }
-  | {
-      event: "turn_end";
-      chat_id: string;
-      latency_ms?: number;
-      /** Authoritative sustained-goal snapshot for this chat (same shape as ``goal_state`` events). */
-      goal_state?: GoalStateWsPayload;
-      /** Token usage from the last LLM call in this turn. */
-      context_usage?: ContextUsagePayload;
-    }
-  | {
-      event: "goal_status";
-      chat_id: string;
-      /** Turn executing (user message through agent loop). */
-      status: "running" | "idle";
-      /** Server ``time.time()`` when ``status`` is ``running``. */
-      started_at?: number;
-    }
-  | {
-      event: "goal_state";
-      chat_id: string;
-      goal_state: GoalStateWsPayload;
-    }
-  | {
-      event: "session_updated";
-      chat_id: string;
-      scope?: "metadata" | "thread" | string;
-      workspace_scope?: WorkspaceScopePayload;
-    }
-  | { event: "error"; chat_id?: string; detail?: string; reason?: string };
+export type { InboundEvent } from "@/generated/agent-events";
 
 /** Base64-encoded image attached to an outbound ``message`` envelope.
  *

@@ -10,6 +10,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 
 from miniunicorn import __version__
+from miniunicorn.agent.turn_runtime import SESSION_LAST_USAGE_KEY
 from miniunicorn.bus.events import OutboundMessage
 from miniunicorn.command.router import CommandContext, CommandRouter
 from miniunicorn.utils.helpers import build_status_content
@@ -134,11 +135,26 @@ def builtin_command_palette() -> list[dict[str, str]]:
 
 
 async def cmd_stop(ctx: CommandContext) -> OutboundMessage:
-    """Cancel all active tasks and subagents for the session."""
+    """Cancel all active subagents for the session.
+
+    In-process task cancellation was removed in design Task 10. Durable
+    task cancellation is handled by the Runtime Store; this command now
+    cancels only in-process subagents.
+    """
     loop = ctx.loop
     msg = ctx.msg
-    total = await loop._cancel_active_tasks(ctx.key)
-    content = f"Stopped {total} task(s)." if total else "No active task to stop."
+    # Legacy in-process active_tasks registry was removed (design Task 10).
+    # Subagent cancellation remains for in-process subagent runs.
+    from contextlib import suppress
+
+    sub_cancelled = 0
+    with suppress(Exception):
+        import asyncio
+
+        sub_cancelled = await asyncio.wait_for(
+            loop.subagents.cancel_by_session(ctx.key), timeout=10.0
+        )
+    content = f"Stopped {sub_cancelled} subagent(s)." if sub_cancelled else "No active task to stop."
     return OutboundMessage(
         channel=msg.channel, chat_id=msg.chat_id, content=content, metadata=dict(msg.metadata or {})
     )
@@ -170,16 +186,18 @@ async def cmd_status(ctx: CommandContext) -> OutboundMessage:
     """Build an outbound status message for a session."""
     loop = ctx.loop
     session = ctx.session or loop.sessions.get_or_create(ctx.key)
+    last_usage = dict(session.metadata.get(SESSION_LAST_USAGE_KEY) or {})
     ctx_est = 0
     with suppress(Exception):
         ctx_est, _ = loop.consolidator.estimate_session_prompt_tokens(session)
     if ctx_est <= 0:
-        ctx_est = loop._last_usage.get("prompt_tokens", 0)
+        ctx_est = last_usage.get("prompt_tokens", 0)
 
-    active_tasks = loop._active_tasks.get(ctx.key, [])
-    task_count = sum(1 for t in active_tasks if not t.done())
+    # Legacy in-process active_tasks registry was removed (design Task 10).
+    # Only subagent count remains for in-process status reporting.
+    task_count = 0
     with suppress(Exception):
-        task_count += loop.subagents.get_running_count_by_session(ctx.key)
+        task_count = loop.subagents.get_running_count_by_session(ctx.key)
     return OutboundMessage(
         channel=ctx.msg.channel,
         chat_id=ctx.msg.chat_id,
@@ -187,7 +205,7 @@ async def cmd_status(ctx: CommandContext) -> OutboundMessage:
             version=__version__,
             model=loop.model,
             start_time=loop._start_time,
-            last_usage=loop._last_usage,
+            last_usage=last_usage,
             # 优先使用后端解析值(resolved_context_window_tokens),回退到 context_window_tokens
             context_window_tokens=getattr(loop, "resolved_context_window_tokens", None)
             or loop.context_window_tokens,
@@ -203,9 +221,16 @@ async def cmd_status(ctx: CommandContext) -> OutboundMessage:
 
 
 async def cmd_new(ctx: CommandContext) -> OutboundMessage:
-    """Stop active task and start a fresh session."""
+    """Stop active subagents and start a fresh session."""
     loop = ctx.loop
-    await loop._cancel_active_tasks(ctx.key)
+    # Legacy in-process active_tasks cancellation was removed (design Task 10).
+    # Subagent cancellation remains for in-process subagent runs.
+    from contextlib import suppress
+
+    with suppress(Exception):
+        import asyncio
+
+        await asyncio.wait_for(loop.subagents.cancel_by_session(ctx.key), timeout=10.0)
     session = ctx.session or loop.sessions.get_or_create(ctx.key)
     snapshot = session.messages[session.last_consolidated :]
     session.clear()
@@ -307,37 +332,41 @@ async def cmd_model(ctx: CommandContext) -> OutboundMessage:
 
 
 async def cmd_dream(ctx: CommandContext) -> OutboundMessage:
-    """Manually trigger a Dream consolidation run."""
-    import time
+    """Manually trigger a Dream consolidation run.
 
+    Submits a durable DREAM task through the runtime maintenance enqueue
+    path (design §22.3, Task 13 Step 2). The task is durable: it survives
+    restarts and is dispatched by a Worker through MaintenanceExecutor.
+    The final result is delivered through the durable Outbox, not by an
+    untracked coroutine publishing directly to the MessageBus.
+    """
     loop = ctx.loop
     msg = ctx.msg
 
-    async def _run_dream():
-        t0 = time.monotonic()
-        try:
-            did_work = await loop.dream.run()
-            elapsed = time.monotonic() - t0
-            if did_work:
-                content = f"Dream completed in {elapsed:.1f}s."
-            else:
-                content = "Dream: nothing to process."
-        except Exception as e:
-            elapsed = time.monotonic() - t0
-            content = f"Dream failed after {elapsed:.1f}s: {e}"
-        await loop.bus.publish_outbound(
-            OutboundMessage(
-                channel=msg.channel,
-                chat_id=msg.chat_id,
-                content=content,
-            )
+    enqueue = getattr(loop, "_maintenance_enqueue", None)
+    if enqueue is None:
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content="Dream requires the durable runtime. Start the gateway in supervised or lightweight mode.",
         )
 
-    asyncio.create_task(_run_dream())
+    try:
+        task_id = await enqueue(
+            task_kind="DREAM",
+            payload={},
+        )
+    except Exception as e:
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=f"Failed to enqueue Dream task: {e}",
+        )
+
     return OutboundMessage(
         channel=msg.channel,
         chat_id=msg.chat_id,
-        content="Dreaming...",
+        content=f"Dream task enqueued (task_id: {task_id}). The result will be delivered when it completes.",
     )
 
 

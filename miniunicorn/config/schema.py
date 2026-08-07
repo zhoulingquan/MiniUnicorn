@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ipaddress
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -9,7 +11,36 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 from pydantic_settings import BaseSettings
 
+from miniunicorn.config.runtime import RuntimeConfig
 from miniunicorn.cron.types import CronSchedule
+
+
+def is_loopback_bind_host(host: str) -> bool:
+    normalized = host.strip().strip("[]")
+    if normalized.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        return False
+
+
+def validate_api_bind_security(
+    host: str,
+    api_key: str,
+    allow_insecure_public_bind: bool,
+) -> None:
+    if is_loopback_bind_host(host) or api_key.strip():
+        return
+    if allow_insecure_public_bind:
+        logging.getLogger(__name__).warning(
+            "API unauthenticated public bind explicitly enabled for %s", host
+        )
+        return
+    raise ValueError(
+        f"API host {host!r} is not loopback and requires api.api_key; "
+        "set api.allow_insecure_public_bind=true only to accept unauthenticated exposure"
+    )
 
 if TYPE_CHECKING:
     from miniunicorn.agent.tools.cli_apps import CliAppsToolConfig
@@ -115,7 +146,9 @@ class InlineFallbackConfig(Base):
     model: str
     provider: str
     max_tokens: int | None = None
-    context_window_tokens: int | None = None
+    # Configuration default is 65_536. Explicit ``null`` marks an incomplete
+    # model that will be rejected by the runtime validation boundary.
+    context_window_tokens: int | None = 65_536
     temperature: float | None = None
     reasoning_effort: str | None = None
 
@@ -130,10 +163,11 @@ class ModelPresetConfig(Base):
     model: str
     provider: str = "auto"
     max_tokens: int = 8192
-    # None means auto-detect from the built-in model metadata table
-    # (see cli.models.get_model_context_limit). Falls back to 65_536 when
-    # the model is not in the table. Set an explicit int to override.
-    context_window_tokens: int | None = None
+    # Configuration default is 65_536. Explicit ``null`` marks an incomplete
+    # model that will be rejected by the runtime validation boundary
+    # (``require_context_window``). Configuration-time discovery (HF/ModelScope)
+    # may overwrite this with the discovered concrete value.
+    context_window_tokens: int | None = 65_536
     temperature: float = 0.1
     reasoning_effort: str | None = None
 
@@ -170,10 +204,11 @@ class AgentDefaults(Base):
         "auto"  # Provider name (e.g. "anthropic", "openrouter") or "auto" for auto-detection
     )
     max_tokens: int = 8192
-    # None means auto-detect via Hugging Face search
-    # (see cli.models.get_model_context_limit). Falls back to 65_536 when
-    # the model is not found on HF. Set an explicit int to override.
-    context_window_tokens: int | None = None
+    # Configuration default is 65_536. Explicit ``null`` marks an incomplete
+    # model that will be rejected by the runtime validation boundary
+    # (``require_context_window``). Configuration-time discovery (HF/ModelScope)
+    # may overwrite this with the discovered concrete value.
+    context_window_tokens: int | None = 65_536
     context_block_limit: int | None = None
     temperature: float = 0.1
     fallback_models: list[FallbackCandidate] = Field(default_factory=list)
@@ -375,16 +410,15 @@ class ApiConfig(Base):
     # Bearer token required for /v1/* endpoints. Empty = no auth (dev only).
     # When set, clients must send ``Authorization: Bearer <api_key>``.
     api_key: str = ""
+    allow_insecure_public_bind: bool = False
 
     @model_validator(mode="after")
     def _validate_api_security(self) -> "ApiConfig":
-        # 绑定到非本地地址时建议设置 api_key，避免公网暴露无鉴权
-        if self.host not in ("127.0.0.1", "localhost", "::1") and not self.api_key:
-            import logging
-
-            logging.getLogger(__name__).warning(
-                "API 绑定到非本地地址 %s 但未设置 api_key，存在公网无鉴权暴露风险", self.host
-            )
+        validate_api_bind_security(
+            self.host,
+            self.api_key,
+            self.allow_insecure_public_bind,
+        )
         return self
 
 
@@ -532,6 +566,7 @@ class Config(BaseSettings):
     api: ApiConfig = Field(default_factory=ApiConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     model_presets: dict[str, ModelPresetConfig] = Field(
         default_factory=dict,
         validation_alias=AliasChoices("modelPresets", "model_presets"),

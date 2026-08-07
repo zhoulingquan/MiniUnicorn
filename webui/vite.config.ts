@@ -28,8 +28,22 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         output: {
           manualChunks(id) {
+            // Refractor language modules: group into ≤16 deterministic
+            // lazy-loaded buckets based on a stable hash of the language
+            // filename. This replaces the previous one-file-per-language
+            // output (277 chunks) with at most 16 bucket chunks. Buckets
+            // are still loaded on demand via prism-async-light's dynamic
+            // imports, so pages that render no highlighted code never
+            // fetch these chunks.
             if (id.includes("node_modules/refractor/lang/")) {
-              return;
+              const fileName = id.slice(id.lastIndexOf("/") + 1);
+              const langName = fileName.replace(/\.js$/, "");
+              let hash = 0;
+              for (let i = 0; i < langName.length; i++) {
+                hash = (Math.imul(hash, 31) + langName.charCodeAt(i)) | 0;
+              }
+              const bucket = Math.abs(hash) % 16;
+              return `syntax-lang-${bucket.toString().padStart(2, "0")}`;
             }
             if (
               id.includes("node_modules/react-syntax-highlighter")
@@ -51,6 +65,17 @@ export default defineConfig(({ mode }) => {
             }
             if (id.includes("node_modules/katex")) {
               return "katex";
+            }
+            // Split React core into its own chunk so the entry (index) chunk
+            // stays under 500 KB. This is a standard vendor split and does
+            // not change runtime behavior.
+            if (
+              id.includes("node_modules/react/")
+              || id.includes("node_modules/react-dom/")
+              || id.includes("node_modules/react/")
+              || id.includes("node_modules/scheduler/")
+            ) {
+              return "react-vendor";
             }
           },
         },

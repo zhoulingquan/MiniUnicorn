@@ -848,29 +848,33 @@ def _configure_pydantic_model(
 
 
 def _try_auto_fill_context_window(model: BaseModel, new_model_name: str) -> None:
-    """Show the detected context window for the newly chosen model.
+    """Discover and persist the context window for the newly chosen model.
 
-    With context_window_tokens defaulting to None (auto-detect), this no
-    longer writes a concrete value into the config — the agent loop performs
-    the actual auto-detection at runtime based on the current model. We only
-    display the detected limit so the user knows what will be used.
+    Configuration-time discovery (HF/ModelScope) runs here so the value is
+    written into the model configuration before the agent starts. The agent
+    runtime no longer performs network lookups — it requires a resolved
+    positive integer via ``require_context_window``.
 
-    If the user has already set an explicit value, we respect it and stay quiet.
+    If discovery succeeds, the concrete integer is persisted on *model*.
+    If discovery fails, the configuration default (65_536) is left in place
+    so the model remains usable. If the user has already set an explicit
+    non-default value, we respect it and stay quiet.
     """
     if not hasattr(model, "context_window_tokens"):
         return
 
     current_context = getattr(model, "context_window_tokens", None)
-    # Only show the hint when the user hasn't set a custom value.
-    if current_context is not None:
+    # Respect an explicit user-set value that differs from the default.
+    if current_context is not None and current_context != 65_536:
         return
 
     provider = _get_current_provider(model)
     context_limit = get_model_context_limit(new_model_name, provider)
 
     if context_limit:
+        setattr(model, "context_window_tokens", context_limit)
         console.print(
-            f"[dim](i) Detected context window: {format_token_count(context_limit)} tokens (auto)[/dim]"
+            f"[green]+ Detected context window: {format_token_count(context_limit)} tokens (auto-filled)[/green]"
         )
 
 

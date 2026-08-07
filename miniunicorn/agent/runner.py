@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import time
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -12,7 +13,14 @@ from typing import Any, Awaitable, Callable
 from loguru import logger
 
 from miniunicorn.agent.hook import AgentHook, AgentHookContext
+from miniunicorn.agent.ports import (
+    _provider_attempt_observer,
+    build_tool_execution_request,
+    current_provider_attempt_observer,
+)
+from miniunicorn.agent.telemetry import LlmCallMetric, ToolCallMetric
 from miniunicorn.agent.tools.registry import ToolRegistry
+from miniunicorn.agent.turn_runtime import current_turn_runtime
 from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from miniunicorn.utils.file_edit_events import (
     StreamingFileEditTracker,
@@ -32,6 +40,7 @@ from miniunicorn.utils.helpers import (
     extract_reasoning,
     find_legal_message_start,
     maybe_persist_tool_result,
+    merge_message_content,
     strip_think,
     truncate_text,
 )
@@ -51,6 +60,7 @@ from miniunicorn.utils.runtime import (
     repeated_external_lookup_error,
     repeated_workspace_violation_error,
 )
+from miniunicorn.utils.task_supervisor import TaskSupervisor
 
 _DEFAULT_ERROR_MESSAGE = "Sorry, I encountered an error calling the AI model."
 _ARREARAGE_ERROR_MESSAGE = (
@@ -63,6 +73,27 @@ _MAX_LENGTH_RECOVERIES = 3
 _MAX_INJECTIONS_PER_TURN = 3
 _MAX_INJECTION_CYCLES = 5
 _SNIP_SAFETY_BUFFER = 1024
+
+
+def _append_tool_metric(
+    tool_name: str,
+    start: float,
+    status: str,
+    error: str | None = None,
+) -> None:
+    """Append a ``ToolCallMetric`` to the bound ``TurnRuntime`` if one exists."""
+
+    runtime = current_turn_runtime()
+    if runtime is not None:
+        runtime.tool_calls.append(
+            ToolCallMetric(
+                name=tool_name,
+                duration_ms=max(0.0, (time.monotonic() - start) * 1000),
+                status=status,
+                error=error,
+            )
+        )
+
 
 # Backward-compatible module attribute for tests/extensions that monkeypatch
 # the former single-file tracker hook. Runtime uses prepare_file_edit_trackers.
@@ -125,6 +156,14 @@ class AgentRunSpec:
     before_provider_call: (
         Callable[[list[dict[str, Any]]], Awaitable[list[dict[str, Any]]]] | None
     ) = None
+    # Durable runtime ports (design §11.1, §20). When set, the Runner routes
+    # every tool call through ``tool_execution_port`` (no bypass) and journals
+    # each Provider attempt through ``turn_journal``. When None, the Runner
+    # uses the legacy in-process path (no durable journaling). Typed as Any to
+    # avoid a circular import with miniunicorn.agent.ports.
+    tool_execution_port: Any | None = None
+    turn_journal: Any | None = None
+    provider_attempt_observer: Any | None = None
 
 
 @dataclass(slots=True)
@@ -154,8 +193,10 @@ class AgentRunner:
         # Lazily-constructed default ContextGovernor; built on first use so
         # that entry-point plugins are loaded at most once per runner.
         self._default_governor: Any | None = None
-        # 跟踪 reflection 后台任务，避免被 GC 回收
-        self._reflection_tasks: set[asyncio.Task] = set()
+        # Supervised fire-and-forget reflection tasks. The supervisor owns
+        # strong references and surfaces unhandled exceptions via a
+        # done-callback so a failed reflection never disappears silently.
+        self._reflection_supervisor: TaskSupervisor = TaskSupervisor()
 
     def _get_governor(self, spec: AgentRunSpec) -> Any:
         """Resolve the context governor: spec-provided override or default.
@@ -172,6 +213,17 @@ class AgentRunner:
 
             self._default_governor = ContextGovernor()
         return self._default_governor
+
+    async def aclose(self) -> None:
+        """Drain supervised reflection tasks with a bounded timeout.
+
+        Called by :meth:`AgentLoop.close_mcp` during shutdown so pending
+        reflections get a chance to flush to ``reflections.jsonl`` before
+        the process exits. Stuck reflections are force-cancelled after
+        ``timeout_s=10``.
+        """
+
+        await self._reflection_supervisor.close(cancel=False, timeout_s=10)
 
     def _build_tools_summary(self, tools: ToolRegistry) -> str:
         """Build a compact summary of available tools for the planner."""
@@ -230,20 +282,7 @@ class AgentRunner:
 
     @staticmethod
     def _merge_message_content(left: Any, right: Any) -> str | list[dict[str, Any]]:
-        if isinstance(left, str) and isinstance(right, str):
-            return f"{left}\n\n{right}" if left else right
-
-        def _to_blocks(value: Any) -> list[dict[str, Any]]:
-            if isinstance(value, list):
-                return [
-                    item if isinstance(item, dict) else {"type": "text", "text": str(item)}
-                    for item in value
-                ]
-            if value is None:
-                return []
-            return [{"type": "text", "text": str(value)}]
-
-        return _to_blocks(left) + _to_blocks(right)
+        return merge_message_content(left, right)
 
     @classmethod
     def _append_injected_messages(
@@ -376,6 +415,45 @@ class AgentRunner:
         stop_reason = "completed"
         tool_events: list[dict[str, str]] = []
         external_lookup_counts: dict[str, int] = {}
+        # Provider attempt observer is bound via ContextVar for the duration
+        # of this run (design §19). The runtime supplies the observer through
+        # spec.provider_attempt_observer; the Provider reads it via
+        # current_provider_attempt_observer() so concurrent turns never share
+        # mutable Provider state.
+        _observer_token = _provider_attempt_observer.set(
+            spec.provider_attempt_observer
+        )
+        # Task 5 Step 5: load the durable restore point before the Agent
+        # loop so completed model decisions can be reused without another
+        # network request after a crash/reclaim (design §17.4, §19).
+        restored_models: dict[str, Any] = {}
+        if spec.turn_journal is not None:
+            _runtime_for_restore = current_turn_runtime()
+            if _runtime_for_restore is not None and _runtime_for_restore.task_id:
+                from miniunicorn.agent.ports import TaskIdentity
+
+                _task_identity = TaskIdentity(
+                    task_id=_runtime_for_restore.task_id,
+                    turn_id=_runtime_for_restore.turn_id,
+                    session_key=_runtime_for_restore.session_key,
+                    session_sequence=_runtime_for_restore.session_sequence,
+                    run_segment=_runtime_for_restore.run_segment,
+                    lease_epoch=_runtime_for_restore.lease_epoch,
+                )
+                try:
+                    _restore_point = await spec.turn_journal.load_restore_point(
+                        _task_identity
+                    )
+                except Exception:
+                    logger.exception("load_restore_point failed; starting fresh")
+                    _restore_point = None
+                if _restore_point is not None:
+                    for _m in _restore_point.completed_models:
+                        restored_models[_m.logical_call_id] = _m
+                    logger.info(
+                        "Loaded restore point: {} completed model decisions",
+                        len(restored_models),
+                    )
         # Per-turn throttle for repeated attempts against the same outside target.
         workspace_violation_counts: dict[str, int] = {}
         empty_content_retries = 0
@@ -481,7 +559,74 @@ class AgentRunner:
                 messages_for_model = self._inject_step_guidance(messages_for_model, guidance)
             context = AgentHookContext(iteration=iteration, messages=messages)
             await hook.before_iteration(context)
-            response = await self._request_model(spec, messages_for_model, hook, context)
+            _observer = current_provider_attempt_observer()
+            _logical_call_id: str | None = None
+            if _observer is not None:
+                _logical_call_id = _observer.begin_logical_call()
+            # Task 5 Step 6: check the restore point for a previously
+            # completed model decision. If the logical_call_id matches a
+            # completed attempt whose request_hash also matches, decode the
+            # response blob into an LLMResponse and continue without network
+            # I/O. If request_hash differs, fail closed (design §19).
+            response: LLMResponse | None = None
+            if (
+                _logical_call_id is not None
+                and _logical_call_id in restored_models
+                and spec.turn_journal is not None
+            ):
+                _restored = restored_models[_logical_call_id]
+                # Compute request hash from current messages using the same
+                # formula as Provider._invoke_with_observer so the
+                # comparison is exact.
+                import hashlib as _hashlib
+                import json as _json
+
+                _current_hash = _hashlib.sha256(
+                    _json.dumps(
+                        messages_for_model, default=str, ensure_ascii=False
+                    ).encode("utf-8")
+                ).hexdigest()
+                if _current_hash != _restored.request_hash:
+                    raise RuntimeError(
+                        f"MODEL_RESTORE_HASH_MISMATCH: logical_call_id="
+                        f"{_logical_call_id}"
+                    )
+                try:
+                    _decision = await spec.turn_journal.read_model_response(
+                        _restored.response_blob_id
+                    )
+                    # Reconstruct the LLMResponse from the stored decision.
+                    from miniunicorn.providers.base import ToolCallRequest
+
+                    _tool_calls = [
+                        ToolCallRequest(
+                            id=tc.get("id", ""),
+                            name=tc.get("name", ""),
+                            arguments=tc.get("arguments", {}),
+                        )
+                        for tc in _decision.tool_calls
+                    ]
+                    response = LLMResponse(
+                        content=_decision.content,
+                        tool_calls=_tool_calls,
+                        finish_reason=_decision.finish_reason,
+                        usage=_decision.usage,
+                        reasoning_content=_decision.reasoning_content,
+                    )
+                    logger.info(
+                        "Reusing restored model decision for logical_call_id={}",
+                        _logical_call_id,
+                    )
+                except RuntimeError:
+                    raise
+                except Exception:
+                    logger.exception(
+                        "Failed to read restored model decision for {}; making new request",
+                        _logical_call_id,
+                    )
+                    response = None
+            if response is None:
+                response = await self._request_model(spec, messages_for_model, hook, context)
             raw_usage = self._usage_dict(response.usage)
             context.response = response
             context.usage = dict(raw_usage)
@@ -489,6 +634,14 @@ class AgentRunner:
             self._accumulate_usage(usage, raw_usage)
             if raw_usage:
                 last_call_usage = dict(raw_usage)
+            # Mirror cumulative usage into the bound TurnRuntime so
+            # self-inspection and turn-end reads during a running turn
+            # see this turn's own values, not a shared loop-global field.
+            _runtime = current_turn_runtime()
+            if _runtime is not None:
+                _runtime.usage = dict(usage)
+                if raw_usage:
+                    _runtime.last_call_usage = dict(raw_usage)
             # Budget check: stop early if cumulative usage exceeds limits.
             _fc, _sr, _err = self._handle_budget_exceeded(
                 budget,
@@ -667,18 +820,18 @@ class AgentRunner:
                     reflection is not None
                     and (iteration + 1) % getattr(spec, "reflection_interval", 5) == 0
                 ):
-                    # 跟踪 reflection 任务避免被 GC 回收，完成后从集合移除
-                    task = asyncio.create_task(
+                    # Supervised fire-and-forget: the supervisor owns the
+                    # strong reference and logs any unhandled exception.
+                    self._reflection_supervisor.create(
                         reflection.reflect(
                             trigger="periodic",
                             iteration=iteration,
                             context_summary=f"Periodic reflection at iteration {iteration}",
                             messages=messages,
                             session_key=spec.session_key,
-                        )
+                        ),
+                        name=f"reflection:{spec.session_key or 'default'}:{iteration}",
                     )
-                    self._reflection_tasks.add(task)
-                    task.add_done_callback(self._reflection_tasks.discard)
                 continue
 
             if response.has_tool_calls:
@@ -736,6 +889,12 @@ class AgentRunner:
                 context.tool_calls = list(response.tool_calls)
                 if retry_usage:
                     last_call_usage = dict(retry_usage)
+                # Mirror updated usage into the bound TurnRuntime (retry path).
+                _runtime = current_turn_runtime()
+                if _runtime is not None:
+                    _runtime.usage = dict(usage)
+                    if retry_usage:
+                        _runtime.last_call_usage = dict(retry_usage)
                 clean = hook.finalize_content(context, response.content)
 
             if response.finish_reason == "length" and not is_blank_text(clean):
@@ -931,6 +1090,7 @@ class AgentRunner:
             if drained_after_max_iterations:
                 had_injections = True
 
+        _provider_attempt_observer.reset(_observer_token)
         return AgentRunResult(
             final_content=final_content,
             messages=messages,
@@ -1071,6 +1231,8 @@ class AgentRunner:
         # LLM timeout here, or healthy long reasoning streams can be killed just
         # because total elapsed time exceeded MINIUNICORN_LLM_TIMEOUT_S.
         outer_timeout_s = None if (wants_streaming or wants_progress_streaming) else timeout_s
+        _llm_call_start = time.monotonic()
+        _llm_error: str | None = None
         try:
             response = (
                 await coro
@@ -1090,16 +1252,32 @@ class AgentRunner:
             if live_file_edits is not None:
                 with suppress(Exception):
                     await live_file_edits.error_unmatched([], "LLM timed out")
+            _llm_error = "timeout"
             if outer_timeout_s is None:
-                return LLMResponse(
+                response = LLMResponse(
                     content="Error calling LLM: stream stalled",
                     finish_reason="error",
                     error_kind="timeout",
                 )
-            return LLMResponse(
-                content=f"Error calling LLM: timed out after {outer_timeout_s:g}s",
-                finish_reason="error",
-                error_kind="timeout",
+            else:
+                response = LLMResponse(
+                    content=f"Error calling LLM: timed out after {outer_timeout_s:g}s",
+                    finish_reason="error",
+                    error_kind="timeout",
+                )
+        # Record one LlmCallMetric on the bound TurnRuntime. Safe-by-default:
+        # no runtime means no metric (e.g. unit tests calling _request_model
+        # directly without a coordinator scope).
+        _runtime = current_turn_runtime()
+        if _runtime is not None:
+            _runtime.llm_calls.append(
+                LlmCallMetric(
+                    iteration=context.iteration,
+                    duration_ms=max(0.0, (time.monotonic() - _llm_call_start) * 1000),
+                    usage=self._usage_dict(getattr(response, "usage", None)),
+                    finish_reason=getattr(response, "finish_reason", None),
+                    error=_llm_error,
+                )
             )
         if progress_state and progress_state.get("reasoning_open"):
             await hook.emit_reasoning_end()
@@ -1278,6 +1456,50 @@ class AgentRunner:
                 event,
                 (RuntimeError(prep_error) if spec.fail_on_tool_error else None),
             )
+        # ToolExecutionPort is mandatory (design §20, WP4 hard cutover).
+        # Every tool call routes through the gateway so no Agent tool
+        # bypasses approval policy, resource leases, and attempt journaling.
+        if spec.tool_execution_port is None:
+            raise RuntimeError("ToolExecutionPort is required")
+        return await self._run_tool_via_gateway(
+            spec, tool_call, tool, params, hint, workspace_violation_counts
+        )
+
+    async def _run_tool_via_gateway(
+        self,
+        spec: AgentRunSpec,
+        tool_call: ToolCallRequest,
+        tool: Any | None,
+        params: Any,
+        hint: str,
+        workspace_violation_counts: dict[str, int],
+    ) -> tuple[Any, dict[str, str], BaseException | None]:
+        """Execute one tool call through the durable ToolExecutionPort (design §20).
+
+        The gateway owns approval policy, resource leases, attempt journaling,
+        and result durability. This method builds the
+        :class:`ToolExecutionRequest` from the prepared (normalized)
+        arguments and the tool's declarative policy, delegates to the port,
+        and maps the durable result back into the Runner's (result, event,
+        error) contract.
+
+        On ``SUCCEEDED`` the in-memory ``content`` echo is returned to the
+        LLM. On ``WAITING_APPROVAL`` / ``FAILED`` / ``OUTCOME_UNKNOWN`` a
+        conversational error string is returned so the turn recovers without
+        aborting (matching the legacy direct-execution error contract).
+        """
+        port = spec.tool_execution_port
+        assert port is not None  # guarded by caller
+        task_id = self._current_task_id()
+        normalized = params if isinstance(params, dict) else dict(tool_call.arguments or {})
+        policy = self._effective_policy_for(tool)
+        request = build_tool_execution_request(
+            task_id=task_id,
+            tool_call_id=tool_call.id,
+            tool_name=tool_call.name,
+            arguments=normalized,
+            policy=policy,
+        )
         emit_file_edit_events = (
             spec.progress_callback is not None
             and on_progress_accepts_file_edit_events(spec.progress_callback)
@@ -1305,14 +1527,12 @@ class AgentRunner:
                     for file_edit_tracker in file_edit_trackers
                 ],
             )
+        _tool_start = time.monotonic()
         try:
-            if tool is not None:
-                result = await tool.execute(**params)
-            else:
-                result = await spec.tools.execute(tool_call.name, params)
+            result = await port.execute(request)
         except asyncio.CancelledError:
+            _append_tool_metric(tool_call.name, _tool_start, "cancelled")
             raise
-        # 使用 Exception 而非 BaseException，避免吞掉 KeyboardInterrupt 等系统级中断
         except Exception as exc:
             if file_edit_trackers and progress_callback is not None:
                 await invoke_file_edit_progress(
@@ -1330,64 +1550,131 @@ class AgentRunner:
             payload = f"Error: {type(exc).__name__}: {exc}"
             handled = self._classify_violation(
                 raw_text=str(exc),
-                # Preserve legacy exception payloads without the retry hint.
                 soft_payload=payload,
                 event=event,
                 tool_call=tool_call,
                 workspace_violation_counts=workspace_violation_counts,
             )
             if handled is not None:
+                _append_tool_metric(tool_call.name, _tool_start, "error", type(exc).__name__)
                 return handled
             if spec.fail_on_tool_error:
+                _append_tool_metric(tool_call.name, _tool_start, "error", type(exc).__name__)
                 return payload, event, exc
+            _append_tool_metric(tool_call.name, _tool_start, "error", type(exc).__name__)
             return payload, event, None
 
-        if isinstance(result, str) and result.startswith("Error"):
+        if result.state == "SUCCEEDED":
+            content = result.content if result.content is not None else ""
+
+            if isinstance(content, str) and content.startswith("Error"):
+                if file_edit_trackers and progress_callback is not None:
+                    await invoke_file_edit_progress(
+                        progress_callback,
+                        [
+                            build_file_edit_error_event(file_edit_tracker, content)
+                            for file_edit_tracker in file_edit_trackers
+                        ],
+                    )
+                event = {
+                    "name": tool_call.name,
+                    "status": "error",
+                    "detail": content.replace("\n", " ").strip()[:120],
+                }
+                handled = self._classify_violation(
+                    raw_text=content,
+                    soft_payload=content + hint,
+                    event=event,
+                    tool_call=tool_call,
+                    workspace_violation_counts=workspace_violation_counts,
+                )
+                if handled is not None:
+                    _append_tool_metric(tool_call.name, _tool_start, "error", "error_result")
+                    return handled
+                if spec.fail_on_tool_error:
+                    _append_tool_metric(tool_call.name, _tool_start, "error", "error_result")
+                    return content + hint, event, RuntimeError(content)
+                _append_tool_metric(tool_call.name, _tool_start, "error", "error_result")
+                return content + hint, event, None
+
             if file_edit_trackers and progress_callback is not None:
                 await invoke_file_edit_progress(
                     progress_callback,
                     [
-                        build_file_edit_error_event(file_edit_tracker, result)
+                        build_file_edit_end_event(
+                            file_edit_tracker,
+                            params if isinstance(params, dict) else None,
+                        )
                         for file_edit_tracker in file_edit_trackers
                     ],
                 )
-            event = {
-                "name": tool_call.name,
-                "status": "error",
-                "detail": result.replace("\n", " ").strip()[:120],
-            }
-            handled = self._classify_violation(
-                raw_text=result,
-                soft_payload=result + hint,
-                event=event,
-                tool_call=tool_call,
-                workspace_violation_counts=workspace_violation_counts,
-            )
-            if handled is not None:
-                return handled
-            if spec.fail_on_tool_error:
-                return result + hint, event, RuntimeError(result)
-            return result + hint, event, None
+            detail = str(content).replace("\n", " ").strip()
+            if not detail:
+                detail = "(empty)"
+            elif len(detail) > 120:
+                detail = detail[:120] + "..."
+            _append_tool_metric(tool_call.name, _tool_start, "ok")
+            return content, {"name": tool_call.name, "status": "ok", "detail": detail}, None
 
-        if file_edit_trackers and progress_callback is not None:
-            await invoke_file_edit_progress(
-                progress_callback,
-                [
-                    build_file_edit_end_event(
-                        file_edit_tracker,
-                        params if isinstance(params, dict) else None,
-                    )
-                    for file_edit_tracker in file_edit_trackers
-                ],
-            )
+        # WAITING_APPROVAL / FAILED / OUTCOME_UNKNOWN / REJECTED: surface a
+        # conversational error so the LLM can adapt, mirroring the legacy
+        # soft-error contract. The durable fact is already committed by the
+        # gateway before this point.
+        err = result.error
+        code = err.error_code if err else str(result.state)
+        summary = err.error_summary if err else f"Tool {tool_call.name} {result.state}"
+        _append_tool_metric(tool_call.name, _tool_start, "error", code)
+        payload = f"Error: {code}: {summary}"
+        event = {
+            "name": tool_call.name,
+            "status": "error",
+            "detail": summary[:120],
+        }
+        if spec.fail_on_tool_error:
+            return payload, event, RuntimeError(payload)
+        return payload + hint, event, None
 
-        detail = "" if result is None else str(result)
-        detail = detail.replace("\n", " ").strip()
-        if not detail:
-            detail = "(empty)"
-        elif len(detail) > 120:
-            detail = detail[:120] + "..."
-        return result, {"name": tool_call.name, "status": "ok", "detail": detail}, None
+    def _current_task_id(self) -> str:
+        """Return the durable task_id bound to the current TurnRuntime, or ''."""
+        runtime = current_turn_runtime()
+        if runtime is not None and runtime.task_id is not None:
+            return runtime.task_id
+        return ""
+
+    @staticmethod
+    def _effective_policy_for(tool: Any | None) -> Any:
+        """Build an :class:`EffectiveToolPolicy` from a tool's declarative metadata.
+
+        When ``tool`` is None (registry-level prepare failed), use the
+        conservative EXTERNAL_WRITE defaults from design §20.2. Tools that
+        don't expose declarative policy attributes also get the conservative
+        defaults.
+        """
+        from miniunicorn.agent.ports import EffectiveToolPolicy
+
+        defaults = EffectiveToolPolicy(
+            effect_class="EXTERNAL_WRITE",
+            risk_class="HIGH",
+            idempotency_mode="NONE",
+            approval_policy="POLICY",
+            recovery_policy="MANUAL",
+            concurrency_scope="NONE",
+        )
+        if tool is None:
+            return defaults
+        try:
+            return EffectiveToolPolicy(
+                effect_class=tool.effect_class,
+                risk_class=tool.risk_class,
+                idempotency_mode=tool.idempotency_mode,
+                approval_policy=tool.approval_policy,
+                recovery_policy=tool.recovery_policy,
+                concurrency_scope=tool.concurrency_scope,
+                progress_required=getattr(tool, "progress_required", False),
+                timeout_s=getattr(tool, "timeout_s", None),
+            )
+        except AttributeError:
+            return defaults
 
     # SSRF is a hard security block at the tool boundary, but the agent turn
     # should recover conversationally instead of aborting the runtime.

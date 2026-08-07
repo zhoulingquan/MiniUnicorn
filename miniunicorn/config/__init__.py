@@ -13,10 +13,20 @@ from miniunicorn.config.paths import (
     get_workspace_path,
     is_default_workspace,
 )
+from miniunicorn.config.runtime import (
+    RuntimeConfig,
+    RuntimeMode,
+    resolve_runtime_mode,
+    resolve_runtime_paths,
+)
 from miniunicorn.config.schema import Config
 
 __all__ = [
     "Config",
+    "RuntimeConfig",
+    "RuntimeMode",
+    "resolve_runtime_mode",
+    "resolve_runtime_paths",
     "load_config",
     "get_config_path",
     "get_data_dir",

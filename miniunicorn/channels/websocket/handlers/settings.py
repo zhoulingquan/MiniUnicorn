@@ -107,6 +107,9 @@ def provider_update(ctx: RouteContext) -> Response:
         payload = update_provider_settings(query)
     except WebUISettingsError as e:
         return _http_error(e.status, e.message)
+    # The endpoint may change the active model/provider when ``model`` is
+    # supplied, so refresh the running agent just like ``settings_update``.
+    ctx.deps.refresh_agent_model()
     return _http_json_response(ctx.deps.with_restart_state(payload, section=None))
 
 

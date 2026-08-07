@@ -31,8 +31,12 @@ export function SettingsSidebar({
   onToggleSidebar?: () => void;
 }) {
   const { t } = useTranslation();
+  const toggleable = Boolean(collapsed && onToggleSidebar);
   return (
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- aside is conditionally interactive; role/tabIndex/handlers are set only when toggleable
     <aside
+      role={toggleable ? "button" : undefined}
+      tabIndex={toggleable ? 0 : undefined}
       className={cn(
         "flex w-full shrink-0 flex-col border-b border-border/55 bg-card/62 px-4 pb-3 shadow-[inset_0_-1px_0_rgba(255,255,255,0.55)] backdrop-blur-xl dark:bg-card/45 dark:shadow-none md:border-b-0 md:border-r md:px-3 md:pb-4 md:shadow-[inset_-1px_0_0_rgba(255,255,255,0.55)]",
         // 折叠态:窄宽度,居中对齐图标
@@ -40,10 +44,20 @@ export function SettingsSidebar({
           ? "md:w-[3.5rem] md:items-center md:px-1.5"
           : "md:w-[17rem]",
         // 折叠态:点击空白处展开
-        collapsed && onToggleSidebar ? "md:cursor-pointer" : "",
+        toggleable ? "md:cursor-pointer" : "",
         hostChromeInset ? "pt-[4.25rem] md:pt-[4.25rem]" : "pt-4 md:pt-4",
       )}
-      onClick={collapsed && onToggleSidebar ? onToggleSidebar : undefined}
+      onClick={toggleable ? onToggleSidebar : undefined}
+      onKeyDown={
+        toggleable
+          ? (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onToggleSidebar?.();
+              }
+            }
+          : undefined
+      }
     >
       <div className={cn("mb-3 px-1 pt-1 md:mb-4 md:px-2", collapsed && "md:hidden")}>
         <h2 className="text-[21px] font-semibold tracking-[-0.02em] text-foreground">

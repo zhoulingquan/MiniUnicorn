@@ -75,78 +75,46 @@ class TestUnifiedSessionDispatch:
 
     @pytest.mark.asyncio
     async def test_unified_session_rewrites_key_to_unified_default(self, tmp_path: Path):
-        """When unified_session=True, all messages use 'unified:default' as session key."""
+        """When unified_session=True, all messages resolve to 'unified:default'."""
+        from miniunicorn.agent.loop import UNIFIED_SESSION_KEY
+
         loop = _make_loop(tmp_path, unified_session=True)
 
-        captured: list[str] = []
-
-        async def fake_process(msg, **kwargs):
-            captured.append(msg.session_key)
-            return None
-
-        loop._process_message = fake_process  # type: ignore[method-assign]
-
         msg = _make_msg(channel="telegram", chat_id="111")
-        await loop._dispatch(msg)
-
-        assert captured == ["unified:default"]
+        assert loop._effective_session_key(msg) == UNIFIED_SESSION_KEY
 
     @pytest.mark.asyncio
     async def test_unified_session_different_channels_share_same_key(self, tmp_path: Path):
         """Messages from different channels all resolve to the same session key."""
+        from miniunicorn.agent.loop import UNIFIED_SESSION_KEY
+
         loop = _make_loop(tmp_path, unified_session=True)
 
-        captured: list[str] = []
+        keys = [
+            loop._effective_session_key(_make_msg(channel="telegram", chat_id="111")),
+            loop._effective_session_key(_make_msg(channel="discord", chat_id="222")),
+            loop._effective_session_key(_make_msg(channel="cli", chat_id="direct")),
+        ]
 
-        async def fake_process(msg, **kwargs):
-            captured.append(msg.session_key)
-            return None
-
-        loop._process_message = fake_process  # type: ignore[method-assign]
-
-        await loop._dispatch(_make_msg(channel="telegram", chat_id="111"))
-        await loop._dispatch(_make_msg(channel="discord", chat_id="222"))
-        await loop._dispatch(_make_msg(channel="cli", chat_id="direct"))
-
-        assert captured == ["unified:default", "unified:default", "unified:default"]
+        assert keys == [UNIFIED_SESSION_KEY, UNIFIED_SESSION_KEY, UNIFIED_SESSION_KEY]
 
     @pytest.mark.asyncio
     async def test_unified_session_disabled_preserves_original_key(self, tmp_path: Path):
         """When unified_session=False (default), session key is channel:chat_id as usual."""
         loop = _make_loop(tmp_path, unified_session=False)
 
-        captured: list[str] = []
-
-        async def fake_process(msg, **kwargs):
-            captured.append(msg.session_key)
-            return None
-
-        loop._process_message = fake_process  # type: ignore[method-assign]
-
         msg = _make_msg(channel="telegram", chat_id="999")
-        await loop._dispatch(msg)
-
-        assert captured == ["telegram:999"]
+        assert loop._effective_session_key(msg) == "telegram:999"
 
     @pytest.mark.asyncio
     async def test_unified_session_respects_existing_override(self, tmp_path: Path):
         """If session_key_override is already set (e.g. Telegram thread), it is NOT overwritten."""
         loop = _make_loop(tmp_path, unified_session=True)
 
-        captured: list[str] = []
-
-        async def fake_process(msg, **kwargs):
-            captured.append(msg.session_key)
-            return None
-
-        loop._process_message = fake_process  # type: ignore[method-assign]
-
         msg = _make_msg(
             channel="telegram", chat_id="111", session_key_override="telegram:thread:42"
         )
-        await loop._dispatch(msg)
-
-        assert captured == ["telegram:thread:42"]
+        assert loop._effective_session_key(msg) == "telegram:thread:42"
 
     def test_unified_session_default_is_false(self, tmp_path: Path):
         """unified_session defaults to False — no behavior change for existing users."""
@@ -423,130 +391,3 @@ class TestConsolidationUnaffectedByUnifiedSession:
 # ---------------------------------------------------------------------------
 # TestStopCommandWithUnifiedSession — /stop command integration
 # ---------------------------------------------------------------------------
-
-
-class TestStopCommandWithUnifiedSession:
-    """Verify /stop command works correctly with unified session enabled."""
-
-    @pytest.mark.asyncio
-    async def test_active_tasks_use_effective_key_in_unified_mode(self, tmp_path: Path):
-        """When unified_session=True, tasks are stored under UNIFIED_SESSION_KEY."""
-        from miniunicorn.agent.loop import UNIFIED_SESSION_KEY
-
-        loop = _make_loop(tmp_path, unified_session=True)
-
-        # Create a message from telegram channel
-        msg = _make_msg(channel="telegram", chat_id="123456")
-
-        # Mock _dispatch to complete immediately
-        async def fake_dispatch(m):
-            pass
-
-        loop._dispatch = fake_dispatch  # type: ignore[method-assign]
-
-        # Simulate the task creation flow (from _run loop)
-        effective_key = (
-            UNIFIED_SESSION_KEY
-            if loop._unified_session and not msg.session_key_override
-            else msg.session_key
-        )
-        task = asyncio.create_task(loop._dispatch(msg))
-        loop._active_tasks.setdefault(effective_key, []).append(task)
-
-        # Wait for task to complete
-        await task
-
-        # Verify the task is stored under UNIFIED_SESSION_KEY, not the original channel:chat_id
-        assert UNIFIED_SESSION_KEY in loop._active_tasks
-        assert "telegram:123456" not in loop._active_tasks
-
-    @pytest.mark.asyncio
-    async def test_stop_command_finds_task_in_unified_mode(self, tmp_path: Path):
-        """cmd_stop can cancel tasks when unified_session=True."""
-        from miniunicorn.agent.loop import UNIFIED_SESSION_KEY
-        from miniunicorn.command.builtin import cmd_stop
-
-        loop = _make_loop(tmp_path, unified_session=True)
-
-        # Create a long-running task stored under UNIFIED_SESSION_KEY
-        async def long_running():
-            await asyncio.sleep(10)  # Will be cancelled
-
-        task = asyncio.create_task(long_running())
-        loop._active_tasks[UNIFIED_SESSION_KEY] = [task]
-
-        # Create a message that would have session_key=UNIFIED_SESSION_KEY after dispatch
-        msg = InboundMessage(
-            channel="telegram",
-            chat_id="123456",
-            sender_id="user1",
-            content="/stop",
-            session_key_override=UNIFIED_SESSION_KEY,  # Simulate post-dispatch state
-        )
-
-        ctx = CommandContext(msg=msg, session=None, key=UNIFIED_SESSION_KEY, raw="/stop", loop=loop)
-
-        # Execute /stop
-        result = await cmd_stop(ctx)
-
-        # Verify task was cancelled
-        assert task.cancelled() or task.done()
-        assert "Stopped 1 task" in result.content
-
-    @pytest.mark.asyncio
-    async def test_stop_command_uses_effective_key_without_session_override(self, tmp_path: Path):
-        """Priority /stop must cancel the unified session even before dispatch rewrites the message."""
-        from miniunicorn.agent.loop import UNIFIED_SESSION_KEY
-        from miniunicorn.command.builtin import cmd_stop
-
-        loop = _make_loop(tmp_path, unified_session=True)
-
-        async def long_running():
-            await asyncio.sleep(10)
-
-        task = asyncio.create_task(long_running())
-        loop._active_tasks[UNIFIED_SESSION_KEY] = [task]
-        msg = InboundMessage(
-            channel="telegram",
-            chat_id="123456",
-            sender_id="user1",
-            content="/stop",
-        )
-        ctx = CommandContext(msg=msg, session=None, key=UNIFIED_SESSION_KEY, raw="/stop", loop=loop)
-
-        result = await cmd_stop(ctx)
-
-        assert task.cancelled() or task.done()
-        assert "Stopped 1 task" in result.content
-
-    @pytest.mark.asyncio
-    async def test_stop_command_cross_channel_in_unified_mode(self, tmp_path: Path):
-        """In unified mode, /stop from one channel cancels tasks from another channel."""
-        from miniunicorn.agent.loop import UNIFIED_SESSION_KEY
-        from miniunicorn.command.builtin import cmd_stop
-
-        loop = _make_loop(tmp_path, unified_session=True)
-
-        # Create tasks from different channels, all stored under UNIFIED_SESSION_KEY
-        async def long_running():
-            await asyncio.sleep(10)
-
-        task1 = asyncio.create_task(long_running())
-        task2 = asyncio.create_task(long_running())
-        loop._active_tasks[UNIFIED_SESSION_KEY] = [task1, task2]
-
-        # /stop from discord should cancel tasks started from telegram
-        msg = InboundMessage(
-            channel="discord",
-            chat_id="789012",
-            sender_id="user2",
-            content="/stop",
-            session_key_override=UNIFIED_SESSION_KEY,
-        )
-
-        ctx = CommandContext(msg=msg, session=None, key=UNIFIED_SESSION_KEY, raw="/stop", loop=loop)
-
-        result = await cmd_stop(ctx)
-
-        # Both tasks should be cancelled
-        assert "Stopped 2 task" in result.content

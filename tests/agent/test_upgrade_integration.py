@@ -303,7 +303,35 @@ def test_create_vector_store_delegates_to_index_manager(tmp_path, monkeypatch):
     assert store.enabled is False
 
 
+def test_vector_memory_store_disabled_when_no_sqlite_vec(tmp_path, monkeypatch):
+    """VectorMemoryStore degrades to disabled when sqlite-vec is unavailable."""
+    from miniunicorn.runtime.sqlite import vector_memory_store as vms
+
+    def _fail_load(_conn):
+        return False
+
+    monkeypatch.setattr(vms, "_try_load_sqlite_vec", _fail_load)
+
+    store = vms.VectorMemoryStore(tmp_path / "vec.db", embedding_dim=4)
+    assert store.enabled is False
+    # Disabled store behaves like NoOp
+    assert store.index("hi", [0.1, 0.2, 0.3, 0.4]) is None
+    assert store.search([0.1, 0.2, 0.3, 0.4], k=3) == []
+    assert store.count() == 0
+    store.close()
+
+
+def test_create_vector_store_falls_back_to_noop(tmp_path, monkeypatch):
+    """create_vector_store returns NoOpVectorStore when sqlite-vec is missing."""
+    from miniunicorn.runtime.sqlite import vector_memory_store as vms
+
+    monkeypatch.setattr(vms, "_try_load_sqlite_vec", lambda _conn: False)
+    store = vms.create_vector_store(tmp_path / "vec.db", embedding_dim=4)
+    assert isinstance(store, NoOpVectorStore)
+    assert store.enabled is False
+
 def _make_loop(tmp_path, *, vector_recall: bool):
+
     from miniunicorn.agent.loop import AgentLoop
 
     provider = MagicMock(spec=LLMProvider)

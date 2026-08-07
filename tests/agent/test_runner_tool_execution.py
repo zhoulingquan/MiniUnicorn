@@ -11,6 +11,7 @@ from miniunicorn.agent.tools.base import Tool
 from miniunicorn.agent.tools.registry import ToolRegistry
 from miniunicorn.config.schema import AgentDefaults
 from miniunicorn.providers.base import LLMResponse, ToolCallRequest
+from tests.agent.conftest import FakeToolExecutionPort
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
@@ -76,6 +77,7 @@ async def test_runner_batches_read_only_tools_before_exclusive_work():
         AgentRunSpec(
             initial_messages=[],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=1,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -121,6 +123,7 @@ async def test_runner_does_not_batch_exclusive_read_only_tools():
         AgentRunSpec(
             initial_messages=[],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=1,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
@@ -175,6 +178,7 @@ async def test_runner_blocks_repeated_external_fetches():
         AgentRunSpec(
             initial_messages=[{"role": "user", "content": "research task"}],
             tools=tools,
+            tool_execution_port=FakeToolExecutionPort(tools),
             model="test-model",
             max_iterations=4,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -33,10 +33,21 @@ export function RenameChatDialog({
 }: RenameChatDialogProps) {
   const { t } = useTranslation();
   const [value, setValue] = useState(title);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open) setValue(title);
   }, [open, title]);
+
+  // Move focus into the rename input each time the dialog opens, replacing
+  // the previous raw `autoFocus` (which harms screen-reader / keyboard UX).
+  // onOpenAutoFocus fires after Radix Portal content is mounted, so the ref
+  // is guaranteed to be set (a plain useEffect would run before the Portal
+  // commits and the ref would be null).
+  const handleOpenAutoFocus = (event: Event) => {
+    event.preventDefault();
+    inputRef.current?.focus();
+  };
 
   const trimmed = value.trim();
 
@@ -44,7 +55,7 @@ export function RenameChatDialog({
     <Dialog open={open} onOpenChange={(next) => {
       if (!next) onCancel();
     }}>
-      <DialogContent className="max-w-sm p-5">
+      <DialogContent className="max-w-sm p-5" onOpenAutoFocus={handleOpenAutoFocus}>
         <form
           className="grid gap-4"
           onSubmit={(event) => {
@@ -60,10 +71,10 @@ export function RenameChatDialog({
             </DialogDescription>
           </DialogHeader>
           <Input
+            ref={inputRef}
             value={value}
             onChange={(event) => setValue(event.target.value)}
             placeholder={placeholder ?? t("chat.renamePlaceholder")}
-            autoFocus
             maxLength={160}
           />
           <DialogFooter className="gap-2 sm:space-x-0">

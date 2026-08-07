@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from miniunicorn.agent.turn_runtime import SESSION_LAST_USAGE_KEY
 from miniunicorn.bus.events import InboundMessage
 from miniunicorn.providers.base import LLMResponse
 
@@ -87,68 +88,6 @@ class TestRestartCommand:
             assert scheduled
             await scheduled[0]
             mock_execv.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_restart_intercepted_in_run_loop(self):
-        """Verify /restart is handled at the run-loop level, not inside _dispatch."""
-        loop, bus = _make_loop()
-        msg = InboundMessage(channel="telegram", sender_id="u1", chat_id="c1", content="/restart")
-
-        with (
-            patch.object(loop, "_dispatch", new_callable=AsyncMock) as mock_dispatch,
-            patch("miniunicorn.command.builtin.os.execv"),
-        ):
-            await bus.publish_inbound(msg)
-
-            loop._running = True
-            run_task = asyncio.create_task(loop.run())
-            await asyncio.sleep(0.1)
-            loop._running = False
-            run_task.cancel()
-            try:
-                await run_task
-            except asyncio.CancelledError:
-                pass
-
-            mock_dispatch.assert_not_called()
-            out = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
-            assert "Restarting" in out.content
-
-    @pytest.mark.asyncio
-    async def test_status_intercepted_in_run_loop(self):
-        """Verify /status is handled at the run-loop level for immediate replies."""
-        loop, bus = _make_loop()
-        msg = InboundMessage(channel="telegram", sender_id="u1", chat_id="c1", content="/status")
-
-        with patch.object(loop, "_dispatch", new_callable=AsyncMock) as mock_dispatch:
-            await bus.publish_inbound(msg)
-
-            loop._running = True
-            run_task = asyncio.create_task(loop.run())
-            await asyncio.sleep(0.1)
-            loop._running = False
-            run_task.cancel()
-            try:
-                await run_task
-            except asyncio.CancelledError:
-                pass
-
-            mock_dispatch.assert_not_called()
-            out = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
-            assert "MiniUnicorn" in out.content.lower() or "Model" in out.content
-
-    @pytest.mark.asyncio
-    async def test_run_propagates_external_cancellation(self):
-        """External task cancellation should not be swallowed by the inbound wait loop."""
-        loop, _bus = _make_loop()
-
-        run_task = asyncio.create_task(loop.run())
-        await asyncio.sleep(0.1)
-        run_task.cancel()
-
-        with pytest.raises(asyncio.CancelledError):
-            await asyncio.wait_for(run_task, timeout=1.0)
-
     @pytest.mark.asyncio
     async def test_help_includes_restart(self):
         loop, bus = _make_loop()
@@ -168,7 +107,9 @@ class TestRestartCommand:
         session.get_history.return_value = [{"role": "user"}] * 3
         loop.sessions.get_or_create.return_value = session
         loop._start_time = time.time() - 125
-        loop._last_usage = {"prompt_tokens": 0, "completion_tokens": 0}
+        # ``_last_usage`` is a read-only property backed by the bound
+        # TurnRuntime; with no runtime bound it returns ``{}``, which the
+        # /status command renders as "0 in / 0 out".
         loop.consolidator.estimate_session_prompt_tokens = MagicMock(
             return_value=(20500, "tiktoken")
         )
@@ -186,33 +127,14 @@ class TestRestartCommand:
         assert "Uptime: 2m 5s" in response.content
         assert "Tasks: 0 active" in response.content
         assert response.metadata == {"render_as": "text"}
-
-    @pytest.mark.asyncio
-    async def test_status_counts_running_dispatch_and_subagent_tasks(self):
-        loop, _bus = _make_loop()
-        session = MagicMock()
-        session.get_history.return_value = [{"role": "user"}]
-        loop.sessions.get_or_create.return_value = session
-        loop.consolidator.estimate_session_prompt_tokens = MagicMock(
-            return_value=(1000, "tiktoken")
-        )
-
-        running_task = MagicMock()
-        running_task.done.return_value = False
-        finished_task = MagicMock()
-        finished_task.done.return_value = True
-
-        msg = InboundMessage(channel="telegram", sender_id="u1", chat_id="c1", content="/status")
-        loop._active_tasks[msg.session_key] = [running_task, finished_task]
-        loop.subagents.get_running_count_by_session.return_value = 2
-
-        response = await loop._process_message(msg)
-
-        assert response is not None
-        assert "Tasks: 3 active" in response.content
-
     @pytest.mark.asyncio
     async def test_run_agent_loop_resets_usage_when_provider_omits_it(self):
+        from miniunicorn.agent.turn_runtime import (
+            TurnRuntime,
+            bind_turn_runtime,
+            reset_turn_runtime,
+        )
+
         loop, _bus = _make_loop()
         loop.provider.chat_with_retry = AsyncMock(
             side_effect=[
@@ -221,13 +143,25 @@ class TestRestartCommand:
             ]
         )
 
-        await loop._run_agent_loop([])
-        assert loop._last_usage["prompt_tokens"] == 9
-        assert loop._last_usage["completion_tokens"] == 4
+        # ``_last_usage`` is a read-only property backed by the bound
+        # TurnRuntime. Bind one per call so usage is isolated per turn.
+        runtime1 = TurnRuntime(turn_id="t1", session_key="cli:t1")
+        token1 = bind_turn_runtime(runtime1)
+        try:
+            await loop._run_agent_loop([])
+        finally:
+            reset_turn_runtime(token1)
+        assert runtime1.usage.get("prompt_tokens", 0) == 9
+        assert runtime1.usage.get("completion_tokens", 0) == 4
 
-        await loop._run_agent_loop([])
-        assert loop._last_usage["prompt_tokens"] == 0
-        assert loop._last_usage["completion_tokens"] == 0
+        runtime2 = TurnRuntime(turn_id="t2", session_key="cli:t2")
+        token2 = bind_turn_runtime(runtime2)
+        try:
+            await loop._run_agent_loop([])
+        finally:
+            reset_turn_runtime(token2)
+        assert runtime2.usage.get("prompt_tokens", 0) == 0
+        assert runtime2.usage.get("completion_tokens", 0) == 0
 
     @pytest.mark.asyncio
     async def test_status_falls_back_to_last_usage_when_context_estimate_missing(self):
@@ -235,7 +169,7 @@ class TestRestartCommand:
         session = MagicMock()
         session.get_history.return_value = [{"role": "user"}]
         loop.sessions.get_or_create.return_value = session
-        loop._last_usage = {"prompt_tokens": 1200, "completion_tokens": 34}
+        session.metadata = {SESSION_LAST_USAGE_KEY: {"prompt_tokens": 1200, "completion_tokens": 34}}
         loop.consolidator.estimate_session_prompt_tokens = MagicMock(return_value=(0, "none"))
         loop.subagents.get_running_count_by_session.return_value = 0
 
@@ -340,7 +274,7 @@ class TestRestartCommand:
         assert "No conversation history yet." in response.content
 
     @pytest.mark.asyncio
-    async def test_process_direct_preserves_render_metadata(self):
+    async def test_process_message_preserves_render_metadata(self):
         loop, _bus = _make_loop()
         session = MagicMock()
         session.get_history.return_value = []
@@ -348,7 +282,9 @@ class TestRestartCommand:
         loop.subagents.get_running_count.return_value = 0
         loop.subagents.get_running_count_by_session.return_value = 0
 
-        response = await loop.process_direct("/status", session_key="cli:test")
+        response = await loop._process_message(
+            InboundMessage(channel="cli", sender_id="user", chat_id="test", content="/status")
+        )
 
         assert response is not None
         assert response.metadata == {"render_as": "text"}

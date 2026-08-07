@@ -2,11 +2,15 @@
 
 FastEmbed is mocked throughout — the unit suite never performs a model
 download. The manager is mocked to produce a ready hash-verified model dir.
+download. A separate optional smoke test (``TestRealModelSmoke``) downloads
+the real BGE model and is skipped by default; enable it by setting the
+``MINIUNICORN_RUN_EMBEDDING_SMOKE=1`` environment variable.
 """
 
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import types
 from pathlib import Path
@@ -276,3 +280,32 @@ class TestLocalEmbeddingProviderEnabled:
         monkeypatch.setitem(sys.modules, "fastembed", fake_module)
         provider = LocalEmbeddingProvider()
         assert provider.enabled is True
+
+
+_SMOKE_ENABLED = os.environ.get("MINIUNICORN_RUN_EMBEDDING_SMOKE") == "1"
+_SMOKE_REASON = (
+    "set MINIUNICORN_RUN_EMBEDDING_SMOKE=1 to run the real BGE model smoke test "
+    "(requires network access to download the approved BAAI/bge-small-zh-v1.5 model)"
+)
+
+
+@pytest.mark.skipif(not _SMOKE_ENABLED, reason=_SMOKE_REASON)
+class TestRealModelSmoke:
+    """Optional CPU smoke test that downloads the real BGE model.
+
+    Verifies the end-to-end contract on CPU: a Chinese text is embedded to
+    exactly 512 dimensions and the output is L2-normalized. This test is
+    intentionally skipped in CI and the default suite — it only runs when a
+    developer explicitly opts in via the environment variable.
+    """
+
+    @pytest.mark.asyncio
+    async def test_chinese_embedding_is_512_dim_and_normalized(self):
+        provider = LocalEmbeddingProvider()
+        assert provider.enabled, "fastembed must be installed for the smoke test"
+        result = await provider.embed([" MiniUnicorn 本地嵌入中文测试用例"])
+        assert len(result) == 1
+        vec = result[0]
+        assert len(vec) == DEFAULT_LOCAL_DIMENSION
+        norm = sum(v * v for v in vec) ** 0.5
+        assert pytest.approx(norm, abs=1e-5) == 1.0

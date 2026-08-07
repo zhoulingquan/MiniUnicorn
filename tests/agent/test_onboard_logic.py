@@ -838,7 +838,7 @@ class TestApiServerRegistration:
         config = Config()
         from miniunicorn.config.schema import ApiConfig
 
-        new_api = ApiConfig(host="0.0.0.0", port=9999)
+        new_api = ApiConfig(host="0.0.0.0", port=9999, allow_insecure_public_bind=True)
         _SETTINGS_SETTER["API Server"](config, new_api)
         assert config.api.host == "0.0.0.0"
         assert config.api.port == 9999
@@ -1353,3 +1353,79 @@ class TestModelPresetWizard:
         defaults = AgentDefaults()
         _handle_provider_field(defaults, "provider", "Provider", "auto")
         assert defaults.provider == "deepseek"
+
+
+class TestAutoFillContextWindow:
+    """Tests for _try_auto_fill_context_window configuration-time persistence.
+
+    Verifies that discovered context window values are written into the model
+    configuration during onboarding, not just displayed. This is required by
+    the Package A spec §4.3: "CLI onboarding follows the same rule: successful
+    discovery must be written into the generated model configuration."
+    """
+
+    def test_persists_discovered_value_when_default(self, monkeypatch):
+        """A model with the default 65_536 should be overwritten with the discovered value."""
+        from miniunicorn.cli.onboard import _try_auto_fill_context_window
+        from miniunicorn.config.schema import AgentDefaults
+
+        monkeypatch.setattr(
+            "miniunicorn.cli.onboard.get_model_context_limit",
+            lambda model, provider="auto": 128_000,
+        )
+        monkeypatch.setattr(onboard_wizard, "console", SimpleNamespace(print=lambda *a, **kw: None))
+
+        defaults = AgentDefaults()
+        assert defaults.context_window_tokens == 65_536  # schema default
+
+        _try_auto_fill_context_window(defaults, "deepseek/deepseek-chat")
+
+        assert defaults.context_window_tokens == 128_000
+
+    def test_respects_explicit_non_default_value(self, monkeypatch):
+        """A user-set value different from the default should not be overwritten."""
+        from miniunicorn.cli.onboard import _try_auto_fill_context_window
+        from miniunicorn.config.schema import AgentDefaults
+
+        monkeypatch.setattr(
+            "miniunicorn.cli.onboard.get_model_context_limit",
+            lambda model, provider="auto": 128_000,
+        )
+        monkeypatch.setattr(onboard_wizard, "console", SimpleNamespace(print=lambda *a, **kw: None))
+
+        defaults = AgentDefaults()
+        defaults.context_window_tokens = 262_144  # explicit user value
+
+        _try_auto_fill_context_window(defaults, "deepseek/deepseek-chat")
+
+        assert defaults.context_window_tokens == 262_144  # unchanged
+
+    def test_leaves_default_when_discovery_fails(self, monkeypatch):
+        """Failed discovery leaves the configuration default in place."""
+        from miniunicorn.cli.onboard import _try_auto_fill_context_window
+        from miniunicorn.config.schema import AgentDefaults
+
+        monkeypatch.setattr(
+            "miniunicorn.cli.onboard.get_model_context_limit",
+            lambda model, provider="auto": None,
+        )
+        monkeypatch.setattr(onboard_wizard, "console", SimpleNamespace(print=lambda *a, **kw: None))
+
+        defaults = AgentDefaults()
+        _try_auto_fill_context_window(defaults, "unknown/model")
+
+        assert defaults.context_window_tokens == 65_536  # default preserved
+
+    def test_no_context_window_attribute_is_noop(self, monkeypatch):
+        """Models without context_window_tokens are silently skipped."""
+        from miniunicorn.cli.onboard import _try_auto_fill_context_window
+
+        monkeypatch.setattr(
+            "miniunicorn.cli.onboard.get_model_context_limit",
+            lambda model, provider="auto": 128_000,
+        )
+
+        model_without_cw = SimpleNamespace(model="test/model")
+        _try_auto_fill_context_window(model_without_cw, "test/model")
+        # No exception, no attribute set
+        assert not hasattr(model_without_cw, "context_window_tokens")

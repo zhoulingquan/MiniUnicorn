@@ -160,6 +160,3 @@ export function getSidebarNavItems(): ViewRegistration[] {
 export function getView(key: string): ViewRegistration | undefined {
   return VIEW_REGISTRY.find((v) => v.key === key);
 }
-
-/** 所有已注册视图的 key（用于类型推导，chat 不在其中） */
-export const VIEW_KEYS = VIEW_REGISTRY.map((v) => v.key);

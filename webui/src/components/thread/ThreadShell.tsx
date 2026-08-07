@@ -7,7 +7,8 @@ import { ThreadViewport } from "@/components/thread/ThreadViewport";
 import { useMiniunicornStream, type SendImage, type SendOptions } from "@/hooks/useMiniunicornStream";
 import { useSessionHistory } from "@/hooks/useSessions";
 import { fetchAgents, listSlashCommands, rewindSession, updateSettings, fetchSkills } from "@/lib/api";
-import { inferProviderFromModelName, providerDisplayLabel } from "@/lib/provider-brand";
+import { resolvedModelProvider } from "@/lib/model-preset";
+import { providerDisplayLabel } from "@/lib/provider-brand";
 import type {
   AgentInfo,
   ChatSummary,
@@ -106,30 +107,6 @@ interface ModelBadgeInfo {
   provider: string | null;
   providerLabel: string | null;
   apiBase: string | null;
-}
-
-export function activeModelPreset(settings: SettingsPayload | null): SettingsPayload["model_presets"][number] | null {
-  if (!settings) return null;
-  const configured = settings.agent.model_preset || "default";
-  return (
-    settings.model_presets.find((preset) => preset.name === configured)
-    ?? settings.model_presets.find((preset) => preset.active)
-    ?? null
-  );
-}
-
-export function resolvedModelProvider(settings: SettingsPayload | null, modelName: string | null): string | null {
-  const preset = activeModelPreset(settings);
-  const rawProvider = preset?.provider || settings?.agent.provider || null;
-  if (rawProvider === "auto") {
-    return settings?.agent.resolved_provider || inferProviderFromModelName(modelName) || null;
-  }
-  // custom 命名 preset:返回虚拟 row name(custom__<preset_name>),
-  // 让 header 下拉和设置页匹配到对应的独立虚拟卡片
-  if (rawProvider === "custom" && preset && !preset.is_default) {
-    return `custom__${preset.name}`;
-  }
-  return rawProvider || inferProviderFromModelName(modelName);
 }
 
 function toModelBadgeInfo(modelName: string | null, settings: SettingsPayload | null): ModelBadgeInfo {

@@ -2,6 +2,7 @@
 // 从 SettingsView.tsx 拆分而来。
 
 import type { Dispatch, SetStateAction } from "react";
+import { useRef } from "react";
 import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -44,6 +45,19 @@ export function NewModelConfigurationDialog({
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
   const isCustom = draft.provider === "custom";
+  // ClearableInput does not forward a ref, so we focus the configuration
+  // name input through its wrapping label when the dialog opens. This
+  // replaces the previous raw `autoFocus` prop (which harms screen-reader
+  // / keyboard UX). onOpenAutoFocus fires after Radix Portal content is
+  // mounted, so the ref is guaranteed to be set (a plain useEffect would
+  // run before the Portal commits and the ref would be null).
+  const nameLabelRef = useRef<HTMLLabelElement>(null);
+
+  const handleOpenAutoFocus = (event: Event) => {
+    event.preventDefault();
+    nameLabelRef.current?.querySelector("input")?.focus();
+  };
+
   // custom provider 必须自带 api_key+api_base(单例未配置);其他 provider 可选自带凭证
   const canSave = Boolean(
     draft.label.trim() && draft.provider.trim() && draft.model.trim()
@@ -51,7 +65,7 @@ export function NewModelConfigurationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[520px] p-0">
+      <DialogContent className="max-w-[520px] p-0" onOpenAutoFocus={handleOpenAutoFocus}>
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -72,12 +86,11 @@ export function NewModelConfigurationDialog({
           </DialogHeader>
 
           <div className="space-y-4 px-5 py-5">
-            <label className="block">
+            <label ref={nameLabelRef} className="block">
               <span className="mb-1.5 block text-[12px] font-medium text-muted-foreground">
                 {tx("settings.models.configurationName", "Name")}
               </span>
               <ClearableInput
-                autoFocus
                 value={draft.label}
                 placeholder={tx("settings.models.configurationNamePlaceholder", "Fast writing")}
                 onChange={(event) =>

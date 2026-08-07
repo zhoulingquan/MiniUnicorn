@@ -488,13 +488,6 @@ class TestModifyOpen:
         assert "protected" in result
 
     @pytest.mark.asyncio
-    async def test_modify_pending_queues_blocked(self):
-        """_pending_queues controls message routing — must be blocked."""
-        tool = _make_tool()
-        result = await tool.execute(action="set", key="_pending_queues", value={})
-        assert "protected" in result
-
-    @pytest.mark.asyncio
     async def test_modify_session_locks_blocked(self):
         """_session_locks controls session isolation — must be blocked."""
         tool = _make_tool()
@@ -502,17 +495,10 @@ class TestModifyOpen:
         assert "protected" in result
 
     @pytest.mark.asyncio
-    async def test_modify_active_tasks_blocked(self):
-        """_active_tasks tracks running tasks — must be blocked."""
-        tool = _make_tool()
-        result = await tool.execute(action="set", key="_active_tasks", value={})
-        assert "protected" in result
-
-    @pytest.mark.asyncio
     async def test_modify_background_tasks_blocked(self):
-        """_background_tasks tracks background tasks — must be blocked."""
+        """_background_supervisor tracks background tasks — must be blocked."""
         tool = _make_tool()
-        result = await tool.execute(action="set", key="_background_tasks", value=[])
+        result = await tool.execute(action="set", key="_background_supervisor", value=[])
         assert "protected" in result
 
     @pytest.mark.asyncio
@@ -1104,3 +1090,129 @@ class TestSetContext:
         tool.set_context(RequestContext(channel="feishu", chat_id="oc_abc123"))
         assert tool._channel == "feishu"
         assert tool._chat_id == "oc_abc123"
+
+
+# ---------------------------------------------------------------------------
+# Bound TurnRuntime: _current_iteration and _last_usage resolve through
+# the current turn's runtime, not a shared loop-global field.
+# ---------------------------------------------------------------------------
+
+
+class TestBoundRuntimeReads:
+    """When a TurnRuntime is bound, self-tool reads must resolve through it."""
+
+    @pytest.mark.asyncio
+    async def test_current_iteration_reads_bound_runtime(self, tmp_path):
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from miniunicorn.agent.loop import AgentLoop
+        from miniunicorn.agent.turn_runtime import (
+            TurnRuntime,
+            bind_turn_runtime,
+            reset_turn_runtime,
+        )
+        from miniunicorn.bus.queue import MessageBus
+
+        bus = MessageBus()
+        provider = MagicMock()
+        provider.get_default_model.return_value = "test-model"
+        with (
+            patch("miniunicorn.agent.loop.ContextBuilder"),
+            patch("miniunicorn.agent.loop.SessionManager"),
+            patch("miniunicorn.agent.loop.SubagentManager") as MockSubMgr,
+        ):
+            MockSubMgr.return_value.cancel_by_session = AsyncMock(return_value=0)
+            real_loop = AgentLoop(
+                bus=bus, provider=provider, workspace=tmp_path, model="test-model"
+            )
+
+        runtime = TurnRuntime(
+            turn_id="test",
+            session_key="ws:a",
+            iteration=3,
+        )
+        token = bind_turn_runtime(runtime)
+        try:
+            tool = MyTool(runtime_state=real_loop)
+            result = await tool.execute(action="check", key="_current_iteration")
+            assert "3" in result
+        finally:
+            reset_turn_runtime(token)
+
+    @pytest.mark.asyncio
+    async def test_last_usage_reads_bound_runtime(self, tmp_path):
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from miniunicorn.agent.loop import AgentLoop
+        from miniunicorn.agent.turn_runtime import (
+            TurnRuntime,
+            bind_turn_runtime,
+            reset_turn_runtime,
+        )
+        from miniunicorn.bus.queue import MessageBus
+
+        bus = MessageBus()
+        provider = MagicMock()
+        provider.get_default_model.return_value = "test-model"
+        with (
+            patch("miniunicorn.agent.loop.ContextBuilder"),
+            patch("miniunicorn.agent.loop.SessionManager"),
+            patch("miniunicorn.agent.loop.SubagentManager") as MockSubMgr,
+        ):
+            MockSubMgr.return_value.cancel_by_session = AsyncMock(return_value=0)
+            real_loop = AgentLoop(
+                bus=bus, provider=provider, workspace=tmp_path, model="test-model"
+            )
+
+        runtime = TurnRuntime(
+            turn_id="test",
+            session_key="ws:a",
+            usage={"prompt_tokens": 42, "completion_tokens": 7},
+            last_call_usage={"prompt_tokens": 42, "completion_tokens": 7},
+        )
+        token = bind_turn_runtime(runtime)
+        try:
+            tool = MyTool(runtime_state=real_loop)
+            result = await tool.execute(action="check", key="_last_usage")
+            assert "42" in result
+        finally:
+            reset_turn_runtime(token)
+
+    @pytest.mark.asyncio
+    async def test_last_usage_dot_path_reads_bound_runtime(self, tmp_path):
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from miniunicorn.agent.loop import AgentLoop
+        from miniunicorn.agent.turn_runtime import (
+            TurnRuntime,
+            bind_turn_runtime,
+            reset_turn_runtime,
+        )
+        from miniunicorn.bus.queue import MessageBus
+
+        bus = MessageBus()
+        provider = MagicMock()
+        provider.get_default_model.return_value = "test-model"
+        with (
+            patch("miniunicorn.agent.loop.ContextBuilder"),
+            patch("miniunicorn.agent.loop.SessionManager"),
+            patch("miniunicorn.agent.loop.SubagentManager") as MockSubMgr,
+        ):
+            MockSubMgr.return_value.cancel_by_session = AsyncMock(return_value=0)
+            real_loop = AgentLoop(
+                bus=bus, provider=provider, workspace=tmp_path, model="test-model"
+            )
+
+        runtime = TurnRuntime(
+            turn_id="test",
+            session_key="ws:a",
+            usage={"prompt_tokens": 99},
+            last_call_usage={"prompt_tokens": 99},
+        )
+        token = bind_turn_runtime(runtime)
+        try:
+            tool = MyTool(runtime_state=real_loop)
+            result = await tool.execute(action="check", key="_last_usage.prompt_tokens")
+            assert "99" in result
+        finally:
+            reset_turn_runtime(token)

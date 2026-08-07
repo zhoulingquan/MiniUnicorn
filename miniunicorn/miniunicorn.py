@@ -88,15 +88,25 @@ class Miniunicorn:
                 Different keys get independent history.
             hooks: Optional lifecycle hooks for this run.
         """
+        from miniunicorn.bus.events import InboundMessage
+
         capture = SDKCaptureHook()
-        # Bind hooks to this single turn via process_direct's hooks parameter
-        # instead of mutating the loop's shared _extra_hooks. This makes
-        # concurrent run() calls with different hooks safe (no cross-talk).
+        # Bind hooks to this single turn via turn_hooks parameter instead of
+        # mutating the loop's shared _extra_hooks. This makes concurrent run()
+        # calls with different hooks safe (no cross-talk).
         base_hooks = list(hooks) if hooks is not None else list(self._loop._extra_hooks)
-        response = await self._loop.process_direct(
-            message,
+        await self._loop._connect_mcp()
+        msg = InboundMessage(
+            channel="cli",
+            sender_id="user",
+            chat_id="direct",
+            content=message,
+            media=[],
+        )
+        response = await self._loop._process_message(
+            msg,
             session_key=session_key,
-            hooks=[capture, *base_hooks],
+            turn_hooks=[capture, *base_hooks],
         )
 
         content = (response.content if response else None) or ""

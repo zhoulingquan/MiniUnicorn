@@ -114,6 +114,8 @@ export function ChannelCard({
           </div>
         </div>
         <span
+          role="button"
+          tabIndex={0}
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => e.stopPropagation()}
         >

@@ -2,13 +2,12 @@
 
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from miniunicorn.agent.tools.base import Tool, tool_parameters
 from miniunicorn.agent.tools.context import ContextAware, RequestContext
 from miniunicorn.agent.tools.path_utils import resolve_workspace_path
 from miniunicorn.agent.tools.schema import ArraySchema, StringSchema, tool_parameters_schema
-from miniunicorn.bus.events import OutboundMessage
 from miniunicorn.config.paths import get_workspace_path
 from miniunicorn.security.workspace_access import current_tool_workspace
 
@@ -48,14 +47,12 @@ class MessageTool(Tool, ContextAware):
 
     def __init__(
         self,
-        send_callback: Callable[[OutboundMessage], Awaitable[None]] | None = None,
         default_channel: str = "",
         default_chat_id: str = "",
         default_message_id: str | None = None,
         workspace: str | Path | None = None,
         restrict_to_workspace: bool = False,
     ):
-        self._send_callback = send_callback
         self._workspace = (
             Path(workspace).expanduser() if workspace is not None else get_workspace_path()
         )
@@ -86,9 +83,7 @@ class MessageTool(Tool, ContextAware):
 
     @classmethod
     def create(cls, ctx: Any) -> Tool:
-        send_callback = ctx.bus.publish_outbound if ctx.bus else None
         return cls(
-            send_callback=send_callback,
             workspace=ctx.workspace,
             restrict_to_workspace=ctx.config.restrict_to_workspace,
         )
@@ -99,10 +94,6 @@ class MessageTool(Tool, ContextAware):
         self._default_chat_id.set(ctx.chat_id)
         self._default_message_id.set(ctx.message_id)
         self._default_metadata.set(dict(ctx.metadata or {}))
-
-    def set_send_callback(self, callback: Callable[[OutboundMessage], Awaitable[None]]) -> None:
-        """Set the callback for sending messages."""
-        self._send_callback = callback
 
     def start_turn(self) -> None:
         """Reset per-turn send tracking."""
@@ -165,6 +156,55 @@ class MessageTool(Tool, ContextAware):
                 resolved.append(str(resolve_workspace_path(p, workspace, access.allowed_root)))
         return resolved
 
+    async def _try_durable_enqueue(
+        self,
+        *,
+        content: str,
+        channel: str,
+        chat_id: str,
+        media: list[str] | None,
+        same_target: bool,
+        message_id: str | None,
+    ) -> str | None:
+        """Enqueue to the Outbox via the bound ``OutboundPort``.
+
+        Returns the tool result string (with ``outbox_id`` receipt) when
+        an ``OutboundPort`` is bound to the current turn, or ``None`` when
+        the legacy direct-Channel path should be used (design §20.6).
+        """
+        from miniunicorn.agent.ports import OutboundRequest
+        from miniunicorn.agent.turn_runtime import current_turn_runtime
+
+        runtime = current_turn_runtime()
+        if runtime is None or runtime.outbound_port is None:
+            raise RuntimeError("OutboundPort is required (design §20.6, WP5 hard cutover)")
+
+        receipt = await runtime.outbound_port.enqueue(
+            OutboundRequest(
+                content=content,
+                channel=channel,
+                target_key=chat_id,
+                media=tuple(media or ()),
+                same_target=same_target,
+            )
+        )
+
+        # Mark as sent in turn so the Worker can suppress the final reply
+        # when the MessageTool targeted the current chat (design §17.8).
+        if same_target:
+            self._sent_in_turn = True
+            if media:
+                prev = self._turn_delivered_media_var.get()
+                self._turn_delivered_media_var.set(
+                    prev + tuple(str(p) for p in media)
+                )
+
+        media_info = f" with {len(media)} attachments" if media else ""
+        return (
+            f"Message queued for delivery to {channel}:{chat_id}{media_info} "
+            f"(outbox_id={receipt.outbox_id})"
+        )
+
     async def execute(
         self,
         content: str,
@@ -217,39 +257,21 @@ class MessageTool(Tool, ContextAware):
         if not channel or not chat_id:
             return "Error: No target channel/chat specified"
 
-        if not self._send_callback:
-            return "Error: Message sending not configured"
-
         if media:
             try:
                 media = self._resolve_media(media)
             except (OSError, PermissionError, ValueError) as e:
                 return f"Error: media path is not allowed: {str(e)}"
 
-        metadata = dict(self._default_metadata.get()) if same_target else {}
-        if message_id:
-            metadata["message_id"] = message_id
-        if self._record_channel_delivery_var.get() or media:
-            metadata["_record_channel_delivery"] = True
-
-        msg = OutboundMessage(
+        # Durable runtime: route through Outbox (design §20.6, WP5 hard
+        # cutover). OutboundPort is mandatory — every message tool call
+        # enqueues one Outbox row and returns the outbox_id as the receipt.
+        # The OutboxSender performs actual Channel delivery.
+        return await self._try_durable_enqueue(
+            content=content,
             channel=channel,
             chat_id=chat_id,
-            content=content,
-            media=media or [],
-            buttons=buttons or [],
-            metadata=metadata,
+            media=media,
+            same_target=same_target,
+            message_id=message_id,
         )
-
-        try:
-            await self._send_callback(msg)
-            if channel == default_channel and chat_id == default_chat_id:
-                self._sent_in_turn = True
-                if media:
-                    prev = self._turn_delivered_media_var.get()
-                    self._turn_delivered_media_var.set(prev + tuple(str(p) for p in media))
-            media_info = f" with {len(media)} attachments" if media else ""
-            button_info = f" with {sum(len(row) for row in buttons)} button(s)" if buttons else ""
-            return f"Message sent to {channel}:{chat_id}{media_info}{button_info}"
-        except Exception as e:
-            return f"Error sending message: {str(e)}"

@@ -336,8 +336,8 @@ function normalizeFileEdit(edit: UIFileEdit): UIFileEdit | null {
   const normalized: UIFileEdit = {
     ...edit,
     call_id: edit.call_id || `${edit.tool}:${edit.path}`,
-    added: Number.isFinite(edit.added) ? Math.max(0, Math.round(edit.added)) : 0,
-    deleted: Number.isFinite(edit.deleted) ? Math.max(0, Math.round(edit.deleted)) : 0,
+    added: Number.isFinite(edit.added ?? 0) ? Math.max(0, Math.round(edit.added ?? 0)) : 0,
+    deleted: Number.isFinite(edit.deleted ?? 0) ? Math.max(0, Math.round(edit.deleted ?? 0)) : 0,
     status: edit.status === "error" || edit.status === "done" || edit.status === "editing"
       ? edit.status
       : inferredStatus,
@@ -685,6 +685,7 @@ export function useMiniunicornStream(
   useEffect(() => {
     if (!chatId) return;
 
+    const closedAssistantStreamIds = closedAssistantStreamIdsRef.current;
     const handle = (ev: InboundEvent) => {
       if (ev.event === "delta") {
         if (suppressStreamUntilTurnEndRef.current) return;
@@ -937,7 +938,7 @@ export function useMiniunicornStream(
       unsub();
       buffer.current = null;
       activeAssistantRef.current = null;
-      closedAssistantStreamIdsRef.current.clear();
+      closedAssistantStreamIds.clear();
       clearActivitySegment();
       clearPendingStreamWork();
     };

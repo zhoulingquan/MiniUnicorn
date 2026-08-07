@@ -9,8 +9,6 @@ through multiple inheritance (see :class:`McpLifecycleMixin`).
 
 from __future__ import annotations
 
-import asyncio
-from contextlib import suppress
 from typing import TYPE_CHECKING
 
 from loguru import logger
@@ -30,11 +28,11 @@ _BACKGROUND_CANCEL_TIMEOUT_S = 5.0
 class McpLifecycleMixin:
     """Default-tool registration and MCP server lifecycle for :class:`AgentLoop`.
 
-    Reads several ``self`` attributes that are owned by :class:`AgentLoop``
+    Reads several ``self`` attributes that are owned by :class:`AgentLoop`
     (``tools``, ``tools_config``, ``workspace``, ``bus``, ``subagents``,
     ``cron_service``, ``sessions``, ``_provider_snapshot_loader``,
     ``workspace_scopes``, ``_vector_recall``, ``context``,
-    ``subagent_registry``, ``_mcp_stacks``, ``_background_tasks``).
+    ``subagent_registry``, ``_mcp_stacks``, ``_background_supervisor``).
     """
 
     def _register_default_tools(self: "AgentLoop") -> None:
@@ -72,35 +70,12 @@ class McpLifecycleMixin:
         await agent_context.connect_mcp(self, self.tools)
 
     async def close_mcp(self: "AgentLoop") -> None:
-        """Cancel in-flight turns, drain background tasks, then close MCP connections.
-
-        Shutdown is bounded: in-flight dispatch tasks are cancelled (their
-        CancelledError handler restores partial context checkpoints) and
-        background tasks are drained with a deadline, so a hung consolidation
-        or exec session cannot wedge shutdown forever.
-        """
-        # 1) Cancel in-flight per-session turns so session saves do not race
-        # process teardown (partial JSONL writes).
-        await self._cancel_all_active_tasks()
-        # 2) Drain background tasks (consolidation, dream, exec sessions) with
-        # a bounded deadline; cancel stragglers.
-        if self._background_tasks:
-            _done, pending = await asyncio.wait(
-                self._background_tasks,
-                timeout=_BACKGROUND_DRAIN_TIMEOUT_S,
-                return_when=asyncio.ALL_COMPLETED,
-            )
-            if pending:
-                logger.warning(
-                    "Shutdown: {} background task(s) still running after {:.0f}s; cancelling",
-                    len(pending),
-                    _BACKGROUND_DRAIN_TIMEOUT_S,
-                )
-                for task in pending:
-                    task.cancel()
-                with suppress(asyncio.TimeoutError):
-                    await asyncio.wait(pending, timeout=_BACKGROUND_CANCEL_TIMEOUT_S)
-            self._background_tasks.clear()
+        """Drain pending background archives, then close MCP connections."""
+        # Drain supervised background jobs (archives/consolidation) with a
+        # bounded timeout so a stuck job cannot block shutdown indefinitely.
+        await self._background_supervisor.close(cancel=False, timeout_s=30)
+        # Give the runner's reflection supervisor a chance to flush too.
+        await self.runner.aclose()
         for name, stack in self._mcp_stacks.items():
             try:
                 await stack.aclose()

@@ -104,7 +104,7 @@ class TestFingerprint:
         assert isinstance(store2, NoOpVectorStore)
         assert store2.enabled is False
         assert store2.reason == "fingerprint_mismatch"
-        assert store2.search([0.0] * 512, limit=5) == []
+        assert store2.search([0.0] * 512) == []
         store2.close()
 
     def test_model_mismatch_returns_noop(self, vec_enabled):
@@ -143,10 +143,18 @@ class TestNoOpFallback:
         from miniunicorn.agent import vector_memory as vm
 
         monkeypatch.setattr(vm, "_try_load_sqlite_vec", lambda _conn: False)
-        store = create_vector_store(tmp_path / "vec.db")
+        store = vm.create_vector_store(tmp_path / "vec.db")
         assert store.status().state == "failed"
         assert store.count_sources() == 0
         assert store.search([0.0] * 512, limit=5) == []
+
+    def test_noop_when_sqlite_vec_missing(self, tmp_path, monkeypatch):
+        from miniunicorn.runtime.sqlite import vector_memory_store as vms
+
+        monkeypatch.setattr(vms, "_try_load_sqlite_vec", lambda _conn: False)
+        store = vms.create_vector_store(tmp_path / "vec.db", embedding_dim=4)
+        assert isinstance(store, NoOpVectorStore)
+        assert store.enabled is False
 
     def test_noop_vector_store_still_available_for_legacy_fallback(self):
         store = NoOpVectorStore()

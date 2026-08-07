@@ -99,6 +99,13 @@ class CronService:
         # 时出现 read-modify-write 竞态。持锁期间不要 await。
         self._store_lock = threading.Lock()
         self.on_job = on_job
+        # Durable enqueue callback for system_event jobs (design §22.3, §29.16).
+        # When set, system_event jobs (dream, heartbeat, etc.) enqueue a
+        # durable internal task via this callback instead of calling on_job
+        # directly. This ensures required background work survives restarts.
+        self.system_enqueue_callback: (
+            Callable[[CronJob], Coroutine[Any, Any, str | None]] | None
+        ) = None
         self._store: CronStore | None = None
         # _timer_task 只负责 sleep + 调度 _on_timer;不直接执行 job。
         # 配置变化(add/remove/update job)只取消此 sleep task,不影响正在
@@ -527,7 +534,8 @@ class CronService:
                 # Spawn _on_timer as a separate task so a subsequent
                 # _arm_timer (which cancels self._timer_task) does not
                 # cancel a running _on_timer / _execute_job.
-                task = asyncio.create_task(self._on_timer())
+                timer_coro = self._on_timer()
+                task = asyncio.create_task(timer_coro)
                 self._exec_tasks.add(task)
                 task.add_done_callback(self._exec_task_done)
 
@@ -600,12 +608,27 @@ class CronService:
         ``finally`` so a cancelled job still gets its schedule recomputed —
         otherwise the schedule would go stale and the job would never fire
         again after a shutdown.
+
+        When ``system_enqueue_callback`` is set and the job is a
+        ``system_event`` job, the callback is called to enqueue a durable
+        internal task instead of calling ``on_job`` directly (design §22.3,
+        §29.16). This ensures required background work survives restarts.
         """
         start_ms = _now_ms()
         logger.info("Cron: executing job '{}' ({})", job.name, job.id)
 
         try:
-            if self.on_job:
+            if (
+                self.system_enqueue_callback is not None
+                and job.payload.kind == "system_event"
+            ):
+                # Durable mode: enqueue a maintenance task instead of
+                # executing directly (design §22.3).
+                task_id = await self.system_enqueue_callback(job)
+                logger.info(
+                    "Cron: job '{}' enqueued durable task {}", job.name, task_id
+                )
+            elif self.on_job:
                 await self.on_job(job)
 
             job.state.last_status = "ok"

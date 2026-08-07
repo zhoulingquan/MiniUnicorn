@@ -14,7 +14,12 @@ from typing import Any
 
 from loguru import logger
 
-from miniunicorn.bus.events import InboundMessage, OutboundMessage
+from miniunicorn.bus.agent_events import TurnEndEvent, serialize_agent_event
+from miniunicorn.bus.events import (
+    OUTBOUND_META_AGENT_EVENT,
+    InboundMessage,
+    OutboundMessage,
+)
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.providers.base import LLMProvider
 from miniunicorn.session.goal_state import goal_state_ws_blob
@@ -311,15 +316,31 @@ class WebuiTurnCoordinator:
         turn_metadata: dict[str, Any] = {**msg.metadata, "_turn_end": True}
         if latency_ms is not None:
             turn_metadata["latency_ms"] = int(latency_ms)
+        context_usage_blob: dict[str, Any] | None = None
         if context_usage:
-            turn_metadata["context_usage"] = {
+            context_usage_blob = {
                 "prompt_tokens": context_usage.get("prompt_tokens", 0),
                 "completion_tokens": context_usage.get("completion_tokens", 0),
                 "total_tokens": context_usage.get("total_tokens", 0),
                 "cached_tokens": context_usage.get("cached_tokens", 0),
             }
+            turn_metadata["context_usage"] = context_usage_blob
         session = self.sessions.get_or_create(session_key)
-        turn_metadata["goal_state"] = goal_state_ws_blob(session.metadata)
+        goal_state_blob = goal_state_ws_blob(session.metadata)
+        turn_metadata["goal_state"] = goal_state_blob
+
+        # Typed envelope: typed-aware WebSocket code validates and forwards
+        # this directly. Legacy ``_turn_end`` / ``latency_ms`` / ``goal_state``
+        # / ``context_usage`` flags remain for non-WebUI channels and older
+        # tests for one compatibility release.
+        typed_event = TurnEndEvent(
+            chat_id=msg.chat_id,
+            latency_ms=int(latency_ms) if latency_ms is not None else None,
+            goal_state=goal_state_blob,
+            context_usage=context_usage_blob,
+        )
+        turn_metadata[OUTBOUND_META_AGENT_EVENT] = serialize_agent_event(typed_event)
+
         await self.bus.publish_outbound(
             OutboundMessage(
                 channel=msg.channel,

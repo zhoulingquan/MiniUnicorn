@@ -24,6 +24,7 @@ from miniunicorn.utils.helpers import (
     current_time_str,
     detect_image_mime,
     load_bundled_template,
+    merge_message_content,
     truncate_text,
 )
 from miniunicorn.utils.prompt_templates import render_template
@@ -110,6 +111,8 @@ class ContextBuilder:
         session_summary: str | None = None,
         workspace: Path | None = None,
         memory_prompt: MemoryPromptPayload | None = None,
+        query_embedding: list[float] | None = None,
+        vector_recall: bool = False,
         agent_override: SubagentDefinition | None = None,
         light_context: bool = False,
     ) -> str:
@@ -163,11 +166,36 @@ class ContextBuilder:
         # Bounded memory injection: the caller pre-builds the payload (always
         # core + provenance-tagged recall records). Wrapped in the marker block
         # so the runner's per-call refresh can splice updated memory sections.
+        # When no payload is supplied and vector recall is active, the top-k
+        # relevant entries are injected instead. Without either, no MEMORY.md
+        # baseline is injected (bounded core memory is always part of the
+        # payload built by the embedding line's memory prompt policy).
+        vs = self.memory.vector_store
         if memory_prompt is not None and memory_prompt.text:
             block = memory_prompt.text
             if START_MARK not in block:
                 block = f"{START_MARK}\n{block}\n{END_MARK}"
             parts.append((self._PRIORITY_MEMORY, block))
+        elif vector_recall and query_embedding is not None and vs is not None and vs.enabled:
+            recalled = vs.search(query_embedding, k=5)
+            if recalled:
+                recall_text = "\n".join(
+                    f"- [{r['kind']}] ({r['similarity']:.2f}) {r['text']}" for r in recalled
+                )
+                parts.append(
+                    (self._PRIORITY_MEMORY, "# Memory (Relevant Recall)\n\n" + recall_text)
+                )
+
+        # Inject cross-session shared memory (global facts that apply to every
+        # session, written by Dream when it promotes universally-relevant
+        # content). Injected in both legacy and vector-recall modes so the
+        # agent always has access to the shared baseline regardless of how
+        # per-session memory is fetched.
+        shared = self.memory.read_shared_memory()
+        if shared and shared.strip():
+            parts.append(
+                (self._PRIORITY_SHARED_MEMORY, f"# Shared Memory (Cross-Session)\n\n{shared}")
+            )
 
         # 注入 notes.md（主 Agent 的 scratchpad，借鉴 MiMo Code）。
         # 主 Agent 用 write_file/edit_file 往 notes.md append 零散发现，
@@ -195,14 +223,33 @@ class ContextBuilder:
                     )
                 )
 
-            entries = self.memory.read_unprocessed_history(
-                since_cursor=self.memory.get_last_dream_cursor()
-            )
-            if entries:
-                capped = entries[-self._MAX_RECENT_HISTORY :]
-                history_text = "\n".join(f"- [{e['timestamp']}] {e['content']}" for e in capped)
-                history_text = truncate_text(history_text, self._MAX_HISTORY_CHARS)
-                parts.append((self._PRIORITY_HISTORY, "# Recent History\n\n" + history_text))
+            # History injection: full recent history by default; vector recall
+            # when enabled.
+            if vector_recall and query_embedding is not None and vs is not None and vs.enabled:
+                recalled_hist = vs.search(query_embedding, k=10, kind="history")
+                if recalled_hist:
+                    history_text = "\n".join(
+                        f"- [{r['created_at']}] ({r['similarity']:.2f}) {r['text']}"
+                        for r in recalled_hist
+                    )
+                    history_text = truncate_text(history_text, self._MAX_HISTORY_CHARS)
+                    parts.append(
+                        (
+                            self._PRIORITY_HISTORY,
+                            "# Recent History (Relevant Recall)\n\n" + history_text,
+                        )
+                    )
+            else:
+                entries = self.memory.read_unprocessed_history(
+                    since_cursor=self.memory.get_last_dream_cursor()
+                )
+                if entries:
+                    capped = entries[-self._MAX_RECENT_HISTORY :]
+                    history_text = "\n".join(
+                        f"- [{e['timestamp']}] {e['content']}" for e in capped
+                    )
+                    history_text = truncate_text(history_text, self._MAX_HISTORY_CHARS)
+                    parts.append((self._PRIORITY_HISTORY, "# Recent History\n\n" + history_text))
 
         if session_summary:
             parts.append(
@@ -381,20 +428,7 @@ class ContextBuilder:
 
     @staticmethod
     def _merge_message_content(left: Any, right: Any) -> str | list[dict[str, Any]]:
-        if isinstance(left, str) and isinstance(right, str):
-            return f"{left}\n\n{right}" if left else right
-
-        def _to_blocks(value: Any) -> list[dict[str, Any]]:
-            if isinstance(value, list):
-                return [
-                    item if isinstance(item, dict) else {"type": "text", "text": str(item)}
-                    for item in value
-                ]
-            if value is None:
-                return []
-            return [{"type": "text", "text": str(value)}]
-
-        return _to_blocks(left) + _to_blocks(right)
+        return merge_message_content(left, right)
 
     def _load_bootstrap_files(self, workspace: Path | None = None) -> str:
         """Load all bootstrap files from workspace."""
@@ -457,6 +491,8 @@ class ContextBuilder:
         inbound_message: Any | None = None,
         skip_runtime_lines: bool = False,
         memory_prompt: MemoryPromptPayload | None = None,
+        query_embedding: list[float] | None = None,
+        vector_recall: bool = False,
         agent_override: SubagentDefinition | None = None,
     ) -> list[dict[str, Any]]:
         """Build the complete message list for an LLM call."""
@@ -500,6 +536,8 @@ class ContextBuilder:
                     session_summary=session_summary,
                     workspace=root,
                     memory_prompt=memory_prompt,
+                    query_embedding=query_embedding,
+                    vector_recall=vector_recall,
                     agent_override=agent_override,
                     light_context=light_context,
                 ),

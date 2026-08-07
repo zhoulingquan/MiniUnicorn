@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Check, ChevronDown, Loader2, Plus, PlugZap, Upload } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -113,7 +113,7 @@ export function McpView({ onBack, token }: McpViewProps) {
   // 每个服务保存工具失败时返回的错误信息(按 server 名存储)
   const [toolsError, setToolsError] = useState<Record<string, string>>({});
 
-  const loadPresets = async () => {
+  const loadPresets = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -124,11 +124,11 @@ export function McpView({ onBack, token }: McpViewProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
 
   useEffect(() => {
     void loadPresets();
-  }, [token]);
+  }, [loadPresets, token]);
 
   useEffect(() => {
     const handler = (e: Event) => {

@@ -58,7 +58,7 @@ interface ActivityCounts {
 interface FileEditSummary {
   key: string;
   path: string;
-  absolute_path?: string;
+  absolute_path?: string | null;
   added: number;
   deleted: number;
   approximate: boolean;
@@ -1491,7 +1491,7 @@ function summarizeFileEdits(edits: UIFileEdit[], active: boolean): FileEditSumma
   interface MutableSummary {
     key: string;
     path: string;
-    absolute_path?: string;
+    absolute_path?: string | null;
     added: number;
     deleted: number;
     approximate: boolean;
@@ -1508,22 +1508,22 @@ function summarizeFileEdits(edits: UIFileEdit[], active: boolean): FileEditSumma
   const byPath = new Map<string, MutableSummary>();
   for (const edit of latestFileEditEvents(edits)) {
     const key = edit.path || edit.call_id || edit.tool;
-    let summary = byPath.get(key);
-    if (!summary) {
-      summary = {
-        key,
-        path: edit.path || "",
-        absolute_path: edit.absolute_path,
-        added: 0,
-        deleted: 0,
-        approximate: false,
-        binary: false,
-        pending: false,
-        hasSuccessfulChange: false,
-        hasActiveEditing: false,
-        hasFailed: false,
-        operation: undefined,
-      };
+    const existing = byPath.get(key);
+    const summary: MutableSummary = existing ?? {
+      key,
+      path: edit.path || "",
+      absolute_path: edit.absolute_path,
+      added: 0,
+      deleted: 0,
+      approximate: false,
+      binary: false,
+      pending: false,
+      hasSuccessfulChange: false,
+      hasActiveEditing: false,
+      hasFailed: false,
+      operation: undefined,
+    };
+    if (!existing) {
       byPath.set(key, summary);
       order.push(key);
     }
@@ -1543,8 +1543,8 @@ function summarizeFileEdits(edits: UIFileEdit[], active: boolean): FileEditSumma
         summary.hasActiveEditing = true;
         summary.approximate = summary.approximate || !!edit.approximate;
         if (!edit.binary) {
-          summary.added += edit.added;
-          summary.deleted += edit.deleted;
+          summary.added += edit.added ?? 0;
+          summary.deleted += edit.deleted ?? 0;
         }
       }
       continue;
@@ -1554,8 +1554,8 @@ function summarizeFileEdits(edits: UIFileEdit[], active: boolean): FileEditSumma
       summary.binary = summary.binary || !!edit.binary;
       summary.approximate = summary.approximate || !!edit.approximate;
       if (!edit.binary) {
-        summary.added += edit.added;
-        summary.deleted += edit.deleted;
+        summary.added += edit.added ?? 0;
+        summary.deleted += edit.deleted ?? 0;
       }
       continue;
     }
@@ -1570,8 +1570,8 @@ function summarizeFileEdits(edits: UIFileEdit[], active: boolean): FileEditSumma
     summary.binary = summary.binary || !!edit.binary;
     summary.approximate = active && (summary.approximate || !!edit.approximate);
     if (!edit.binary) {
-      summary.added += edit.added;
-      summary.deleted += edit.deleted;
+      summary.added += edit.added ?? 0;
+      summary.deleted += edit.deleted ?? 0;
     }
   }
 
@@ -1811,7 +1811,7 @@ function FileEditRow({ edit }: { edit: FileEditSummary }) {
         ) : (
           <FileReferenceChip
             path={edit.path}
-            tooltipPath={edit.absolute_path}
+            tooltipPath={edit.absolute_path ?? undefined}
             display="path"
             active={editing}
             className="min-w-0"
