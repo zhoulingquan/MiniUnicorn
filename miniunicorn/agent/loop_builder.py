@@ -136,14 +136,6 @@ class AgentLoopBuilder:
         self._kwargs["max_messages"] = max_messages
         return self
 
-    def with_vector_recall(self, vector_recall: bool) -> AgentLoopBuilder:
-        self._kwargs["vector_recall"] = vector_recall
-        return self
-
-    def with_embedding_model(self, embedding_model: str) -> AgentLoopBuilder:
-        self._kwargs["embedding_model"] = embedding_model
-        return self
-
     def with_hooks(self, hooks: list[AgentHook] | None) -> AgentLoopBuilder:
         self._kwargs["hooks"] = hooks
         return self
@@ -265,8 +257,6 @@ class AgentLoopBuilder:
         builder.with_session_ttl_minutes(defaults.session_ttl_minutes)
         builder.with_consolidation_ratio(defaults.consolidation_ratio)
         builder.with_max_messages(defaults.max_messages)
-        builder.with_vector_recall(defaults.vector_recall)
-        builder.with_embedding_model(defaults.embedding_model)
         builder.with_tools_config(config.tools)
         builder.with_model_presets(preset_helpers.configured_model_presets(config))
         builder.with_model_preset(defaults.model_preset)

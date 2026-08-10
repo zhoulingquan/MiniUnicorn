@@ -161,8 +161,6 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         session_ttl_minutes: int = 0,
         consolidation_ratio: float = 0.5,
         max_messages: int = 120,
-        vector_recall: bool = False,
-        embedding_model: str = "text-embedding-3-small",
         hooks: list[AgentHook] | None = None,
         unified_session: bool = False,
         disabled_skills: list[str] | None = None,
@@ -341,22 +339,6 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             min_entries=defaults.dream.idle_trigger_min_entries,
             min_interval_s=defaults.dream.idle_trigger_min_interval_s,
         )
-        # Attach vector store to memory if enabled (optional sqlite-vec dependency).
-        self._vector_recall = vector_recall
-        self._embedding_model = embedding_model
-        if vector_recall:
-            from miniunicorn.agent.vector_memory import create_vector_store
-
-            vector_store = create_vector_store(self.workspace / "memory" / "memory.db")
-            self.context.memory.attach_vector_store(vector_store)
-            # TODO(embedding): wrap `provider` with EmbeddingProvider when
-            # config.providers.embedding_provider is set, so a non-OpenAI chat
-            # provider (e.g. Anthropic) can emit embeddings via a separate
-            # OpenAI-compatible endpoint. Sketch:
-            #   from miniunicorn.providers.embedding import EmbeddingProvider
-            #   emb_cfg = config.providers  # has embedding_* fields
-            #   provider = EmbeddingProvider(provider, emb_cfg)
-            self.context.memory.set_embed_provider(provider, model=embedding_model)
         self.model_presets: dict[str, ModelPresetConfig] = model_presets or {}
         self._active_preset: str | None = None
         if model_preset:
@@ -471,23 +453,6 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             return True
         return False
 
-    async def _compute_query_embedding(self, text: str) -> list[float] | None:
-        """Compute embedding for *text* when vector recall is enabled."""
-        if not self._vector_recall or not text:
-            return None
-        try:
-            embeddings = await self.provider.embed(
-                [text[:500]],
-                model=self._embedding_model,
-            )
-            if embeddings:
-                return embeddings[0]
-        except NotImplementedError:
-            pass
-        except Exception:
-            logger.debug("Query embedding failed", exc_info=True)
-        return None
-
     async def _build_initial_messages(
         self,
         msg: InboundMessage,
@@ -498,7 +463,6 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
     ) -> list[dict[str, Any]]:
         """Build the initial message list for the LLM turn."""
         scope = self.workspace_scopes.for_message(msg, session.metadata)
-        query_embedding = await self._compute_query_embedding(msg.content)
         return self.context.build_messages(
             history=history,
             current_message=msg.content,
@@ -511,8 +475,6 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             workspace=scope.project_path,
             runtime_state=self,
             inbound_message=msg,
-            query_embedding=query_embedding,
-            vector_recall=self._vector_recall,
             agent_override=agent_override,
         )
 
@@ -1124,9 +1086,6 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         history = session.get_history(**_hist_kwargs)
         current_role = "assistant" if is_subagent else "user"
         workspace_scope = self.workspace_scopes.for_message(msg, session.metadata)
-        query_embedding = await self._compute_query_embedding(
-            "" if is_subagent else msg.content,
-        )
 
         messages = self.context.build_messages(
             history=history,
@@ -1141,8 +1100,6 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             runtime_state=self,
             inbound_message=msg,
             skip_runtime_lines=is_subagent,
-            query_embedding=query_embedding,
-            vector_recall=self._vector_recall,
         )
         t_wall = time.time()
         final_content, _, all_msgs, stop_reason, _ = await self._run_agent_loop(

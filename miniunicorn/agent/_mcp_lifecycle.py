@@ -27,8 +27,8 @@ class McpLifecycleMixin:
     Reads several ``self`` attributes that are owned by :class:`AgentLoop``
     (``tools``, ``tools_config``, ``workspace``, ``bus``, ``subagents``,
     ``cron_service``, ``sessions``, ``_provider_snapshot_loader``,
-    ``workspace_scopes``, ``_vector_recall``, ``context``,
-    ``subagent_registry``, ``_mcp_stacks``, ``_background_tasks``).
+    ``workspace_scopes``, ``subagent_registry``, ``_mcp_stacks``,
+    ``_background_tasks``).
     """
 
     def _register_default_tools(self: "AgentLoop") -> None:
@@ -46,7 +46,6 @@ class McpLifecycleMixin:
             provider_snapshot_loader=self._provider_snapshot_loader,
             timezone="UTC",
             workspace_sandbox=self.workspace_scopes.sandbox_status,
-            memory_store=self.context.memory if self._vector_recall else None,
             subagent_registry=self.subagent_registry,
         )
         loader = ToolLoader()

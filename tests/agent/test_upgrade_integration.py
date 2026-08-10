@@ -6,8 +6,6 @@ Covers the upgraded components and their wiring:
   * delegate tool (tools/delegate.py) -> name-based dispatch via SubagentRegistry
   * SubagentRegistry (subagent_registry.py) -> scans agents/*.md
   * spawn_and_wait (subagent.py) -> await subagent + override passthrough
-  * VectorMemoryStore (vector_memory.py) -> sqlite-vec retrieval (NoOp fallback)
-  * recall tool (tools/recall.py) -> active memory recall
   * TurnBudget (turn_budget.py) -> cross-turn token accounting
   * Reflection (reflection.py) -> reflection persistence
   * ContextGovernor (context_governor.py) -> pluggable context governance
@@ -33,7 +31,6 @@ from miniunicorn.agent.tools.context import RequestContext
 from miniunicorn.agent.tools.delegate import DelegateTool
 from miniunicorn.agent.tools.execute_plan import ExecutePlanTool
 from miniunicorn.agent.turn_budget import TurnBudget
-from miniunicorn.agent.vector_memory import NoOpVectorStore, VectorMemoryStore
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.config.schema import AgentDefaults
 from miniunicorn.providers.base import LLMProvider, LLMResponse
@@ -263,78 +260,7 @@ def test_spawn_and_wait_signature_has_overrides():
 
 
 # ---------------------------------------------------------------------------
-# 4. VectorMemoryStore roundtrip (NoOp fallback)
-# ---------------------------------------------------------------------------
-
-
-def test_vector_memory_noop_store_contract():
-    """NoOpVectorStore reports disabled and returns empty results."""
-    store = NoOpVectorStore()
-    assert store.enabled is False
-    assert store.index("text", [0.1] * 8) is None
-    assert store.search([0.1] * 8, k=5) == []
-    assert store.count() == 0
-    store.close()  # must not raise
-
-
-def test_vector_memory_store_disabled_when_no_sqlite_vec(tmp_path, monkeypatch):
-    """VectorMemoryStore degrades to disabled when sqlite-vec is unavailable."""
-    from miniunicorn.agent import vector_memory as vm
-
-    def _fail_load(_conn):
-        return False
-
-    monkeypatch.setattr(vm, "_try_load_sqlite_vec", _fail_load)
-
-    store = VectorMemoryStore(tmp_path / "vec.db", embedding_dim=4)
-    assert store.enabled is False
-    # Disabled store behaves like NoOp
-    assert store.index("hi", [0.1, 0.2, 0.3, 0.4]) is None
-    assert store.search([0.1, 0.2, 0.3, 0.4], k=3) == []
-    assert store.count() == 0
-    store.close()
-
-
-def test_create_vector_store_falls_back_to_noop(tmp_path, monkeypatch):
-    """create_vector_store returns NoOpVectorStore when sqlite-vec is missing."""
-    from miniunicorn.agent import vector_memory as vm
-
-    monkeypatch.setattr(vm, "_try_load_sqlite_vec", lambda _conn: False)
-    store = vm.create_vector_store(tmp_path / "vec.db", embedding_dim=4)
-    assert isinstance(store, NoOpVectorStore)
-    assert store.enabled is False
-
-
-def test_agent_loop_uses_memory_db_for_vector_recall(tmp_path, monkeypatch):
-    """Vector recall stores its internal index at memory/memory.db."""
-    from miniunicorn.agent import vector_memory as vm
-    from miniunicorn.agent.loop import AgentLoop
-
-    provider = MagicMock(spec=LLMProvider)
-    provider.get_default_model.return_value = "test-model"
-    provider.generation = SimpleNamespace(
-        max_tokens=4096,
-        temperature=0.1,
-        reasoning_effort=None,
-    )
-    vector_store = MagicMock()
-    create_vector_store = MagicMock(return_value=vector_store)
-    monkeypatch.setattr(vm, "create_vector_store", create_vector_store)
-
-    AgentLoop(
-        bus=MessageBus(),
-        provider=provider,
-        workspace=tmp_path,
-        model="test-model",
-        context_window_tokens=128_000,
-        vector_recall=True,
-    )
-
-    create_vector_store.assert_called_once_with(tmp_path / "memory" / "memory.db")
-
-
-# ---------------------------------------------------------------------------
-# 5. TurnBudget tracking
+# 4. TurnBudget tracking
 # ---------------------------------------------------------------------------
 
 
@@ -391,7 +317,7 @@ def test_turn_budget_summary_includes_exceeded_reason():
 
 
 # ---------------------------------------------------------------------------
-# 6. Reflection persistence
+# 5. Reflection persistence
 # ---------------------------------------------------------------------------
 
 
@@ -484,7 +410,7 @@ async def test_reflection_no_workspace_skips(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 7. ContextGovernor default strategies
+# 6. ContextGovernor default strategies
 # ---------------------------------------------------------------------------
 
 
@@ -518,7 +444,7 @@ def test_context_governor_builtin_pipeline_order():
 
 
 # ---------------------------------------------------------------------------
-# 8. SubagentRegistry empty when no agents/ dir
+# 7. SubagentRegistry empty when no agents/ dir
 # ---------------------------------------------------------------------------
 
 
@@ -558,7 +484,7 @@ def test_registry_loads_multiple_agents(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 9. execute_plan serial mode chains results
+# 8. execute_plan serial mode chains results
 # ---------------------------------------------------------------------------
 
 
@@ -603,7 +529,7 @@ async def test_execute_plan_serial_chains_results(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 10. Full chain mock (lightweight end-to-end)
+# 9. Full chain mock (lightweight end-to-end)
 # ---------------------------------------------------------------------------
 
 

@@ -57,5 +57,4 @@ class ToolContext:
     provider_snapshot_loader: Callable[[], Any] | None = None
     timezone: str = "UTC"
     workspace_sandbox: Any | None = None
-    memory_store: Any = None  # MemoryStore reference for RecallTool (None = disabled)
     subagent_registry: Any = None  # SubagentRegistry for delegate tool (None = no agents/ dir)

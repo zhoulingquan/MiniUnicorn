@@ -1077,7 +1077,6 @@
       "message": "Proactively send a message to a user/channel, optionally with files",
       "my": "Check and set the agent's own runtime state",
       "read_file": "Read a file (text, image, or document)",
-      "recall": "Search past memories and conversation summaries",
       "run_cli_app": "Run a CLI App installed in Settings",
       "spawn": "Spawn a subagent to handle a task in the background",
       "web_fetch": "Fetch a URL and extract readable content",
