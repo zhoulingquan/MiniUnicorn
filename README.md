@@ -44,8 +44,8 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 | #   | Harness 模块                        | MiniUnicorn 实现                     | 关键文件                                                       |
 | --- | --------------------------------- | ---------------------------------- | ---------------------------------------------------------- |
 | 1   | 编排循环 Orchestration Loop           | AgentLoop → AgentRunner 的 ReAct 循环 | `agent/loop.py` · `agent/runner.py`                        |
-| 2   | 工具系统 Tools                        | 25 类内置工具 + MCP + CLI 应用            | `agent/tools/`                                             |
-| 3   | 记忆系统 Memory                       | 分层记忆 + Consolidator/Dream 两阶段      | `agent/memory.py` · `agent/vector_memory.py`               |
+| 2   | 工具系统 Tools                        | 24 类内置工具 + MCP + CLI 应用            | `agent/tools/`                                             |
+| 3   | 记忆系统 Memory                       | 分层记忆 + Consolidator/Dream 两阶段      | `agent/memory.py`                                          |
 | 4   | 上下文管理 Context Management          | 策略化上下文治理与多级压缩                      | `agent/context_governor.py` · `agent/runner_strategies.py` |
 | 5   | Prompt 构建 Prompt Construction     | 分层组装 + 技能按需注入                      | `agent/context.py` · `agent/skills.py`                     |
 | 6   | 输出解析 Output Parsing               | 原生 Function Calling + JSON 修复      | `providers/*/parsing.py`                                   |
@@ -62,7 +62,7 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 
 ### 2. 工具系统 — Agent 的双手
 
-25 类内置工具经 `pkgutil` 自动发现，第三方工具经入口点插件注册：
+24 类内置工具经 `pkgutil` 自动发现，第三方工具经入口点插件注册：
 
 | 类别 | 工具 |
 |------|------|
@@ -72,7 +72,7 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 | 编排 | `cron` · `long_task` · `execute_plan` · `complete_goal` |
 | 子代理 | `spawn` · `delegate` · `create_agent` |
 | 外部 | `mcp_*`（多服务器）· `message`（跨频道）· `image_generation`（多 provider） |
-| 自省 | `self` · `recall`（记忆检索） |
+| 自省 | `self` |
 
 每个工具有显式 schema（name / description / parameters），执行受安全层（模块 9）约束。外部能力还有两条不碰核心的接入路径：**MCP 服务器**（外部进程协议）与 **CLI 应用**（`run_cli_app` + SKILL.md 指导代理使用 ffmpeg、pandoc、git 等本机程序）。
 
@@ -89,8 +89,6 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 | 版本历史 | `GitStore`（内嵌 Git） | 长期文件每次变更可追溯、可回滚 |
 
 记忆经**两阶段流转**：**Consolidator** 在会话逼近上下文窗口时把最旧的安全片段摘要进 `history.jsonl`；**Dream** 按周期（默认 2 小时）或 `/dream` 手动触发，读取新增摘要与长期文件，做最小外科手术式编辑而非整体重写。用户始终保有审计与撤销权：`/dream-log` 查看每次改动 diff，`/dream-restore` 回滚到任意版本。
-
-可选向量检索（`[vector]` 依赖）：`recall` 工具经 sqlite-vec 对历史摘要、情景事件、语义事实做 top-k 相似检索；未安装时自动降级为全量注入，系统照常工作。详见 [docs/memory.md](./docs/memory.md)。
 
 ### 4. 上下文管理 — 对抗上下文腐烂
 
@@ -178,7 +176,7 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 | 模块 | 职责 |
 |------|------|
 | `channels/` | 6 个频道适配器（飞书/钉钉/企微/微信/QQ/WebSocket） |
-| `agent/tools/` | 25 类内置工具（文件/Shell/搜索/MCP/子代理...） |
+| `agent/tools/` | 24 类内置工具（文件/Shell/搜索/MCP/子代理...） |
 | `webui/`（仓库根） | React 18 + Vite + TypeScript 前端（约 4 万行 TS/TSX） |
 | `miniunicorn/webui/` | Python 网关：HTTP/WebSocket 路由、设置/频道/工具管理 API |
 | `apps/` | Agent App 生态：CLI 应用目录、安装与扩展市场协议 |
@@ -198,7 +196,7 @@ cd miniunicorn
 pip install -e .
 
 # 可选附加依赖
-pip install -e ".[api,vector,pdf,dev]"   # HTTP API / 向量记忆 / PDF 解析 / 测试
+pip install -e ".[api,pdf,dev]"   # HTTP API / PDF 解析 / 测试
 ```
 
 运行时依赖约 30 个 Python 包，无原生编译依赖（除 lxml 外）。

@@ -14,14 +14,13 @@ permission for opportunistic refactoring.
 
 ## 2. Program Structure
 
-The work is divided into six independently reviewable packages:
+The work is divided into five independently reviewable packages:
 
-1. Local Embedding and vector-memory correctness.
-2. Backend duplicate removal.
-3. Frontend lint and dead-code cleanup.
-4. Frontend settings-save and model-preset consolidation.
-5. Frontend bundle and chunk optimization.
-6. Cross-package verification and documentation.
+1. Backend duplicate removal.
+2. Frontend lint and dead-code cleanup.
+3. Frontend settings-save and model-preset consolidation.
+4. Frontend bundle and chunk optimization.
+5. Cross-package verification and documentation.
 
 Packages that modify overlapping files run serially. Packages may only run in
 parallel when their file allowlists are disjoint.
@@ -41,8 +40,7 @@ Every implementation task must state all of the following:
 - Preserve automatic online model-context discovery. It is intentional product
   behavior, not a defect.
 - Preserve chat-provider selection, fallback, retry, and runtime-switching
-  behavior unless a task explicitly names one line needed to detach memory
-  Embedding from chat.
+  behavior.
 - Do not touch pre-existing untracked files.
 - Do not run broad formatters or mechanical rewrites across the repository.
 - Do not modify files outside the task's allowlist.
@@ -61,155 +59,13 @@ git diff --name-only
 After the package, the coordinator compares the changed paths with the
 allowlist. Any unexpected path rejects the package before code review.
 
-The only approved new runtime dependency is the CPU `fastembed` dependency in
-the existing `vector` optional extra. Frontend packages may not change
-`package.json` or any lockfile.
+Frontend packages may not change `package.json` or any lockfile.
 
-## 4. Package A: Local Embedding
-
-### 4.1 Product Behavior
-
-Vector memory uses a local CPU model independently of the chat provider:
-
-```text
-conversation/history text
-        │
-        ▼
-LocalEmbeddingProvider
-BAAI/bge-small-zh-v1.5, CPU, 512 dimensions
-        │
-        ▼
-memory/memory.db
-        │
-        ▼
-semantic recall → Agent context
-```
-
-Chat may continue to use DeepSeek, Claude, OpenAI-compatible endpoints, or
-fallback providers. Switching chat providers must not replace or reconfigure
-the local Embedding object.
-
-The default local model is `BAAI/bge-small-zh-v1.5`. FastEmbed's maintained
-model list identifies it as a Chinese 512-dimensional model with an
-approximately 0.09 GB model download:
-
-- https://qdrant.github.io/fastembed/examples/Supported_Models/
-- https://github.com/qdrant/fastembed
-
-CPU is mandatory for this package. GPU and CUDA dependencies are not added.
-
-### 4.2 Dependency Boundary
-
-The existing `vector` optional dependency group contains both:
-
-- `sqlite-vec`
-- `fastembed>=0.8.0,<0.9.0`
-
-The core installation remains free of the local model runtime. Enabling vector
-recall without the `vector` extra must not break chat.
-
-No `sentence-transformers`, `torch`, GPU package, vector database, Zvec, model
-server, or new service is added.
-
-### 4.3 Configuration
-
-Keep `agents.defaults.vectorRecall`, defaulting to `false`.
-
-Keep `agents.defaults.embeddingModel`, but change its default and documented
-meaning to the local model ID `BAAI/bge-small-zh-v1.5`.
-
-Remove the unused external-service configuration:
-
-- `providers.embeddingProvider`
-- `providers.embeddingModel`
-- `providers.embeddingApiBase`
-- `providers.embeddingApiKey`
-
-Remove the unused external endpoint wrapper
-`miniunicorn/providers/embedding.py`.
-
-Do not remove `LLMProvider.embed()` or `OpenAICompatProvider.embed()`. They may
-be part of the Python provider API, but memory retrieval will no longer call
-them.
-
-No new WebUI settings section is introduced. This repair connects and
-corrects existing configuration; it does not add a new product surface.
-
-### 4.4 Local Provider
-
-Add one focused local provider with this contract:
-
-```python
-class LocalEmbeddingProvider:
-    model_name: str
-    dimension: int
-
-    async def embed(
-        self,
-        texts: list[str],
-        model: str | None = None,
-    ) -> list[list[float]]: ...
-```
-
-Required behavior:
-
-- model loading is lazy;
-- the execution provider is CPU;
-- blocking model load and inference run outside the event loop;
-- concurrent first calls load the model once;
-- empty input returns an empty list without loading the model;
-- output is normalized and converted to `list[list[float]]`;
-- every returned vector is exactly 512 elements;
-- a model override different from the configured local model is rejected;
-- missing dependency, missing cache while offline, download failure, and
-  inference failure produce a clear diagnostic and return control to the
-  existing non-vector memory path.
-
-Tests mock FastEmbed. A separate optional smoke test performs one real model
-download and verifies a 512-dimensional Chinese embedding.
-
-### 4.5 Vector Store
-
-New vector-memory databases use dimension 512. The database records a small
-metadata fingerprint containing:
-
-- schema version;
-- model ID;
-- vector dimension.
-
-The project has not had a production release, so no automatic 1536-to-512
-migration, backup, re-embedding, or compatibility branch is added.
-
-If an existing `memory.db` has no matching fingerprint or has a different
-dimension, MiniUnicorn must:
-
-1. leave the file untouched;
-2. disable vector recall for that run;
-3. log one actionable message telling the developer to remove the development
-   database and restart.
-
-It must never silently mix vectors from different models and must never delete
-the database automatically.
-
-### 4.6 Runtime Wiring
-
-`AgentLoop` owns two separate dependencies:
-
-- `provider`: chat;
-- `_embedding_provider`: local Embedding.
-
-The same `_embedding_provider` instance is passed to `MemoryStore`, automatic
-query embedding, and the recall tool. Runtime chat-provider switching must not
-modify it.
-
-The full-memory fallback already used by `ContextBuilder` remains the fallback
-when local Embedding or `sqlite-vec` is unavailable.
-
-## 5. Package B: Backend Duplicate Removal
+## 4. Package B: Backend Duplicate Removal
 
 Each item is a separate task and commit.
 
-### 5.1 Message Content Merge
+### 4.1 Message Content Merge
 
 Replace the duplicate implementations in:
 
@@ -226,7 +82,7 @@ with one shared function. Preserve:
 
 Both call sites receive parity tests before extraction.
 
-### 5.2 Progress Callback Signature Detection
+### 4.2 Progress Callback Signature Detection
 
 Use one helper for the duplicate signature checks in:
 
@@ -236,7 +92,7 @@ Use one helper for the duplicate signature checks in:
 Preserve failure behavior for uninspectable callables, explicit named
 parameters, and `**kwargs`.
 
-### 5.3 Chunked Header Collection
+### 4.3 Chunked Header Collection
 
 Make `miniunicorn/channels/websocket/_chunked_header.py` the canonical collector.
 The limited HTTP version reuses collection but retains its own count and UTF-8
@@ -255,7 +111,7 @@ Preserve all current behavior, including:
 The refactor must not change MCP header parsing or route tables in
 `_http_routes.py`.
 
-### 5.4 HTTP and Query Helpers
+### 4.4 HTTP and Query Helpers
 
 Create or reuse a dependency-neutral WebUI HTTP helper for the duplicate
 response, error, and case-insensitive header functions currently split between
@@ -267,7 +123,7 @@ duplicate in `_http_routes.py`.
 Preserve status line, header order, content length, reason text, UTF-8 encoding,
 and `Connection: close`.
 
-### 5.5 Dead Backend Code
+### 4.5 Dead Backend Code
 
 Delete only the confirmed unused private `_lines_to_text` helper in
 `miniunicorn/agent/tools/apply_patch.py`.
@@ -279,9 +135,9 @@ program.
 No task may alter tool decorators, discovery, registration, schemas, names, or
 execution behavior.
 
-## 6. Package C: Frontend Lint and Dead Code
+## 5. Package C: Frontend Lint and Dead Code
 
-### 6.1 Lint Baseline
+### 5.1 Lint Baseline
 
 The current baseline is:
 
@@ -292,7 +148,7 @@ The current baseline is:
 
 All lint findings are resolved without disabling a rule globally.
 
-### 6.2 Accessibility and Focus
+### 5.2 Accessibility and Focus
 
 For dialog and form focus:
 
@@ -322,7 +178,7 @@ For Hook warnings:
 The `McpView` warning may receive a Hook-only fix, but tests must prove the
 change does not create, enable, delete, or repeat-load MCP configuration.
 
-### 6.3 Dead Frontend Code
+### 5.3 Dead Frontend Code
 
 Delete the confirmed unused fixture file and unused private exports identified
 by the audit, including:
@@ -339,9 +195,9 @@ before deletion.
 Do not delete the two pre-existing untracked decoded PNG files. They belong to
 the user's working tree and must remain unmodified.
 
-## 7. Package D: Frontend Settings Consolidation
+## 6. Package D: Frontend Settings Consolidation
 
-### 7.1 Save Actions
+### 6.1 Save Actions
 
 Introduce one small typed save-action primitive. It owns:
 
@@ -377,7 +233,7 @@ For every conversion, tests cover:
 The nested model-configuration saving states are consolidated only after tests
 capture the distinct inline and dialog behavior.
 
-### 7.2 Atomic Provider Save
+### 6.2 Atomic Provider Save
 
 Extend the existing provider-update operation instead of adding another route.
 It accepts optional model selection together with credentials and provider
@@ -398,7 +254,7 @@ rather than presenting a false “nothing was saved” error.
 
 This task must not touch MCP settings routes or payloads.
 
-### 7.3 Shared Model Preset Select
+### 6.3 Shared Model Preset Select
 
 Add a focused `ModelPresetSelect` component for:
 
@@ -423,11 +279,11 @@ Tests cover the three different default sentinels (`""`, `null`, and
 `"default"`), disabled behavior, provider icon display, selected marker, and
 change payload.
 
-## 8. Package E: Bundle and Chunk Optimization
+## 7. Package E: Bundle and Chunk Optimization
 
 No dependency or analyzer package is added.
 
-### 8.1 Syntax Language Chunks
+### 7.1 Syntax Language Chunks
 
 Preserve `prism-async-light` and its full supported language set.
 
@@ -443,7 +299,7 @@ Acceptance:
 - plain-code fallback still renders while the lazy chunk loads;
 - total JavaScript gzip size does not grow by more than 5%.
 
-### 8.2 Initial Application Chunk
+### 7.2 Initial Application Chunk
 
 Lazy-load the ready-state chat shell instead of statically importing it into
 the authentication/bootstrap shell.
@@ -469,7 +325,7 @@ Acceptance:
 
 Do not raise `chunkSizeWarningLimit` to hide the warning.
 
-### 8.3 Asset Boundary
+### 7.3 Asset Boundary
 
 Tracked Logo and favicon URLs remain unchanged unless a separate visual asset
 task proves byte and rendering equivalence.
@@ -477,7 +333,7 @@ task proves byte and rendering equivalence.
 Pre-existing untracked decoded PNG files are outside this program and are not
 deleted, staged, or used as source assets.
 
-## 9. Testing Strategy
+## 8. Testing Strategy
 
 Every behavior change follows red-green-refactor:
 
@@ -513,11 +369,7 @@ node_modules/.bin/tsc.cmd -p tsconfig.build.json
 npm run build
 ```
 
-The local Embedding unit suite never requires a model download. The explicit
-CPU smoke test is separate and may use network access only to download the
-approved BGE model.
-
-## 10. Agent Coordination
+## 9. Agent Coordination
 
 The coordinator, not the implementation agent, owns integration.
 
@@ -533,26 +385,20 @@ For each agent:
 
 Recommended order:
 
-1. Local Embedding.
-2. Backend duplicate removal.
-3. Frontend lint and dead code.
-4. Frontend save actions.
-5. Atomic provider save.
-6. Shared preset select.
-7. Bundle optimization.
-8. Full verification and documentation.
+1. Backend duplicate removal.
+2. Frontend lint and dead code.
+3. Frontend save actions.
+4. Atomic provider save.
+5. Shared preset select.
+6. Bundle optimization.
+7. Full verification and documentation.
 
-Backend duplication touches `context.py`, which also participates in vector
-recall, so it follows Local Embedding. Frontend tasks run serially because they
-share settings hooks and tests.
+Frontend tasks run serially because they share settings hooks and tests.
 
-## 11. Rollback
+## 10. Rollback
 
 Each numbered repair is committed independently. Reverting one repair must not
 require reverting unrelated repairs.
-
-Runtime rollback for Embedding is always available by setting
-`vectorRecall=false`, which restores the existing non-vector memory path.
 
 If any package:
 
@@ -564,17 +410,13 @@ If any package:
 
 the coordinator rejects or reverts that package before starting the next one.
 
-## 12. Explicit Exclusions
+## 11. Explicit Exclusions
 
 The following are not confirmed defects and are not changed:
 
 - automatic online model-context discovery;
 - current MCP product behavior and catalog;
 - public helpers with no in-repository call but possible external consumers;
-- GPU support;
-- Zvec or another vector database;
-- a document knowledge-base feature;
-- a new memory settings UI;
 - deletion of user-owned untracked files;
 - visual redesign;
 - new frontend or development dependencies.

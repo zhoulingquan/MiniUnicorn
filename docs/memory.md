@@ -67,10 +67,16 @@ This is why MiniUnicorn's memory is not just archival. It is interpretive.
 workspace/
 ├── SOUL.md              # The bot's long-term voice and communication style
 ├── USER.md              # Stable knowledge about the user
+├── notes.md             # The agent's persistent working scratchpad
 └── memory/
     ├── MEMORY.md        # Project facts, decisions, and durable context
     ├── history.jsonl    # Append-only history summaries
-    ├── memory.db        # Optional local SQLite index for semantic recall
+    ├── episodic.jsonl   # Timestamped events retained across sessions
+    ├── procedural.jsonl # Durable lessons distilled from experience
+    ├── reflections.jsonl # Reflection input consumed by Dream
+    ├── shared/
+    │   ├── MEMORY_SHARED.md
+    │   └── procedural_shared.jsonl
     ├── .cursor          # Consolidator write cursor
     ├── .dream_cursor    # Dream consumption cursor
     └── .git/            # Version history for long-term memory files
@@ -82,7 +88,10 @@ These files play different roles:
 - `USER.md` remembers who the user is and what they prefer.
 - `MEMORY.md` remembers what remains true about the work itself.
 - `history.jsonl` remembers what happened on the way there.
-- `memory.db` indexes selected internal memories for semantic recall when vector recall is enabled; it is not an external document knowledge base.
+- `episodic.jsonl` records events, while `procedural.jsonl` retains reusable lessons.
+- `reflections.jsonl` feeds compact lessons into Dream for later consolidation.
+- `shared/` holds facts and procedures that apply across sessions.
+- `notes.md` is the agent's working scratchpad and is folded into history during consolidation.
 
 ## Why `history.jsonl`
 

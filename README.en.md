@@ -44,8 +44,8 @@ The channel layer (`channels/`, 6 adapters) is fully decoupled from the agent co
 | # | Harness module | MiniUnicorn implementation | Key files |
 |---|---------------|---------------------------|-----------|
 | 1 | Orchestration Loop | ReAct loop of AgentLoop → AgentRunner | `agent/loop.py` · `agent/runner.py` |
-| 2 | Tools | 25 built-in tools + MCP + CLI apps | `agent/tools/` |
-| 3 | Memory | Layered memory + two-stage Consolidator/Dream | `agent/memory.py` · `agent/vector_memory.py` |
+| 2 | Tools | 24 built-in tools + MCP + CLI apps | `agent/tools/` |
+| 3 | Memory | Layered memory + two-stage Consolidator/Dream | `agent/memory.py` |
 | 4 | Context Management | Strategy-based governance and multi-level compaction | `agent/context_governor.py` · `agent/runner_strategies.py` |
 | 5 | Prompt Construction | Layered assembly + on-demand skill injection | `agent/context.py` · `agent/skills.py` |
 | 6 | Output Parsing | Native function calling + JSON repair | `providers/*/parsing.py` |
@@ -62,7 +62,7 @@ The channel layer (`channels/`, 6 adapters) is fully decoupled from the agent co
 
 ### 2. Tools — the agent's hands
 
-25 built-in tool classes are auto-discovered via `pkgutil`; third-party tools register through entry-point plugins:
+24 built-in tool classes are auto-discovered via `pkgutil`; third-party tools register through entry-point plugins:
 
 | Category | Tools |
 |----------|-------|
@@ -72,7 +72,7 @@ The channel layer (`channels/`, 6 adapters) is fully decoupled from the agent co
 | Orchestration | `cron` · `long_task` · `execute_plan` · `complete_goal` |
 | Subagents | `spawn` · `delegate` · `create_agent` |
 | External | `mcp_*` (multi-server) · `message` (cross-channel) · `image_generation` (multi-provider) |
-| Introspection | `self` · `recall` (memory retrieval) |
+| Introspection | `self` |
 
 Every tool has an explicit schema (name / description / parameters), and execution is constrained by the security layer (module 9). External capability also has two paths that never touch the core: **MCP servers** (external process protocol) and **CLI apps** (`run_cli_app` + SKILL.md guiding the agent to use local programs like ffmpeg, pandoc, git).
 
@@ -89,8 +89,6 @@ Memory is not one giant file. It is layered, with a different medium for each ki
 | Version history | `GitStore` (embedded Git) | Every change to long-term files is traceable and revertible |
 
 Memory moves in **two stages**: the **Consolidator** summarizes the oldest safe slice into `history.jsonl` when the session approaches the context window; **Dream** runs on a schedule (every 2 hours by default) or via `/dream`, reads the new summaries plus the long-term files, and makes minimal surgical edits rather than wholesale rewrites. The user always retains audit and undo rights: `/dream-log` shows the diff of each change, `/dream-restore` rolls back to any version.
-
-Optional vector retrieval (`[vector]` extra): the `recall` tool performs top-k similarity search over history summaries, episodic events, and semantic facts via sqlite-vec; without it the system degrades gracefully to full-injection memory. See [docs/memory.md](./docs/memory.md).
 
 ### 4. Context management — fighting context rot
 
@@ -178,7 +176,7 @@ A layered termination system: natural termination (the model stops calling tools
 | Module | Responsibility |
 |--------|---------------|
 | `channels/` | 6 channel adapters (Feishu/DingTalk/WeCom/WeChat/QQ/WebSocket) |
-| `agent/tools/` | 25 built-in tool classes (files/shell/search/MCP/subagents...) |
+| `agent/tools/` | 24 built-in tool classes (files/shell/search/MCP/subagents...) |
 | `webui/` (repo root) | React 18 + Vite + TypeScript frontend (~40k lines of TS/TSX) |
 | `miniunicorn/webui/` | Python gateway: HTTP/WebSocket routing, settings/channels/tools management APIs |
 | `apps/` | Agent app ecosystem: CLI app catalog, installation, and extension marketplace protocol |
@@ -198,7 +196,7 @@ cd miniunicorn
 pip install -e .
 
 # Optional extras
-pip install -e ".[api,vector,pdf,dev]"   # HTTP API / vector memory / PDF parsing / tests
+pip install -e ".[api,pdf,dev]"   # HTTP API / PDF parsing / tests
 ```
 
 About 30 Python packages at runtime, no native build dependencies (except lxml).
