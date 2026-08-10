@@ -297,6 +297,12 @@ def _migrate_config(data: dict) -> dict:
     同时写入 config_version（若不存在）以便未来迁移逻辑判断版本。
     """
     result = copy.deepcopy(data)
+    agents = result.get("agents", {})
+    defaults = agents.get("defaults", {}) if isinstance(agents, dict) else {}
+    if isinstance(defaults, dict):
+        defaults.pop("memoryWindow", None)
+        defaults.pop("memory_window", None)
+
     # Move tools.exec.restrictToWorkspace → tools.restrictToWorkspace
     tools = result.get("tools", {})
     exec_cfg = tools.get("exec", {})

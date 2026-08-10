@@ -160,6 +160,12 @@ class ModelPresetConfig(Base):
 class AgentDefaults(Base):
     """Default agent configuration."""
 
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+        extra="forbid",
+    )
+
     workspace: str = "~/.miniunicorn/workspace"
     model_preset: str | None = None  # Active preset name — takes precedence over fields below
     # Empty by default — the user must configure a real model before first
@@ -233,11 +239,6 @@ class AgentDefaults(Base):
         validation_alias=AliasChoices("checkpointRatio"),
         serialization_alias="checkpointRatio",
     )  # 提前 checkpoint 触发比例 (0.7 = 70% 预算时触发归档，借鉴 MiMo Code 提前提取思想；1.0 = 旧行为)
-    vector_recall: bool = Field(
-        default=False,
-        validation_alias=AliasChoices("vectorRecall"),
-        serialization_alias="vectorRecall",
-    )  # Enable vector-based memory recall instead of full MEMORY.md injection
     use_planner: bool = Field(
         default=False,
         validation_alias=AliasChoices("usePlanner"),
@@ -277,11 +278,6 @@ class AgentDefaults(Base):
         validation_alias=AliasChoices("maxCostPerTurnUsd"),
         serialization_alias="maxCostPerTurnUsd",
     )  # Per-turn cost budget in USD (None = unlimited)
-    embedding_model: str = Field(
-        default="text-embedding-3-small",
-        validation_alias=AliasChoices("embeddingModel"),
-        serialization_alias="embeddingModel",
-    )  # Model for generating embeddings
     dream: DreamConfig = Field(default_factory=DreamConfig)
 
 
@@ -317,43 +313,20 @@ class ProvidersConfig(Base):
     opencode: ProviderConfig = Field(default_factory=ProviderConfig)
     agnes: ProviderConfig = Field(default_factory=ProviderConfig)
 
-    # Optional separate embedding provider — allows using a different backend
-    # for embeddings than for chat (e.g. Anthropic Claude for chat + OpenAI
-    # text-embedding-3-small for embeddings). When embedding_provider is None,
-    # the main LLM provider's embed() is used (OpenAI-compatible endpoints).
-    embedding_provider: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices("embeddingProvider"),
-        serialization_alias="embeddingProvider",
-    )  # e.g. "openai" / "custom"; None = reuse the main chat provider
-    embedding_model: str = Field(
-        default="text-embedding-3-small",
-        validation_alias=AliasChoices("embeddingModel"),
-        serialization_alias="embeddingModel",
-    )  # 嵌入模型（优先级高于 agents.defaults.embedding_model，仅当使用独立 embedding_provider 时生效）
-    embedding_api_base: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices("embeddingApiBase"),
-        serialization_alias="embeddingApiBase",
-    )  # Optional custom endpoint; defaults to OpenAI when omitted
-    embedding_api_key: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices("embeddingApiKey"),
-        serialization_alias="embeddingApiKey",
-    )  # Optional custom key; inherits from chat provider when omitted
-
     @model_validator(mode="after")
     def _coerce_extra_providers(self) -> "ProvidersConfig":
         """把 extra 字段中的 dict 转为 ProviderConfig，保证访问一致。
 
         同时拒绝与内置 provider 同名的自定义 provider，避免覆盖内置配置。
         """
-        for name in list(self.__pydantic_extra__.keys()):
+        extras = self.__pydantic_extra__ or {}
+        for name, value in list(extras.items()):
             if name in _BUILTIN_PROVIDER_NAMES:
                 raise ValueError(f"自定义 provider 名 '{name}' 与内置 provider 冲突")
-        for name, value in list(self.__pydantic_extra__.items()):
             if isinstance(value, dict):
-                self.__pydantic_extra__[name] = ProviderConfig.model_validate(value)
+                extras[name] = ProviderConfig.model_validate(value)
+            elif not isinstance(value, ProviderConfig):
+                raise ValueError(f"custom provider {name!r} must be an object")
         return self
 
 
