@@ -132,11 +132,6 @@ class MemoryStore:
                 "memory/shared/procedural_shared.jsonl",
             ],
         )
-        # Vector store for embedding-based retrieval. Lazy-initialized via
-        # attach_vector_store(); None means no vector retrieval (legacy mode).
-        self._vector_store: Any = None
-        self._embed_provider: Any = None
-        self._embed_model: str = "text-embedding-3-small"
         self._maybe_migrate_legacy_history()
 
     @property
@@ -191,48 +186,7 @@ class MemoryStore:
                 allowed_roles,
             )
 
-    def attach_vector_store(self, vector_store: Any) -> None:
-        """Attach a VectorMemoryStore for embedding-based retrieval."""
-        self._vector_store = vector_store
-
-    def set_embed_provider(self, provider: Any, model: str = "text-embedding-3-small") -> None:
-        """Set the provider used for generating embeddings."""
-        self._embed_provider = provider
-        self._embed_model = model
-
-    @property
-    def vector_store(self) -> Any:
-        return self._vector_store
-
-    async def index_text(
-        self,
-        text: str,
-        kind: str = "history",
-        metadata: dict | None = None,
-        importance: float = 0.5,
-    ) -> None:
-        """Embed *text* and index it in the vector store (no-op if not attached)."""
-        vs = self._vector_store
-        if vs is None or not vs.enabled or not text:
-            return
-        provider = self._embed_provider
-        if provider is None:
-            return
-        try:
-            embeddings = await provider.embed([text], model=self._embed_model)
-            if embeddings:
-                vs.index(text, embeddings[0], kind=kind, metadata=metadata, importance=importance)
-        except NotImplementedError:
-            pass  # provider doesn't support embeddings; silently skip
-        except Exception:
-            logger.debug("index_text failed for kind={}", kind)
-
     # -- layered memory: episodic / procedural (P1-1) -----------------------
-    # append_* methods are synchronous and only write the JSONL file. Callers
-    # running in an async context (e.g. Dream) should follow up with
-    # ``await self.index_text(content, kind=..., metadata=...)`` to populate
-    # the vector store for later recall. This split keeps the file layer
-    # free of event-loop coupling and matches the history.jsonl pattern.
 
     def append_episodic(self, session_key: str, content: str) -> int | None:
         """Append an episodic memory entry (event with timestamp/session).
@@ -401,31 +355,19 @@ class MemoryStore:
         )
 
     def run_memory_hygiene(self) -> dict[str, int]:
-        """执行全部文件层 + 向量库清理，返回各部分清理统计。
+        """执行全部文件层清理，返回各部分清理统计。
 
         在 Dream.run() 末尾调用，也可由 Consolidator 在归档后节流调用。
         包含：
         - reflections.jsonl 截断已处理条目
         - episodic/procedural/shared_procedural 按上限截断
-        - 向量库 importance 衰减 + 低重要性归档
         """
         result: dict[str, int] = {
-            "reflections": self.prune_reflections_after_cursor(),
             "episodic": self.prune_episodic_if_needed(),
             "procedural": self.prune_procedural_if_needed(),
+            "reflections": self.prune_reflections_after_cursor(),
             "shared_procedural": self.prune_shared_procedural_if_needed(),
         }
-        # 向量库维护：decay + archive。即使 Dream 关闭，只要本方法被调用
-        # （如 Consolidator 节流触发），向量库也能得到清理。
-        try:
-            vs = self._vector_store
-            if vs is not None and getattr(vs, "enabled", False):
-                decayed = vs.decay_importance(days_threshold=30, decay_factor=0.9)
-                archived = vs.archive_low_importance(threshold=0.2, min_age_days=60)
-                result["vec_decayed"] = decayed
-                result["vec_archived"] = archived
-        except Exception:
-            logger.debug("Vector hygiene failed", exc_info=True)
         return result
 
     def get_last_reflections_cursor(self) -> int:
@@ -1322,24 +1264,13 @@ class Consolidator:
             if response.finish_reason == "error":
                 raise RuntimeError(f"LLM returned error: {response.content}")
             summary = response.content or "[no summary]"
-            cursor = self.store.append_history(summary, max_chars=_ARCHIVE_SUMMARY_MAX_CHARS)
+            self.store.append_history(summary, max_chars=_ARCHIVE_SUMMARY_MAX_CHARS)
             # 归档成功后清空 notes.md：内容已被 LLM 整合进 summary，
             # 释放主 Agent 的 scratchpad 空间供下一轮使用。
             if notes_content:
                 self.store.clear_notes()
-            # Vector index the summary for future retrieval (no-op if vector store not attached)
-            try:
-                await self.store.index_text(
-                    summary,
-                    kind="history",
-                    metadata={"cursor": cursor},
-                    importance=0.5,  # ordinary conversation summary
-                )
-            except Exception:
-                logger.debug("Vector indexing of archive summary failed", exc_info=True)
             # 节流触发 memory hygiene：每 _HYGIENE_THROTTLE 次归档后清理一次
-            # 文件截断 + 向量库 decay/archive。这样 Dream 关闭时向量库也能
-            # 得到定期维护，避免无限膨胀。
+            # 文件截断，避免 Dream 关闭时 append-only 文件无限膨胀。
             self._archive_count_since_hygiene += 1
             if self._archive_count_since_hygiene >= self._HYGIENE_THROTTLE:
                 self._archive_count_since_hygiene = 0
@@ -1914,23 +1845,6 @@ class Dream:
             if reflections:
                 last_line = max(r.get("_line", 0) for r in reflections)
                 self.store.set_last_reflections_cursor(last_line)
-            # Index procedural lessons for vector recall (last 10 to limit duplicates).
-            # Procedural lessons are distilled from past failures/mistakes, so they
-            # are tagged with a higher importance (0.8) than ordinary conversation
-            # summaries (0.5) — see P2-1 importance model.
-            try:
-                all_procedural = self.store.read_procedural(limit=200)
-                for p in all_procedural[-10:]:
-                    content = p.get("content", "")
-                    if content:
-                        await self.store.index_text(
-                            content,
-                            kind="procedural",
-                            metadata={"cursor": p.get("cursor"), "timestamp": p.get("timestamp")},
-                            importance=0.8,
-                        )
-            except Exception:
-                logger.debug("Procedural indexing failed", exc_info=True)
         else:
             reason = result.stop_reason if result else "exception"
             logger.warning(
@@ -1938,12 +1852,9 @@ class Dream:
                 reason,
             )
 
-        # Memory hygiene (P3): decay + archive 已移入 run_memory_hygiene，
-        # 与文件层截断一起在下方统一执行。
-
         self.store.compact_history()
 
-        # 文件层 + 向量库清理：截断 episodic/procedural/shared_procedural/reflections
+        # 文件层清理：截断 episodic/procedural/shared_procedural/reflections
         # 中已处理或过旧的条目，避免 append-only 文件无限增长。
         # 放在 compact_history 之后、git commit 之前，这样截断也会被 commit 记录。
         try:
