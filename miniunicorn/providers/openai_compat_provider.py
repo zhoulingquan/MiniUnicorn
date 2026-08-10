@@ -457,24 +457,6 @@ class OpenAICompatProvider(LLMProvider):
         self._responses_failures.clear()
         self._responses_tripped_at.clear()
 
-    async def embed(
-        self,
-        texts: list[str],
-        model: str = "text-embedding-3-small",
-    ) -> list[list[float]]:
-        """Generate embeddings via the OpenAI-compatible embeddings API."""
-        if not texts:
-            return []
-        client = await self._ensure_client()
-        try:
-            resp = await client.embeddings.create(model=model, input=texts)
-            # Sort by index to guarantee order
-            sorted_data = sorted(resp.data, key=lambda x: x.index)
-            return [item.embedding for item in sorted_data]
-        except Exception:
-            logger.exception("embed() failed for model {}", model)
-            raise
-
     def _setup_env(self, api_key: str, api_base: str | None) -> None:
         """Set environment variables based on provider spec."""
         spec = self._spec

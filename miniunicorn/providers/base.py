@@ -863,22 +863,3 @@ class LLMProvider(ABC):
     def get_default_model(self) -> str:
         """Get the default model for this provider."""
         pass
-
-    async def embed(
-        self,
-        texts: list[str],
-        model: str = "text-embedding-3-small",
-    ) -> list[list[float]]:
-        """Generate embeddings for a batch of texts.
-
-        Default implementation raises NotImplementedError. Providers that
-        support embeddings (OpenAI-compatible) override this.
-
-        To use embeddings with a provider that doesn't support them (e.g.,
-        Anthropic), configure a separate embedding_provider in config.
-        """
-        raise NotImplementedError(
-            f"{type(self).__name__} does not support embeddings. "
-            f"Configure a separate 'embedding_provider' in config to use "
-            f"an OpenAI-compatible endpoint for embeddings."
-        )
