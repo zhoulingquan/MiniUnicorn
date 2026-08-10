@@ -49,7 +49,8 @@
 - `webui/src/i18n/locales/en/common.json` and `webui/src/i18n/locales/zh-CN/common.json` — remove the deleted tool description.
 - `pyproject.toml` and `uv.lock` — remove the optional dependency group and resolved package.
 - `README.md`, `README.en.md`, and `docs/memory.md` — describe structured memory only.
-- `docs/superpowers/plans/2026-07-28-memory-db-rename.md`, `docs/superpowers/specs/2026-07-28-memory-db-rename-design.md`, and `docs/superpowers/specs/2026-07-28-comprehensive-code-review-remediation-design.md` — remove tracked obsolete internal guidance that describes the deleted product path.
+- `docs/superpowers/plans/2026-07-28-memory-db-rename.md` and `docs/superpowers/specs/2026-07-28-memory-db-rename-design.md` — remove tracked obsolete internal guidance dedicated to the deleted product path.
+- `docs/superpowers/specs/2026-07-28-comprehensive-code-review-remediation-design.md` — remove only Package A and its embedding/vector cross-references; preserve the unrelated Packages B–E.
 - `docs/superpowers/specs/2026-08-10-main-without-embedding-design.md` and this plan — retain during execution, then delete from the final tracked tree after they have served as historical decision records.
 
 ---
@@ -684,7 +685,7 @@ git commit -m "build: remove vector memory dependency"
 - Modify: `docs/memory.md`
 - Delete: `docs/superpowers/plans/2026-07-28-memory-db-rename.md`
 - Delete: `docs/superpowers/specs/2026-07-28-memory-db-rename-design.md`
-- Delete: `docs/superpowers/specs/2026-07-28-comprehensive-code-review-remediation-design.md`
+- Modify: `docs/superpowers/specs/2026-07-28-comprehensive-code-review-remediation-design.md`
 
 **Interfaces:**
 
@@ -737,9 +738,19 @@ Remove the `memory.db` line from the workspace tree and its explanatory bullet. 
 
 Preserve the existing explanations of Consolidator, Dream, `history.jsonl`, commands, GitStore inspection, and restoration.
 
-- [ ] **Step 4: Delete obsolete tracked implementation guidance**
+- [ ] **Step 4: Delete dedicated guidance and surgically clean the comprehensive design**
 
-Delete the three listed 2026-07-28 plan/spec files with `apply_patch`. Their history remains available through Git, while the current tree no longer suggests a conflicting product architecture. Do not delete ignored files that are not tracked by Git.
+Delete `docs/superpowers/plans/2026-07-28-memory-db-rename.md` and `docs/superpowers/specs/2026-07-28-memory-db-rename-design.md` with `apply_patch`. Their history remains available through Git. Do not delete ignored files that are not tracked by Git.
+
+In `docs/superpowers/specs/2026-07-28-comprehensive-code-review-remediation-design.md`:
+
+- delete the complete `Package A: Local Embedding` section;
+- remove Package A from Program Structure, dependency allowances, testing strategy, execution order, rollback, and exclusions;
+- remove cross-references that make backend or frontend packages depend on Package A;
+- preserve the complete substantive content of Packages B–E, including their tests and guardrails;
+- adjust only numbering and connective prose needed for the remaining document to read consistently.
+
+The final file must contain no embedding/vector-memory guidance, but this cleanup must not discard unrelated backend, frontend settings, lint, accessibility, or bundle design decisions.
 
 - [ ] **Step 5: Re-run documentation scans**
 
