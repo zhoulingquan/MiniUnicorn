@@ -967,8 +967,8 @@ class Consolidator:
 
     _SAFETY_BUFFER = 1024  # extra headroom for tokenizer estimation drift
 
-    # 每 N 次归档后触发一次 memory hygiene（文件截断 + 向量库 decay/archive）。
-    # 这样即使 Dream 关闭，向量库也能得到定期清理，不会无限膨胀。
+    # 每 N 次归档后触发一次 memory hygiene（结构化 JSONL 文件截断）。
+    # 这样即使 Dream 关闭，append-only 记忆文件也能定期按上限清理。
     # 20 次 ≈ 每隔数十轮对话清理一次，开销可忽略。
     _HYGIENE_THROTTLE = 20
 
