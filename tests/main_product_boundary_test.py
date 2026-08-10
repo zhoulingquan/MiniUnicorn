@@ -1,5 +1,6 @@
 import importlib.util
 import inspect
+import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -93,3 +94,11 @@ def test_agent_startup_leaves_an_existing_database_untouched(tmp_path: Path) -> 
     )
 
     assert legacy.read_bytes() == original
+
+
+def test_project_metadata_has_no_vector_extra_or_sqlite_dependency() -> None:
+    root = Path(__file__).resolve().parents[1]
+    metadata = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    extras = metadata["project"]["optional-dependencies"]
+    assert "vector" not in extras
+    assert "sqlite-vec" not in (root / "uv.lock").read_text(encoding="utf-8")
