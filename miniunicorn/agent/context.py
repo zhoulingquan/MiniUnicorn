@@ -150,9 +150,8 @@ class ContextBuilder:
 
         # Inject cross-session shared memory (global facts that apply to every
         # session, written by Dream when it promotes universally-relevant
-        # content). Injected in both legacy and vector-recall modes so the
-        # agent always has access to the shared baseline regardless of how
-        # per-session memory is fetched.
+        # content). The agent always receives this shared baseline alongside
+        # its per-session structured memory.
         shared = self.memory.read_shared_memory()
         if shared and shared.strip():
             parts.append(
