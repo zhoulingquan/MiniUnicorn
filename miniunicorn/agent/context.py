@@ -103,8 +103,6 @@ class ContextBuilder:
         channel: str | None = None,
         session_summary: str | None = None,
         workspace: Path | None = None,
-        query_embedding: list[float] | None = None,
-        vector_recall: bool = False,
         agent_override: SubagentDefinition | None = None,
         light_context: bool = False,
     ) -> str:
@@ -144,24 +142,11 @@ class ContextBuilder:
 
         parts.append((self._PRIORITY_CRITICAL, render_template("agent/tool_contract.md")))
 
-        # Memory injection: full MEMORY.md by default; top-k vector recall when enabled.
-        vs = self.memory.vector_store
-        if vector_recall and query_embedding is not None and vs is not None and vs.enabled:
-            recalled = vs.search(query_embedding, k=5)
-            if recalled:
-                recall_text = "\n".join(
-                    f"- [{r['kind']}] ({r['similarity']:.2f}) {r['text']}" for r in recalled
-                )
-                parts.append(
-                    (self._PRIORITY_MEMORY, "# Memory (Relevant Recall)\n\n" + recall_text)
-                )
-            # No results: fall back to nothing (don't inject full memory in recall mode)
-        else:
-            memory = self.memory.get_memory_context()
-            if memory and not self._is_template_content(
-                self.memory.read_memory(), "memory/MEMORY.md"
-            ):
-                parts.append((self._PRIORITY_MEMORY, f"# Memory\n\n{memory}"))
+        memory = self.memory.get_memory_context()
+        if memory and not self._is_template_content(
+            self.memory.read_memory(), "memory/MEMORY.md"
+        ):
+            parts.append((self._PRIORITY_MEMORY, f"# Memory\n\n{memory}"))
 
         # Inject cross-session shared memory (global facts that apply to every
         # session, written by Dream when it promotes universally-relevant
@@ -197,30 +182,16 @@ class ContextBuilder:
                 )
             )
 
-        # History injection: full recent history by default; vector recall when enabled.
-        if vector_recall and query_embedding is not None and vs is not None and vs.enabled:
-            recalled_hist = vs.search(query_embedding, k=10, kind="history")
-            if recalled_hist:
-                history_text = "\n".join(
-                    f"- [{r['created_at']}] ({r['similarity']:.2f}) {r['text']}"
-                    for r in recalled_hist
-                )
-                history_text = truncate_text(history_text, self._MAX_HISTORY_CHARS)
-                parts.append(
-                    (
-                        self._PRIORITY_HISTORY,
-                        "# Recent History (Relevant Recall)\n\n" + history_text,
-                    )
-                )
-        else:
-            entries = self.memory.read_unprocessed_history(
-                since_cursor=self.memory.get_last_dream_cursor()
+        entries = self.memory.read_unprocessed_history(
+            since_cursor=self.memory.get_last_dream_cursor()
+        )
+        if entries:
+            capped = entries[-self._MAX_RECENT_HISTORY :]
+            history_text = "\n".join(
+                f"- [{entry['timestamp']}] {entry['content']}" for entry in capped
             )
-            if entries:
-                capped = entries[-self._MAX_RECENT_HISTORY :]
-                history_text = "\n".join(f"- [{e['timestamp']}] {e['content']}" for e in capped)
-                history_text = truncate_text(history_text, self._MAX_HISTORY_CHARS)
-                parts.append((self._PRIORITY_HISTORY, "# Recent History\n\n" + history_text))
+            history_text = truncate_text(history_text, self._MAX_HISTORY_CHARS)
+            parts.append((self._PRIORITY_HISTORY, "# Recent History\n\n" + history_text))
 
         if session_summary:
             parts.append(
@@ -474,8 +445,6 @@ class ContextBuilder:
         runtime_state: Any | None = None,
         inbound_message: Any | None = None,
         skip_runtime_lines: bool = False,
-        query_embedding: list[float] | None = None,
-        vector_recall: bool = False,
         agent_override: SubagentDefinition | None = None,
     ) -> list[dict[str, Any]]:
         """Build the complete message list for an LLM call."""
@@ -518,8 +487,6 @@ class ContextBuilder:
                     channel=channel,
                     session_summary=session_summary,
                     workspace=root,
-                    query_embedding=query_embedding,
-                    vector_recall=vector_recall,
                     agent_override=agent_override,
                     light_context=light_context,
                 ),

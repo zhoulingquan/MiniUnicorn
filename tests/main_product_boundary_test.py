@@ -27,3 +27,12 @@ def test_structured_memory_has_no_vector_side_channel() -> None:
         "vec_archived",
     )
     assert not [token for token in forbidden if token in source]
+
+
+def test_context_builder_accepts_only_structured_memory_inputs() -> None:
+    from miniunicorn.agent.context import ContextBuilder
+
+    for method in (ContextBuilder.build_system_prompt, ContextBuilder.build_messages):
+        params = inspect.signature(method).parameters
+        assert "query_embedding" not in params
+        assert "vector_recall" not in params
