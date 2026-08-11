@@ -260,6 +260,13 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             disabled_skills=disabled_skills,
             structured_memory_config=structured_memory_config,
         )
+        # Governed mode refuses to start until the legacy migration finished
+        # (spec §14.3): the agent must never run with half-imported memory.
+        if structured_memory_config is not None and structured_memory_config.mode == "governed":
+            if not self.context.memory.migration_completed():
+                raise RuntimeError(
+                    "governed structured memory requires migration: run /memory-migrate --apply first"
+                )
         self.sessions = session_manager or SessionManager(workspace)
         self._webui_turns = WebuiTurnCoordinator(
             bus=self.bus,

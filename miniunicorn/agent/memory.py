@@ -107,6 +107,7 @@ class MemoryStore:
         "memory/shared/POLICY.md": {"memory_store"},
         "memory/structured/journal.jsonl": {"memory_store"},
         "memory/structured/TAGS.json": {"memory_store"},
+        "memory/migration-v1.json": {"memory_store"},
     }
 
     def __init__(
@@ -164,6 +165,7 @@ class MemoryStore:
                 "memory/structured/journal.jsonl",
                 "memory/structured/TAGS.json",
                 "memory/shared/POLICY.md",
+                "memory/migration-v1.json",
             ],
         )
         self._maybe_migrate_legacy_history()
@@ -276,6 +278,40 @@ class MemoryStore:
         """Run deterministic recall, building the structured stack on demand."""
         self._structured_stack_or_build()
         return self.structured_recall.recall(query)  # type: ignore[union-attr]
+
+    # ------------------------------------------------------------------
+    # Legacy migration (C2 §14): deterministic, idempotent, no-LLM.
+    # ------------------------------------------------------------------
+
+    def migration_plan(self) -> tuple[list[Any], list[Any]]:
+        """Scan legacy sources (read-only). Returns (items, issues)."""
+        from miniunicorn.agent.memory_migration import scan_legacy_memory
+
+        return scan_legacy_memory(self.workspace)
+
+    def run_migration(self, *, dry_run: bool = False) -> Any:
+        """Run the legacy -> structured migration (dry-run or apply).
+
+        dry-run performs zero writes; apply imports through the journal-backed
+        lifecycle and writes ``memory/migration-v1.json`` progress, setting
+        ``completed_at`` after the full source scan finished.
+        """
+        from miniunicorn.agent.memory_migration import MemoryMigration
+
+        self._structured_stack_or_build()
+        migration = MemoryMigration(
+            self.workspace,
+            self.structured_repository,
+            self.structured_lifecycle,
+            self.project_scope_key,
+        )
+        return migration.dry_run() if dry_run else migration.apply()
+
+    def migration_completed(self) -> bool:
+        """True when migration-v1.json records a completed_at (spec §14.3)."""
+        from miniunicorn.agent.memory_migration import MIGRATION_STATE_FILE, MigrationState
+
+        return MigrationState.load(self.workspace / MIGRATION_STATE_FILE).completed_at is not None
 
     # -- Single-Writer 路径校验（借鉴 MiMo Code 的 path whitelist）----------
     # 防御 path traversal：所有写入方法的路径必须解析后仍在 workspace 内。
