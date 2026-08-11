@@ -643,6 +643,9 @@ class RecallResult(BaseModel):
     filtered: int = 0
     excluded_by_budget: int = 0
     tokens_used: int = 0
+    degraded: bool = False
+    error_code: str | None = None
+    error_message: str | None = None
 
 
 # ---------------------------------------------------------------------------

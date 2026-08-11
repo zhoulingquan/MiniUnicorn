@@ -1,0 +1,240 @@
+"""Deterministic lexical recall: routing, exact scoring, budget, prompt rendering.
+
+Recall never calls a model: it filters against the repository index, scores with
+fixed per-attribute weights, applies a strict token budget, and renders a
+stable "Why" for every hit. The same stable memory ID is shown to the model,
+the user, and the audit trail.
+"""
+
+from __future__ import annotations
+
+import re
+from datetime import datetime
+
+from miniunicorn.agent.memory_models import (
+    MemoryRecord,
+    MemoryStatus,
+    RecallHit,
+    RecallQuery,
+    RecallResult,
+    ScopeKind,
+    SourceLevel,
+    TagCatalog,
+    normalize_match_text,
+)
+from miniunicorn.agent.memory_repository import StructuredMemoryRepository
+
+SCOPE_SCORE = {
+    ScopeKind.SESSION: 12,
+    ScopeKind.PROJECT: 10,
+    ScopeKind.USER: 8,
+    ScopeKind.SHARED: 6,
+}
+
+SOURCE_SCORE = {
+    SourceLevel.EXPLICIT_CORRECTION: 25,
+    SourceLevel.CONFIRMED_DECISION: 20,
+    SourceLevel.VERIFIED: 15,
+    SourceLevel.REPEATED_EXPERIENCE: 10,
+    SourceLevel.INFERRED: 0,
+}
+
+ROUTE_EXPLICIT_ID = 100
+ROUTE_SUBJECT = 60
+ROUTE_CANONICAL_TAG = 45
+ROUTE_CATALOG_ALIAS = 35
+ROUTE_RECORD_ALIAS = 30
+ROUTE_EXTRA_BONUS = 5
+ROUTE_TAG_CAP = 60
+ROUTE_ALIAS_CAP = 45
+
+KIND_EXTRA = 10
+
+PROMPT_HEADER = "# Recalled Memory (Deterministic)"
+
+_TOKENIZER = None
+
+
+def _tokenizer():
+    global _TOKENIZER
+    if _TOKENIZER is None:
+        import tiktoken
+
+        _TOKENIZER = tiktoken.get_encoding("cl100k_base")
+    return _TOKENIZER
+
+
+def _has_cjk(value: str) -> bool:
+    return any("\u4e00" <= char <= "\u9fff" for char in value)
+
+
+def _matches(text: str, needle: str) -> bool:
+    if not needle:
+        return False
+    if _has_cjk(needle):
+        return needle in text
+    return re.search(rf"\b{re.escape(needle)}\b", text) is not None
+
+
+def freshness_score(updated_at: datetime, now: datetime) -> tuple[int, str]:
+    days = max(0, (now - updated_at).days)
+    if days <= 7:
+        return 10, "freshness<=7d(+10)"
+    if days <= 30:
+        return 7, "freshness<=30d(+7)"
+    if days <= 90:
+        return 4, "freshness<=90d(+4)"
+    return 0, "freshness>90d(+0)"
+
+
+class StructuredMemoryRecall:
+    def __init__(self, repository: StructuredMemoryRepository, tag_catalog: TagCatalog) -> None:
+        self._repository = repository
+        self._tag_catalog = tag_catalog
+        self._aliases_by_tag = {definition.name: definition.aliases for definition in tag_catalog.tags}
+
+    def recall(self, query: RecallQuery) -> RecallResult:
+        health = self._repository.health
+        if health.state != "healthy":
+            return RecallResult(
+                degraded=True,
+                error_code=health.error_code,
+                error_message=health.error_message,
+            )
+        query_norm = normalize_match_text(query.query_text)
+        allowed = {(scope.kind, scope.key) for scope in query.allowed_scopes}
+        explicit_ids = set(query.explicit_ids)
+        explicit_tags = frozenset(normalize_match_text(tag) for tag in query.explicit_tags)
+        now = query.now
+
+        candidates = 0
+        filtered = 0
+        scored = []
+        for record in self._repository.current_records(MemoryStatus.ACTIVE):
+            candidates += 1
+            if (record.scope.kind, record.scope.key) not in allowed:
+                filtered += 1
+                continue
+            if record.expires_at is not None and record.expires_at <= now:
+                filtered += 1
+                continue
+            if query.requested_kinds and record.kind not in query.requested_kinds:
+                filtered += 1
+                continue
+            if record.id in explicit_ids:
+                route_score, route_reasons = ROUTE_EXPLICIT_ID, [f"id={record.id}(+100)"]
+            else:
+                route = self._route_from_query(record, query_norm, explicit_tags)
+                if route is None:
+                    filtered += 1
+                    continue
+                route_score, route_reasons = route
+            total, reasons = self._score_total(record, query, route_score, route_reasons, now)
+            scored.append((total, record, reasons))
+
+        scored.sort(
+            key=lambda item: (
+                -item[0],
+                -SOURCE_SCORE[item[1].source_level],
+                -item[1].importance,
+                -item[1].updated_at.timestamp(),
+                item[1].id,
+            )
+        )
+
+        hits = []
+        used = 0
+        excluded = 0
+        for total, record, reasons in scored:
+            if len(hits) >= query.max_hits:
+                break
+            rendered = self._render_hit(record, reasons, total)
+            tokens = len(_tokenizer().encode(rendered))
+            if used + tokens > query.token_budget:
+                excluded += 1
+                continue
+            hits.append(
+                RecallHit(record=record, score=total, reasons=tuple(reasons), tokens=tokens)  # type: ignore[attr-defined]
+            )
+            used += tokens
+        return RecallResult(hits=tuple(hits), candidates=candidates, filtered=filtered, excluded_by_budget=excluded, tokens_used=used)
+
+    def render_prompt(self, result: RecallResult) -> str:
+        if not result.hits:
+            return ""
+        lines = [PROMPT_HEADER, ""]
+        for hit in result.hits:
+            lines.append(f"- [{hit.record.id} | {hit.record.kind.value} | {hit.record.scope.kind.value}] {hit.record.statement}")
+            lines.append(f"  Why: {', '.join(hit.reasons)}, total={hit.score}")
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Internal scoring
+    # ------------------------------------------------------------------
+
+    def _route_from_query(self, record: MemoryRecord, query_norm: str, explicit_tags: frozenset[str]) -> tuple[int, list[str]] | None:
+        subject_hits = _matches(query_norm, normalize_match_text(record.subject))
+
+        tag_hits = []
+        for tag in record.tags:
+            if _matches(query_norm, normalize_match_text(tag)) or normalize_match_text(tag) in explicit_tags:
+                tag_hits.append(f"tag={tag}(+{ROUTE_CANONICAL_TAG if not tag_hits else ROUTE_EXTRA_BONUS})")
+        tag_score = min(ROUTE_TAG_CAP, ROUTE_CANONICAL_TAG + max(0, len(tag_hits) - 1) * ROUTE_EXTRA_BONUS) if tag_hits else 0
+
+        catalog_hits = []
+        for tag in record.tags:
+            for alias in self._aliases_by_tag.get(tag, ()):
+                if _matches(query_norm, normalize_match_text(alias)):
+                    catalog_hits.append(f"alias={alias}(+{ROUTE_CATALOG_ALIAS if not catalog_hits else ROUTE_EXTRA_BONUS})")
+        catalog_score = min(ROUTE_ALIAS_CAP, ROUTE_CATALOG_ALIAS + max(0, len(catalog_hits) - 1) * ROUTE_EXTRA_BONUS) if catalog_hits else 0
+
+        record_hits = []
+        for alias in record.aliases:
+            if _matches(query_norm, normalize_match_text(alias)):
+                record_hits.append(f"alias={alias}(+{ROUTE_RECORD_ALIAS if not record_hits else ROUTE_EXTRA_BONUS})")
+        record_score = min(ROUTE_ALIAS_CAP, ROUTE_RECORD_ALIAS + max(0, len(record_hits) - 1) * ROUTE_EXTRA_BONUS) if record_hits else 0
+
+        routes: list[tuple[int, list[str]]] = []
+        if subject_hits:
+            routes.append((ROUTE_SUBJECT, ["subject(+60)"]))
+        if tag_hits:
+            routes.append((tag_score, tag_hits))
+        if catalog_hits:
+            routes.append((catalog_score, catalog_hits))
+        if record_hits:
+            routes.append((record_score, record_hits))
+        if not routes:
+            return None
+        routes.sort(key=lambda item: -item[0])
+        return routes[0]
+
+    def _score_total(
+        self,
+        record: MemoryRecord,
+        query: RecallQuery,
+        route_score: int,
+        route_reasons: list[str],
+        now: datetime,
+    ) -> tuple[int, list[str]]:
+        reasons = list(route_reasons)
+        total = route_score
+        if query.requested_kinds and record.kind in query.requested_kinds:
+            reasons.append(f"kind={record.kind.value}(+{KIND_EXTRA})")
+            total += KIND_EXTRA
+        source_score = SOURCE_SCORE[record.source_level]
+        reasons.append(f"source={record.source_level.value}(+{source_score})")
+        total += source_score
+        scope_score = SCOPE_SCORE[record.scope.kind]
+        reasons.append(f"scope={record.scope.kind.value}(+{scope_score})")
+        total += scope_score
+        importance_score = record.importance * 4
+        reasons.append(f"importance={record.importance}(+{importance_score})")
+        total += importance_score
+        fresh_score, fresh_reason = freshness_score(record.updated_at, now)
+        reasons.append(fresh_reason)
+        total += fresh_score
+        return total, reasons
+
+    def _render_hit(self, record: MemoryRecord, reasons: list[str], total: int) -> str:
+        header = f"- [{record.id} | {record.kind.value} | {record.scope.kind.value}] {record.statement}"
+        return f"{header}\n  Why: {', '.join(reasons)}, total={total}"
