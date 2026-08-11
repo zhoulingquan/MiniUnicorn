@@ -111,6 +111,54 @@ BUILTIN_COMMAND_SPECS: tuple[BuiltinCommandSpec, ...] = (
         "shield",
         "[list|approve <code>|deny <code>|revoke <user_id>]",
     ),
+    BuiltinCommandSpec(
+        "/memory-status",
+        "Memory status",
+        "Show structured memory mode, health, counts and migration state.",
+        "database",
+    ),
+    BuiltinCommandSpec(
+        "/memory-list",
+        "List memory",
+        "List structured memory records by status.",
+        "list",
+        "[candidate|active|superseded|revoked|expired]",
+    ),
+    BuiltinCommandSpec(
+        "/memory-show",
+        "Show memory record",
+        "Show all revisions, evidence and the replace chain of one record.",
+        "file-text",
+        "<id>",
+    ),
+    BuiltinCommandSpec(
+        "/memory-promote",
+        "Promote candidate",
+        "Promote a candidate to active; conflicts require --replace.",
+        "arrow-up",
+        "<id> [--replace <active-id>]",
+    ),
+    BuiltinCommandSpec(
+        "/memory-revoke",
+        "Revoke memory",
+        "Revoke a candidate or active record with a reason.",
+        "trash-2",
+        "<id> <reason>",
+    ),
+    BuiltinCommandSpec(
+        "/memory-correct",
+        "Correct memory",
+        "Create an explicit correction record.",
+        "pencil",
+        "<subject>|<slot>|<statement>",
+    ),
+    BuiltinCommandSpec(
+        "/memory-migrate",
+        "Migrate memory",
+        "Import legacy memory files into the structured repository.",
+        "arrow-right-left",
+        "[--dry-run|--apply]",
+    ),
 )
 
 
@@ -670,3 +718,6 @@ def register_builtin_commands(router: CommandRouter) -> None:
     router.exact("/help", cmd_help)
     router.exact("/pairing", cmd_pairing)
     router.prefix("/pairing ", cmd_pairing)
+    from miniunicorn.command.memory import register_memory_commands
+
+    register_memory_commands(router)
