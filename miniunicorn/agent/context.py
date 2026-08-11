@@ -13,6 +13,7 @@ from miniunicorn.agent.tools import mcp as mcp_tools
 from miniunicorn.agent.tools.registry import ToolRegistry
 from miniunicorn.apps.cli import utils as cli_app_utils
 from miniunicorn.bus.events import InboundMessage
+from miniunicorn.config.schema import StructuredMemoryConfig
 from miniunicorn.session.goal_state import goal_state_runtime_lines
 from miniunicorn.utils.helpers import (
     current_time_str,
@@ -84,10 +85,11 @@ class ContextBuilder:
         timezone: str | None = None,
         disabled_skills: list[str] | None = None,
         subagent_registry: Any = None,
+        structured_memory_config: StructuredMemoryConfig | None = None,
     ):
         self.workspace = workspace
         self.timezone = None
-        self.memory = MemoryStore(workspace)
+        self.memory = MemoryStore(workspace, structured_config=structured_memory_config)
         self.skills = SkillsLoader(
             workspace, disabled_skills=set(disabled_skills) if disabled_skills else None
         )

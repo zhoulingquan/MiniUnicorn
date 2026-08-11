@@ -193,6 +193,13 @@ class AgentLoopBuilder:
         self._kwargs["runtime_model_publisher"] = runtime_model_publisher
         return self
 
+    def with_structured_memory_config(
+        self,
+        structured_memory_config: Any | None,
+    ) -> AgentLoopBuilder:
+        self._kwargs["structured_memory_config"] = structured_memory_config
+        return self
+
     # --- 便捷方法 ---
 
     def with_extra(self, **kwargs: Any) -> AgentLoopBuilder:
@@ -262,6 +269,7 @@ class AgentLoopBuilder:
         builder.with_model_preset(defaults.model_preset)
         builder.with_provider_snapshot_loader(provider_snapshot_loader)
         builder.with_preset_snapshot_loader(preset_snapshot_loader)
+        builder.with_structured_memory_config(defaults.structured_memory)
         # 保留 extra 中的覆盖项
         if extra:
             builder.with_extra(**extra)

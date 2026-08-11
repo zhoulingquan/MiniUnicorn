@@ -42,7 +42,7 @@ from miniunicorn.agent.tools.registry import ToolRegistry
 from miniunicorn.bus.events import InboundMessage, OutboundMessage, make_session_key
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.command import CommandContext, CommandRouter, register_builtin_commands
-from miniunicorn.config.schema import AgentDefaults, ModelPresetConfig
+from miniunicorn.config.schema import AgentDefaults, ModelPresetConfig, StructuredMemoryConfig
 from miniunicorn.providers.base import LLMProvider
 from miniunicorn.providers.factory import ProviderSnapshot
 from miniunicorn.security.workspace_access import (
@@ -171,6 +171,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         model_preset: str | None = None,
         preset_snapshot_loader: preset_helpers.PresetSnapshotLoader | None = None,
         runtime_model_publisher: Callable[[str, str | None], None] | None = None,
+        structured_memory_config: StructuredMemoryConfig | None = None,
     ):
         from miniunicorn.config.schema import ToolsConfig
 
@@ -253,7 +254,12 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         self._pending_turn_latency_ms: dict[str, int] = {}
         self._extra_hooks: list[AgentHook] = hooks or []
 
-        self.context = ContextBuilder(workspace, timezone=timezone, disabled_skills=disabled_skills)
+        self.context = ContextBuilder(
+            workspace,
+            timezone=timezone,
+            disabled_skills=disabled_skills,
+            structured_memory_config=structured_memory_config,
+        )
         self.sessions = session_manager or SessionManager(workspace)
         self._webui_turns = WebuiTurnCoordinator(
             bus=self.bus,

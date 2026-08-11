@@ -157,6 +157,23 @@ class ModelPresetConfig(Base):
         )
 
 
+class StructuredMemoryConfig(Base):
+    """Governed structured memory settings (C2). Modes: legacy (off), shadow
+    (journal + lifecycle + recall active, no context injection), governed
+    (context injection via deterministic recall)."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forbid")
+
+    mode: Literal["legacy", "shadow", "governed"] = "shadow"
+    recall_token_budget: int = Field(default=2500, ge=256, le=16_000)
+    max_recall_hits: int = Field(default=20, ge=1, le=100)
+    lock_timeout_s: float = Field(default=5.0, ge=0.1, le=30.0)
+    auto_promote_verified: bool = True
+    min_repeated_evidence: int = Field(default=2, ge=2, le=10)
+    candidate_ttl_days: int = Field(default=30, ge=1, le=365)
+    recall_audit_enabled: bool = False
+
+
 class AgentDefaults(Base):
     """Default agent configuration."""
 
@@ -279,6 +296,7 @@ class AgentDefaults(Base):
         serialization_alias="maxCostPerTurnUsd",
     )  # Per-turn cost budget in USD (None = unlimited)
     dream: DreamConfig = Field(default_factory=DreamConfig)
+    structured_memory: StructuredMemoryConfig = Field(default_factory=StructuredMemoryConfig)
 
 
 class AgentsConfig(Base):

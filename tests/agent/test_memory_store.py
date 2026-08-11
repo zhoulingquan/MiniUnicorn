@@ -1,11 +1,25 @@
 """Tests for the restructured MemoryStore — pure file I/O layer."""
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 
 from miniunicorn.agent.memory import _HISTORY_ENTRY_HARD_CAP, MemoryStore
+from miniunicorn.agent.memory_models import (
+    SCHEMA_VERSION,
+    ActorKind,
+    MemoryOperation,
+    MemoryRecord,
+    MemoryScope,
+    MemoryTransaction,
+    RecallQuery,
+    ScopeKind,
+    transaction_checksum,
+)
+from miniunicorn.config.schema import StructuredMemoryConfig
+
+UTC = timezone.utc
 
 
 @pytest.fixture
@@ -531,3 +545,138 @@ class TestSingleWriterPathValidation:
         store = MemoryStore(tmp_path)
         cursor = store.append_history("event")
         assert cursor >= 1
+
+
+class TestStructuredMemoryStore:
+    def test_defaults_to_legacy_without_config(self, tmp_path):
+        store = MemoryStore(tmp_path)
+
+        assert store.structured_config is None
+        assert store.structured_repository is None
+        assert store.structured_lifecycle is None
+        assert store.structured_recall is None
+
+    def test_shadow_mode_constructs_stack_immediately(self, tmp_path):
+        store = MemoryStore(tmp_path, structured_config=StructuredMemoryConfig())
+
+        assert store.structured_repository is not None
+        assert store.structured_lifecycle is not None
+        assert store.structured_recall is not None
+        assert store.structured_repository.health.state == "healthy"
+
+    def test_bundled_files_created_only_when_absent(self, tmp_path):
+        store = MemoryStore(tmp_path, structured_config=StructuredMemoryConfig())
+        tags_path = store.workspace / "memory" / "structured" / "TAGS.json"
+        policy_path = store.workspace / "memory" / "shared" / "POLICY.md"
+        assert tags_path.exists()
+        assert policy_path.exists()
+        original = tags_path.read_text(encoding="utf-8")
+
+        store2 = MemoryStore(tmp_path, structured_config=StructuredMemoryConfig())
+        assert store2.workspace / "memory" / "structured" / "TAGS.json" == tags_path
+        assert tags_path.read_text(encoding="utf-8") == original
+
+    def test_tracks_structured_files_but_not_runtime_files(self, tmp_path):
+        store = MemoryStore(tmp_path, structured_config=StructuredMemoryConfig())
+
+        tracked = store.git._tracked_files
+        assert "memory/structured/journal.jsonl" in tracked
+        assert "memory/structured/TAGS.json" in tracked
+        assert "memory/shared/POLICY.md" in tracked
+        assert "memory/structured/journal.lock" not in tracked
+        assert "memory/structured/recall-audit.jsonl" not in tracked
+
+    def test_legacy_defers_construction_until_structured_command(self, tmp_path):
+        store = MemoryStore(tmp_path)
+        assert store.structured_repository is None
+
+        query = RecallQuery(
+            query_text="architecture.memory",
+            allowed_scopes=(MemoryScope(kind=ScopeKind.PROJECT, key="project:seed"),),
+            now=datetime(2026, 8, 11, 8, 30, tzinfo=UTC),
+        )
+        result = store.recall_structured(query)
+
+        assert store.structured_repository is not None
+        assert store.structured_recall is not None
+        assert result.degraded is False
+
+    def test_recall_structured_returns_deterministic_hits(self, tmp_path):
+        store = MemoryStore(tmp_path, structured_config=StructuredMemoryConfig())
+        record = MemoryRecord.model_validate(
+            {
+                "schema_version": SCHEMA_VERSION,
+                "id": f"mem_{'a' * 32}",
+                "revision": 1,
+                "status": "active",
+                "kind": "fact",
+                "scope": {"kind": "project", "key": "project:seed"},
+                "subject": "MiniUnicorn",
+                "slot": "db.primary",
+                "statement": "Structured memory is deterministic.",
+                "detail": "",
+                "tags": ["architecture.memory"],
+                "aliases": [],
+                "source_level": "verified",
+                "confidence": 0.9,
+                "importance": 4,
+                "evidence": [
+                    {
+                        "kind": "manual",
+                        "ref": "command:seed-1",
+                        "excerpt": "",
+                        "sha256": None,
+                        "observed_at": "2026-08-11T08:30:00Z",
+                    }
+                ],
+                "content_hash": "c" * 64,
+                "derived_from": [],
+                "supersedes": [],
+                "replacement_id": None,
+                "blocked_by": [],
+                "valid_from": "2026-08-11T08:30:00Z",
+                "expires_at": None,
+                "created_at": "2026-08-11T08:30:00Z",
+                "updated_at": "2026-08-11T08:28:00Z",
+                "status_reason": "seed",
+            }
+        )
+        transaction = MemoryTransaction(
+            schema_version=SCHEMA_VERSION,
+            tx_id="mtx_" + "0" * 32,
+            recorded_at=datetime(2026, 8, 11, 8, 31, tzinfo=UTC),
+            actor=ActorKind.MIGRATION,
+            reason="seed",
+            source_batch="",
+            expected_revisions={record.id: 0},
+            operations=[MemoryOperation(op="put", record=record)],
+            checksum_sha256="f" * 64,
+        )
+        store.structured_repository.append_transaction(
+            transaction.model_copy(update={"checksum_sha256": transaction_checksum(transaction)})
+        )
+
+        query = RecallQuery(
+            query_text="architecture.memory",
+            allowed_scopes=(record.scope,),
+            now=datetime(2026, 8, 11, 8, 30, tzinfo=UTC),
+        )
+        result = store.recall_structured(query)
+
+        assert result.hits
+        assert result.hits[0].record.id == record.id
+        prompt = store.structured_recall.render_prompt(result)
+        assert prompt.startswith("# Recalled Memory (Deterministic)")
+        assert record.id in prompt
+
+    def test_whitelist_allows_memory_store_for_structured_files(self):
+        for path in ("memory/structured/journal.jsonl", "memory/structured/TAGS.json", "memory/shared/POLICY.md"):
+            assert "memory_store" in MemoryStore._WRITER_WHITELIST[path], path
+
+    def test_read_shared_policy_empty_when_absent_or_template(self, tmp_path):
+        store = MemoryStore(tmp_path, structured_config=StructuredMemoryConfig())
+        assert store.read_shared_policy() == ""
+        policy_path = store.workspace / "memory" / "shared" / "POLICY.md"
+        policy_path.write_text("Always reply in Chinese.", encoding="utf-8")
+        assert store.read_shared_policy() == "Always reply in Chinese."
+

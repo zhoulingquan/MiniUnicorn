@@ -30,6 +30,11 @@ from miniunicorn.utils.helpers import (
 from miniunicorn.utils.prompt_templates import render_template
 
 if TYPE_CHECKING:
+    from miniunicorn.agent.memory_lifecycle import StructuredMemoryLifecycle
+    from miniunicorn.agent.memory_models import RecallQuery, RecallResult
+    from miniunicorn.agent.memory_recall import StructuredMemoryRecall
+    from miniunicorn.agent.memory_repository import StructuredMemoryRepository
+    from miniunicorn.config.schema import StructuredMemoryConfig
     from miniunicorn.providers.base import LLMProvider
     from miniunicorn.session.manager import SessionManager
 
@@ -81,9 +86,17 @@ class MemoryStore:
         "memory/reflections.jsonl": {"dream", "reflection", "memory_store"},
         "memory/shared/MEMORY_SHARED.md": {"dream", "memory_store"},
         "memory/shared/procedural_shared.jsonl": {"dream", "memory_store"},
+        "memory/shared/POLICY.md": {"memory_store"},
+        "memory/structured/journal.jsonl": {"memory_store"},
+        "memory/structured/TAGS.json": {"memory_store"},
     }
 
-    def __init__(self, workspace: Path, max_history_entries: int = _DEFAULT_MAX_HISTORY):
+    def __init__(
+        self,
+        workspace: Path,
+        max_history_entries: int = _DEFAULT_MAX_HISTORY,
+        structured_config: StructuredMemoryConfig | None = None,
+    ):
         self.workspace = workspace
         self.max_history_entries = max_history_entries
         self.memory_dir = ensure_dir(workspace / "memory")
@@ -130,13 +143,112 @@ class MemoryStore:
                 "memory/procedural.jsonl",
                 "memory/shared/MEMORY_SHARED.md",
                 "memory/shared/procedural_shared.jsonl",
+                "memory/structured/journal.jsonl",
+                "memory/structured/TAGS.json",
+                "memory/shared/POLICY.md",
             ],
         )
         self._maybe_migrate_legacy_history()
+        # Governed structured memory (C2): journal-backed facts + lifecycle + recall.
+        self.structured_config = structured_config
+        self.structured_repository: StructuredMemoryRepository | None = None
+        self.structured_lifecycle: StructuredMemoryLifecycle | None = None
+        self.structured_recall: StructuredMemoryRecall | None = None
+        mode = structured_config.mode if structured_config is not None else "legacy"
+        if mode in ("shadow", "governed"):
+            self._ensure_structured_bundled_files()
+            self._build_structured_stack()
+            logger.info(
+                "structured_memory_initialized mode={} health={}",
+                mode,
+                self.structured_repository.health.state,  # type: ignore[union-attr]
+            )
 
     @property
     def git(self) -> GitStore:
         return self._git
+
+    # ------------------------------------------------------------------
+    # Governed structured memory (C2) — repository/lifecycle/recall wiring
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _bundled_template_path(name: str) -> Path:
+        return Path(__file__).resolve().parent.parent / "templates" / "memory" / name
+
+    def _ensure_structured_bundled_files(self) -> None:
+        """Copy bundled TAGS.json / POLICY.md only when absent (never overwrite)."""
+        targets = {
+            "TAGS.json": self.workspace / "memory" / "structured" / "TAGS.json",
+            "POLICY.md": self.workspace / "memory" / "shared" / "POLICY.md",
+        }
+        for name, target in targets.items():
+            if target.exists():
+                continue
+            ensure_dir(target.parent)
+            with self._bundled_template_path(name).open("r", encoding="utf-8") as source, target.open(
+                "w", encoding="utf-8", newline="\n"
+            ) as dest:
+                dest.write(source.read())
+
+    def _build_structured_stack(self) -> None:
+        """Construct repository -> lifecycle -> recall from the structured config.
+
+        ``None`` config means the caller opted into ``legacy`` mode; the stack
+        is then built lazily on the first structured command.
+        """
+        if self.structured_config is None:
+            from miniunicorn.agent.memory_models import MemoryWriteError
+
+            raise MemoryWriteError("structured stack requires a structured config")
+        from miniunicorn.agent.memory_lifecycle import (
+            LifecyclePolicy,
+            StructuredMemoryLifecycle,
+        )
+        from miniunicorn.agent.memory_recall import StructuredMemoryRecall
+        from miniunicorn.agent.memory_repository import StructuredMemoryRepository
+
+        repository = StructuredMemoryRepository(
+            self.workspace, lock_timeout_s=self.structured_config.lock_timeout_s
+        )
+        policy = LifecyclePolicy(
+            auto_promote_verified=self.structured_config.auto_promote_verified,
+            min_repeated_evidence=self.structured_config.min_repeated_evidence,
+            candidate_ttl_days=self.structured_config.candidate_ttl_days,
+        )
+        self.structured_repository = repository
+        self.structured_lifecycle = StructuredMemoryLifecycle(repository, policy)
+        self.structured_recall = StructuredMemoryRecall(repository, repository.tag_catalog)
+
+    def _structured_stack_or_build(self) -> StructuredMemoryRepository:
+        """Lazily materialize the structured stack (legacy deferral)."""
+        if self.structured_repository is None:
+            if self.structured_config is None:
+                from miniunicorn.config.schema import StructuredMemoryConfig
+
+                self.structured_config = StructuredMemoryConfig(mode="legacy")
+            self._ensure_structured_bundled_files()
+            self._build_structured_stack()
+        return self.structured_repository  # type: ignore[return-value]
+
+    def read_shared_policy(self) -> str:
+        """Return shared POLICY.md body, or "" when missing or still the bundled
+        template (a template holds only Markdown comments, never instructions)."""
+        policy = self.workspace / "memory" / "shared" / "POLICY.md"
+        if not policy.exists():
+            return ""
+        body = policy.read_text(encoding="utf-8")
+        try:
+            if body == self._bundled_template_path("POLICY.md").read_text(encoding="utf-8"):
+                return ""
+        except OSError:
+            pass
+        return body
+
+    def recall_structured(self, query: RecallQuery) -> RecallResult:
+        """Run deterministic recall, building the structured stack on demand."""
+        self._structured_stack_or_build()
+        return self.structured_recall.recall(query)  # type: ignore[union-attr]
 
     # -- Single-Writer 路径校验（借鉴 MiMo Code 的 path whitelist）----------
     # 防御 path traversal：所有写入方法的路径必须解析后仍在 workspace 内。
