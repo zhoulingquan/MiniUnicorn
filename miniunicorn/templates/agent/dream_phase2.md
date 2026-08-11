@@ -1,7 +1,15 @@
-Update memory files based on the analysis below.
+{% if structured_mode %}Skill creation phase only. Facts are governed by the
+structured memory system — never edit memory files or permanent identity files:
+
+- Forbidden paths (never write, never edit): memory/**, USER.md, SOUL.md
+- New facts and corrections flow through lifecycle candidates, not through tools
+- [SKILL] entries: create a new skill under skills/<name>/SKILL.md using write_file
+- If no skill entries, stop without calling tools
+{% else %}Update memory files based on the analysis below.
 - [FILE] entries: add the described content to the appropriate file
 - [FILE-REMOVE] entries: delete the corresponding content from memory files
 - [SKILL] entries: create a new skill under skills/<name>/SKILL.md using write_file
+{% endif %}
 
 ## File paths (relative to workspace root)
 - SOUL.md

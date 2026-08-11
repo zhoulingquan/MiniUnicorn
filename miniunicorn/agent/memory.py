@@ -8,7 +8,8 @@ import os
 import re
 import weakref
 from contextlib import suppress
-from datetime import datetime
+from dataclasses import replace as dataclasses_replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterator
 
@@ -31,7 +32,7 @@ from miniunicorn.utils.prompt_templates import render_template
 
 if TYPE_CHECKING:
     from miniunicorn.agent.memory_lifecycle import StructuredMemoryLifecycle
-    from miniunicorn.agent.memory_models import RecallQuery, RecallResult
+    from miniunicorn.agent.memory_models import MemoryStatus, RecallQuery, RecallResult
     from miniunicorn.agent.memory_recall import StructuredMemoryRecall
     from miniunicorn.agent.memory_repository import StructuredMemoryRepository
     from miniunicorn.config.schema import StructuredMemoryConfig
@@ -42,6 +43,23 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # MemoryStore — pure file I/O layer
 # ---------------------------------------------------------------------------
+
+
+def _parse_datetime_loose(value: str | None) -> datetime | None:
+    """Parse a history/reflection timestamp into an aware datetime.
+
+    Naive timestamps are interpreted as local time so the result always
+    carries a timezone (required by ``EvidenceRef.observed_at``).
+    """
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.astimezone()
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo is not None else parsed.astimezone()
+    except ValueError:
+        return None
 
 
 class MemoryStore:
@@ -163,6 +181,15 @@ class MemoryStore:
                 mode,
                 self.structured_repository.health.state,  # type: ignore[union-attr]
             )
+
+    @property
+    def project_scope_key(self) -> str:
+        """Stable project scope key for this workspace (deterministic)."""
+        import hashlib
+
+        root = str(self.workspace.resolve()).casefold()
+        digest = hashlib.sha256(root.encode("utf-8")).hexdigest()[:12]
+        return f"project:{digest}"
 
     @property
     def git(self) -> GitStore:
@@ -1677,9 +1704,14 @@ class Dream:
                 file_states=file_states,
             )
         )
-        tools.register(
-            EditFileTool(workspace=workspace, allowed_dir=workspace, file_states=file_states)
-        )
+        structured = self.store.structured_config
+        structured_mode = structured is not None and structured.mode in ("shadow", "governed")
+        if not structured_mode:
+            # Structured mode removes fact-file editing entirely: facts flow
+            # only through lifecycle candidates, never through edit_file.
+            tools.register(
+                EditFileTool(workspace=workspace, allowed_dir=workspace, file_states=file_states)
+            )
         # write_file resolves relative paths from workspace root, but can only
         # write under skills/ so the prompt can safely use skills/<name>/SKILL.md.
         skills_dir = workspace / "skills"
@@ -1769,6 +1801,9 @@ class Dream:
 
     async def run(self) -> bool:
         """Process unprocessed history entries. Returns True if work was done."""
+        structured = self.store.structured_config
+        if structured is not None and structured.mode in ("shadow", "governed"):
+            return await self._run_structured_batch()
         from miniunicorn.agent.skills import BUILTIN_SKILLS_DIR
 
         last_cursor = self.store.get_last_dream_cursor()
@@ -1991,4 +2026,171 @@ class Dream:
                 except Exception:
                     logger.debug("Dream gc skipped", exc_info=True)
 
+        return True
+
+    # -- structured mode: strict extraction -> lifecycle candidates -------------
+
+    def _structured_summary(self, repository: Any, status: MemoryStatus) -> str:
+        lines = []
+        for record in repository.current_records(status):
+            lines.append(f"- [{record.id}] {record.statement} (tags: {', '.join(record.tags)})")
+        return "\n".join(lines)
+
+    async def _run_structured_batch(self) -> bool:
+        """Structured-mode Dream: extract proposals, ingest through lifecycle,
+        advance cursors only on full success (fail-closed, idempotent retry).
+
+        On any provider/parse/ingest error, both cursors stay put and the next
+        cycle retries the same batch; re-ingest is safe because lifecycle
+        deduplicates by source_batch + content hash.
+        """
+        from miniunicorn.agent.memory_extraction import (
+            MemoryExtractionError,
+            parse_extraction_batch,
+        )
+        from miniunicorn.agent.memory_lifecycle import IngestContext
+        from miniunicorn.agent.memory_models import (
+            ActorKind,
+            EvidenceKind,
+            EvidenceRef,
+            MemoryScope,
+            MemoryStatus,
+            ScopeKind,
+        )
+
+        store = self.store
+        repository = store.structured_repository
+        lifecycle = store.structured_lifecycle
+        if repository is None or lifecycle is None:
+            logger.warning("memory_dream_batch_failed code=structured_stack_missing")
+            return False
+
+        last_cursor = store.get_last_dream_cursor()
+        entries = store.read_unprocessed_history(since_cursor=last_cursor)
+        last_refl_cursor = store.get_last_reflections_cursor()
+        reflections = store.read_unprocessed_reflections(since_cursor=last_refl_cursor)
+        if not entries and not reflections:
+            return False
+        batch = entries[: self.max_batch_size] if entries else []
+
+        evidence_catalog: dict[str, EvidenceRef] = {}
+        history_lines: list[str] = []
+        for index, entry in enumerate(batch, start=1):
+            ref = f"history:{index}"
+            content = entry.get("content", "")
+            evidence_catalog[ref] = EvidenceRef(
+                kind=EvidenceKind.HISTORY,
+                ref=ref,
+                excerpt=content,
+                observed_at=_parse_datetime_loose(entry.get("timestamp")),
+            )
+            history_lines.append(
+                f"[{entry.get('timestamp', '')}] "
+                f"{truncate_text(content, self._HISTORY_ENTRY_PREVIEW_MAX_CHARS)}"
+            )
+        reflection_lines: list[str] = []
+        for entry in reflections:
+            line = int(entry.get("_line", 0))
+            ref = f"reflection:{line}"
+            content = entry.get("lesson") or entry.get("reflection", "")
+            evidence_catalog[ref] = EvidenceRef(
+                kind=EvidenceKind.REFLECTION,
+                ref=ref,
+                excerpt=content,
+                observed_at=_parse_datetime_loose(entry.get("timestamp")),
+            )
+            reflection_lines.append(
+                f"- [{entry.get('timestamp', '')}] ({entry.get('trigger', 'unknown')}) {content}"
+            )
+
+        newline = "\n"
+        user_prompt = (
+            f"## Conversation History\n"
+            f"{newline.join(history_lines) if history_lines else '(no new history)'}\n\n"
+            f"## Recent Reflections (Lessons Learned)\n"
+            f"{newline.join(reflection_lines) if reflection_lines else '(none)'}\n\n"
+            f"## Current Active Facts\n"
+            f"{self._structured_summary(repository, MemoryStatus.ACTIVE) or '(none)'}\n\n"
+            f"## Current Candidates\n"
+            f"{self._structured_summary(repository, MemoryStatus.CANDIDATE) or '(none)'}"
+        )
+        system_prompt = render_template(
+            "agent/dream_phase1.md",
+            strip=True,
+            stale_threshold_days=_STALE_THRESHOLD_DAYS,
+            structured_mode=True,
+        )
+        try:
+            response = await self.provider.chat_with_retry(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                tools=None,
+                tool_choice=None,
+            )
+        except Exception:
+            logger.exception("memory_dream_batch_failed code=phase1_provider_error")
+            return False
+
+        raw = response.content or ""
+        try:
+            extracted = parse_extraction_batch(raw, evidence_catalog, repository.tag_catalog)
+        except MemoryExtractionError as exc:
+            logger.warning("memory_dream_batch_failed code=extraction_error error={}", exc)
+            return False
+
+        scope_by_hint = {
+            ScopeKind.PROJECT: MemoryScope(kind=ScopeKind.PROJECT, key=store.project_scope_key),
+            ScopeKind.SHARED: MemoryScope(kind=ScopeKind.SHARED, key="shared:*"),
+        }
+        context = IngestContext(
+            actor=ActorKind.DREAM,
+            reason="dream batch",
+            source_batch=f"dream:{last_cursor}-{last_refl_cursor}",
+            scope=scope_by_hint[ScopeKind.PROJECT],
+            evidence_catalog=evidence_catalog,
+            now=datetime.now(timezone.utc),
+        )
+        results = []
+        try:
+            for proposal in sorted(extracted.proposals, key=lambda p: p.proposal_index):
+                ctx = dataclasses_replace(context, scope=scope_by_hint[proposal.scope_hint])
+                results.append(lifecycle.ingest(proposal, ctx))
+        except Exception as exc:
+            logger.warning(
+                "memory_dream_batch_failed code={} error={}",
+                exc.__class__.__name__,
+                str(exc),
+            )
+            return False
+        if repository.health.state != "healthy":
+            logger.warning("memory_dream_batch_failed code=repository_degraded")
+            return False
+
+        if batch:
+            store.set_last_dream_cursor(batch[-1]["cursor"])
+        if reflections:
+            store.set_last_reflections_cursor(max(r.get("_line", 0) for r in reflections))
+        for result in results:
+            logger.info(
+                "memory_dream_candidate id={} status={} reason={}",
+                result.candidate_id,
+                result.final_status.value,
+                result.reason_code,
+            )
+        try:
+            if store.git.is_initialized():
+                ts = batch[-1]["timestamp"] if batch else datetime.now().strftime("%Y-%m-%d %H:%M")
+                sha = store.git.auto_commit(f"dream structured: {ts}, {len(results)} proposal(s)")
+                if sha:
+                    logger.info("Dream commit: {}", sha)
+        except Exception:
+            logger.debug("Dream git commit skipped", exc_info=True)
+        store.compact_history()
+        try:
+            store.run_memory_hygiene()
+        except Exception:
+            logger.debug("File hygiene failed", exc_info=True)
         return True

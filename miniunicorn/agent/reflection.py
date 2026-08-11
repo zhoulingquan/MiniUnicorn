@@ -1,8 +1,8 @@
-"""Reflection mechanism for AgentRunner.
+﻿"""Reflection mechanism for AgentRunner.
 
 When enabled via AgentRunSpec.enable_reflection=True, the runner periodically
 asks the LLM to produce a one-sentence "lesson learned" from the current
-turn — triggered on failure (tool error, LLM error, max_iterations) or every
+turn 鈥?triggered on failure (tool error, LLM error, max_iterations) or every
 N iterations (reflection_interval). Reflections are appended to
 ``memory/reflections.jsonl`` for Dream to consolidate into MEMORY.md.
 
@@ -37,16 +37,55 @@ class Reflection:
     (AgentRunner) decide when to trigger.
     """
 
-    def __init__(self, provider: Any, model: str, workspace: Path | None):
+    def __init__(
+        self,
+        provider: Any,
+        model: str,
+        workspace: Path | None,
+        structured_mode: bool = False,
+    ):
         self.provider = provider
         self.model = model
         self.workspace = workspace
+        self.structured_mode = structured_mode
         self._reflections_dir = workspace / "memory" if workspace is not None else None
         self._reflections_file = (
             self._reflections_dir / "reflections.jsonl"
             if self._reflections_dir is not None
             else None
         )
+
+    def _next_line(self) -> int:
+        """1-based line number the next reflection will occupy in reflections.jsonl."""
+        if self._reflections_file is None or not self._reflections_file.exists():
+            return 1
+        try:
+            with open(self._reflections_file, "r", encoding="utf-8") as f:
+                return sum(1 for _ in f) + 1
+        except Exception:
+            return 1
+
+    def _parse_structured_response(self, text: str, expected_line: int) -> str | None:
+        """Parse the structured-mode JSON reflection; return the lesson text.
+
+        Validates reflection_id against the expected line number. Falls back to
+        the raw text when the model did not follow the JSON contract.
+        """
+        try:
+            obj = json.loads(text)
+        except json.JSONDecodeError:
+            return text if text else None
+        if not isinstance(obj, dict):
+            return text if text else None
+        lesson = obj.get("lesson")
+        expected_id = f"R{expected_line}"
+        if obj.get("reflection_id") != expected_id:
+            logger.warning(
+                "Reflection id mismatch: got {} expected {}", obj.get("reflection_id"), expected_id
+            )
+        if isinstance(lesson, str) and lesson.strip():
+            return lesson.strip()
+        return text if text else None
 
     async def reflect(
         self,
@@ -75,6 +114,7 @@ class Reflection:
         try:
             # Build a compact context from recent messages (last 6)
             recent = self._format_recent_messages(messages[-6:])
+            next_line = self._next_line()
             response = await self.provider.chat_with_retry(
                 model=self.model,
                 messages=[
@@ -83,6 +123,7 @@ class Reflection:
                         "content": render_template(
                             "agent/reflection_system.md",
                             strip=True,
+                            structured_mode=self.structured_mode,
                         ),
                     },
                     {
@@ -98,21 +139,25 @@ class Reflection:
                 tool_choice=None,
             )
             reflection_text = (response.content or "").strip()
+            if self.structured_mode:
+                reflection_text = self._parse_structured_response(reflection_text, next_line)
             # Truncate to keep file compact
-            if len(reflection_text) > _REFLECTION_MAX_CHARS:
+            if reflection_text is not None and len(reflection_text) > _REFLECTION_MAX_CHARS:
                 reflection_text = reflection_text[:_REFLECTION_MAX_CHARS] + "..."
             if not reflection_text:
                 return None
-            self._append_reflection(
-                {
-                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                    "trigger": trigger,
-                    "iteration": iteration,
-                    "context": context_summary[:200],
-                    "reflection": reflection_text,
-                    "session_key": session_key,
-                }
-            )
+            entry: dict[str, Any] = {
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "trigger": trigger,
+                "iteration": iteration,
+                "context": context_summary[:200],
+                "reflection": reflection_text,
+                "session_key": session_key,
+            }
+            if self.structured_mode:
+                entry["reflection_id"] = f"R{next_line}"
+                entry["lesson"] = reflection_text
+            self._append_reflection(entry)
             logger.info(
                 "Reflection ({}@{}): {}",
                 trigger,
@@ -197,3 +242,4 @@ class Reflection:
         except Exception:
             logger.exception("Failed to read reflections")
         return results
+

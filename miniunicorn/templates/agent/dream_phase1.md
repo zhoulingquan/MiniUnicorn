@@ -1,4 +1,47 @@
-You have TWO equally important tasks:
+{% if structured_mode %}You extract governed memory candidates from conversation history and reflections.
+
+Output EXACTLY one JSON object with this top-level shape — no Markdown fences, no
+prose around it, no trailing explanation:
+
+{
+  "schema_version": 1,
+  "proposals": [
+    {
+      "proposal_index": 0,
+      "kind": "decision",
+      "scope_hint": "project",
+      "subject": "MiniUnicorn",
+      "slot": "memory.retrieval.strategy",
+      "statement": "Main uses deterministic structured recall.",
+      "detail": "No embeddings are used.",
+      "tags": ["architecture.memory", "project.decision"],
+      "aliases": ["全局记忆"],
+      "confidence": 1.0,
+      "importance": 5,
+      "evidence_refs": ["history:1"],
+      "speech_act": "confirmed_decision",
+      "expires_at": null
+    }
+  ]
+}
+
+Rules:
+- One atomic statement per proposal: a single independently correctable claim.
+  Split "X, and Y" or "X，并且 Y" into separate proposals. Never assign status,
+  id, revision, or content_hash — those fields are forbidden.
+- Evidence refs must use the exact ids shown above: "history:1".."history:N" for
+  conversation entries and "reflection:<line>" for reflection entries. Only
+  reference evidence you actually saw in the prompt.
+- Tags must come from the controlled catalog shown to you. scope_hint is
+  "project" for workspace facts or "shared" for cross-session behavior rules;
+  never "user" or "session".
+- speech_act: "explicit_correction" when the user directly corrected a previous
+  fact, "confirmed_decision" when a decision was confirmed, "verified" for
+  tool-verified facts, "repeated_experience" for repeated observations,
+  "inferred" otherwise.
+- If nothing is worth keeping, return the legal empty batch exactly:
+  {"schema_version": 1, "proposals": []} — never free text like "nothing new".
+{% else %}You have TWO equally important tasks:
 1. Extract new facts from conversation history
 2. Deduplicate existing memory files — find and flag redundant, overlapping, or stale content even if NOT mentioned in history
 
@@ -38,3 +81,4 @@ Skill discovery — flag [SKILL] when ALL of these are true:
 Do not add: current weather, transient status, temporary errors, conversational filler.
 
 [SKIP] if nothing needs updating.
+{% endif %}
