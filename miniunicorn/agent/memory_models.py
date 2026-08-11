@@ -388,21 +388,21 @@ class MemoryRecord(BaseModel):
         if self.status is not MemoryStatus.CANDIDATE and blocked_by:
             raise ValueError("blocked_by is only valid for candidate records")
         content = content_hash(self.kind, self.scope, subject, slot, statement)
-        return self.model_copy(
-            update={
-                "subject": subject,
-                "slot": slot,
-                "statement": statement,
-                "detail": detail,
-                "tags": tags,
-                "aliases": aliases,
-                "evidence": evidence,
-                "content_hash": content,
-                "derived_from": derived_from,
-                "supersedes": supersedes,
-                "blocked_by": blocked_by,
-            }
-        )
+        for name, value in (
+            ("subject", subject),
+            ("slot", slot),
+            ("statement", statement),
+            ("detail", detail),
+            ("tags", tags),
+            ("aliases", aliases),
+            ("evidence", evidence),
+            ("content_hash", content),
+            ("derived_from", derived_from),
+            ("supersedes", supersedes),
+            ("blocked_by", blocked_by),
+        ):
+            object.__setattr__(self, name, value)
+        return self
 
     @property
     def conflict_key(self) -> str:

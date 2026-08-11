@@ -70,6 +70,10 @@ class StructuredMemoryRepository:
     def health(self) -> RepositoryHealth:
         return self._health
 
+    @property
+    def tag_catalog(self) -> TagCatalog:
+        return self._tag_catalog
+
     def _clear_index(self) -> None:
         self._current: dict[str, MemoryRecord] = {}
         self._revision_history: dict[str, list[MemoryRecord]] = defaultdict(list)
