@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "tags": [
+    {"name": "architecture.memory", "aliases": ["agent memory", "memory system", "全局记忆", "记忆系统"]},
+    {"name": "project.decision", "aliases": ["decision", "decided", "项目决策", "决定"]},
+    {"name": "project.constraint", "aliases": ["constraint", "must", "约束", "必须"]},
+    {"name": "project.requirement", "aliases": ["requirement", "需求"]},
+    {"name": "project.fact", "aliases": ["project fact", "项目事实"]},
+    {"name": "project.outcome", "aliases": ["outcome", "result", "结果"]},
+    {"name": "user.identity", "aliases": ["user profile", "用户信息"]},
+    {"name": "user.preference", "aliases": ["preference", "prefers", "偏好", "喜欢"]},
+    {"name": "workflow.procedure", "aliases": ["procedure", "workflow", "流程", "步骤"]},
+    {"name": "failure.lesson", "aliases": ["failure", "lesson", "失败", "教训"]},
+    {"name": "tool.behavior", "aliases": ["tool", "工具"]},
+    {"name": "entity.relationship", "aliases": ["relationship", "关系"]},
+    {"name": "session.event", "aliases": ["event", "事件"]},
+    {"name": "shared.fact", "aliases": ["shared", "global", "共享", "全局"]}
+  ]
+}
