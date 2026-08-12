@@ -113,7 +113,7 @@ def test_runtime_config_and_dependencies_expose_no_vector_memory_entrypoint():
     ).lower()
     pyproject_text = (root / "pyproject.toml").read_text(encoding="utf-8").lower()
 
-    assert forbidden_config_names.isdisjoint(schema_text.split())
+    assert all(name not in schema_text for name in forbidden_config_names)
     assert all(
         dependency not in pyproject_text
         for dependency in (
