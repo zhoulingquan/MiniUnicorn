@@ -112,24 +112,49 @@ class ContextBuilder:
             return None
         return structured.mode
 
-    def _build_recall_query(self, query_text: str) -> RecallQuery:
+    def _build_recall_query(
+        self,
+        query_text: str,
+        *,
+        session_key: str | None = None,
+        user_key: str | None = None,
+    ) -> RecallQuery:
         """Build the deterministic recall query for the current workspace."""
         structured = self.memory.structured_config
+        allowed_scopes = []
+        if session_key:
+            allowed_scopes.append(
+                MemoryScope(kind=ScopeKind.SESSION, key=f"session:{session_key.split('#', 1)[0]}")
+            )
+        allowed_scopes.extend(
+            (
+                MemoryScope(kind=ScopeKind.PROJECT, key=self.memory.project_scope_key),
+                MemoryScope(kind=ScopeKind.USER, key=user_key or "user:default"),
+                MemoryScope(kind=ScopeKind.SHARED, key="shared:*"),
+            )
+        )
         return RecallQuery(
             query_text=query_text,
-            allowed_scopes=(
-                MemoryScope(kind=ScopeKind.PROJECT, key=self.memory.project_scope_key),
-                MemoryScope(kind=ScopeKind.SHARED, key="shared:*"),
-            ),
+            allowed_scopes=tuple(allowed_scopes),
             now=datetime.now(timezone.utc),
             token_budget=structured.recall_token_budget,
             max_hits=structured.max_recall_hits,
         )
 
-    def _recall_section(self, query_text: str) -> str:
+    def _recall_section(
+        self,
+        query_text: str,
+        *,
+        session_key: str | None = None,
+        user_key: str | None = None,
+    ) -> str:
         """Run deterministic recall and render its prompt section (governed only)."""
         try:
-            result = self.memory.recall_structured(self._build_recall_query(query_text))
+            result = self.memory.recall_structured(
+                self._build_recall_query(
+                    query_text, session_key=session_key, user_key=user_key
+                )
+            )
         except Exception:
             logger.exception("structured recall failed")
             return ""
@@ -138,10 +163,20 @@ class ContextBuilder:
             return ""
         return recall.render_prompt(result)
 
-    def _audit_shadow_recall(self, query_text: str) -> None:
+    def _audit_shadow_recall(
+        self,
+        query_text: str,
+        *,
+        session_key: str | None = None,
+        user_key: str | None = None,
+    ) -> None:
         """Compute recall without injecting (shadow mode); audit omits the query."""
         try:
-            result = self.memory.recall_structured(self._build_recall_query(query_text))
+            result = self.memory.recall_structured(
+                self._build_recall_query(
+                    query_text, session_key=session_key, user_key=user_key
+                )
+            )
         except Exception:
             logger.exception("shadow recall audit failed")
             return
@@ -164,6 +199,8 @@ class ContextBuilder:
         agent_override: SubagentDefinition | None = None,
         light_context: bool = False,
         recall_query: str | None = None,
+        recall_session_key: str | None = None,
+        recall_user_key: str | None = None,
     ) -> str:
         """Build the system prompt from identity, bootstrap files, memory, and skills.
 
@@ -234,13 +271,21 @@ class ContextBuilder:
                 )
 
         if governed and recall_query and not light_context:
-            recall_text = self._recall_section(truncate_text(recall_query, 2000))
+            recall_text = self._recall_section(
+                truncate_text(recall_query, 2000),
+                session_key=recall_session_key,
+                user_key=recall_user_key,
+            )
             if recall_text:
                 parts.append((self._PRIORITY_MEMORY, recall_text))
         elif shadow and recall_query and not light_context:
             structured = self.memory.structured_config
             if structured is not None and structured.recall_audit_enabled:
-                self._audit_shadow_recall(truncate_text(recall_query, 2000))
+                self._audit_shadow_recall(
+                    truncate_text(recall_query, 2000),
+                    session_key=recall_session_key,
+                    user_key=recall_user_key,
+                )
 
         # 注入 notes.md（主 Agent 的 scratchpad，借鉴 MiMo Code）。
         # 主 Agent 用 write_file/edit_file 往 notes.md append 零散发现，
@@ -530,6 +575,7 @@ class ContextBuilder:
         chat_id: str | None = None,
         current_role: str = "user",
         sender_id: str | None = None,
+        session_key: str | None = None,
         session_summary: str | None = None,
         session_metadata: Mapping[str, Any] | None = None,
         current_runtime_lines: Sequence[str] | None = None,
@@ -574,6 +620,17 @@ class ContextBuilder:
         # Structured recall (governed/shadow) is keyed on the current user
         # message; light/heartbeat turns skip recall entirely.
         recall_query = None if light_context else current_message
+        recall_user_id = sender_id
+        if sender_id == "subagent":
+            recall_user_id = next(
+                (
+                    str(message["sender_id"])
+                    for message in reversed(history)
+                    if message.get("role") == "user" and message.get("sender_id")
+                ),
+                None,
+            )
+        recall_user_key = f"user:{recall_user_id}" if recall_user_id else "user:default"
         messages = [
             {
                 "role": "system",
@@ -585,6 +642,8 @@ class ContextBuilder:
                     agent_override=agent_override,
                     light_context=light_context,
                     recall_query=recall_query,
+                    recall_session_key=session_key,
+                    recall_user_key=recall_user_key,
                 ),
             },
             *history,

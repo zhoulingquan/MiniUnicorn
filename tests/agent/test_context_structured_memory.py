@@ -45,7 +45,12 @@ def make_proposal(statement: str, slot: str = "memory.retrieval.strategy", **ove
     return p
 
 
-def seed_active_record(store: MemoryStore, statement: str, slot: str = "memory.retrieval.strategy"):
+def seed_active_record(
+    store: MemoryStore,
+    statement: str,
+    slot: str = "memory.retrieval.strategy",
+    scope: MemoryScope | None = None,
+):
     """Ingest a proposal and promote it to ACTIVE via the lifecycle."""
     evidence_catalog = {
         "history:1": EvidenceRef(
@@ -66,7 +71,7 @@ def seed_active_record(store: MemoryStore, statement: str, slot: str = "memory.r
         actor=ActorKind.DREAM,
         reason="test seed",
         source_batch=f"seed:{statement}",
-        scope=MemoryScope(kind=ScopeKind.PROJECT, key=store.project_scope_key),
+        scope=scope or MemoryScope(kind=ScopeKind.PROJECT, key=store.project_scope_key),
         evidence_catalog=evidence_catalog,
         now=datetime.now(UTC),
     )
@@ -153,6 +158,65 @@ class TestGovernedMode:
         system = messages[0]["content"]
         assert RECALL_HEADER in system
         assert "stays local" in system
+
+    def test_build_messages_recall_includes_exact_session_and_user_scopes(self, workspace):
+        builder = make_builder(workspace, "governed")
+        seed_active_record(
+            builder.memory,
+            "Alice prefers compact responses.",
+            slot="response.style",
+            scope=MemoryScope(kind=ScopeKind.USER, key="user:alice"),
+        )
+        seed_active_record(
+            builder.memory,
+            "This session is debugging caching.",
+            slot="session.topic",
+            scope=MemoryScope(kind=ScopeKind.SESSION, key="session:web:chat-7"),
+        )
+
+        messages = builder.build_messages(
+            history=[],
+            current_message="MiniUnicorn Alice caching response session",
+            sender_id="alice",
+            session_key="web:chat-7",
+        )
+
+        system = messages[0]["content"]
+        assert "Alice prefers compact responses" in system
+        assert "This session is debugging caching" in system
+
+    def test_build_messages_uses_default_user_scope_without_sender(self, workspace):
+        builder = make_builder(workspace, "governed")
+        seed_active_record(
+            builder.memory,
+            "Default user prefers Chinese.",
+            slot="response.language",
+            scope=MemoryScope(kind=ScopeKind.USER, key="user:default"),
+        )
+
+        messages = builder.build_messages(
+            history=[], current_message="MiniUnicorn default user language", session_key="cli:direct"
+        )
+
+        assert "Default user prefers Chinese" in messages[0]["content"]
+
+    def test_subagent_scope_uses_parent_session_and_user_identity(self, workspace):
+        builder = make_builder(workspace, "governed")
+        seed_active_record(
+            builder.memory,
+            "Parent user wants terse output.",
+            slot="response.style",
+            scope=MemoryScope(kind=ScopeKind.USER, key="user:alice"),
+        )
+
+        messages = builder.build_messages(
+            history=[{"role": "user", "content": "task", "sender_id": "alice"}],
+            current_message="MiniUnicorn parent user terse",
+            sender_id="subagent",
+            session_key="web:chat-7#sub:task-1",
+        )
+
+        assert "Parent user wants terse output" in messages[0]["content"]
 
 
 class TestShadowMode:

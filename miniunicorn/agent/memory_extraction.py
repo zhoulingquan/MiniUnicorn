@@ -43,7 +43,7 @@ _NON_ATOMIC_MARKERS = (
 )
 _NON_ATOMIC_ASCII_RE = re.compile(r"\b(?:and|also|then|but)\b", re.IGNORECASE)
 
-_SCOPE_HINT_OK = frozenset({ScopeKind.PROJECT, ScopeKind.SHARED})
+_DEFAULT_SCOPE_HINTS = frozenset({ScopeKind.PROJECT, ScopeKind.SHARED})
 
 _FENCE_RE = re.compile(r"^```(?:json)?\s*\n(.*)\n```\s*$", re.DOTALL)
 
@@ -62,9 +62,10 @@ def _assert_proposal(
     proposal: CandidateProposal,
     evidence_catalog: dict[str, object],
     tag_catalog: TagCatalog,
+    allowed_scope_hints: frozenset[ScopeKind],
 ) -> None:
     _assert_atomic(proposal.statement)
-    if proposal.scope_hint not in _SCOPE_HINT_OK:
+    if proposal.scope_hint not in allowed_scope_hints:
         raise MemoryExtractionError(
             f"unsupported scope_hint for background dream extraction: {proposal.scope_hint.value}"
         )
@@ -108,6 +109,8 @@ def parse_extraction_batch(
     raw: str,
     evidence_catalog: dict[str, object],
     tag_catalog: TagCatalog,
+    *,
+    allowed_scope_hints: set[ScopeKind] | frozenset[ScopeKind] | None = None,
 ) -> MemoryExtractionBatch:
     """Parse and strictly validate one Dream extraction response."""
     if not isinstance(raw, str) or not raw.strip():
@@ -128,6 +131,7 @@ def parse_extraction_batch(
         raise MemoryExtractionError(
             f"extraction batch violates the contract at {location}: {first.get('msg', 'invalid')}"
         ) from exc
+    allowed = frozenset(allowed_scope_hints or _DEFAULT_SCOPE_HINTS)
     for proposal in batch.proposals:
-        _assert_proposal(proposal, evidence_catalog, tag_catalog)
+        _assert_proposal(proposal, evidence_catalog, tag_catalog, allowed)
     return batch

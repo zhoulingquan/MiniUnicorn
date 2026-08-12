@@ -925,7 +925,14 @@ class MemoryStore:
 
     # -- history.jsonl — append-only, JSONL format ---------------------------
 
-    def append_history(self, entry: str, *, max_chars: int | None = None) -> int:
+    def append_history(
+        self,
+        entry: str,
+        *,
+        max_chars: int | None = None,
+        session_key: str | None = None,
+        user_key: str | None = None,
+    ) -> int:
         """Append *entry* to history.jsonl and return its auto-incrementing cursor.
 
         Entries are passed through `strip_think` to drop template-level leaks
@@ -963,6 +970,10 @@ class MemoryStore:
                 cursor,
             )
         record = {"cursor": cursor, "timestamp": ts, "content": content}
+        if session_key:
+            record["session_key"] = session_key
+        if user_key:
+            record["user_key"] = user_key
         # Single-Writer 路径校验
         self._assert_path_in_workspace(self.history_file)
         self._assert_path_in_workspace(self._cursor_file)
@@ -1123,8 +1134,32 @@ class MemoryStore:
         """Fallback: dump raw messages to history.jsonl without LLM summarization."""
         limit = max_chars if max_chars is not None else _RAW_ARCHIVE_MAX_CHARS
         formatted = truncate_text(self._format_messages(messages), limit)
-        self.append_history(f"[RAW] {len(messages)} messages\n{formatted}")
+        session_key, user_key = self._archive_identity(messages)
+        self.append_history(
+            f"[RAW] {len(messages)} messages\n{formatted}",
+            session_key=session_key,
+            user_key=user_key,
+        )
         logger.warning("Memory consolidation degraded: raw-archived {} messages", len(messages))
+
+    @staticmethod
+    def _archive_identity(messages: list[dict]) -> tuple[str | None, str | None]:
+        """Return exact identity only when the archive batch is unambiguous."""
+        sessions = {
+            str(message["session_key"])
+            for message in messages
+            if message.get("session_key")
+        }
+        senders = {
+            str(message["sender_id"])
+            for message in messages
+            if message.get("role") == "user"
+            and message.get("sender_id")
+            and message.get("sender_id") != "subagent"
+        }
+        session_key = next(iter(sessions)) if len(sessions) == 1 else None
+        sender_id = next(iter(senders)) if len(senders) == 1 else None
+        return session_key, f"user:{sender_id}" if sender_id else None
 
 
 # ---------------------------------------------------------------------------
@@ -1444,7 +1479,13 @@ class Consolidator:
             if response.finish_reason == "error":
                 raise RuntimeError(f"LLM returned error: {response.content}")
             summary = response.content or "[no summary]"
-            self.store.append_history(summary, max_chars=_ARCHIVE_SUMMARY_MAX_CHARS)
+            session_key, user_key = self.store._archive_identity(messages)
+            self.store.append_history(
+                summary,
+                max_chars=_ARCHIVE_SUMMARY_MAX_CHARS,
+                session_key=session_key,
+                user_key=user_key,
+            )
             # 归档成功后清空 notes.md：内容已被 LLM 整合进 summary，
             # 释放主 Agent 的 scratchpad 空间供下一轮使用。
             if notes_content:
@@ -2176,16 +2217,32 @@ class Dream:
             return False
 
         raw = response.content or ""
-        try:
-            extracted = parse_extraction_batch(raw, evidence_catalog, repository.tag_catalog)
-        except MemoryExtractionError as exc:
-            logger.warning("memory_dream_batch_failed code=extraction_error error={}", exc)
-            return False
-
         scope_by_hint = {
             ScopeKind.PROJECT: MemoryScope(kind=ScopeKind.PROJECT, key=store.project_scope_key),
             ScopeKind.SHARED: MemoryScope(kind=ScopeKind.SHARED, key="shared:*"),
         }
+        session_keys = {str(entry["session_key"]) for entry in batch if entry.get("session_key")}
+        user_keys = {str(entry["user_key"]) for entry in batch if entry.get("user_key")}
+        if batch and len(session_keys) == 1 and all(entry.get("session_key") for entry in batch):
+            session_key = next(iter(session_keys)).split("#", 1)[0]
+            scope_by_hint[ScopeKind.SESSION] = MemoryScope(
+                kind=ScopeKind.SESSION, key=f"session:{session_key}"
+            )
+        if batch and len(user_keys) == 1 and all(entry.get("user_key") for entry in batch):
+            scope_by_hint[ScopeKind.USER] = MemoryScope(
+                kind=ScopeKind.USER, key=next(iter(user_keys))
+            )
+        try:
+            extracted = parse_extraction_batch(
+                raw,
+                evidence_catalog,
+                repository.tag_catalog,
+                allowed_scope_hints=set(scope_by_hint),
+            )
+        except MemoryExtractionError as exc:
+            logger.warning("memory_dream_batch_failed code=extraction_error error={}", exc)
+            return False
+
         context = IngestContext(
             actor=ActorKind.DREAM,
             reason="dream batch",

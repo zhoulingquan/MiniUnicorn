@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from miniunicorn.agent.memory import Dream, MemoryStore
-from miniunicorn.agent.memory_models import MemoryWriteError
+from miniunicorn.agent.memory_models import MemoryWriteError, ScopeKind
 from miniunicorn.config.schema import StructuredMemoryConfig
 
 
@@ -136,6 +136,42 @@ class TestStructuredBatchIngest:
         result = await dream.run()
         assert result is False
         mock_provider.chat_with_retry.assert_not_called()
+
+    @pytest.mark.parametrize("scope_hint", ["session", "user"])
+    async def test_maps_identity_scope_hints_to_exact_batch_scope(
+        self, store, dream, mock_provider, scope_hint
+    ):
+        store.append_history(
+            "Alice prefers compact answers in this session.",
+            session_key="web:chat-7",
+            user_key="user:alice",
+        )
+        set_provider_response(
+            mock_provider,
+            raw_batch(proposal(scope_hint=scope_hint)),
+        )
+
+        assert await dream.run() is True
+
+        record = all_records(store)[0]
+        assert record.scope.kind is ScopeKind(scope_hint)
+        expected = "session:web:chat-7" if scope_hint == "session" else "user:alice"
+        assert record.scope.key == expected
+
+    async def test_rejects_identity_scope_hint_for_mixed_identity_batch(
+        self, store, dream, mock_provider
+    ):
+        store.append_history(
+            "Alice fact.", session_key="web:chat-7", user_key="user:alice"
+        )
+        store.append_history(
+            "Bob fact.", session_key="web:chat-8", user_key="user:bob"
+        )
+        set_provider_response(mock_provider, raw_batch(proposal(scope_hint="user")))
+
+        assert await dream.run() is False
+        assert store.get_last_dream_cursor() == 0
+        assert all_records(store) == ()
 
 
 class TestFailClosedCursors:

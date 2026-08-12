@@ -450,6 +450,8 @@ async def test_process_message_persists_user_message_before_turn_completes(tmp_p
     persisted = loop.sessions.get_or_create("feishu:c1")
     assert [m["role"] for m in persisted.messages] == ["user"]
     assert persisted.messages[0]["content"] == "persist me"
+    assert persisted.messages[0]["sender_id"] == "u1"
+    assert persisted.messages[0]["session_key"] == "feishu:c1"
     assert persisted.metadata.get(AgentLoop._PENDING_USER_TURN_KEY) is True
     assert persisted.updated_at >= persisted.created_at
 

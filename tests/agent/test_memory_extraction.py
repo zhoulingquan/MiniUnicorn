@@ -6,13 +6,12 @@ import json
 from datetime import datetime, timezone
 
 import pytest
-from pydantic import ValidationError
 
 from miniunicorn.agent.memory_extraction import (
     MemoryExtractionError,
     parse_extraction_batch,
 )
-from miniunicorn.agent.memory_models import EvidenceKind, EvidenceRef, TagCatalog
+from miniunicorn.agent.memory_models import EvidenceKind, EvidenceRef, ScopeKind, TagCatalog
 
 UTC = timezone.utc
 
@@ -145,6 +144,20 @@ def test_user_and_session_scope_hints_rejected(evidence_catalog, tag_catalog):
         raw = json.dumps(valid_batch(valid_proposal(scope_hint=hint)))
         with pytest.raises(MemoryExtractionError, match="unsupported scope_hint"):
             parse_extraction_batch(raw, evidence_catalog, tag_catalog)
+
+
+def test_user_and_session_scope_hints_allowed_when_batch_supplies_them(
+    evidence_catalog, tag_catalog
+):
+    for hint in ("user", "session"):
+        raw = json.dumps(valid_batch(valid_proposal(scope_hint=hint)))
+        parsed = parse_extraction_batch(
+            raw,
+            evidence_catalog,
+            tag_catalog,
+            allowed_scope_hints={ScopeKind.PROJECT, ScopeKind.SHARED, ScopeKind(hint)},
+        )
+        assert parsed.proposals[0].scope_hint is ScopeKind(hint)
 
 
 def test_duplicate_proposal_indices_rejected(evidence_catalog, tag_catalog):

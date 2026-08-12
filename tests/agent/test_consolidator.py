@@ -75,6 +75,26 @@ class TestConsolidatorSummarize:
         result = await consolidator.archive([])
         assert result is None
 
+    async def test_archive_persists_exact_session_and_user_identity(
+        self, consolidator, mock_provider, store
+    ):
+        mock_provider.chat_with_retry.return_value = MagicMock(content="Alice preference.")
+        messages = [
+            {
+                "role": "user",
+                "content": "be compact",
+                "sender_id": "alice",
+                "session_key": "web:chat-7",
+            },
+            {"role": "assistant", "content": "Understood."},
+        ]
+
+        await consolidator.archive(messages)
+
+        entry = store.read_unprocessed_history(since_cursor=0)[0]
+        assert entry["session_key"] == "web:chat-7"
+        assert entry["user_key"] == "user:alice"
+
 
 class TestConsolidatorArchiveErrorHandling:
     """archive() must fall back to raw_archive when the LLM returns an error

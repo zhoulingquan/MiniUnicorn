@@ -458,6 +458,9 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             extra: dict[str, Any] = (
                 {"media": list(media_paths)} if media_paths else {}
             ) | agent_context.session_extra(msg.metadata)
+            if msg.sender_id:
+                extra["sender_id"] = msg.sender_id
+            extra["session_key"] = session.key
             extra.update(kwargs)
             text = msg.content if isinstance(msg.content, str) else ""
             session.add_message("user", text, **extra)
@@ -483,6 +486,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             channel=msg.channel,
             chat_id=self._runtime_chat_id(msg),
             sender_id=msg.sender_id,
+            session_key=session.key,
             session_summary=pending_summary,
             session_metadata=session.metadata,
             workspace=scope.project_path,
@@ -1107,6 +1111,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             chat_id=chat_id,
             current_role=current_role,
             sender_id=msg.sender_id,
+            session_key=key,
             session_summary=pending,
             session_metadata=session.metadata,
             workspace=workspace_scope.project_path,
