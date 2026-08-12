@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
+import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -124,6 +126,67 @@ def test_governed_recall_writes_audit_when_enabled(tmp_path, monkeypatch):
     assert written[0][1] is result
 
 
+FORBIDDEN_VECTOR_IMPORTS = {
+    "annoy",
+    "chromadb",
+    "faiss",
+    "hnswlib",
+    "lancedb",
+    "pinecone",
+    "pymilvus",
+    "qdrant_client",
+    "sentence_transformers",
+    "weaviate",
+}
+
+_EXPLICIT_RUNTIME_FILES = (
+    "miniunicorn/agent/context.py",
+    "miniunicorn/agent/loop.py",
+    "miniunicorn/agent/memory.py",
+    "miniunicorn/agent/reflection.py",
+    "miniunicorn/command/memory.py",
+    "miniunicorn/config/schema.py",
+)
+
+
+def _runtime_memory_files(root: Path) -> list[Path]:
+    agent = root / "miniunicorn" / "agent"
+    explicit = [root / relative for relative in _EXPLICIT_RUNTIME_FILES]
+    memory_glob = sorted(agent.glob("memory_*.py"))
+    return [*explicit, *memory_glob]
+
+
+def collect_import_roots(source: str) -> set[str]:
+    """Top-level import roots of a Python source string (AST-based)."""
+    tree = ast.parse(source)
+    roots: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                roots.add(alias.name.split(".", 1)[0])
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            roots.add(node.module.split(".", 1)[0])
+    return roots
+
+
+def test_import_scanner_detects_forbidden_backend():
+    assert collect_import_roots("import lancedb\n") == {"lancedb"}
+    assert not collect_import_roots("import lancedb\n").isdisjoint(FORBIDDEN_VECTOR_IMPORTS)
+
+
+def test_runtime_memory_imports_never_touch_vector_backends():
+    root = Path(__file__).resolve().parents[2]
+
+    for path in _runtime_memory_files(root):
+        assert path.exists(), path
+        source = path.read_bytes().decode("utf-8-sig")
+        imports = collect_import_roots(source)
+        assert imports.isdisjoint(FORBIDDEN_VECTOR_IMPORTS), (
+            f"{path.relative_to(root)} imports forbidden vector backend(s): "
+            f"{sorted(imports & FORBIDDEN_VECTOR_IMPORTS)}"
+        )
+
+
 def test_runtime_config_and_dependencies_expose_no_vector_memory_entrypoint():
     root = Path(__file__).resolve().parents[2]
     forbidden_config_names = {
@@ -136,22 +199,33 @@ def test_runtime_config_and_dependencies_expose_no_vector_memory_entrypoint():
     schema_text = (root / "miniunicorn" / "config" / "schema.py").read_text(
         encoding="utf-8"
     ).lower()
-    pyproject_text = (root / "pyproject.toml").read_text(encoding="utf-8").lower()
+
+    with (root / "pyproject.toml").open("rb") as stream:
+        pyproject = tomllib.load(stream)
+    project = pyproject.get("project", {})
+    dependency_lists: list[list[str]] = []
+    if isinstance(project.get("dependencies"), list):
+        dependency_lists.append(project["dependencies"])
+    optional = project.get("optional-dependencies", {})
+    if isinstance(optional, dict):
+        dependency_lists.extend(
+            spec for spec in optional.values() if isinstance(spec, list)
+        )
+
+    def package_names(dependencies: list[str]) -> set[str]:
+        names: set[str] = set()
+        for spec in dependencies:
+            name = spec.split(";", 1)[0].split("[", 1)[0].split(" ", 1)[0]
+            names.add(name.replace("-", "_").lower())
+        return names
+
+    declared = set().union(*(package_names(deps) for deps in dependency_lists))
 
     assert all(name not in schema_text for name in forbidden_config_names)
-    assert all(
-        dependency not in pyproject_text
-        for dependency in (
-            "chromadb",
-            "faiss",
-            "qdrant",
-            "milvus",
-            "pinecone",
-            "weaviate",
-            "pgvector",
-            "sentence-transformers",
-        )
+    assert declared.isdisjoint(FORBIDDEN_VECTOR_IMPORTS), sorted(
+        declared & FORBIDDEN_VECTOR_IMPORTS
     )
+    assert len(dependency_lists) >= 2  # both regular and optional tables scanned
 
 
 def test_governed_prompt_never_whole_injects_shared_legacy_file(tmp_path):
