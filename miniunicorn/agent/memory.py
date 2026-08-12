@@ -12,7 +12,7 @@ from contextlib import suppress
 from dataclasses import replace as dataclasses_replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Iterator
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Mapping
 
 import tiktoken
 from filelock import FileLock
