@@ -45,6 +45,9 @@ from miniunicorn.agent.memory_models import (
     new_transaction_id,
     transaction_checksum,
 )
+from miniunicorn.agent.memory_models import (
+    MemoryError as StructuredMemoryError,
+)
 from miniunicorn.agent.memory_repository import StructuredMemoryRepository
 
 UTC = timezone.utc
@@ -359,6 +362,30 @@ def test_ingest_rejects_file_hash_mismatch(lifecycle, file_context):
     assert lifecycle.repository.current_records() == ()
 
 
+def test_ingest_rejects_excerpt_not_present_in_referenced_workspace_file(
+    lifecycle, file_context
+):
+    source = lifecycle.repository.workspace / "evidence.txt"
+    source.write_text("actual durable content", encoding="utf-8")
+    claimed = file_evidence("fabricated excerpt", ref="evidence.txt#L1")
+    context = IngestContext(
+        actor=file_context.actor,
+        reason=file_context.reason,
+        source_batch=file_context.source_batch,
+        scope=file_context.scope,
+        evidence_catalog={"file:evidence": claimed},
+        now=file_context.now,
+    )
+    verified = proposal(
+        evidence_refs=("file:evidence",),
+        tags=("project.fact",),
+        speech_act="verified",
+    )
+
+    with pytest.raises(MemoryEvidenceUnresolved, match="source mismatch"):
+        lifecycle.ingest(verified, context)
+
+
 def test_ingest_normalizes_tags_and_aliases(lifecycle, context):
     result = lifecycle.ingest(proposal(tags=("Project.FACT",), aliases=("全局事实",)), context)
     record = lifecycle.repository.get(result.candidate_id)
@@ -381,6 +408,59 @@ def test_retry_same_source_batch_and_content_returns_existing_candidate(lifecycl
     assert second.candidate_id == first.candidate_id
     assert second.reason_code == REASON_EXISTING
     assert len(lifecycle.repository.revisions(first.candidate_id)) == 1
+
+
+def test_lifecycle_errors_use_project_memory_error_base():
+    assert issubclass(MemoryLifecycleError, StructuredMemoryError)
+
+
+def test_retry_after_promotion_write_failure_resumes_promotion(
+    lifecycle, file_context, monkeypatch
+):
+    verified = proposal(
+        evidence_refs=("file:pyproject",),
+        speech_act="verified",
+        confidence=0.9,
+    )
+    real_append = lifecycle.repository.append_transaction
+    calls = {"count": 0}
+
+    def fail_second_append(transaction):
+        calls["count"] += 1
+        if calls["count"] == 2:
+            raise MemoryWriteError("promotion write failed")
+        return real_append(transaction)
+
+    monkeypatch.setattr(lifecycle.repository, "append_transaction", fail_second_append)
+    with pytest.raises(MemoryWriteError, match="promotion write failed"):
+        lifecycle.ingest(verified, file_context)
+
+    monkeypatch.setattr(lifecycle.repository, "append_transaction", real_append)
+    retry = lifecycle.ingest(verified, file_context)
+
+    assert retry.final_status is MemoryStatus.ACTIVE
+    assert retry.active_id == retry.candidate_id
+    assert lifecycle.repository.get(retry.candidate_id).status is MemoryStatus.ACTIVE
+    assert len(lifecycle.repository.current_records()) == 1
+
+
+def test_retry_after_completed_auto_promotion_returns_existing_active(
+    lifecycle, file_context
+):
+    verified = proposal(
+        evidence_refs=("file:pyproject",),
+        speech_act="verified",
+        confidence=0.9,
+    )
+    first = lifecycle.ingest(verified, file_context)
+    second = lifecycle.ingest(verified, file_context)
+
+    assert first.final_status is MemoryStatus.ACTIVE
+    assert second.candidate_id == first.candidate_id
+    assert second.final_status is MemoryStatus.ACTIVE
+    assert second.reason_code == REASON_EXISTING
+    assert second.transaction_ids == ()
+    assert len(lifecycle.repository.current_records()) == 1
 
 
 def test_different_source_batch_creates_separate_candidate(lifecycle, inferred_proposal, context):
@@ -613,12 +693,21 @@ def test_candidate_expires_after_ttl(lifecycle, inferred_proposal, context, repo
 
 
 def test_active_expires_at_expires_at(lifecycle, active_decision, context):
-    due = active_decision.model_copy(update={"revision": 2, "expires_at": dt("2026-08-10T00:00:00Z"), "updated_at": dt("2026-08-11T08:31:00Z")})
-    tx = make_transaction(due, expected_revisions={active_decision.id: 1})
-    lifecycle.repository.append_transaction(tx)
+    lifecycle.repository = StructuredMemoryRepository(lifecycle.repository.workspace)
+    due = MemoryRecord.model_validate(
+        {
+            **record_data(
+                status="active",
+                memory_id=new_memory_id(),
+                slot="expiry.test",
+                expires_at="2026-08-10T00:00:00Z",
+            )
+        }
+    )
+    lifecycle.repository.append_transaction(make_transaction(due))
     expired = lifecycle.expire_due(context.now)
-    assert active_decision.id in expired
-    assert lifecycle.repository.get(active_decision.id).status == MemoryStatus.EXPIRED
+    assert due.id in expired
+    assert lifecycle.repository.get(due.id).status == MemoryStatus.EXPIRED
 
 
 def test_active_without_expires_at_never_expires_by_age(lifecycle, active_decision, context):

@@ -103,6 +103,23 @@ class TestStructuredBatchIngest:
         assert len(records) == 1
         assert records[0].statement == "Main uses deterministic structured recall."
 
+    async def test_history_evidence_refs_use_persisted_cursor_across_batches(
+        self, store, dream, mock_provider
+    ):
+        store.append_history("First batch.")
+        store.set_last_dream_cursor(1)
+        store.append_history("Second batch fact.")
+        set_provider_response(
+            mock_provider,
+            raw_batch(proposal(evidence_refs=["history:2"])),
+        )
+
+        result = await dream.run()
+
+        assert result is True
+        record = all_records(store)[0]
+        assert record.evidence[0].ref == "history:2"
+
     async def test_valid_empty_batch_advances_cursor_without_records(
         self, store, dream, mock_provider
     ):

@@ -12,6 +12,7 @@ import hashlib
 from dataclasses import dataclass
 from dataclasses import replace as dataclasses_replace
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Mapping
 
 from loguru import logger
@@ -33,6 +34,9 @@ from miniunicorn.agent.memory_models import (
     new_transaction_id,
     normalize_match_text,
     transaction_checksum,
+)
+from miniunicorn.agent.memory_models import (
+    MemoryError as StructuredMemoryError,
 )
 from miniunicorn.agent.memory_repository import StructuredMemoryRepository
 
@@ -57,7 +61,7 @@ _HARD_EVIDENCE_KINDS = frozenset({EvidenceKind.USER_MESSAGE, EvidenceKind.MANUAL
 _VERIFIED_EVIDENCE_KINDS = frozenset({EvidenceKind.FILE, EvidenceKind.TOOL_RESULT, EvidenceKind.GIT})
 
 
-class MemoryLifecycleError(MemoryError):
+class MemoryLifecycleError(StructuredMemoryError):
     """Base class for lifecycle rule violations."""
 
 
@@ -143,12 +147,22 @@ class StructuredMemoryLifecycle:
         now = _utc(context.now)
         content = content_hash(proposal.kind, context.scope, proposal.subject, proposal.slot, proposal.statement)
 
-        existing = self._find_existing_candidate(context, content)
+        existing = self._find_existing_record(context, content)
         if existing is not None:
+            if existing.status is MemoryStatus.ACTIVE:
+                return IngestResult(
+                    candidate_id=existing.id,
+                    final_status=MemoryStatus.ACTIVE,
+                    active_id=existing.id,
+                    transaction_ids=(),
+                    reason_code=REASON_EXISTING,
+                )
+            if existing.status is MemoryStatus.CANDIDATE:
+                return self._apply_after_ingest(existing, context, now, "")
             return IngestResult(
                 candidate_id=existing.id,
                 final_status=existing.status,
-                active_id=existing.id if existing.status is MemoryStatus.ACTIVE else None,
+                active_id=None,
                 transaction_ids=(),
                 reason_code=REASON_EXISTING,
             )
@@ -198,10 +212,41 @@ class StructuredMemoryLifecycle:
             if evidence.kind in _VERIFIED_EVIDENCE_KINDS and evidence.sha256:
                 if hashlib.sha256(evidence.excerpt.encode("utf-8")).hexdigest() != evidence.sha256:
                     raise MemoryEvidenceUnresolved(f"evidence digest mismatch for {ref}")
+            if evidence.kind is EvidenceKind.FILE:
+                self._verify_file_evidence(evidence, ref)
             resolved.append(evidence)
         if not resolved:
             raise MemoryEvidenceUnresolved("proposal requires at least one evidence ref")
         return tuple(resolved)
+
+    def _verify_file_evidence(self, evidence: EvidenceRef, catalog_ref: str) -> None:
+        """Check a resolvable file reference against its captured excerpt."""
+        locator = evidence.ref.split("#", 1)[0]
+        if locator.startswith("file:"):
+            locator = locator.removeprefix("file:")
+        if not locator:
+            return
+        path = Path(locator)
+        if not path.is_absolute():
+            path = self.repository.workspace / path
+        try:
+            resolved = path.resolve()
+            workspace = self.repository.workspace.resolve()
+            resolved.relative_to(workspace)
+        except (OSError, ValueError):
+            return
+        if not resolved.is_file():
+            return
+        try:
+            source = resolved.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            raise MemoryEvidenceUnresolved(
+                f"file evidence source unreadable for {catalog_ref}: {exc}"
+            ) from exc
+        if evidence.excerpt not in source:
+            raise MemoryEvidenceUnresolved(
+                f"file evidence source mismatch for {catalog_ref}"
+            )
 
     def _canonical_tags(self, tags: tuple[str, ...]) -> tuple[str, ...]:
         catalog = self.repository.tag_catalog
@@ -213,8 +258,8 @@ class StructuredMemoryLifecycle:
             canonical.append(matched[0])
         return tuple(sorted(set(canonical)))
 
-    def _find_existing_candidate(self, context: IngestContext, content: str) -> MemoryRecord | None:
-        for memory_id in self.repository.candidate_ids_for_source(context.source_batch):
+    def _find_existing_record(self, context: IngestContext, content: str) -> MemoryRecord | None:
+        for memory_id in self.repository.record_ids_for_source(context.source_batch):
             record = self.repository.get(memory_id)
             if record is not None and record.content_hash == content:
                 return record
@@ -231,14 +276,18 @@ class StructuredMemoryLifecycle:
                 promoted = self._promote_single(candidate, context, now, reason_code=REASON_AUTO_PROMOTED)
                 return dataclasses_replace(
                     promoted,
-                    transaction_ids=(create_tx_id, promoted.transaction_ids[0]),
+                    transaction_ids=(
+                        (create_tx_id, promoted.transaction_ids[0])
+                        if create_tx_id
+                        else promoted.transaction_ids
+                    ),
                 )
             return IngestResult(
                 candidate_id=candidate.id,
                 final_status=MemoryStatus.CANDIDATE,
                 active_id=None,
-                transaction_ids=(create_tx_id,),
-                reason_code=REASON_CREATED,
+                transaction_ids=(create_tx_id,) if create_tx_id else (),
+                reason_code=REASON_CREATED if create_tx_id else REASON_EXISTING,
             )
         if existing.content_hash == candidate.content_hash:
             return self._merge_identical(candidate, existing, context, now, create_tx_id)
@@ -252,6 +301,14 @@ class StructuredMemoryLifecycle:
         now: datetime,
         create_tx_id: str,
     ) -> IngestResult:
+        if candidate.blocked_by == (existing.id,):
+            return IngestResult(
+                candidate_id=candidate.id,
+                final_status=MemoryStatus.CANDIDATE,
+                active_id=None,
+                transaction_ids=(),
+                reason_code=REASON_EXISTING,
+            )
         new_rank = SOURCE_RANK[candidate.source_level]
         old_rank = SOURCE_RANK[existing.source_level]
         if new_rank > old_rank and can_auto_promote(candidate, self.policy):
@@ -435,7 +492,6 @@ class StructuredMemoryLifecycle:
                 "evidence": tuple({(e.kind, e.ref, e.sha256): e for e in existing.evidence + candidate.evidence}.values()),
                 "derived_from": tuple(sorted(set(existing.derived_from) | set(candidate.derived_from))),
                 "updated_at": now,
-                "status_reason": "merged identical content",
             }
         )
         superseded = candidate.model_copy(

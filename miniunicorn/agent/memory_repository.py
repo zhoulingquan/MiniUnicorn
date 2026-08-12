@@ -85,6 +85,7 @@ class StructuredMemoryRepository:
         self._by_alias: dict[str, set[str]] = defaultdict(set)
         self._active_by_conflict: dict[str, str] = {}
         self._candidate_by_source: dict[str, set[str]] = defaultdict(set)
+        self._records_by_source: dict[str, set[str]] = defaultdict(set)
 
     def _load_tag_catalog(self) -> None:
         if self.tags_path.exists():
@@ -283,6 +284,8 @@ class StructuredMemoryRepository:
             self._active_by_conflict[record.conflict_key] = record.id
         if record.status is MemoryStatus.CANDIDATE:
             self._candidate_by_source[source_batch].add(record.id)
+        if source_batch:
+            self._records_by_source[source_batch].add(record.id)
 
     def _unindex(self, record: MemoryRecord | None) -> None:
         if record is None:
@@ -297,6 +300,8 @@ class StructuredMemoryRepository:
         if record.status is MemoryStatus.ACTIVE and self._active_by_conflict.get(record.conflict_key) == record.id:
             del self._active_by_conflict[record.conflict_key]
         for batches in self._candidate_by_source.values():
+            batches.discard(record.id)
+        for batches in self._records_by_source.values():
             batches.discard(record.id)
 
     # ------------------------------------------------------------------
@@ -323,3 +328,7 @@ class StructuredMemoryRepository:
 
     def candidate_ids_for_source(self, source_batch: str) -> frozenset[str]:
         return frozenset(self._candidate_by_source[source_batch])
+
+    def record_ids_for_source(self, source_batch: str) -> frozenset[str]:
+        """Return current records last written by a source batch."""
+        return frozenset(self._records_by_source[source_batch])

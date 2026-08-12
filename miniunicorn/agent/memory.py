@@ -2116,8 +2116,8 @@ class Dream:
 
         evidence_catalog: dict[str, EvidenceRef] = {}
         history_lines: list[str] = []
-        for index, entry in enumerate(batch, start=1):
-            ref = f"history:{index}"
+        for entry in batch:
+            ref = f"history:{entry['cursor']}"
             content = entry.get("content", "")
             evidence_catalog[ref] = EvidenceRef(
                 kind=EvidenceKind.HISTORY,
