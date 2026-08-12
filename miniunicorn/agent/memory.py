@@ -12,7 +12,7 @@ from contextlib import suppress
 from dataclasses import replace as dataclasses_replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Mapping
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Mapping
 
 import tiktoken
 from filelock import FileLock
@@ -84,6 +84,17 @@ def reflection_evidence_id(entry: Mapping[str, Any]) -> str:
     )
     digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:24]
     return f"rfl_legacy_{digest}"
+
+
+def _dream_source_batch(evidence_refs: Iterable[str]) -> str:
+    """Derive the Dream source batch from the actual evidence ref set.
+
+    The same input retried yields the same batch id; a different evidence set
+    yields a different id.
+    """
+    canonical = "\n".join(sorted(set(evidence_refs)))
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:24]
+    return f"dream:{digest}"
 
 
 class MemoryStore:
@@ -2249,14 +2260,13 @@ class Dream:
                 observed_at=_parse_datetime_loose(entry.get("timestamp")),
             )
             history_lines.append(
-                f"[{entry.get('timestamp', '')}] "
+                f"[{ref} | {entry.get('timestamp', '')}] "
                 f"{truncate_text(content, self._HISTORY_ENTRY_PREVIEW_MAX_CHARS)}"
             )
         reflection_lines: list[str] = []
         for entry in reflections:
-            line = int(entry.get("_line", 0))
-            ref = f"reflection:{line}"
             content = entry.get("lesson") or entry.get("reflection", "")
+            ref = f"reflection:{reflection_evidence_id(entry)}"
             evidence_catalog[ref] = EvidenceRef(
                 kind=EvidenceKind.REFLECTION,
                 ref=ref,
@@ -2264,7 +2274,35 @@ class Dream:
                 observed_at=_parse_datetime_loose(entry.get("timestamp")),
             )
             reflection_lines.append(
-                f"- [{entry.get('timestamp', '')}] ({entry.get('trigger', 'unknown')}) {content}"
+                f"[{ref} | {entry.get('timestamp', '')}] "
+                f"({entry.get('trigger', 'unknown')}) {content}"
+            )
+
+        scope_by_hint = {
+            ScopeKind.PROJECT: MemoryScope(kind=ScopeKind.PROJECT, key=store.project_scope_key),
+            ScopeKind.SHARED: MemoryScope(kind=ScopeKind.SHARED, key="shared:*"),
+        }
+        scope_inputs = list(batch) + reflections
+        session_keys = {
+            str(entry["session_key"]) for entry in scope_inputs if entry.get("session_key")
+        }
+        user_keys = {str(entry["user_key"]) for entry in scope_inputs if entry.get("user_key")}
+        if (
+            scope_inputs
+            and len(session_keys) == 1
+            and all(entry.get("session_key") for entry in scope_inputs)
+        ):
+            session_key = next(iter(session_keys)).split("#", 1)[0]
+            scope_by_hint[ScopeKind.SESSION] = MemoryScope(
+                kind=ScopeKind.SESSION, key=f"session:{session_key}"
+            )
+        if (
+            scope_inputs
+            and len(user_keys) == 1
+            and all(entry.get("user_key") for entry in scope_inputs)
+        ):
+            scope_by_hint[ScopeKind.USER] = MemoryScope(
+                kind=ScopeKind.USER, key=next(iter(user_keys))
             )
 
         newline = "\n"
@@ -2283,6 +2321,7 @@ class Dream:
             strip=True,
             stale_threshold_days=_STALE_THRESHOLD_DAYS,
             structured_mode=True,
+            allowed_scope_hints=", ".join(kind.value for kind in scope_by_hint),
         )
         try:
             response = await self.provider.chat_with_retry(
@@ -2299,21 +2338,6 @@ class Dream:
             return False
 
         raw = response.content or ""
-        scope_by_hint = {
-            ScopeKind.PROJECT: MemoryScope(kind=ScopeKind.PROJECT, key=store.project_scope_key),
-            ScopeKind.SHARED: MemoryScope(kind=ScopeKind.SHARED, key="shared:*"),
-        }
-        session_keys = {str(entry["session_key"]) for entry in batch if entry.get("session_key")}
-        user_keys = {str(entry["user_key"]) for entry in batch if entry.get("user_key")}
-        if batch and len(session_keys) == 1 and all(entry.get("session_key") for entry in batch):
-            session_key = next(iter(session_keys)).split("#", 1)[0]
-            scope_by_hint[ScopeKind.SESSION] = MemoryScope(
-                kind=ScopeKind.SESSION, key=f"session:{session_key}"
-            )
-        if batch and len(user_keys) == 1 and all(entry.get("user_key") for entry in batch):
-            scope_by_hint[ScopeKind.USER] = MemoryScope(
-                kind=ScopeKind.USER, key=next(iter(user_keys))
-            )
         try:
             extracted = parse_extraction_batch(
                 raw,
@@ -2328,7 +2352,7 @@ class Dream:
         context = IngestContext(
             actor=ActorKind.DREAM,
             reason="dream batch",
-            source_batch=f"dream:{last_cursor}-{last_refl_cursor}",
+            source_batch=_dream_source_batch(evidence_catalog.keys()),
             scope=scope_by_hint[ScopeKind.PROJECT],
             evidence_catalog=evidence_catalog,
             now=datetime.now(timezone.utc),

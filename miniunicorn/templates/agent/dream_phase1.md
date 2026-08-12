@@ -29,12 +29,14 @@ Rules:
 - One atomic statement per proposal: a single independently correctable claim.
   Split "X, and Y" or "X，并且 Y" into separate proposals. Never assign status,
   id, revision, or content_hash — those fields are forbidden.
-- Evidence refs must use the exact ids shown above: "history:1".."history:N" for
-  conversation entries and "reflection:<line>" for reflection entries. Only
-  reference evidence you actually saw in the prompt.
-- Tags must come from the controlled catalog shown to you. scope_hint is
-  "project" for workspace facts or "shared" for cross-session behavior rules;
-  never "user" or "session".
+- Evidence refs must use the exact ids shown in brackets above —
+  "history:<cursor>" for conversation entries and "reflection:<reflection_id>"
+  for reflection entries — never truncated or reformatted. Only reference
+  evidence you actually saw in the prompt.
+- Tags must come from the controlled catalog shown to you. scope_hint must be
+  one of the values listed below for this batch:
+- Allowed scope_hint values for this batch: {{ allowed_scope_hints }}.
+- Choose the narrowest accurate allowed scope. Never output a value absent from this list.
 - speech_act: "explicit_correction" when the user directly corrected a previous
   fact, "confirmed_decision" when a decision was confirmed, "verified" for
   tool-verified facts, "repeated_experience" for repeated observations,

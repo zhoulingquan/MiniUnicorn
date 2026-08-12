@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -281,7 +282,25 @@ class TestReflectionOnlyBatches:
     async def test_reflection_only_batch_ingests_with_reflection_evidence(
         self, store, dream, mock_provider
     ):
-        write_reflections(store, ["Always verify evidence refs before citing them."])
+        ref_id = "rfl_0123456789abcdef0123456789abcdef"
+        rf = store.memory_dir / "reflections.jsonl"
+        rf.parent.mkdir(parents=True, exist_ok=True)
+        with open(rf, "w", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "timestamp": "2026-08-11 08:30",
+                        "trigger": "tool_error",
+                        "iteration": 3,
+                        "context": "boom",
+                        "reflection": "Always verify evidence refs before citing them.",
+                        "lesson": "Always verify evidence refs before citing them.",
+                        "reflection_id": ref_id,
+                        "session_key": "test",
+                    }
+                )
+                + "\n"
+            )
         set_provider_response(
             mock_provider,
             raw_batch(
@@ -289,7 +308,7 @@ class TestReflectionOnlyBatches:
                     kind="procedure",
                     slot="verification.evidence",
                     statement="Always verify evidence refs before citing them.",
-                    evidence_refs=["reflection:1"],
+                    evidence_refs=[f"reflection:{ref_id}"],
                     speech_act="repeated_experience",
                 )
             ),
@@ -300,7 +319,7 @@ class TestReflectionOnlyBatches:
         assert result is True
         records = all_records(store)
         assert len(records) == 1
-        assert records[0].evidence[0].ref == "reflection:1"
+        assert records[0].evidence[0].ref == f"reflection:{ref_id}"
 
 
 class TestStructuredToolRegistry:
@@ -319,3 +338,201 @@ class TestStructuredToolRegistry:
         )
         tools = legacy._build_tools()
         assert tools.has("edit_file")
+
+
+# ---------------------------------------------------------------------------
+# C2 plan B: exact evidence refs, stable source batches, dynamic identity scopes
+# ---------------------------------------------------------------------------
+
+
+class TestEvidencePromptContract:
+    async def test_user_prompt_shows_real_history_cursor_and_citing_it_succeeds(
+        self, store, dream, mock_provider
+    ):
+        store.append_history("First batch.")
+        store.set_last_dream_cursor(1)
+        store.append_history("Second batch fact.")
+        set_provider_response(
+            mock_provider,
+            raw_batch(proposal(evidence_refs=["history:2"])),
+        )
+
+        result = await dream.run()
+
+        assert result is True
+        user_prompt = mock_provider.chat_with_retry.await_args_list[0].kwargs["messages"][1][
+            "content"
+        ]
+        assert "[history:2 |" in user_prompt
+        assert "history:1" not in user_prompt
+        record = all_records(store)[0]
+        assert record.evidence[0].ref == "history:2"
+
+    async def test_reflection_prompt_shows_stable_reflection_id_verbatim(
+        self, store, dream, mock_provider
+    ):
+        ref_id = "rfl_0123456789abcdef0123456789abcdef"
+        rf = store.memory_dir / "reflections.jsonl"
+        rf.parent.mkdir(parents=True, exist_ok=True)
+        with open(rf, "w", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "timestamp": "2026-08-11 08:30",
+                        "trigger": "tool_error",
+                        "iteration": 3,
+                        "context": "boom",
+                        "reflection": "Verify exact evidence IDs.",
+                        "lesson": "Verify exact evidence IDs.",
+                        "reflection_id": ref_id,
+                        "session_key": "test",
+                    }
+                )
+                + "\n"
+            )
+        set_provider_response(
+            mock_provider,
+            raw_batch(
+                proposal(
+                    kind="procedure",
+                    slot="verification.evidence",
+                    statement="Verify exact evidence IDs.",
+                    evidence_refs=[f"reflection:{ref_id}"],
+                    speech_act="repeated_experience",
+                )
+            ),
+        )
+
+        result = await dream.run()
+
+        assert result is True
+        user_prompt = mock_provider.chat_with_retry.await_args_list[0].kwargs["messages"][1][
+            "content"
+        ]
+        assert f"[reflection:{ref_id} |" in user_prompt
+        record = all_records(store)[0]
+        assert record.evidence[0].ref == f"reflection:{ref_id}"
+
+
+class TestDreamSourceBatch:
+    def test_evidence_set_batch_is_order_stable(self):
+        from miniunicorn.agent.memory import _dream_source_batch
+
+        refs = ["history:7", "reflection:rfl_abc"]
+        assert _dream_source_batch(refs) == _dream_source_batch(reversed(refs))
+        assert re.fullmatch(r"dream:[0-9a-f]{24}", _dream_source_batch(refs))
+
+    def test_evidence_set_batch_changes_when_refs_change(self):
+        from miniunicorn.agent.memory import _dream_source_batch
+
+        base = _dream_source_batch(["history:1", "history:2"])
+        assert _dream_source_batch(["history:1"]) != base
+        assert _dream_source_batch(["history:1", "history:2", "history:3"]) != base
+
+    async def test_ingest_retry_reuses_stable_evidence_batch(
+        self, store, dream, mock_provider, monkeypatch
+    ):
+        store.append_history("A stable fact.")
+        set_provider_response(mock_provider, raw_batch(proposal()))
+        captured: list[str] = []
+        real_ingest = store.structured_lifecycle.ingest
+
+        def flaky_ingest(proposal_obj, context):
+            captured.append(context.source_batch)
+            if len(captured) == 1:
+                raise MemoryWriteError("first attempt fails")
+            return real_ingest(proposal_obj, context)
+
+        monkeypatch.setattr(store.structured_lifecycle, "ingest", flaky_ingest)
+
+        assert await dream.run() is False
+        assert await dream.run() is True
+
+        assert len(captured) == 2
+        assert captured[0] == captured[1]
+        assert re.fullmatch(r"dream:[0-9a-f]{24}", captured[0]), captured[0]
+        assert len(all_records(store)) == 1
+
+
+class TestDynamicIdentityScopes:
+    @staticmethod
+    def allowed_scope_line(system_prompt: str) -> str:
+        for line in system_prompt.splitlines():
+            if "Allowed scope_hint values for this batch" in line:
+                return line.strip().lstrip("-").strip()
+        raise AssertionError("allowed scope_hint line missing from system prompt")
+
+    async def test_consistent_identity_opens_all_fine_scopes(
+        self, store, dream, mock_provider
+    ):
+        store.append_history(
+            "Alice prefers compact answers.",
+            session_key="web:chat-7",
+            user_key="user:alice",
+        )
+        set_provider_response(mock_provider, '{"schema_version":1,"proposals":[]}')
+
+        assert await dream.run() is True
+
+        system_prompt = mock_provider.chat_with_retry.await_args_list[0].kwargs["messages"][0][
+            "content"
+        ]
+        assert (
+            self.allowed_scope_line(system_prompt)
+            == "Allowed scope_hint values for this batch: project, shared, session, user."
+        )
+
+    async def test_mixed_users_omit_user_scope(self, store, dream, mock_provider):
+        store.append_history("Alice fact.", session_key="web:chat-7", user_key="user:alice")
+        store.append_history("Bob fact.", session_key="web:chat-8", user_key="user:bob")
+        set_provider_response(mock_provider, '{"schema_version":1,"proposals":[]}')
+
+        assert await dream.run() is True
+
+        system_prompt = mock_provider.chat_with_retry.await_args_list[0].kwargs["messages"][0][
+            "content"
+        ]
+        assert self.allowed_scope_line(system_prompt) == (
+            "Allowed scope_hint values for this batch: project, shared."
+        )
+
+    async def test_mixed_sessions_omit_session_scope(self, store, dream, mock_provider):
+        store.append_history("Alice fact.", session_key="web:chat-7", user_key="user:alice")
+        store.append_history("Bob fact.", session_key="web:chat-8", user_key="user:bob")
+        set_provider_response(mock_provider, '{"schema_version":1,"proposals":[]}')
+
+        assert await dream.run() is True
+
+        system_prompt = mock_provider.chat_with_retry.await_args_list[0].kwargs["messages"][0][
+            "content"
+        ]
+        assert self.allowed_scope_line(system_prompt) == (
+            "Allowed scope_hint values for this batch: project, shared."
+        )
+
+    async def test_missing_identity_omits_fine_scopes(self, store, dream, mock_provider):
+        store.append_history("A fact without identity.")
+        set_provider_response(mock_provider, '{"schema_version":1,"proposals":[]}')
+
+        assert await dream.run() is True
+
+        system_prompt = mock_provider.chat_with_retry.await_args_list[0].kwargs["messages"][0][
+            "content"
+        ]
+        assert self.allowed_scope_line(system_prompt) == (
+            "Allowed scope_hint values for this batch: project, shared."
+        )
+
+    async def test_reflection_only_batch_without_user_key_omits_user_scope(
+        self, store, dream, mock_provider
+    ):
+        write_reflections(store, ["A lesson without user identity."])
+        set_provider_response(mock_provider, '{"schema_version":1,"proposals":[]}')
+
+        assert await dream.run() is True
+
+        system_prompt = mock_provider.chat_with_retry.await_args_list[0].kwargs["messages"][0][
+            "content"
+        ]
+        allowed = self.allowed_scope_line(system_prompt)
+        assert "user" not in allowed
