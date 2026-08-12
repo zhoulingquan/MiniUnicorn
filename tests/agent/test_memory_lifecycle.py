@@ -421,17 +421,17 @@ def test_retry_after_promotion_write_failure_resumes_promotion(
         evidence_refs=("file:pyproject",),
         speech_act="verified",
         confidence=0.9,
-    )
+)
     real_append = lifecycle.repository.append_transaction
     calls = {"count": 0}
 
-    def fail_second_append(transaction):
+    def fail_first_append(transaction):
         calls["count"] += 1
-        if calls["count"] == 2:
+        if calls["count"] == 1:
             raise MemoryWriteError("promotion write failed")
         return real_append(transaction)
 
-    monkeypatch.setattr(lifecycle.repository, "append_transaction", fail_second_append)
+    monkeypatch.setattr(lifecycle.repository, "append_transaction", fail_first_append)
     with pytest.raises(MemoryWriteError, match="promotion write failed"):
         lifecycle.ingest(verified, file_context)
 
@@ -728,14 +728,11 @@ def test_expiry_does_not_touch_other_records(lifecycle, inferred_proposal, conte
 
 
 def test_promotion_write_failure_leaves_candidate_intact(lifecycle, context, monkeypatch):
-    original = lifecycle.repository.append_transaction
     calls = {"n": 0}
 
     def flaky(transaction):
         calls["n"] += 1
-        if calls["n"] >= 2:
-            raise MemoryWriteError("disk full")
-        return original(transaction)
+        raise MemoryWriteError("disk full")
 
     monkeypatch.setattr(lifecycle.repository, "append_transaction", flaky)
     confirmed = proposal(speech_act="confirmed_decision", evidence_refs=("command:msg-42",), confidence=0.95)
@@ -750,7 +747,7 @@ def test_candidate_create_failure_propagates(lifecycle, context, monkeypatch):
     def boom(transaction):
         raise MemoryWriteError("journal unreadable")
 
-    monkeypatch.setattr(lifecycle.repository, "append_transaction", boom)
+    monkeypatch.setattr(lifecycle.repository, "append_create_if_absent", boom)
     with pytest.raises(MemoryWriteError):
         lifecycle.ingest(proposal(), context)
     assert lifecycle.repository.current_records() == ()
@@ -762,3 +759,87 @@ def test_can_auto_promote_never_for_inferred():
     )
     policy = LifecyclePolicy(auto_promote_verified=True, min_repeated_evidence=2, candidate_ttl_days=30)
     assert can_auto_promote(record, policy) is False
+
+
+# ---------------------------------------------------------------------------
+# Idempotent conditional ingestion (C2 plan B)
+# ---------------------------------------------------------------------------
+
+
+def test_retry_original_batch_after_manual_promotion_returns_same_active(
+    lifecycle, inferred_proposal, context
+):
+    first = lifecycle.ingest(inferred_proposal, context)
+    assert first.final_status is MemoryStatus.CANDIDATE
+    lifecycle.promote(first.candidate_id, actor=ActorKind.USER, reason="approve")
+    assert lifecycle.repository.get(first.candidate_id).status is MemoryStatus.ACTIVE
+
+    retry = lifecycle.ingest(inferred_proposal, context)
+
+    assert retry.candidate_id == first.candidate_id
+    assert retry.active_id == first.candidate_id
+    assert retry.final_status is MemoryStatus.ACTIVE
+    assert retry.reason_code == REASON_EXISTING
+    assert retry.transaction_ids == ()
+    assert len(lifecycle.repository.current_records()) == 1
+
+
+def test_stale_lifecycle_instances_do_not_double_create(
+    workspace, policy, inferred_proposal, context
+):
+    first_repo = StructuredMemoryRepository(workspace, lock_timeout_s=5.0)
+    second_repo = StructuredMemoryRepository(workspace, lock_timeout_s=5.0)
+    first_lifecycle = StructuredMemoryLifecycle(first_repo, policy)
+    second_lifecycle = StructuredMemoryLifecycle(second_repo, policy)
+
+    first = first_lifecycle.ingest(inferred_proposal, context)
+    second = second_lifecycle.ingest(inferred_proposal, context)
+
+    assert second.candidate_id == first.candidate_id
+    assert second.active_id == first.active_id
+    assert len(first_repo.current_records()) == 1
+    assert len(first_repo.revisions(first.candidate_id)) == 1
+    assert len(StructuredMemoryRepository(workspace).current_records()) == 1
+
+
+def test_identical_merge_retry_returns_same_terminal_and_active_replacement(
+    lifecycle, active_decision, context
+):
+    identical = proposal(
+        statement="Main uses deterministic structured recall.",
+        kind="decision",
+        slot="memory.retrieval.strategy",
+        tags=("architecture.memory", "project.decision"),
+        speech_act="confirmed_decision",
+        evidence_refs=("command:msg-42",),
+        confidence=0.95,
+        importance=5,
+    )
+    batch_b = IngestContext(
+        actor=ActorKind.DREAM,
+        reason="dream batch",
+        source_batch="dream:batch-b",
+        scope=context.scope,
+        evidence_catalog=context.evidence_catalog,
+        now=context.now,
+    )
+
+    first = lifecycle.ingest(identical, batch_b)
+    assert first.final_status is MemoryStatus.SUPERSEDED
+    assert first.active_id == active_decision.id
+    records_before = {
+        record.id: len(lifecycle.repository.revisions(record.id))
+        for record in lifecycle.repository.current_records()
+    }
+
+    retry = lifecycle.ingest(identical, batch_b)
+
+    assert retry.candidate_id == first.candidate_id
+    assert retry.final_status is MemoryStatus.SUPERSEDED
+    assert retry.active_id == active_decision.id
+    assert retry.reason_code == REASON_EXISTING
+    assert retry.transaction_ids == ()
+    assert {
+        record.id: len(lifecycle.repository.revisions(record.id))
+        for record in lifecycle.repository.current_records()
+    } == records_before

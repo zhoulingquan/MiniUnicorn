@@ -147,26 +147,6 @@ class StructuredMemoryLifecycle:
         now = _utc(context.now)
         content = content_hash(proposal.kind, context.scope, proposal.subject, proposal.slot, proposal.statement)
 
-        existing = self._find_existing_record(context, content)
-        if existing is not None:
-            if existing.status is MemoryStatus.ACTIVE:
-                return IngestResult(
-                    candidate_id=existing.id,
-                    final_status=MemoryStatus.ACTIVE,
-                    active_id=existing.id,
-                    transaction_ids=(),
-                    reason_code=REASON_EXISTING,
-                )
-            if existing.status is MemoryStatus.CANDIDATE:
-                return self._apply_after_ingest(existing, context, now, "")
-            return IngestResult(
-                candidate_id=existing.id,
-                final_status=existing.status,
-                active_id=None,
-                transaction_ids=(),
-                reason_code=REASON_EXISTING,
-            )
-
         source_level = classify_source_level(evidence, proposal.speech_act)
         record = MemoryRecord(
             id=new_memory_id(),
@@ -200,7 +180,9 @@ class StructuredMemoryLifecycle:
             expected_revisions={record.id: 0},
             recorded_at=now,
         )
-        self.repository.append_transaction(create_tx)
+        current, created = self.repository.append_create_if_absent(create_tx)
+        if not created:
+            return self._resume_existing(current, context, now)
         return self._apply_after_ingest(record, context, now, create_tx.tx_id)
 
     def _resolve_evidence(self, proposal: CandidateProposal, context: IngestContext) -> tuple[EvidenceRef, ...]:
@@ -258,12 +240,24 @@ class StructuredMemoryLifecycle:
             canonical.append(matched[0])
         return tuple(sorted(set(canonical)))
 
-    def _find_existing_record(self, context: IngestContext, content: str) -> MemoryRecord | None:
-        for memory_id in self.repository.record_ids_for_source(context.source_batch):
-            record = self.repository.get(memory_id)
-            if record is not None and record.content_hash == content:
-                return record
-        return None
+    def _resume_existing(
+        self, record: MemoryRecord, context: IngestContext, now: datetime
+    ) -> IngestResult:
+        """Resume the deterministic lifecycle work for an already-created record."""
+        if record.status is MemoryStatus.CANDIDATE:
+            return self._apply_after_ingest(record, context, now, "")
+        active_id = record.id if record.status is MemoryStatus.ACTIVE else None
+        if record.status is MemoryStatus.SUPERSEDED and record.replacement_id:
+            replacement = self.repository.get(record.replacement_id)
+            if replacement is not None and replacement.status is MemoryStatus.ACTIVE:
+                active_id = replacement.id
+        return IngestResult(
+            candidate_id=record.id,
+            final_status=record.status,
+            active_id=active_id,
+            transaction_ids=(),
+            reason_code=REASON_EXISTING,
+        )
 
     # ------------------------------------------------------------------
     # Post-ingest conflict resolution
@@ -486,10 +480,18 @@ class StructuredMemoryLifecycle:
         now: datetime,
         create_tx_id: str,
     ) -> IngestResult:
+        merged_evidence: list[EvidenceRef] = []
+        seen_keys: set[tuple] = set()
+        for evidence in existing.evidence + candidate.evidence:
+            key = (evidence.kind, evidence.ref, evidence.sha256)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            merged_evidence.append(evidence)
         merged = existing.model_copy(
             update={
                 "revision": existing.revision + 1,
-                "evidence": tuple({(e.kind, e.ref, e.sha256): e for e in existing.evidence + candidate.evidence}.values()),
+                "evidence": tuple(merged_evidence),
                 "derived_from": tuple(sorted(set(existing.derived_from) | set(candidate.derived_from))),
                 "updated_at": now,
             }
