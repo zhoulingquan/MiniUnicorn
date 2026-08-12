@@ -521,3 +521,71 @@ def test_rebuild_repopulates_candidate_by_source(repository, create_tx):
     repository.append_transaction(make_transaction(record, source_batch="history:1-2"))
     rebuilt = StructuredMemoryRepository(repository.workspace)
     assert rebuilt.candidate_ids_for_source("history:1-2") == frozenset({record.id})
+
+
+# ---------------------------------------------------------------------------
+# Creation provenance (plan B: immutable creation mapping + cumulative batches)
+# ---------------------------------------------------------------------------
+
+
+def test_creation_batch_survives_later_revision_and_rebuild(repository):
+    created = MemoryRecord.model_validate(record_data())
+    repository.append_transaction(make_transaction(created, source_batch="dream:batch-a"))
+    promoted = created.model_copy(
+        update={
+            "revision": 2,
+            "status": MemoryStatus.ACTIVE,
+            "updated_at": dt("2026-08-11T08:32:00Z"),
+        }
+    )
+    repository.append_transaction(
+        make_transaction(promoted, expected_revisions={created.id: 1}, source_batch="")
+    )
+
+    assert repository.record_created_for("dream:batch-a", created.content_hash).id == created.id
+    assert repository.record_ids_for_source("dream:batch-a") == frozenset({created.id})
+
+    rebuilt = StructuredMemoryRepository(repository.workspace)
+    assert rebuilt.record_created_for("dream:batch-a", created.content_hash).id == created.id
+    assert rebuilt.record_ids_for_source("dream:batch-a") == frozenset({created.id})
+
+
+def test_record_source_batches_are_cumulative(repository):
+    created = MemoryRecord.model_validate(record_data())
+    repository.append_transaction(make_transaction(created, source_batch="dream:batch-a"))
+    revised = created.model_copy(
+        update={
+            "revision": 2,
+            "blocked_by": ("mem_" + "a" * 32,),
+            "updated_at": dt("2026-08-11T08:32:00Z"),
+        }
+    )
+    repository.append_transaction(
+        make_transaction(revised, expected_revisions={created.id: 1}, source_batch="dream:batch-b")
+    )
+    assert repository.record_ids_for_source("dream:batch-a") == frozenset({created.id})
+    assert repository.record_ids_for_source("dream:batch-b") == frozenset({created.id})
+
+
+def test_duplicate_creation_key_degrades_replay(repository):
+    first = MemoryRecord.model_validate(record_data(memory_id="mem_" + "a" * 32))
+    second = MemoryRecord.model_validate(
+        record_data(memory_id="mem_" + "b" * 32, content_hash=first.content_hash)
+    )
+    journal = (
+        repository._canonical_transaction_line(
+            make_transaction(first, source_batch="dream:stable-batch")
+        )
+        + "\n"
+        + repository._canonical_transaction_line(
+            make_transaction(second, source_batch="dream:stable-batch")
+        )
+        + "\n"
+    )
+    repository.journal_path.write_text(journal, encoding="utf-8")
+
+    rebuilt = StructuredMemoryRepository(repository.workspace)
+
+    assert rebuilt.health.state == "degraded"
+    assert rebuilt.health.error_code == "duplicate_idempotency_key"
+    assert rebuilt.current_records() == ()

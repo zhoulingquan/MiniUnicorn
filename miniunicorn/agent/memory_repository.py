@@ -20,6 +20,7 @@ from loguru import logger
 from pydantic import ValidationError
 
 from miniunicorn.agent.memory_models import (
+    DuplicateMemoryIdempotencyKey,
     InvalidMemoryTransition,
     MemoryLockTimeout,
     MemoryRecord,
@@ -85,7 +86,11 @@ class StructuredMemoryRepository:
         self._by_alias: dict[str, set[str]] = defaultdict(set)
         self._active_by_conflict: dict[str, str] = {}
         self._candidate_by_source: dict[str, set[str]] = defaultdict(set)
-        self._records_by_source: dict[str, set[str]] = defaultdict(set)
+        # Immutable creation mapping: (source_batch, content_hash) -> memory id
+        # set only by the revision-1 creation and never moved afterwards.
+        self._created_by_source_content: dict[tuple[str, str], str] = {}
+        # Cumulative provenance: every non-empty source_batch ever seen per record.
+        self._source_batches_by_record: dict[str, set[str]] = defaultdict(set)
 
     def _load_tag_catalog(self) -> None:
         if self.tags_path.exists():
@@ -139,6 +144,9 @@ class StructuredMemoryRepository:
             return False
         try:
             self._validate_against_current(transaction)
+        except DuplicateMemoryIdempotencyKey as exc:
+            self._degrade(line_number - 1, "duplicate_idempotency_key", f"line {line_number}: {exc}")
+            return False
         except MemoryRevisionConflict as exc:
             self._degrade(line_number - 1, "revision_conflict", f"line {line_number}: {exc}")
             return False
@@ -216,6 +224,7 @@ class StructuredMemoryRepository:
         if transaction_checksum(transaction) != transaction.checksum_sha256:
             raise MemoryWriteError("transaction checksum mismatch")
         projected = dict(self._current)
+        projected_created = dict(self._created_by_source_content)
         for operation in transaction.operations:
             record = operation.record
             self._tag_catalog.validate_record(record)
@@ -237,6 +246,16 @@ class StructuredMemoryRepository:
                     )
                 assert_transition(previous.status, record.status)
                 validate_same_status_revision(previous, record)
+            if transaction.source_batch and record.revision == 1:
+                key = (transaction.source_batch, record.content_hash)
+                existing_id = projected_created.get(key)
+                if existing_id is not None and existing_id != record.id:
+                    raise DuplicateMemoryIdempotencyKey(
+                        "duplicate idempotency key "
+                        f"source_batch={transaction.source_batch} content_hash={record.content_hash}: "
+                        f"{existing_id}, {record.id}"
+                    )
+                projected_created[key] = record.id
             projected[record.id] = record
         active_by_conflict: dict[str, str] = {}
         for record in projected.values():
@@ -271,6 +290,7 @@ class StructuredMemoryRepository:
             self._current[record.id] = record
             self._revision_history[record.id].append(record)
             self._index(record, transaction.source_batch)
+            self._publish_source_provenance(record, transaction.source_batch)
 
     def _index(self, record: MemoryRecord, source_batch: str) -> None:
         self._by_status[record.status].add(record.id)
@@ -284,8 +304,22 @@ class StructuredMemoryRepository:
             self._active_by_conflict[record.conflict_key] = record.id
         if record.status is MemoryStatus.CANDIDATE:
             self._candidate_by_source[source_batch].add(record.id)
-        if source_batch:
-            self._records_by_source[source_batch].add(record.id)
+
+    def _publish_source_provenance(self, record: MemoryRecord, source_batch: str) -> None:
+        if not source_batch:
+            return
+        self._source_batches_by_record[record.id].add(source_batch)
+        if record.revision != 1:
+            return
+        key = (source_batch, record.content_hash)
+        existing_id = self._created_by_source_content.get(key)
+        if existing_id is not None and existing_id != record.id:
+            raise DuplicateMemoryIdempotencyKey(
+                "duplicate idempotency key "
+                f"source_batch={source_batch} content_hash={record.content_hash}: "
+                f"{existing_id}, {record.id}"
+            )
+        self._created_by_source_content[key] = record.id
 
     def _unindex(self, record: MemoryRecord | None) -> None:
         if record is None:
@@ -300,8 +334,6 @@ class StructuredMemoryRepository:
         if record.status is MemoryStatus.ACTIVE and self._active_by_conflict.get(record.conflict_key) == record.id:
             del self._active_by_conflict[record.conflict_key]
         for batches in self._candidate_by_source.values():
-            batches.discard(record.id)
-        for batches in self._records_by_source.values():
             batches.discard(record.id)
 
     # ------------------------------------------------------------------
@@ -329,6 +361,20 @@ class StructuredMemoryRepository:
     def candidate_ids_for_source(self, source_batch: str) -> frozenset[str]:
         return frozenset(self._candidate_by_source[source_batch])
 
+    def record_created_for(self, source_batch: str, content_hash: str) -> MemoryRecord | None:
+        """Return the current record created by this source-batch/content pair.
+
+        The creation mapping is written exactly once by the revision-1
+        transaction and never moves, so this lookup is deterministic and
+        survives journal rebuilds.
+        """
+        memory_id = self._created_by_source_content.get((source_batch, content_hash))
+        return self._current.get(memory_id) if memory_id else None
+
     def record_ids_for_source(self, source_batch: str) -> frozenset[str]:
-        """Return current records last written by a source batch."""
-        return frozenset(self._records_by_source[source_batch])
+        """Return every record that ever carried a non-empty source batch."""
+        return frozenset(
+            memory_id
+            for memory_id, batches in self._source_batches_by_record.items()
+            if source_batch in batches
+        )

@@ -40,6 +40,10 @@ class InvalidMemoryTransition(MemoryError):  # noqa: N818
     """Raised when a status transition is outside the legal state machine."""
 
 
+class DuplicateMemoryIdempotencyKey(InvalidMemoryTransition):
+    """Two record IDs claim the same source-batch/content creation key."""
+
+
 class UnknownMemoryTag(MemoryError):  # noqa: N818
     """Raised when a record references a tag missing from the catalog."""
 
