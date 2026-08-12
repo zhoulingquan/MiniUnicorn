@@ -135,4 +135,3 @@ commands rather than editing governed files directly.
   hanging test, it is identified with a per-file run rather than reported as a
   pass.
 - `git diff --check` passes and the worktree contains only intended changes.
-

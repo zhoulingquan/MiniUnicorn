@@ -167,4 +167,3 @@
 - [ ] Run `git diff --check` and `git status --short`.
 - [ ] Review the complete diff against the remediation design and original C2 completion definition.
 - [ ] Commit final verification-only corrections and report exact evidence.
-
