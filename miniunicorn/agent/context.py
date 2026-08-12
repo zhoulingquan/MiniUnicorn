@@ -150,15 +150,20 @@ class ContextBuilder:
         user_key: str | None = None,
     ) -> str:
         """Run deterministic recall and render its prompt section (governed only)."""
+        query = self._build_recall_query(
+            query_text, session_key=session_key, user_key=user_key
+        )
         try:
-            result = self.memory.recall_structured(
-                self._build_recall_query(
-                    query_text, session_key=session_key, user_key=user_key
-                )
-            )
+            result = self.memory.recall_structured(query)
         except Exception:
             logger.exception("structured recall failed")
             return self._recall_degraded_diagnostic("recall_error")
+        structured = self.memory.structured_config
+        if structured is not None and structured.recall_audit_enabled:
+            try:
+                self.memory.write_recall_audit(query, result)
+            except Exception:
+                logger.exception("governed recall audit failed")
         recall = self.memory.structured_recall
         if result.degraded:
             return self._recall_degraded_diagnostic(result.error_code)
@@ -183,15 +188,18 @@ class ContextBuilder:
         user_key: str | None = None,
     ) -> None:
         """Compute recall without injecting (shadow mode); audit omits the query."""
+        query = self._build_recall_query(
+            query_text, session_key=session_key, user_key=user_key
+        )
         try:
-            result = self.memory.recall_structured(
-                self._build_recall_query(
-                    query_text, session_key=session_key, user_key=user_key
-                )
-            )
+            result = self.memory.recall_structured(query)
         except Exception:
             logger.exception("shadow recall audit failed")
             return
+        try:
+            self.memory.write_recall_audit(query, result)
+        except Exception:
+            logger.exception("shadow recall audit write failed")
         ids = "; ".join(f"{hit.record.id}:{hit.score}" for hit in result.hits)
         logger.info(
             "structured_recall_shadow hits={} candidates={} filtered={} tokens={} ids={}",

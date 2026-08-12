@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -120,6 +121,7 @@ class MemoryStore:
         self.max_history_entries = max_history_entries
         self.memory_dir = ensure_dir(workspace / "memory")
         self.memory_file = self.memory_dir / "MEMORY.md"
+        self.recall_audit_file = self.memory_dir / "structured" / "recall-audit.jsonl"
         self.history_file = self.memory_dir / "history.jsonl"
         self.legacy_history_file = self.memory_dir / "HISTORY.md"
         self.soul_file = workspace / "SOUL.md"
@@ -283,6 +285,54 @@ class MemoryStore:
         """Run deterministic recall, building the structured stack on demand."""
         self._structured_stack_or_build()
         return self.structured_recall.recall(query)  # type: ignore[union-attr]
+
+    def write_recall_audit(self, query: RecallQuery, result: RecallResult) -> None:
+        """Append a content-free recall audit and retain only the latest 1000 rows."""
+        self._assert_path_in_workspace(self.recall_audit_file)
+        record = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "scope_hashes": [
+                hashlib.sha256(scope.key.encode("utf-8")).hexdigest()
+                for scope in query.allowed_scopes
+            ],
+            "hits": [
+                {
+                    "id": hit.record.id,
+                    "score": hit.score,
+                    "reason_codes": [self._recall_reason_code(reason) for reason in hit.reasons],
+                }
+                for hit in result.hits
+            ],
+            "candidates": result.candidates,
+            "filtered": result.filtered,
+            "excluded_by_budget": result.excluded_by_budget,
+            "tokens_used": result.tokens_used,
+            "degraded": result.degraded,
+            "error_code": result.error_code,
+        }
+        existing: list[str] = []
+        with suppress(FileNotFoundError, OSError):
+            existing = self.recall_audit_file.read_text(encoding="utf-8").splitlines()
+        lines = [*existing, json.dumps(record, ensure_ascii=False, separators=(",", ":"))][
+            -1000:
+        ]
+        ensure_dir(self.recall_audit_file.parent)
+        temp_path = self.recall_audit_file.with_suffix(".jsonl.tmp")
+        self._assert_path_in_workspace(temp_path)
+        try:
+            with temp_path.open("w", encoding="utf-8", newline="\n") as stream:
+                stream.write("\n".join(lines) + "\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temp_path, self.recall_audit_file)
+        finally:
+            with suppress(FileNotFoundError):
+                temp_path.unlink()
+
+    @staticmethod
+    def _recall_reason_code(reason: str) -> str:
+        """Reduce a rendered Why reason to a non-content-bearing category."""
+        return reason.split("=", 1)[0].split("(", 1)[0]
 
     # ------------------------------------------------------------------
     # Legacy migration (C2 §14): deterministic, idempotent, no-LLM.
@@ -534,7 +584,7 @@ class MemoryStore:
             self.shared_procedural_file, self._MAX_SHARED_PROCEDURAL_ENTRIES
         )
 
-    def run_memory_hygiene(self) -> dict[str, int]:
+    def run_memory_hygiene(self, now: datetime | None = None) -> dict[str, int]:
         """执行全部文件层清理，返回各部分清理统计。
 
         在 Dream.run() 末尾调用，也可由 Consolidator 在归档后节流调用。
@@ -547,7 +597,11 @@ class MemoryStore:
             "procedural": self.prune_procedural_if_needed(),
             "reflections": self.prune_reflections_after_cursor(),
             "shared_procedural": self.prune_shared_procedural_if_needed(),
+            "structured_expired": 0,
         }
+        if self.structured_lifecycle is not None:
+            expired = self.structured_lifecycle.expire_due(now or datetime.now(timezone.utc))
+            result["structured_expired"] = len(expired)
         return result
 
     def get_last_reflections_cursor(self) -> int:

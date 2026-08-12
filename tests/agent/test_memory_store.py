@@ -3,6 +3,7 @@
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -549,6 +550,22 @@ class TestSingleWriterPathValidation:
 
 
 class TestStructuredMemoryStore:
+    def test_hygiene_expires_due_structured_records(self, tmp_path, monkeypatch):
+        store = MemoryStore(tmp_path, structured_config=StructuredMemoryConfig())
+        now = datetime(2026, 8, 12, 9, 0, tzinfo=UTC)
+        expire_due = MagicMock(wraps=store.structured_lifecycle.expire_due)
+        monkeypatch.setattr(store.structured_lifecycle, "expire_due", expire_due)
+
+        result = store.run_memory_hygiene(now=now)
+
+        expire_due.assert_called_once_with(now)
+        assert result["structured_expired"] == 0
+
+    def test_legacy_hygiene_reports_zero_structured_expiry(self, tmp_path):
+        store = MemoryStore(tmp_path)
+
+        assert store.run_memory_hygiene()["structured_expired"] == 0
+
     def test_defaults_to_legacy_without_config(self, tmp_path):
         store = MemoryStore(tmp_path)
 
