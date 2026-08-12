@@ -853,7 +853,7 @@ async def test_system_subagent_followup_is_persisted_before_prompt_assembly(tmp_
     loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
 
     session = loop.sessions.get_or_create("cli:test")
-    session.add_message("user", "question")
+    session.add_message("user", "question", sender_id="alice")
     session.add_message("assistant", "working")
     loop.sessions.save(session)
 
@@ -870,6 +870,14 @@ async def test_system_subagent_followup_is_persisted_before_prompt_assembly(tmp_
         )
 
     loop._run_agent_loop = fake_run_agent_loop  # type: ignore[method-assign]
+    real_build_messages = loop.context.build_messages
+    captured_scope: dict[str, str | None] = {}
+
+    def capture_build_messages(*args, **kwargs):
+        captured_scope["memory_user_key"] = kwargs.get("memory_user_key")
+        return real_build_messages(*args, **kwargs)
+
+    loop.context.build_messages = capture_build_messages  # type: ignore[method-assign]
 
     await loop._process_message(
         InboundMessage(
@@ -892,6 +900,7 @@ async def test_system_subagent_followup_is_persisted_before_prompt_assembly(tmp_
     assert "[Message Time:" not in non_system[1]["content"]
     assert non_system[2]["content"].count("subagent result") == 1
     assert "Current Time:" in non_system[2]["content"]
+    assert captured_scope["memory_user_key"] == "user:alice"
 
     loop.sessions.invalidate("cli:test")
     persisted = loop.sessions.get_or_create("cli:test")

@@ -1103,6 +1103,19 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         history = session.get_history(**_hist_kwargs)
         current_role = "assistant" if is_subagent else "user"
         workspace_scope = self.workspace_scopes.for_message(msg, session.metadata)
+        memory_user_key = None
+        if is_subagent:
+            parent_sender = next(
+                (
+                    str(message["sender_id"])
+                    for message in reversed(session.messages)
+                    if message.get("role") == "user"
+                    and message.get("sender_id")
+                    and message.get("sender_id") != "subagent"
+                ),
+                None,
+            )
+            memory_user_key = f"user:{parent_sender}" if parent_sender else "user:default"
 
         messages = self.context.build_messages(
             history=history,
@@ -1112,6 +1125,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             current_role=current_role,
             sender_id=msg.sender_id,
             session_key=key,
+            memory_user_key=memory_user_key,
             session_summary=pending,
             session_metadata=session.metadata,
             workspace=workspace_scope.project_path,

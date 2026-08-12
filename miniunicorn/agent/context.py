@@ -596,6 +596,7 @@ class ContextBuilder:
         current_role: str = "user",
         sender_id: str | None = None,
         session_key: str | None = None,
+        memory_user_key: str | None = None,
         session_summary: str | None = None,
         session_metadata: Mapping[str, Any] | None = None,
         current_runtime_lines: Sequence[str] | None = None,
@@ -640,17 +641,11 @@ class ContextBuilder:
         # Structured recall (governed/shadow) is keyed on the current user
         # message; light/heartbeat turns skip recall entirely.
         recall_query = None if light_context else current_message
-        recall_user_id = sender_id
-        if sender_id == "subagent":
-            recall_user_id = next(
-                (
-                    str(message["sender_id"])
-                    for message in reversed(history)
-                    if message.get("role") == "user" and message.get("sender_id")
-                ),
-                None,
-            )
-        recall_user_key = f"user:{recall_user_id}" if recall_user_id else "user:default"
+        if memory_user_key:
+            recall_user_key = memory_user_key
+        else:
+            recall_user_id = sender_id if sender_id != "subagent" else None
+            recall_user_key = f"user:{recall_user_id}" if recall_user_id else "user:default"
         messages = [
             {
                 "role": "system",

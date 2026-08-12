@@ -236,6 +236,7 @@ class TestGovernedMode:
             current_message="MiniUnicorn parent user terse",
             sender_id="subagent",
             session_key="web:chat-7#sub:task-1",
+            memory_user_key="user:alice",
         )
 
         assert "Parent user wants terse output" in messages[0]["content"]
