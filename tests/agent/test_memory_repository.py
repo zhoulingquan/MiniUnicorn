@@ -589,3 +589,103 @@ def test_duplicate_creation_key_degrades_replay(repository):
     assert rebuilt.health.state == "degraded"
     assert rebuilt.health.error_code == "duplicate_idempotency_key"
     assert rebuilt.current_records() == ()
+
+
+# ---------------------------------------------------------------------------
+# Atomic conditional creation (plan B: one journal lock, no external lookup)
+# ---------------------------------------------------------------------------
+
+
+def test_append_create_if_absent_deduplicates_stale_repository_instances(workspace):
+    first_repo = StructuredMemoryRepository(workspace)
+    second_repo = StructuredMemoryRepository(workspace)
+    first = MemoryRecord.model_validate(record_data(memory_id=new_memory_id()))
+    second = MemoryRecord.model_validate(
+        record_data(memory_id=new_memory_id(), content_hash=first.content_hash)
+    )
+
+    first_current, first_created = first_repo.append_create_if_absent(
+        make_transaction(first, source_batch="dream:stable-batch")
+    )
+    second_current, second_created = second_repo.append_create_if_absent(
+        make_transaction(second, source_batch="dream:stable-batch")
+    )
+
+    assert first_created is True
+    assert second_created is False
+    assert second_current.id == first_current.id
+    assert len(StructuredMemoryRepository(workspace).current_records()) == 1
+
+
+def test_append_create_if_absent_rejects_contract_violations(repository):
+    revision_two = MemoryRecord.model_validate(record_data(revision=2))
+    nonzero_expected_record = MemoryRecord.model_validate(record_data(statement="expected-1"))
+    cases = [
+        make_transaction(MemoryRecord.model_validate(record_data(statement="empty-batch"))),
+        make_transaction(
+            MemoryRecord.model_validate(record_data(statement="one")),
+            MemoryRecord.model_validate(record_data(statement="two")),
+            source_batch="dream:stable-batch",
+        ),
+        make_transaction(revision_two, source_batch="dream:stable-batch"),
+        make_transaction(
+            nonzero_expected_record,
+            source_batch="dream:stable-batch",
+            expected_revisions={nonzero_expected_record.id: 1},
+        ),
+    ]
+    for tx in cases:
+        with pytest.raises(MemoryWriteError):
+            repository.append_create_if_absent(tx)
+    assert not repository.journal_path.exists()
+    assert repository.current_records() == ()
+
+
+def _worker_create_if_absent(
+    workspace: str, source_batch: str, memory_id: str, start, queue
+) -> None:
+    repo = StructuredMemoryRepository(Path(workspace), lock_timeout_s=15.0)
+    record = MemoryRecord.model_validate(record_data(memory_id=memory_id))
+    start.wait()
+    current, created = repo.append_create_if_absent(
+        make_transaction(record, source_batch=source_batch)
+    )
+    queue.put({"id": current.id, "created": created, "exit": 0})
+
+
+def test_append_create_if_absent_real_multiprocess(workspace):
+    import multiprocessing
+
+    ctx = multiprocessing.get_context("spawn")
+    start = ctx.Event()
+    queue = ctx.Queue()
+    first_id = "mem_" + "c" * 32
+    second_id = "mem_" + "d" * 32
+    procs = [
+        ctx.Process(
+            target=_worker_create_if_absent,
+            args=(str(workspace), "dream:stable-batch", first_id, start, queue),
+        ),
+        ctx.Process(
+            target=_worker_create_if_absent,
+            args=(str(workspace), "dream:stable-batch", second_id, start, queue),
+        ),
+    ]
+    try:
+        for proc in procs:
+            proc.start()
+        start.set()
+        for proc in procs:
+            proc.join(timeout=10)
+        for proc in procs:
+            assert proc.exitcode == 0
+        results = [queue.get(timeout=10) for _ in range(2)]
+        assert [result["created"] for result in results].count(True) == 1
+        ids = {result["id"] for result in results}
+        assert len(ids) == 1
+        assert len(StructuredMemoryRepository(workspace).current_records()) == 1
+    finally:
+        for proc in procs:
+            if proc.is_alive():
+                proc.terminate()
+                proc.join(timeout=5)

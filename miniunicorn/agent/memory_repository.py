@@ -181,21 +181,7 @@ class StructuredMemoryRepository:
             with FileLock(str(self.lock_path), timeout=self.lock_timeout_s):
                 self._require_healthy()
                 self._synchronize_locked()
-                validated = self._validate_against_current(transaction)
-                line = self._canonical_transaction_line(validated)
-                try:
-                    with self.journal_path.open("a", encoding="utf-8", newline="\n") as stream:
-                        stream.write(line + "\n")
-                        stream.flush()
-                        os.fsync(stream.fileno())
-                except OSError as exc:
-                    self._degrade(
-                        self._health.last_valid_line or 0,
-                        "write_uncertain",
-                        f"journal durability is uncertain: {exc}",
-                    )
-                    raise MemoryWriteError(str(exc)) from exc
-                self._publish_transaction(validated)
+                self._append_validated_locked(transaction)
         except FileLockTimeout as exc:
             raise MemoryLockTimeout(f"journal lock timeout after {self.lock_timeout_s}s") from exc
         except MemoryError:
@@ -203,6 +189,64 @@ class StructuredMemoryRepository:
         except OSError as exc:
             raise MemoryWriteError(str(exc)) from exc
         logger.info("memory_transaction_committed tx={} actor={} reason={}", transaction.tx_id, transaction.actor, transaction.reason)
+
+    def append_create_if_absent(
+        self, transaction: MemoryTransaction
+    ) -> tuple[MemoryRecord, bool]:
+        """Atomically create a revision-1 record unless its source key exists.
+
+        The lookup, condition, and append all happen under the same journal
+        lock acquisition, so concurrent instances cannot double-create. The
+        source key is ``(source_batch, content_hash)`` on the transaction.
+        """
+        self._validate_create_transaction_shape(transaction)
+        record = transaction.operations[0].record
+        try:
+            with FileLock(str(self.lock_path), timeout=self.lock_timeout_s):
+                self._require_healthy()
+                self._synchronize_locked()
+                existing = self.record_created_for(transaction.source_batch, record.content_hash)
+                if existing is not None:
+                    return existing, False
+                self._append_validated_locked(transaction)
+                return record, True
+        except FileLockTimeout as exc:
+            raise MemoryLockTimeout(
+                f"journal lock timeout after {self.lock_timeout_s}s"
+            ) from exc
+        except MemoryError:
+            raise
+        except OSError as exc:
+            raise MemoryWriteError(str(exc)) from exc
+
+    def _append_validated_locked(self, transaction: MemoryTransaction) -> None:
+        """Validate and durably append a transaction while the writer lock is held."""
+        validated = self._validate_against_current(transaction)
+        line = self._canonical_transaction_line(validated)
+        try:
+            with self.journal_path.open("a", encoding="utf-8", newline="\n") as stream:
+                stream.write(line + "\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+        except OSError as exc:
+            self._degrade(
+                self._health.last_valid_line or 0,
+                "write_uncertain",
+                f"journal durability is uncertain: {exc}",
+            )
+            raise MemoryWriteError(str(exc)) from exc
+        self._publish_transaction(validated)
+
+    def _validate_create_transaction_shape(self, transaction: MemoryTransaction) -> None:
+        if not transaction.source_batch:
+            raise MemoryWriteError("create transaction requires a non-empty source_batch")
+        if len(transaction.operations) != 1:
+            raise MemoryWriteError("create transaction must contain exactly one operation")
+        record = transaction.operations[0].record
+        if record.revision != 1:
+            raise MemoryWriteError("create transaction must create revision 1")
+        if transaction.expected_revisions.get(record.id, 0) != 0:
+            raise MemoryWriteError("create transaction must expect creation revision 0")
 
     def _synchronize_locked(self) -> None:
         """Replay the journal while the writer lock is held.
