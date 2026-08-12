@@ -11,7 +11,7 @@ import shlex
 from datetime import datetime, timezone
 
 from miniunicorn.agent.memory_lifecycle import IngestContext, MemoryLifecycleError
-from miniunicorn.agent.memory_migration import MIGRATION_STATE_FILE, MigrationState
+from miniunicorn.agent.memory_migration import load_migration_state
 from miniunicorn.agent.memory_models import (
     ActorKind,
     CandidateProposal,
@@ -86,7 +86,7 @@ async def cmd_memory_status(ctx: CommandContext) -> OutboundMessage:
     """Show mode, health, status counts, migration state and last write error."""
     store, repository, _ = _stack(ctx)
     counts = {s.value: len(repository.current_records(s)) for s in MemoryStatus}  # type: ignore[union-attr]
-    state = MigrationState.load(store.workspace / MIGRATION_STATE_FILE)
+    state = load_migration_state(store.workspace)
     migration = (
         f"completed at `{state.completed_at.isoformat()}`"
         if state.completed_at is not None

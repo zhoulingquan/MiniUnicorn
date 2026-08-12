@@ -402,10 +402,15 @@ class MemoryStore:
         return migration.dry_run() if dry_run else migration.apply()
 
     def migration_completed(self) -> bool:
-        """True when migration-v1.json records a completed_at (spec §14.3)."""
-        from miniunicorn.agent.memory_migration import MIGRATION_STATE_FILE, MigrationState
+        """True when migration state records a completed_at (spec §14.3).
 
-        return MigrationState.load(self.workspace / MIGRATION_STATE_FILE).completed_at is not None
+        The canonical manifest wins; a legacy manifest is honoured only when
+        no canonical manifest exists, matching the unified loader used by the
+        migrator and the status command.
+        """
+        from miniunicorn.agent.memory_migration import load_migration_state
+
+        return load_migration_state(self.workspace).completed_at is not None
 
     # -- Single-Writer 路径校验（借鉴 MiMo Code 的 path whitelist）----------
     # 防御 path traversal：所有写入方法的路径必须解析后仍在 workspace 内。

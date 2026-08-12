@@ -78,6 +78,25 @@ class TestStatus:
         content = await _dispatch(router, store, "/memory-status")
         assert "not active" in content
 
+    async def test_status_reads_completed_legacy_manifest(self, workspace):
+        from datetime import datetime, timezone
+
+        from miniunicorn.agent.memory_migration import (
+            LEGACY_MIGRATION_STATE_FILE,
+            MigrationState,
+        )
+
+        MigrationState(
+            entries={},
+            completed_at=datetime(2026, 8, 11, 9, 0, tzinfo=timezone.utc),
+        ).save(workspace / LEGACY_MIGRATION_STATE_FILE)
+        store = _store(workspace)
+        router = _router()
+
+        content = await _dispatch(router, store, "/memory-status")
+
+        assert "Migration: completed at `2026-08-11T09:00:00+00:00`" in content
+
 
 class TestList:
     async def test_list_shows_fields_and_default_limit(self, workspace):

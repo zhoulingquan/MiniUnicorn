@@ -509,6 +509,21 @@ class TestGovernedStartupGate:
         ).build()
         assert loop.context.memory.migration_completed() is False
 
+    def test_governed_loop_accepts_completed_legacy_manifest(self, workspace, bus, provider):
+        from miniunicorn.agent.loop_builder import AgentLoopBuilder
+
+        _write_all_sources(workspace)
+        MigrationState(
+            entries={},
+            completed_at=dt_utc("2026-08-11T09:00:00Z"),
+        ).save(workspace / LEGACY_MIGRATION_STATE_FILE)
+
+        loop = AgentLoopBuilder(bus, provider, workspace).with_structured_memory_config(
+            StructuredMemoryConfig(mode="governed")
+        ).build()
+
+        assert loop.context.memory.migration_completed() is True
+
 
 # ---------------------------------------------------------------------------
 # C2 plan B: unified state loading, migration lock, durable unique-temp save
