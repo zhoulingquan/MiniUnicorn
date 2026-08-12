@@ -48,6 +48,20 @@ def _usage(ctx: CommandContext, usage: str) -> OutboundMessage:
     return _reply(ctx, f"Usage: {usage}")
 
 
+def _split_args_or_usage(
+    ctx: CommandContext, usage: str
+) -> tuple[list[str] | None, OutboundMessage | None]:
+    """Split arguments, returning an usage reply for malformed shell syntax.
+
+    Only shlex syntax errors (for example an unterminated quote) are trapped
+    here; genuine program errors must keep raising.
+    """
+    try:
+        return shlex.split(ctx.args), None
+    except ValueError:
+        return None, _usage(ctx, usage)
+
+
 def _stack(ctx: CommandContext, *, allow_legacy: bool = False):
     """Return (store, repository, lifecycle); None repository when not structured."""
     loop = ctx.loop
@@ -141,7 +155,9 @@ async def cmd_memory_list(ctx: CommandContext) -> OutboundMessage:
 async def cmd_memory_show(ctx: CommandContext) -> OutboundMessage:
     """Show all revisions, evidence and the replace chain for one record."""
     _, repository, _ = _stack(ctx)
-    parts = shlex.split(ctx.args)
+    parts, usage = _split_args_or_usage(ctx, "/memory-show <id>")
+    if usage is not None:
+        return usage
     if len(parts) != 1:
         return _usage(ctx, "/memory-show <id>")
     memory_id = parts[0]
@@ -184,7 +200,11 @@ async def cmd_memory_show(ctx: CommandContext) -> OutboundMessage:
 async def cmd_memory_promote(ctx: CommandContext) -> OutboundMessage:
     """Promote a candidate; a same-slot conflict requires --replace <active-id>."""
     _, _, lifecycle = _stack(ctx)
-    parts = shlex.split(ctx.args)
+    parts, usage = _split_args_or_usage(
+        ctx, "/memory-promote <id> [--replace <active-id>]"
+    )
+    if usage is not None:
+        return usage
     replace_id: str | None = None
     if "--replace" in parts:
         index = parts.index("--replace")
@@ -211,7 +231,9 @@ async def cmd_memory_promote(ctx: CommandContext) -> OutboundMessage:
 async def cmd_memory_revoke(ctx: CommandContext) -> OutboundMessage:
     """Revoke a candidate/active record; the reason is required."""
     _, _, lifecycle = _stack(ctx)
-    parts = shlex.split(ctx.args)
+    parts, usage = _split_args_or_usage(ctx, "/memory-revoke <id> <reason>")
+    if usage is not None:
+        return usage
     if len(parts) < 2:
         return _usage(ctx, "/memory-revoke <id> <reason>")
     memory_id, reason = parts[0], " ".join(parts[1:])

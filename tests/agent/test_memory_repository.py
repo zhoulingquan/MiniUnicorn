@@ -689,3 +689,60 @@ def test_append_create_if_absent_real_multiprocess(workspace):
             if proc.is_alive():
                 proc.terminate()
                 proc.join(timeout=5)
+
+class TestBlockedByMonotonicity:
+    def test_candidate_revision_cannot_clear_blocked_by(self, repository):
+        created = MemoryRecord.model_validate(
+            record_data(blocked_by=("mem_" + "a" * 32,))
+        )
+        repository.append_transaction(make_transaction(created, source_batch="dream:batch-a"))
+
+        cleared = created.model_copy(
+            update={
+                "revision": 2,
+                "blocked_by": (),
+                "updated_at": dt("2026-08-11T08:32:00Z"),
+            }
+        )
+        with pytest.raises(InvalidMemoryTransition, match="blocked_by"):
+            repository.append_transaction(
+                make_transaction(cleared, expected_revisions={created.id: 1}, source_batch="")
+            )
+        assert len(repository.revisions(created.id)) == 1
+
+    def test_candidate_revision_cannot_replace_blocked_by(self, repository):
+        created = MemoryRecord.model_validate(
+            record_data(blocked_by=("mem_" + "a" * 32,))
+        )
+        repository.append_transaction(make_transaction(created, source_batch="dream:batch-a"))
+
+        replaced = created.model_copy(
+            update={
+                "revision": 2,
+                "blocked_by": ("mem_" + "b" * 32,),
+                "updated_at": dt("2026-08-11T08:32:00Z"),
+            }
+        )
+        with pytest.raises(InvalidMemoryTransition, match="blocked_by"):
+            repository.append_transaction(
+                make_transaction(replaced, expected_revisions={created.id: 1}, source_batch="")
+            )
+        assert len(repository.revisions(created.id)) == 1
+
+    def test_candidate_revision_may_add_blocked_by(self, repository):
+        created = MemoryRecord.model_validate(record_data())
+        repository.append_transaction(make_transaction(created, source_batch="dream:batch-a"))
+
+        extended = created.model_copy(
+            update={
+                "revision": 2,
+                "blocked_by": ("mem_" + "a" * 32, "mem_" + "b" * 32),
+                "updated_at": dt("2026-08-11T08:32:00Z"),
+            }
+        )
+        repository.append_transaction(
+            make_transaction(extended, expected_revisions={created.id: 1}, source_batch="")
+        )
+
+        current = repository.current_records()[0]
+        assert set(current.blocked_by) == {"mem_" + "a" * 32, "mem_" + "b" * 32}

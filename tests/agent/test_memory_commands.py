@@ -435,3 +435,21 @@ class TestMigrate:
         router = _router()
         content = await _dispatch(router, store, "/memory-migrate --bogus")
         assert "Usage:" in content
+
+
+class TestMalformedQuotes:
+    @pytest.mark.parametrize(
+        ("raw", "usage"),
+        [
+            ('/memory-show "', "/memory-show <id>"),
+            ('/memory-promote "', "/memory-promote <id> [--replace <active-id>]"),
+            ('/memory-revoke " reason', "/memory-revoke <id> <reason>"),
+        ],
+    )
+    async def test_malformed_quote_returns_usage(self, workspace, raw, usage):
+        store = _seed(workspace)
+
+        content = await _dispatch(_router(), store, raw)
+
+        assert "Usage:" in content
+        assert usage in content

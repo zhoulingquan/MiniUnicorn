@@ -692,7 +692,7 @@ def validate_same_status_revision(previous: MemoryRecord, current: MemoryRecord)
     }
     if previous.status is MemoryStatus.CANDIDATE:
         allowed = _SAME_STATUS_CANDIDATE_FIELDS
-        must_superset = ("evidence", "derived_from")
+        must_superset = ("evidence", "derived_from", "blocked_by")
     else:
         assert previous.status is MemoryStatus.ACTIVE
         allowed = _SAME_STATUS_ACTIVE_FIELDS
