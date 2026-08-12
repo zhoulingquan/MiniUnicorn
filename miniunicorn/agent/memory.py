@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterator
 
 import tiktoken
+from filelock import FileLock
 from loguru import logger
 
 from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
@@ -122,6 +123,7 @@ class MemoryStore:
         self.memory_dir = ensure_dir(workspace / "memory")
         self.memory_file = self.memory_dir / "MEMORY.md"
         self.recall_audit_file = self.memory_dir / "structured" / "recall-audit.jsonl"
+        self.recall_audit_lock_file = self.memory_dir / "structured" / "recall-audit.lock"
         self.history_file = self.memory_dir / "history.jsonl"
         self.legacy_history_file = self.memory_dir / "HISTORY.md"
         self.soul_file = workspace / "SOUL.md"
@@ -310,24 +312,28 @@ class MemoryStore:
             "degraded": result.degraded,
             "error_code": result.error_code,
         }
-        existing: list[str] = []
-        with suppress(FileNotFoundError, OSError):
-            existing = self.recall_audit_file.read_text(encoding="utf-8").splitlines()
-        lines = [*existing, json.dumps(record, ensure_ascii=False, separators=(",", ":"))][
-            -1000:
-        ]
         ensure_dir(self.recall_audit_file.parent)
-        temp_path = self.recall_audit_file.with_suffix(".jsonl.tmp")
-        self._assert_path_in_workspace(temp_path)
-        try:
-            with temp_path.open("w", encoding="utf-8", newline="\n") as stream:
-                stream.write("\n".join(lines) + "\n")
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temp_path, self.recall_audit_file)
-        finally:
-            with suppress(FileNotFoundError):
-                temp_path.unlink()
+        self._assert_path_in_workspace(self.recall_audit_lock_file)
+        lock_timeout = self.structured_config.lock_timeout_s if self.structured_config else 5.0
+        with FileLock(str(self.recall_audit_lock_file), timeout=lock_timeout):
+            existing: list[str] = []
+            with suppress(FileNotFoundError, OSError):
+                existing = self.recall_audit_file.read_text(encoding="utf-8").splitlines()
+            lines = [
+                *existing,
+                json.dumps(record, ensure_ascii=False, separators=(",", ":")),
+            ][-1000:]
+            temp_path = self.recall_audit_file.with_suffix(".jsonl.tmp")
+            self._assert_path_in_workspace(temp_path)
+            try:
+                with temp_path.open("w", encoding="utf-8", newline="\n") as stream:
+                    stream.write("\n".join(lines) + "\n")
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temp_path, self.recall_audit_file)
+            finally:
+                with suppress(FileNotFoundError):
+                    temp_path.unlink()
 
     @staticmethod
     def _recall_reason_code(reason: str) -> str:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -74,6 +75,30 @@ def test_recall_audit_is_redacted_rotated_and_not_git_tracked(tmp_path):
         "error_code",
     }
     assert "memory/structured/recall-audit.jsonl" not in store.git._tracked_files
+
+
+def test_recall_audit_concurrent_writers_do_not_lose_rows(tmp_path):
+    stores = [
+        MemoryStore(tmp_path, structured_config=StructuredMemoryConfig())
+        for _ in range(4)
+    ]
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = [
+            pool.submit(
+                stores[index % len(stores)].write_recall_audit,
+                query(f"query-{index}"),
+                RecallResult(candidates=index),
+            )
+            for index in range(40)
+        ]
+        for future in futures:
+            future.result()
+
+    audit_path = tmp_path / "memory" / "structured" / "recall-audit.jsonl"
+    rows = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+    assert len(rows) == 40
+    assert {row["candidates"] for row in rows} == set(range(40))
 
 
 def test_governed_recall_writes_audit_when_enabled(tmp_path, monkeypatch):
