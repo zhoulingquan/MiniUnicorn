@@ -20,6 +20,13 @@ These commands work inside chat channels and interactive agent sessions:
 | `/pairing deny <code>` | Deny a pending pairing request |
 | `/pairing revoke <user_id>` | Revoke a previously approved user on the current channel |
 | `/pairing revoke <channel> <user_id>` | Revoke a previously approved user on a specific channel |
+| `/memory-status` | Show structured memory mode, journal health, counts and migration state |
+| `/memory-list [status]` | List structured memory records (candidate/active/superseded/revoked/expired) |
+| `/memory-show <id>` | Show one record: all revisions, evidence and the replace chain |
+| `/memory-promote <id> [--replace <active-id>]` | Promote a candidate to active; conflicts require `--replace` |
+| `/memory-revoke <id> <reason>` | Revoke a candidate or active record with a reason |
+| `/memory-correct <subject>\|<slot>\|<statement>` | Create an explicit user correction |
+| `/memory-migrate [--dry-run\|--apply]` | Import legacy memory files into the structured repository |
 | `/help` | Show available in-chat commands |
 
 ## Pairing

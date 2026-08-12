@@ -187,6 +187,66 @@ Legacy note:
 - Older source-based configs may still contain `dream.cron`. MiniUnicorn continues to honor it for backward compatibility, but new configs should use `intervalH`.
 - Older source-based configs may still contain `dream.model`. MiniUnicorn continues to honor it for backward compatibility, but new configs should use `modelOverride`.
 
+## Governed Structured Memory
+
+Beyond the Markdown/JSONL layers above, MiniUnicorn offers a governed, journal-backed memory subsystem. In this mode, model output never edits memory files directly — Dream extracts candidate records, a deterministic lifecycle decides promotion, and a journal is the single source of truth.
+
+### Modes
+
+Set `agents.defaults.structured_memory.mode` to one of:
+
+| Mode | Behavior |
+|------|----------|
+| `legacy` | Markdown/JSONL files injected as before; structured stack is not used |
+| `shadow` | Structured stack runs in parallel for validation, but context injection is unchanged; easy, safe rollback |
+| `governed` | Context injects only POLICY + recall results; legacy files are no longer injected wholesale |
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "structured_memory": {
+        "mode": "shadow",
+        "autoPromoteVerified": true,
+        "minRepeatedEvidence": 2,
+        "candidateTtlDays": 30
+      }
+    }
+  }
+}
+```
+
+### Storage
+
+```text
+memory/
+├── structured/
+│   ├── journal.jsonl   # Append-only transactions; the single source of truth
+│   └── TAGS.json       # Controlled tag catalog (user.identity, project.decision, ...)
+├── shared/POLICY.md    # Always-injected policy (only if customized)
+└── migration-v1.json   # Migration progress: legacy_key -> memory id, completed_at
+```
+
+Candidate facts exist in the journal with `status=candidate` and never enter the model context. Promotion to `active` follows deterministic rules (verified source evidence, confidence threshold) or an explicit user action.
+
+### Migration
+
+`/memory-migrate --dry-run` scans legacy files (`USER.md`, `MEMORY.md`, `procedural.jsonl`, shared files, `episodic.jsonl`) and reports what would be imported — with zero writes. `/memory-migrate --apply` imports atomically through the lifecycle, is idempotent, and never rewrites legacy files. An interrupted apply resumes from saved progress. Governed mode refuses to start until the migration is complete.
+
+### Commands
+
+| Command | What it does |
+|---------|--------------|
+| `/memory-status` | Mode, journal health, status counts, migration state |
+| `/memory-list [status]` | List records (ID/status/kind/scope/source/statement, max 20) |
+| `/memory-show <id>` | All revisions, evidence and the replace chain |
+| `/memory-promote <id> [--replace <active-id>]` | Promote a candidate; conflicts require an explicit `--replace` |
+| `/memory-revoke <id> <reason>` | Revoke a candidate/active record |
+| `/memory-correct <subject>\|<slot>\|<statement>` | Create an explicit user correction |
+| `/memory-migrate [--dry-run\|--apply]` | Import legacy memory files |
+
+Evidence excerpts in command output are truncated to 200 characters.
+
 ## In Practice
 
 What this means in daily use is simple:

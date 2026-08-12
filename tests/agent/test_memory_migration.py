@@ -315,6 +315,39 @@ class TestApply:
         assert report.failed == ()
         assert len(_current(store)) == 3
 
+    def test_process_interrupted_then_resumed(self, workspace, monkeypatch):
+        """§17.6: an interrupted apply must resume from persisted progress."""
+        (workspace / "memory").mkdir(exist_ok=True)
+        (workspace / "memory" / "MEMORY.md").write_text(
+            "- 甲\n- 乙\n- 丙\n- 丁\n", encoding="utf-8"
+        )
+        store = _store(workspace)
+        from miniunicorn.agent.memory_migration import MemoryMigration
+
+        original_ingest = MemoryMigration._ingest_item
+        calls = {"count": 0}
+
+        def broken_ingest(self, item, index):
+            calls["count"] += 1
+            if calls["count"] >= 3:
+                raise RuntimeError("simulated interruption")
+            return original_ingest(self, item, index)
+
+        monkeypatch.setattr(MemoryMigration, "_ingest_item", broken_ingest)
+        report = store.run_migration()
+        assert report.imported == 2
+        assert len(report.failed) == 2  # 中断后剩余项继续失败
+        assert "interruption" in report.failed[0].error
+        state = MigrationState.load(workspace / MIGRATION_STATE_FILE)
+        assert len(state.entries) == 2  # 进度已持久化，中途被中断
+
+        monkeypatch.setattr(MemoryMigration, "_ingest_item", original_ingest)
+        report = store.run_migration()
+        assert report.imported == 2  # 剩余两项补齐
+        assert report.skipped == 2
+        assert report.failed == ()
+        assert len(_current(store)) == 4
+
     def test_unknown_tag_fails_item_not_batch(self, workspace):
         (workspace / "memory").mkdir(exist_ok=True)
         (workspace / "memory" / "MEMORY.md").write_text("## Decision\n- 决策A\n- 决策B\n", encoding="utf-8")
