@@ -145,18 +145,22 @@ class StructuredMemoryRecall:
         hits = []
         used = 0
         excluded = 0
+        rendered_hits: list[str] = []
         for total, record, reasons in scored:
             if len(hits) >= query.max_hits:
                 break
             rendered = self._render_hit(record, reasons, total)
-            tokens = len(_tokenizer().encode(rendered))
-            if used + tokens > query.token_budget:
+            prospective = f"{PROMPT_HEADER}\n\n" + "\n".join([*rendered_hits, rendered])
+            prospective_tokens = len(_tokenizer().encode(prospective))
+            if prospective_tokens > query.token_budget:
                 excluded += 1
                 continue
+            tokens = prospective_tokens - used
             hits.append(
                 RecallHit(record=record, score=total, reasons=tuple(reasons), tokens=tokens)  # type: ignore[attr-defined]
             )
-            used += tokens
+            rendered_hits.append(rendered)
+            used = prospective_tokens
         return RecallResult(hits=tuple(hits), candidates=candidates, filtered=filtered, excluded_by_budget=excluded, tokens_used=used)
 
     def render_prompt(self, result: RecallResult) -> str:
@@ -178,35 +182,56 @@ class StructuredMemoryRecall:
         tag_hits = []
         for tag in record.tags:
             if _matches(query_norm, normalize_match_text(tag)) or normalize_match_text(tag) in explicit_tags:
-                tag_hits.append(f"tag={tag}(+{ROUTE_CANONICAL_TAG if not tag_hits else ROUTE_EXTRA_BONUS})")
-        tag_score = min(ROUTE_TAG_CAP, ROUTE_CANONICAL_TAG + max(0, len(tag_hits) - 1) * ROUTE_EXTRA_BONUS) if tag_hits else 0
+                tag_hits.append(tag)
+        tag_score, tag_reasons = self._capped_route_reasons(
+            tag_hits, prefix="tag", initial=ROUTE_CANONICAL_TAG, cap=ROUTE_TAG_CAP
+        )
 
         catalog_hits = []
         for tag in record.tags:
             for alias in self._aliases_by_tag.get(tag, ()):
                 if _matches(query_norm, normalize_match_text(alias)):
-                    catalog_hits.append(f"alias={alias}(+{ROUTE_CATALOG_ALIAS if not catalog_hits else ROUTE_EXTRA_BONUS})")
-        catalog_score = min(ROUTE_ALIAS_CAP, ROUTE_CATALOG_ALIAS + max(0, len(catalog_hits) - 1) * ROUTE_EXTRA_BONUS) if catalog_hits else 0
+                    catalog_hits.append(alias)
+        catalog_score, catalog_reasons = self._capped_route_reasons(
+            catalog_hits, prefix="alias", initial=ROUTE_CATALOG_ALIAS, cap=ROUTE_ALIAS_CAP
+        )
 
         record_hits = []
         for alias in record.aliases:
             if _matches(query_norm, normalize_match_text(alias)):
-                record_hits.append(f"alias={alias}(+{ROUTE_RECORD_ALIAS if not record_hits else ROUTE_EXTRA_BONUS})")
-        record_score = min(ROUTE_ALIAS_CAP, ROUTE_RECORD_ALIAS + max(0, len(record_hits) - 1) * ROUTE_EXTRA_BONUS) if record_hits else 0
+                record_hits.append(alias)
+        record_score, record_reasons = self._capped_route_reasons(
+            record_hits, prefix="alias", initial=ROUTE_RECORD_ALIAS, cap=ROUTE_ALIAS_CAP
+        )
 
         routes: list[tuple[int, list[str]]] = []
         if subject_hits:
             routes.append((ROUTE_SUBJECT, ["subject(+60)"]))
         if tag_hits:
-            routes.append((tag_score, tag_hits))
+            routes.append((tag_score, tag_reasons))
         if catalog_hits:
-            routes.append((catalog_score, catalog_hits))
+            routes.append((catalog_score, catalog_reasons))
         if record_hits:
-            routes.append((record_score, record_hits))
+            routes.append((record_score, record_reasons))
         if not routes:
             return None
         routes.sort(key=lambda item: -item[0])
         return routes[0]
+
+    @staticmethod
+    def _capped_route_reasons(
+        matches: list[str], *, prefix: str, initial: int, cap: int
+    ) -> tuple[int, list[str]]:
+        if not matches:
+            return 0, []
+        remaining = cap
+        reasons = []
+        for index, match in enumerate(matches):
+            requested = initial if index == 0 else ROUTE_EXTRA_BONUS
+            contribution = min(requested, remaining)
+            reasons.append(f"{prefix}={match}(+{contribution})")
+            remaining -= contribution
+        return cap - remaining, reasons
 
     def _score_total(
         self,

@@ -23,7 +23,7 @@ from miniunicorn.agent.memory_models import (
     new_transaction_id,
     transaction_checksum,
 )
-from miniunicorn.agent.memory_recall import StructuredMemoryRecall
+from miniunicorn.agent.memory_recall import StructuredMemoryRecall, _tokenizer
 from miniunicorn.agent.memory_repository import StructuredMemoryRepository
 
 UTC = timezone.utc
@@ -281,6 +281,37 @@ def test_multiple_tag_hits_bonus_and_cap(recall, repository):
     ]
 
 
+def test_capped_route_reasons_sum_to_capped_tag_score(recall, repository):
+    record = active_record(
+        statement="Use deterministic recall.",
+        kind="fact",
+        slot="db.capped",
+        tags=(
+            "architecture.memory",
+            "project.decision",
+            "project.constraint",
+            "project.requirement",
+            "project.fact",
+        ),
+    )
+    seed(repository, [record])
+
+    result = recall.recall(
+        make_query(
+            text=(
+                "architecture.memory project.decision project.constraint "
+                "project.requirement project.fact"
+            ),
+            explicit_tags=record.tags,
+        )
+    )
+
+    hit = next(h for h in result.hits if h.record.id == record.id)
+    tag_reasons = [reason for reason in hit.reasons if reason.startswith("tag=")]
+    assert tag_reasons[-1] == "tag=project.requirement(+0)"
+    assert sum(int(reason.rsplit("(+", 1)[1][:-1]) for reason in tag_reasons) == 60
+
+
 def test_insertion_order_does_not_change_recall(repository, tmp_path):
     def make_recall(records, label):
         workspace = tmp_path / f"w{label}"
@@ -391,7 +422,29 @@ def test_oversized_first_hit_skipped_by_budget(recall, repository):
     assert result.excluded_by_budget >= 1
     assert all(hit.record.id != big.id for hit in result.hits)
     assert any(hit.record.id == small.id for hit in result.hits)
-    assert result.tokens_used == sum(hit.tokens for hit in result.hits)
+    assert result.tokens_used == len(_tokenizer().encode(recall.render_prompt(result)))
+    assert result.tokens_used <= 256
+
+
+def test_budget_accounts_for_prompt_header_and_separators(recall, repository):
+    records = [
+        active_record(
+            statement=f"Compact memory fact {index}.",
+            kind="fact",
+            slot=f"db.budget.{index}",
+            tags=("architecture.memory",),
+            importance=1,
+        )
+        for index in range(10)
+    ]
+    seed(repository, records)
+
+    result = recall.recall(make_query(text="architecture.memory", token_budget=256))
+    rendered_tokens = len(_tokenizer().encode(recall.render_prompt(result)))
+
+    assert result.tokens_used == rendered_tokens
+    assert rendered_tokens <= 256
+    assert result.excluded_by_budget > 0
 
 
 def test_max_hits_limits_results(recall, repository):

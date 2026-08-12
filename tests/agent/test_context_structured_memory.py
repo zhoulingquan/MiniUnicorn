@@ -15,6 +15,7 @@ from miniunicorn.agent.memory_models import (
     EvidenceKind,
     EvidenceRef,
     MemoryScope,
+    RecallResult,
     ScopeKind,
 )
 from miniunicorn.config.schema import StructuredMemoryConfig
@@ -158,6 +159,27 @@ class TestGovernedMode:
         system = messages[0]["content"]
         assert RECALL_HEADER in system
         assert "stays local" in system
+
+    def test_governed_recall_degraded_injects_diagnostic_without_facts(
+        self, workspace, monkeypatch
+    ):
+        builder = make_builder(workspace, "governed")
+        monkeypatch.setattr(
+            builder.memory,
+            "recall_structured",
+            lambda _query: RecallResult(
+                degraded=True,
+                error_code="journal_corrupt",
+                error_message="invalid transaction",
+            ),
+        )
+
+        prompt = builder.build_system_prompt(recall_query="MiniUnicorn memory")
+
+        assert "Structured memory recall is unavailable" in prompt
+        assert "journal_corrupt" in prompt
+        assert "invalid transaction" not in prompt
+        assert RECALL_HEADER not in prompt
 
     def test_build_messages_recall_includes_exact_session_and_user_scopes(self, workspace):
         builder = make_builder(workspace, "governed")

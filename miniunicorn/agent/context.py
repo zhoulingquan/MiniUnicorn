@@ -3,6 +3,7 @@
 import base64
 import mimetypes
 import platform
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -157,11 +158,22 @@ class ContextBuilder:
             )
         except Exception:
             logger.exception("structured recall failed")
-            return ""
+            return self._recall_degraded_diagnostic("recall_error")
         recall = self.memory.structured_recall
-        if recall is None or result.degraded:
+        if result.degraded:
+            return self._recall_degraded_diagnostic(result.error_code)
+        if recall is None:
             return ""
         return recall.render_prompt(result)
+
+    @staticmethod
+    def _recall_degraded_diagnostic(error_code: str | None) -> str:
+        code = re.sub(r"[^a-zA-Z0-9_.-]", "_", error_code or "unknown")[:80]
+        return (
+            "# Structured Memory Diagnostic\n\n"
+            f"Structured memory recall is unavailable (code: `{code}`). "
+            "No governed memory facts were injected."
+        )
 
     def _audit_shadow_recall(
         self,
