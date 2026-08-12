@@ -3,7 +3,7 @@
 Deterministic, idempotent, no-LLM import of legacy memory files into the
 structured repository. ``dry_run`` performs zero writes; ``apply`` imports
 through the journal-backed lifecycle, tracks per-item progress in
-``memory/migration-v1.json`` and only writes ``completed_at`` after the full
+``memory/structured/migration-v1.json`` and only writes ``completed_at`` after the full
 source scan finished.
 
 Normative source: docs/superpowers/specs/2026-08-11-c2-governed-structured-memory-design.md
@@ -38,7 +38,8 @@ from miniunicorn.agent.memory_models import (
 from miniunicorn.agent.memory_repository import StructuredMemoryRepository
 
 MIGRATION_SOURCE_BATCH = "migration:v1"
-MIGRATION_STATE_FILE = "memory/migration-v1.json"
+MIGRATION_STATE_FILE = "memory/structured/migration-v1.json"
+LEGACY_MIGRATION_STATE_FILE = "memory/migration-v1.json"
 
 _MD_HEADING_RE = re.compile(r"^\s{0,3}(#{1,6})\s+(.*?)\s*$")
 _MD_BULLET_RE = re.compile(r"^\s{0,3}[-*+]\s+(?P<body>\S.*?)\s*$")
@@ -298,11 +299,8 @@ def _evidence_for(item: MigrationItem) -> tuple[EvidenceRef, ...]:
     normalized = normalize_text(item.statement)
     excerpt = normalized[:_MAX_EVIDENCE_EXCERPT]
     if item.kind in (MemoryKind.PROCEDURE, MemoryKind.OUTCOME):
-        # 程序性经验 = 重复观察（两个独立 ref）→ repeated_experience；
-        # 会话事件只作 inferred 证据，永不自动提升。
         return (
             EvidenceRef(kind=EvidenceKind.MODEL_INFERENCE, ref=f"{item.relative_path}#{item.locator}", excerpt=excerpt),
-            EvidenceRef(kind=EvidenceKind.MODEL_INFERENCE, ref=f"{item.relative_path}#{item.locator}.v2", excerpt=excerpt),
         )
     sha256 = hashlib.sha256(excerpt.encode("utf-8")).hexdigest()
     base = EvidenceRef(
@@ -316,12 +314,13 @@ def _evidence_for(item: MigrationItem) -> tuple[EvidenceRef, ...]:
 
 def _proposal_for(item: MigrationItem, index: int) -> CandidateProposal:
     evidence = _evidence_for(item)
+    slot = f"legacy.{item.kind.value}.{item.legacy_key()[:16]}"
     return CandidateProposal(
         proposal_index=index,
         kind=item.kind,
-        scope_hint=ScopeKind.PROJECT,
+        scope_hint=item.scope_kind,
         subject=item.subject,
-        slot="general",
+        slot=slot,
         statement=item.statement,
         tags=item.tags,
         confidence=item.confidence,
@@ -341,7 +340,7 @@ def _validate_item(item: MigrationItem) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# State file (memory/migration-v1.json)
+# State file (memory/structured/migration-v1.json)
 # ---------------------------------------------------------------------------
 
 
@@ -384,6 +383,8 @@ class MigrationState:
         with tmp.open("w", encoding="utf-8", newline="\n") as stream:
             json.dump(payload, stream, ensure_ascii=False, indent=2)
             stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
         os.replace(tmp, path)
 
 
@@ -407,6 +408,12 @@ class MemoryMigration:
         self.lifecycle = lifecycle
         self.project_scope_key = project_scope_key
         self.state_path = self.workspace / MIGRATION_STATE_FILE
+        self.legacy_state_path = self.workspace / LEGACY_MIGRATION_STATE_FILE
+
+    def _load_state(self) -> MigrationState:
+        if self.state_path.exists():
+            return MigrationState.load(self.state_path)
+        return MigrationState.load(self.legacy_state_path)
 
     def plan(self) -> tuple[list[MigrationItem], list[MigrationIssue]]:
         return scan_legacy_memory(self.workspace)
@@ -425,7 +432,7 @@ class MemoryMigration:
                     failed.append(MigrationFailure(item, f"{type(exc).__name__}: {exc}"))
             else:
                 failed.append(MigrationFailure(item, error))
-        state = MigrationState.load(self.state_path)
+        state = self._load_state()
         skipped = sum(1 for item in items if item.legacy_key() in state.entries)
         return MigrationReport(
             dry_run=True,
@@ -443,7 +450,8 @@ class MemoryMigration:
 
             raise MemoryWriteError("apply requires the structured repository/lifecycle stack")
         items, issues = scan_legacy_memory(self.workspace)
-        state = MigrationState.load(self.state_path)
+        state = self._load_state()
+        state.completed_at = None
         failed: list[MigrationFailure] = []
         imported = 0
         skipped = 0
@@ -465,9 +473,9 @@ class MemoryMigration:
                 continue
             state.entries[key] = memory_id
             imported += 1
-            if len(state.entries) % 100 == 0:
-                state.save(self.state_path)
-        state.completed_at = datetime.now(timezone.utc)
+            state.save(self.state_path)
+        if not failed and not issues:
+            state.completed_at = datetime.now(timezone.utc)
         state.save(self.state_path)
         logger.info(
             "memory_migration_completed dry_run=false scanned={} imported={} skipped={} failed={}",
@@ -494,7 +502,7 @@ class MemoryMigration:
         context = IngestContext(
             actor=ActorKind.MIGRATION,
             reason=f"migration:v1 {item.relative_path} {item.locator}",
-            source_batch=MIGRATION_SOURCE_BATCH,
+            source_batch=f"{MIGRATION_SOURCE_BATCH}:{item.legacy_key()}",
             scope=scope,
             evidence_catalog=catalog,
             now=datetime.now(timezone.utc),

@@ -298,7 +298,7 @@ class MemoryStore:
         """Run the legacy -> structured migration (dry-run or apply).
 
         dry-run performs zero writes; apply imports through the journal-backed
-        lifecycle and writes ``memory/migration-v1.json`` progress, setting
+        lifecycle and writes ``memory/structured/migration-v1.json`` progress, setting
         ``completed_at`` after the full source scan finished.
         """
         from miniunicorn.agent.memory_migration import MemoryMigration

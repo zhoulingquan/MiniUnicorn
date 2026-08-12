@@ -243,7 +243,7 @@ class StructuredMemoryLifecycle:
             raise MemoryEvidenceUnresolved(
                 f"file evidence source unreadable for {catalog_ref}: {exc}"
             ) from exc
-        if evidence.excerpt not in source:
+        if normalize_match_text(evidence.excerpt) not in normalize_match_text(source):
             raise MemoryEvidenceUnresolved(
                 f"file evidence source mismatch for {catalog_ref}"
             )

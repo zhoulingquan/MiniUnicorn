@@ -277,7 +277,7 @@ class TestPromote:
             kind=MemoryKind.DECISION,
             scope_hint=ScopeKind.PROJECT,
             subject="Decision",
-            slot="general",
+            slot=active.slot,
             statement="替换后的决策",
             tags=("project.decision",),
             confidence=0.9,

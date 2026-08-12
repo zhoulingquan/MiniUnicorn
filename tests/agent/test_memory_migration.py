@@ -7,13 +7,18 @@ journal-backed apply, completed_at semantics and the governed startup gate.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
 from miniunicorn.agent.memory_migration import (
+    LEGACY_MIGRATION_STATE_FILE,
     MIGRATION_STATE_FILE,
+    MemoryMigration,
     MigrationState,
+    _proposal_for,
     scan_legacy_memory,
 )
 from miniunicorn.agent.memory_models import (
@@ -113,6 +118,10 @@ def _write_procedural_shared(workspace: Path) -> None:
 def _write_all_sources(workspace: Path) -> None:
     _write_user(workspace)
     _write_memory(workspace)
+    (workspace / "memory" / "MEMORY.md").write_text(
+        "## Decision\n- 用 SQLite 做存储\n\n## 需求\n- 支持离线模式\n",
+        encoding="utf-8",
+    )
     _write_procedural(workspace)
     _write_shared(workspace)
     _write_episodic(workspace)
@@ -273,14 +282,13 @@ class TestApply:
         assert len(records) == 9
         by_kind = {r.kind for r in records}
         assert by_kind == {MemoryKind.FACT, MemoryKind.PREFERENCE, MemoryKind.IDENTITY, MemoryKind.DECISION, MemoryKind.PROCEDURE, MemoryKind.OUTCOME}
-        # 所有非 episodic 项都是 verified/repeated 来源且 auto-promote -> active；
-        # 但第 2 条 preference 与第 1 条同 subject+slot，按冲突语义被 block（candidate）。
+        # 文件事实有独立 slot 并自动提升；procedural/episodic 没有伪造重复证据，保持 candidate。
         active = {r for r in records if r.status is MemoryStatus.ACTIVE}
-        assert len(active) == 7
+        assert len(active) == 6
         candidates = {r for r in records if r.status is MemoryStatus.CANDIDATE}
-        assert len(candidates) == 2  # 1 冲突阻塞 + 1 episodic（inferred 永不提升）
+        assert len(candidates) == 3  # 2 procedural + 1 episodic（inferred 永不提升）
         blocked = [r for r in records if r.status is MemoryStatus.CANDIDATE and r.blocked_by]
-        assert len(blocked) == 1
+        assert blocked == []
         # episodic 保持 candidate（inferred 永不自动提升）
         outcome = [r for r in records if r.kind is MemoryKind.OUTCOME][0]
         assert outcome.status is MemoryStatus.CANDIDATE
@@ -322,8 +330,6 @@ class TestApply:
             "- 甲\n- 乙\n- 丙\n- 丁\n", encoding="utf-8"
         )
         store = _store(workspace)
-        from miniunicorn.agent.memory_migration import MemoryMigration
-
         original_ingest = MemoryMigration._ingest_item
         calls = {"count": 0}
 
@@ -366,14 +372,89 @@ class TestApply:
         assert record.evidence[0].ref.startswith("USER.md#L")
         assert record.source_level.value == "verified"
 
-    def test_procedure_gets_repeated_experience_level(self, workspace):
+    def test_procedure_does_not_fabricate_repeated_evidence(self, workspace):
         _write_procedural(workspace)
         store = _store(workspace)
         store.run_migration()
         record = _current(store)[0]
-        assert len(record.evidence) == 2
-        assert record.source_level.value == "repeated_experience"
-        assert record.status is MemoryStatus.ACTIVE
+        assert len(record.evidence) == 1
+        assert record.source_level.value == "inferred"
+        assert record.status is MemoryStatus.CANDIDATE
+
+    def test_distinct_legacy_items_get_distinct_slots(self, workspace):
+        _write_user(workspace)
+        items, _ = scan_legacy_memory(workspace)
+
+        proposals = [_proposal_for(item, index) for index, item in enumerate(items)]
+
+        assert len({proposal.slot for proposal in proposals}) == len(proposals)
+
+    def test_manifest_save_flushes_and_fsyncs(self, workspace, monkeypatch):
+        state = MigrationState(entries={"a": "mem_" + "a" * 32}, completed_at=None)
+        fsync = Mock()
+        monkeypatch.setattr(os, "fsync", fsync)
+
+        state.save(workspace / MIGRATION_STATE_FILE)
+
+        fsync.assert_called_once()
+
+    def test_apply_with_failure_does_not_mark_migration_complete(self, workspace):
+        (workspace / "memory").mkdir(exist_ok=True)
+        (workspace / "memory" / "MEMORY.md").write_text(
+            "- " + "x" * 600 + "\n", encoding="utf-8"
+        )
+        store = _store(workspace)
+
+        report = store.run_migration()
+
+        assert report.failed
+        assert report.completed_at is None
+        assert store.migration_completed() is False
+
+    def test_apply_with_scan_issue_does_not_mark_migration_complete(self, workspace):
+        (workspace / "memory").mkdir(exist_ok=True)
+        (workspace / "memory" / "MEMORY.md").write_text(
+            "Paragraph without atomic boundary.\n", encoding="utf-8"
+        )
+        store = _store(workspace)
+
+        report = store.run_migration()
+
+        assert report.issues
+        assert report.completed_at is None
+
+    def test_each_successful_item_is_saved_before_next_item(self, workspace, monkeypatch):
+        (workspace / "memory").mkdir(exist_ok=True)
+        (workspace / "memory" / "MEMORY.md").write_text("- 甲\n- 乙\n", encoding="utf-8")
+        store = _store(workspace)
+        saves: list[int] = []
+        original_save = MigrationState.save
+
+        def recording_save(self, path):
+            saves.append(len(self.entries))
+            return original_save(self, path)
+
+        monkeypatch.setattr(MigrationState, "save", recording_save)
+        store.run_migration()
+
+        assert saves[:2] == [1, 2]
+
+    def test_legacy_manifest_is_loaded_and_copied_to_canonical_path(self, workspace):
+        _write_memory(workspace)
+        items, _ = scan_legacy_memory(workspace)
+        legacy_path = workspace / LEGACY_MIGRATION_STATE_FILE
+        MigrationState(
+            entries={items[0].legacy_key(): "mem_" + "a" * 32},
+            completed_at=None,
+        ).save(legacy_path)
+        store = _store(workspace)
+
+        report = store.run_migration()
+
+        assert report.skipped == 1
+        canonical = workspace / MIGRATION_STATE_FILE
+        assert canonical.exists()
+        assert items[0].legacy_key() in MigrationState.load(canonical).entries
 
     def test_legacy_files_untouched(self, workspace):
         _write_all_sources(workspace)
