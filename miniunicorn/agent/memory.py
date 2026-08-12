@@ -64,6 +64,28 @@ def _parse_datetime_loose(value: str | None) -> datetime | None:
         return None
 
 
+def reflection_evidence_id(entry: Mapping[str, Any]) -> str:
+    """Return a stable evidence id for a reflection entry.
+
+    New entries carry a program-generated ``rfl_<32 hex>`` id and are used
+    verbatim. Legacy ``R<number>`` or missing ids are not trustworthy (they
+    depend on mutable line numbers), so a deterministic legacy id is derived
+    from the canonicalized entry content. ``_line`` is cursor bookkeeping and
+    never included in the digest.
+    """
+    raw = str(entry.get("reflection_id") or "")
+    if re.fullmatch(r"rfl_[0-9a-f]{32}", raw):
+        return raw
+    canonical = json.dumps(
+        {key: value for key, value in entry.items() if key != "_line"},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:24]
+    return f"rfl_legacy_{digest}"
+
+
 class MemoryStore:
     """Pure file I/O for memory files: MEMORY.md, history.jsonl, SOUL.md, USER.md."""
 

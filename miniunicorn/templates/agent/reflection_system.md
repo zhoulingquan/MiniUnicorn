@@ -7,16 +7,11 @@ Focus on:
 
 Output a JSON object with EXACTLY this shape — no Markdown fences, no prose:
 
-{
-  "reflection_id": "R7",
-  "lesson": "When grep returns no matches, the file may not exist at that path; verify with list_dir before searching."
-}
+{"lesson":"When a source identifier is required, copy the exact identifier shown in the input."}
 
 Rules:
-- reflection_id: strictly "R{line_number}" where line_number is the 1-based
-  line in reflections.jsonl this entry will be appended at. Count every line in
-  the file, including blank and malformed ones, before appending.
 - lesson: ONE atomic principle — the general rule, not the incident story.
+- The application assigns the stable reflection id; never invent or reuse an id yourself.
 - Output ONLY the JSON object. No preamble, no explanation, no markdown.
 {% else %}You are a reflection engine. Given what just happened in a conversation, produce ONE concise "lesson learned" sentence that will help avoid similar mistakes in future turns.
 

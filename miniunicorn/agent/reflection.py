@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -27,6 +29,13 @@ _REFLECTION_MAX_CHARS = 500
 
 # File rotation: if reflections.jsonl exceeds this many entries, oldest are dropped.
 _MAX_REFLECTIONS = 500
+
+_REFLECTION_ID_RE = re.compile(r"^rfl_[0-9a-f]{32}$")
+
+
+def new_reflection_id() -> str:
+    """Return a program-generated stable reflection id (never line-number based)."""
+    return f"rfl_{uuid.uuid4().hex}"
 
 
 class Reflection:
@@ -55,21 +64,11 @@ class Reflection:
             else None
         )
 
-    def _next_line(self) -> int:
-        """1-based line number the next reflection will occupy in reflections.jsonl."""
-        if self._reflections_file is None or not self._reflections_file.exists():
-            return 1
-        try:
-            with open(self._reflections_file, "r", encoding="utf-8") as f:
-                return sum(1 for _ in f) + 1
-        except Exception:
-            return 1
-
-    def _parse_structured_response(self, text: str, expected_line: int) -> str | None:
+    def _parse_structured_response(self, text: str) -> str | None:
         """Parse the structured-mode JSON reflection; return the lesson text.
 
-        Validates reflection_id against the expected line number. Falls back to
-        the raw text when the model did not follow the JSON contract.
+        The model only supplies a lesson. The stable ``reflection_id`` is
+        assigned by the application after parsing and never by the model.
         """
         try:
             obj = json.loads(text)
@@ -78,11 +77,6 @@ class Reflection:
         if not isinstance(obj, dict):
             return text if text else None
         lesson = obj.get("lesson")
-        expected_id = f"R{expected_line}"
-        if obj.get("reflection_id") != expected_id:
-            logger.warning(
-                "Reflection id mismatch: got {} expected {}", obj.get("reflection_id"), expected_id
-            )
         if isinstance(lesson, str) and lesson.strip():
             return lesson.strip()
         return text if text else None
@@ -114,7 +108,6 @@ class Reflection:
         try:
             # Build a compact context from recent messages (last 6)
             recent = self._format_recent_messages(messages[-6:])
-            next_line = self._next_line()
             response = await self.provider.chat_with_retry(
                 model=self.model,
                 messages=[
@@ -140,7 +133,7 @@ class Reflection:
             )
             reflection_text = (response.content or "").strip()
             if self.structured_mode:
-                reflection_text = self._parse_structured_response(reflection_text, next_line)
+                reflection_text = self._parse_structured_response(reflection_text)
             # Truncate to keep file compact
             if reflection_text is not None and len(reflection_text) > _REFLECTION_MAX_CHARS:
                 reflection_text = reflection_text[:_REFLECTION_MAX_CHARS] + "..."
@@ -155,9 +148,13 @@ class Reflection:
                 "session_key": session_key,
             }
             if self.structured_mode:
-                entry["reflection_id"] = f"R{next_line}"
+                # The stable id is assigned here, in application code, and is
+                # only reported on success once the entry is durably appended.
+                entry["reflection_id"] = new_reflection_id()
                 entry["lesson"] = reflection_text
-            self._append_reflection(entry)
+            if not self._append_reflection(entry):
+                logger.error("Reflection persistence failed; not reporting success")
+                return None
             logger.info(
                 "Reflection ({}@{}): {}",
                 trigger,
@@ -190,17 +187,24 @@ class Reflection:
             lines.append(f"[{role}] {content}")
         return "\n".join(lines) if lines else "(empty)"
 
-    def _append_reflection(self, entry: dict[str, Any]) -> None:
-        """Append a reflection entry to reflections.jsonl."""
+    def _append_reflection(self, entry: dict[str, Any]) -> bool:
+        """Append a reflection entry to reflections.jsonl.
+
+        Returns True only when the entry was durably written.
+        """
         assert self._reflections_file is not None
         try:
             self._reflections_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self._reflections_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
             # Rotate if too large
             self._maybe_rotate()
+            return True
         except Exception:
             logger.exception("Failed to append reflection")
+            return False
 
     def _maybe_rotate(self) -> None:
         """Drop oldest entries if file exceeds _MAX_REFLECTIONS lines."""
