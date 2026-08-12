@@ -2,6 +2,7 @@
 
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -566,14 +567,14 @@ class TestStructuredMemoryStore:
 
     def test_bundled_files_created_only_when_absent(self, tmp_path):
         store = MemoryStore(tmp_path, structured_config=StructuredMemoryConfig())
-        tags_path = store.workspace / "memory" / "structured" / "TAGS.json"
+        tags_path = store.workspace / "memory" / "structured" / "tags.json"
         policy_path = store.workspace / "memory" / "shared" / "POLICY.md"
         assert tags_path.exists()
         assert policy_path.exists()
         original = tags_path.read_text(encoding="utf-8")
 
         store2 = MemoryStore(tmp_path, structured_config=StructuredMemoryConfig())
-        assert store2.workspace / "memory" / "structured" / "TAGS.json" == tags_path
+        assert store2.workspace / "memory" / "structured" / "tags.json" == tags_path
         assert tags_path.read_text(encoding="utf-8") == original
 
     def test_tracks_structured_files_but_not_runtime_files(self, tmp_path):
@@ -581,7 +582,7 @@ class TestStructuredMemoryStore:
 
         tracked = store.git._tracked_files
         assert "memory/structured/journal.jsonl" in tracked
-        assert "memory/structured/TAGS.json" in tracked
+        assert "memory/structured/tags.json" in tracked
         assert "memory/shared/POLICY.md" in tracked
         assert "memory/structured/journal.lock" not in tracked
         assert "memory/structured/recall-audit.jsonl" not in tracked
@@ -670,8 +671,24 @@ class TestStructuredMemoryStore:
         assert record.id in prompt
 
     def test_whitelist_allows_memory_store_for_structured_files(self):
-        for path in ("memory/structured/journal.jsonl", "memory/structured/TAGS.json", "memory/shared/POLICY.md"):
+        for path in ("memory/structured/journal.jsonl", "memory/structured/tags.json", "memory/shared/POLICY.md"):
             assert "memory_store" in MemoryStore._WRITER_WHITELIST[path], path
+
+    def test_existing_uppercase_tag_catalog_is_migrated_to_canonical_path(self, tmp_path):
+        legacy = tmp_path / "memory" / "structured" / "TAGS.json"
+        legacy.parent.mkdir(parents=True)
+        legacy.write_text(
+            (Path(__file__).parents[2] / "miniunicorn" / "templates" / "memory" / "TAGS.json").read_text(
+                encoding="utf-8"
+            ),
+            encoding="utf-8",
+        )
+
+        store = MemoryStore(tmp_path, structured_config=StructuredMemoryConfig())
+
+        canonical = tmp_path / "memory" / "structured" / "tags.json"
+        assert canonical.exists()
+        assert store.structured_repository.tags_path == canonical
 
     def test_read_shared_policy_empty_when_absent_or_template(self, tmp_path):
         store = MemoryStore(tmp_path, structured_config=StructuredMemoryConfig())

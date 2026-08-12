@@ -35,6 +35,7 @@ from miniunicorn.agent.memory_models import (
     assert_transition,
     normalize_match_text,
     transaction_checksum,
+    validate_same_status_revision,
 )
 
 _SUPPORTED_TAGS_FILE = "tags.json"
@@ -170,12 +171,21 @@ class StructuredMemoryRepository:
         try:
             with FileLock(str(self.lock_path), timeout=self.lock_timeout_s):
                 self._require_healthy()
+                self._synchronize_locked()
                 validated = self._validate_against_current(transaction)
                 line = self._canonical_transaction_line(validated)
-                with self.journal_path.open("a", encoding="utf-8", newline="\n") as stream:
-                    stream.write(line + "\n")
-                    stream.flush()
-                    os.fsync(stream.fileno())
+                try:
+                    with self.journal_path.open("a", encoding="utf-8", newline="\n") as stream:
+                        stream.write(line + "\n")
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                except OSError as exc:
+                    self._degrade(
+                        self._health.last_valid_line or 0,
+                        "write_uncertain",
+                        f"journal durability is uncertain: {exc}",
+                    )
+                    raise MemoryWriteError(str(exc)) from exc
                 self._publish_transaction(validated)
         except FileLockTimeout as exc:
             raise MemoryLockTimeout(f"journal lock timeout after {self.lock_timeout_s}s") from exc
@@ -184,6 +194,16 @@ class StructuredMemoryRepository:
         except OSError as exc:
             raise MemoryWriteError(str(exc)) from exc
         logger.info("memory_transaction_committed tx={} actor={} reason={}", transaction.tx_id, transaction.actor, transaction.reason)
+
+    def _synchronize_locked(self) -> None:
+        """Replay the journal while the writer lock is held.
+
+        Repository instances are process-local. Replaying under the shared lock
+        makes expected-revision checks observe commits made by other instances.
+        """
+        health = self.rebuild()
+        if health.state != "healthy":
+            self._require_healthy()
 
     def _require_healthy(self) -> None:
         if self._health.state != "healthy":
@@ -194,26 +214,40 @@ class StructuredMemoryRepository:
     def _validate_against_current(self, transaction: MemoryTransaction) -> MemoryTransaction:
         if transaction_checksum(transaction) != transaction.checksum_sha256:
             raise MemoryWriteError("transaction checksum mismatch")
+        projected = dict(self._current)
         for operation in transaction.operations:
             record = operation.record
             self._tag_catalog.validate_record(record)
-            previous = self._current.get(record.id)
+            previous = projected.get(record.id)
             expected = transaction.expected_revisions[record.id]
             if previous is None:
                 if expected != 0 or record.revision != 1:
                     raise MemoryRevisionConflict(
                         f"expected revision 0 and revision 1 for new record {record.id}, got expected={expected} revision={record.revision}"
                     )
+            else:
+                if expected != previous.revision:
+                    raise MemoryRevisionConflict(
+                        f"expected revision {previous.revision} for {record.id}, got {expected}"
+                    )
+                if record.revision != previous.revision + 1:
+                    raise MemoryRevisionConflict(
+                        f"revision must increment by exactly one for {record.id}: {previous.revision} -> {record.revision}"
+                    )
+                assert_transition(previous.status, record.status)
+                validate_same_status_revision(previous, record)
+            projected[record.id] = record
+        active_by_conflict: dict[str, str] = {}
+        for record in projected.values():
+            if record.status is not MemoryStatus.ACTIVE:
                 continue
-            if expected != previous.revision:
-                raise MemoryRevisionConflict(
-                    f"expected revision {previous.revision} for {record.id}, got {expected}"
+            conflicting = active_by_conflict.get(record.conflict_key)
+            if conflicting is not None and conflicting != record.id:
+                raise InvalidMemoryTransition(
+                    "multiple active records for conflict key "
+                    f"{record.conflict_key}: {conflicting}, {record.id}"
                 )
-            if record.revision != previous.revision + 1:
-                raise MemoryRevisionConflict(
-                    f"revision must increment by exactly one for {record.id}: {previous.revision} -> {record.revision}"
-                )
-            assert_transition(previous.status, record.status)
+            active_by_conflict[record.conflict_key] = record.id
         return transaction
 
     def _canonical_transaction_line(self, transaction: MemoryTransaction) -> str:

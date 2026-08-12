@@ -106,8 +106,8 @@ class MemoryStore:
         "memory/shared/procedural_shared.jsonl": {"dream", "memory_store"},
         "memory/shared/POLICY.md": {"memory_store"},
         "memory/structured/journal.jsonl": {"memory_store"},
-        "memory/structured/TAGS.json": {"memory_store"},
-        "memory/migration-v1.json": {"memory_store"},
+        "memory/structured/tags.json": {"memory_store"},
+        "memory/structured/migration-v1.json": {"memory_store"},
     }
 
     def __init__(
@@ -163,9 +163,9 @@ class MemoryStore:
                 "memory/shared/MEMORY_SHARED.md",
                 "memory/shared/procedural_shared.jsonl",
                 "memory/structured/journal.jsonl",
-                "memory/structured/TAGS.json",
+                "memory/structured/tags.json",
                 "memory/shared/POLICY.md",
-                "memory/migration-v1.json",
+                "memory/structured/migration-v1.json",
             ],
         )
         self._maybe_migrate_legacy_history()
@@ -206,9 +206,14 @@ class MemoryStore:
         return Path(__file__).resolve().parent.parent / "templates" / "memory" / name
 
     def _ensure_structured_bundled_files(self) -> None:
-        """Copy bundled TAGS.json / POLICY.md only when absent (never overwrite)."""
+        """Install canonical structured templates without overwriting user files."""
+        canonical_tags = self.workspace / "memory" / "structured" / "tags.json"
+        legacy_tags = canonical_tags.with_name("TAGS.json")
+        if not canonical_tags.exists() and legacy_tags.exists():
+            ensure_dir(canonical_tags.parent)
+            canonical_tags.write_text(legacy_tags.read_text(encoding="utf-8"), encoding="utf-8")
         targets = {
-            "TAGS.json": self.workspace / "memory" / "structured" / "TAGS.json",
+            "TAGS.json": canonical_tags,
             "POLICY.md": self.workspace / "memory" / "shared" / "POLICY.md",
         }
         for name, target in targets.items():

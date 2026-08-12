@@ -356,14 +356,63 @@ def test_append_failure_does_not_update_index(repository, transaction, monkeypat
     with pytest.raises(MemoryWriteError, match="disk full"):
         repository.append_transaction(transaction)
     assert repository.get(transaction.operations[0].record.id) is None
-    assert repository.health.state == "healthy"
+    assert repository.health.state == "degraded"
+    assert repository.health.error_code == "write_uncertain"
+
+
+def test_same_status_active_revision_cannot_change_fact_fields(repository):
+    active = MemoryRecord.model_validate(record_data(status="active"))
+    repository.append_transaction(make_transaction(active))
+    changed = active.model_copy(
+        update={
+            "revision": 2,
+            "statement": "Use SQLite",
+            "updated_at": dt("2026-08-11T08:32:00Z"),
+        }
+    )
+
+    with pytest.raises(InvalidMemoryTransition, match="same-status revision"):
+        repository.append_transaction(
+            make_transaction(changed, expected_revisions={active.id: 1})
+        )
+
+
+def test_transaction_rejects_two_active_records_for_same_conflict_key(repository):
+    first = MemoryRecord.model_validate(record_data(status="active", statement="Use PostgreSQL"))
+    second = MemoryRecord.model_validate(record_data(status="active", statement="Use SQLite"))
+
+    with pytest.raises(InvalidMemoryTransition, match="multiple active records"):
+        repository.append_transaction(make_transaction(first, second))
+
+    assert repository.current_records() == ()
+
+
+def test_locked_append_synchronizes_external_writer_before_validation(workspace):
+    first = StructuredMemoryRepository(workspace, lock_timeout_s=0.1)
+    stale = StructuredMemoryRepository(workspace, lock_timeout_s=0.1)
+    record = MemoryRecord.model_validate(record_data())
+    transaction = make_transaction(record)
+
+    first.append_transaction(transaction)
+    with pytest.raises(MemoryRevisionConflict):
+        stale.append_transaction(transaction)
+
+    assert stale.health.state == "healthy"
+    assert stale.get(record.id) == record
+    assert first.journal_path.read_text(encoding="utf-8").count("\n") == 1
 
 
 def test_expected_revision_conflict_rejects_second_writer(repository, create_tx):
     repository.append_transaction(create_tx)
     record = create_tx.operations[0].record
-    first = update_transaction(record, expected_revision=1, statement="first")
-    second = update_transaction(record, expected_revision=1, statement="second")
+    first_evidence = record.evidence + (
+        EvidenceRef(kind=EvidenceKind.MANUAL, ref="command:first", excerpt="first"),
+    )
+    second_evidence = record.evidence + (
+        EvidenceRef(kind=EvidenceKind.MANUAL, ref="command:second", excerpt="second"),
+    )
+    first = update_transaction(record, expected_revision=1, evidence=first_evidence)
+    second = update_transaction(record, expected_revision=1, evidence=second_evidence)
     repository.append_transaction(first)
     with pytest.raises(MemoryRevisionConflict):
         repository.append_transaction(second)
