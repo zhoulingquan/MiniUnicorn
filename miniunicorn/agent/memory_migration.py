@@ -15,11 +15,14 @@ import hashlib
 import json
 import os
 import re
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Mapping
 
+from filelock import FileLock
+from filelock import Timeout as FileLockTimeout
 from loguru import logger
 
 from miniunicorn.agent.memory_lifecycle import IngestContext, StructuredMemoryLifecycle
@@ -29,7 +32,9 @@ from miniunicorn.agent.memory_models import (
     EvidenceKind,
     EvidenceRef,
     MemoryKind,
+    MemoryLockTimeout,
     MemoryScope,
+    MemoryWriteError,
     ScopeKind,
     SourceLevel,
     normalize_match_text,
@@ -40,6 +45,7 @@ from miniunicorn.agent.memory_repository import StructuredMemoryRepository
 MIGRATION_SOURCE_BATCH = "migration:v1"
 MIGRATION_STATE_FILE = "memory/structured/migration-v1.json"
 LEGACY_MIGRATION_STATE_FILE = "memory/migration-v1.json"
+MIGRATION_LOCK_FILE = "memory/structured/migration-v1.lock"
 
 _MD_HEADING_RE = re.compile(r"^\s{0,3}(#{1,6})\s+(.*?)\s*$")
 _MD_BULLET_RE = re.compile(r"^\s{0,3}[-*+]\s+(?P<body>\S.*?)\s*$")
@@ -379,13 +385,50 @@ class MigrationState:
             "completed_at": self.completed_at.isoformat() if self.completed_at is not None else None,
         }
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(f"{path.name}.tmp")
-        with tmp.open("w", encoding="utf-8", newline="\n") as stream:
-            json.dump(payload, stream, ensure_ascii=False, indent=2)
-            stream.write("\n")
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(tmp, path)
+        temp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                newline="\n",
+                delete=False,
+                dir=str(path.parent),
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+            ) as stream:
+                temp_path = Path(stream.name)
+                json.dump(payload, stream, ensure_ascii=False, indent=2)
+                stream.write("\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temp_path, path)
+            if os.name == "posix":
+                try:
+                    dir_fd = os.open(path.parent, os.O_RDONLY)
+                    try:
+                        os.fsync(dir_fd)
+                    except OSError:
+                        pass
+                    finally:
+                        os.close(dir_fd)
+                except OSError:
+                    pass
+        finally:
+            if temp_path is not None:
+                try:
+                    temp_path.unlink()
+                except FileNotFoundError:
+                    pass
+
+
+def load_migration_state(workspace: Path) -> MigrationState:
+    """Load migration state from the canonical manifest when it exists,
+    otherwise from the legacy path. A corrupt canonical manifest fails closed
+    (incomplete state) and never falls back to a stale legacy completion."""
+    canonical = Path(workspace) / MIGRATION_STATE_FILE
+    if canonical.exists():
+        return MigrationState.load(canonical)
+    return MigrationState.load(Path(workspace) / LEGACY_MIGRATION_STATE_FILE)
 
 
 # ---------------------------------------------------------------------------
@@ -402,6 +445,7 @@ class MemoryMigration:
         repository: StructuredMemoryRepository | None,
         lifecycle: StructuredMemoryLifecycle | None,
         project_scope_key: str,
+        lock_timeout_s: float | None = None,
     ):
         self.workspace = Path(workspace)
         self.repository = repository
@@ -409,11 +453,14 @@ class MemoryMigration:
         self.project_scope_key = project_scope_key
         self.state_path = self.workspace / MIGRATION_STATE_FILE
         self.legacy_state_path = self.workspace / LEGACY_MIGRATION_STATE_FILE
+        self.lock_path = self.workspace / MIGRATION_LOCK_FILE
+        timeout = lock_timeout_s
+        if timeout is None and repository is not None:
+            timeout = getattr(repository, "lock_timeout_s", None)
+        self.lock_timeout_s = timeout if timeout is not None else 5.0
 
     def _load_state(self) -> MigrationState:
-        if self.state_path.exists():
-            return MigrationState.load(self.state_path)
-        return MigrationState.load(self.legacy_state_path)
+        return load_migration_state(self.workspace)
 
     def plan(self) -> tuple[list[MigrationItem], list[MigrationIssue]]:
         return scan_legacy_memory(self.workspace)
@@ -446,9 +493,17 @@ class MemoryMigration:
 
     def apply(self) -> MigrationReport:
         if self.repository is None or self.lifecycle is None:
-            from miniunicorn.agent.memory_models import MemoryWriteError
-
             raise MemoryWriteError("apply requires the structured repository/lifecycle stack")
+        self.lock_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with FileLock(str(self.lock_path), timeout=self.lock_timeout_s):
+                return self._apply_locked()
+        except FileLockTimeout as exc:
+            raise MemoryLockTimeout(
+                f"migration lock timeout after {self.lock_timeout_s}s"
+            ) from exc
+
+    def _apply_locked(self) -> MigrationReport:
         items, issues = scan_legacy_memory(self.workspace)
         state = self._load_state()
         state.completed_at = None

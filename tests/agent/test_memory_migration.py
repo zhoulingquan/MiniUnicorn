@@ -396,7 +396,7 @@ class TestApply:
 
         state.save(workspace / MIGRATION_STATE_FILE)
 
-        fsync.assert_called_once()
+        assert fsync.call_count >= 1  # file always; directory too on POSIX
 
     def test_apply_with_failure_does_not_mark_migration_complete(self, workspace):
         (workspace / "memory").mkdir(exist_ok=True)
@@ -508,3 +508,248 @@ class TestGovernedStartupGate:
             StructuredMemoryConfig(mode="shadow")
         ).build()
         assert loop.context.memory.migration_completed() is False
+
+
+# ---------------------------------------------------------------------------
+# C2 plan B: unified state loading, migration lock, durable unique-temp save
+# ---------------------------------------------------------------------------
+
+
+class TestUnifiedMigrationStateLoader:
+    def test_neither_file_returns_empty_state(self, workspace):
+        from miniunicorn.agent.memory_migration import load_migration_state
+
+        state = load_migration_state(workspace)
+
+        assert state.entries == {}
+        assert state.completed_at is None
+
+    def test_legacy_only_completed_state_is_loaded(self, workspace):
+        from miniunicorn.agent.memory_migration import load_migration_state
+
+        legacy = workspace / LEGACY_MIGRATION_STATE_FILE
+        MigrationState(
+            entries={"a": "mem_" + "a" * 32}, completed_at=dt_utc("2026-08-11T09:00:00Z")
+        ).save(legacy)
+
+        state = load_migration_state(workspace)
+
+        assert state.completed_at == dt_utc("2026-08-11T09:00:00Z")
+        assert state.entries == {"a": "mem_" + "a" * 32}
+
+    def test_canonical_wins_when_both_exist(self, workspace):
+        from miniunicorn.agent.memory_migration import load_migration_state
+
+        canonical = workspace / MIGRATION_STATE_FILE
+        legacy = workspace / LEGACY_MIGRATION_STATE_FILE
+        MigrationState(entries={"old": "mem_" + "a" * 32}, completed_at=dt_utc("2026-08-11T08:00:00Z")).save(legacy)
+        MigrationState(entries={"new": "mem_" + "b" * 32}, completed_at=dt_utc("2026-08-11T09:00:00Z")).save(canonical)
+
+        state = load_migration_state(workspace)
+
+        assert state.entries == {"new": "mem_" + "b" * 32}
+        assert state.completed_at == dt_utc("2026-08-11T09:00:00Z")
+
+    def test_corrupt_canonical_never_falls_back_to_legacy_completion(self, workspace):
+        from miniunicorn.agent.memory_migration import load_migration_state
+
+        canonical = workspace / MIGRATION_STATE_FILE
+        legacy = workspace / LEGACY_MIGRATION_STATE_FILE
+        MigrationState(
+            entries={"old": "mem_" + "a" * 32}, completed_at=dt_utc("2026-08-11T08:00:00Z")
+        ).save(legacy)
+        canonical.parent.mkdir(parents=True, exist_ok=True)
+        canonical.write_text("{not json at all", encoding="utf-8")
+
+        state = load_migration_state(workspace)
+
+        assert state.completed_at is None
+        assert state.entries == {}
+
+
+class TestMigrationLock:
+    def test_apply_fails_closed_when_migration_lock_held(self, workspace):
+        from filelock import FileLock
+
+        from miniunicorn.agent.memory_models import MemoryLockTimeout
+
+        _write_memory(workspace)
+        store = _store(workspace)
+        lock_path = workspace / "memory" / "structured" / "migration-v1.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with FileLock(str(lock_path)):
+            migration = MemoryMigration(
+                workspace,
+                store.structured_repository,
+                store.structured_lifecycle,
+                store.project_scope_key,
+                lock_timeout_s=0.05,
+            )
+            with pytest.raises(MemoryLockTimeout):
+                migration.apply()
+
+        assert not (workspace / MIGRATION_STATE_FILE).exists()
+        journal = workspace / "memory" / "structured" / "journal.jsonl"
+        assert not journal.exists() or journal.read_text(encoding="utf-8").strip() == ""
+
+
+class TestDurableManifestSave:
+    def test_each_save_uses_unique_sibling_temp(self, workspace, monkeypatch):
+        import tempfile
+
+        path = workspace / MIGRATION_STATE_FILE
+        replaces: list[tuple[Path, Path]] = []
+        monkeypatch.setattr(os, "replace", lambda src, dst: replaces.append((Path(src), Path(dst))))
+        names: list[Path] = []
+        real_ntf = tempfile.NamedTemporaryFile
+
+        def recording_ntf(*args, **kwargs):
+            stream = real_ntf(*args, **kwargs)
+            names.append(Path(stream.name))
+            return stream
+
+        monkeypatch.setattr(tempfile, "NamedTemporaryFile", recording_ntf)
+        state = MigrationState(entries={"a": "mem_" + "a" * 32}, completed_at=None)
+
+        state.save(path)
+        state.save(path)
+
+        assert len(names) == 2
+        assert names[0] != names[1]
+        assert names[0].parent == path.parent
+        assert names[1].parent == path.parent
+        assert ".tmp" in names[0].name and ".tmp" in names[1].name
+        assert replaces[0][0] == names[0]
+        assert replaces[1][0] == names[1]
+        assert replaces[0][1] == path
+        assert replaces[1][1] == path
+        assert not names[0].exists() and not names[1].exists()
+
+    def test_file_fsync_before_replace_and_directory_fsync_after(self, workspace, monkeypatch):
+        path = workspace / MIGRATION_STATE_FILE
+        events: list[tuple[str, object]] = []
+        real_open = os.open
+
+        def fake_open(open_path, *rest):
+            events.append(("open", Path(open_path)))
+            return real_open(open_path, *rest)
+
+        def fake_fsync(fd):
+            events.append(("fsync", fd))
+
+        def fake_replace(src, dst):
+            events.append(("replace", Path(src), Path(dst)))
+
+        def fake_close(fd):
+            events.append(("close", fd))
+
+        monkeypatch.setattr(os, "open", fake_open)
+        monkeypatch.setattr(os, "fsync", fake_fsync)
+        monkeypatch.setattr(os, "replace", fake_replace)
+        monkeypatch.setattr(os, "close", fake_close)
+        state = MigrationState(entries={"a": "mem_" + "a" * 32}, completed_at=None)
+
+        state.save(path)
+
+        markers = [event[0] for event in events]
+        # tempfile.NamedTemporaryFile itself records an "open" (mkstemp)
+        # before the file fsync; the file fsync must precede the replace.
+        assert markers[0] == "open"
+        assert markers.index("fsync") < markers.index("replace")
+        if os.name == "posix":
+            dir_open = markers.index("open", markers.index("replace"))
+            assert markers[dir_open:] == ["open", "fsync", "close"]
+            assert events[dir_open][1] == path.parent
+        else:
+            assert markers[-1] == "replace"
+
+    def test_failed_replace_cleans_up_this_temps(self, workspace, monkeypatch):
+        path = workspace / MIGRATION_STATE_FILE
+        real_replace = os.replace
+        calls = {"n": 0}
+
+        def flaky_replace(src, dst):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise OSError("disk full")
+            return real_replace(src, dst)
+
+        monkeypatch.setattr(os, "replace", flaky_replace)
+        state = MigrationState(entries={"a": "mem_" + "a" * 32}, completed_at=None)
+        with pytest.raises(OSError):
+            state.save(path)
+        leftovers = list(path.parent.glob(f".{path.name}.*.tmp"))
+        assert leftovers == []
+
+
+def _worker_migrate(workspace: str, start, queue) -> None:
+    workspace_path = Path(workspace)
+    store = _store(workspace_path, mode="shadow")
+    start.wait()
+    try:
+        report = store.run_migration()
+        queue.put(
+            {
+                "imported": report.imported,
+                "skipped": report.skipped,
+                "failed": len(report.failed),
+                "completed": report.completed_at is not None,
+            }
+        )
+    except Exception as exc:  # noqa: BLE001 - report over the queue
+        queue.put({"error": f"{type(exc).__name__}: {exc}"})
+
+
+class TestTwoProcessMigration:
+    def test_concurrent_apply_imports_each_legacy_key_exactly_once(self, workspace):
+        import multiprocessing
+
+        _write_all_sources(workspace)
+        items, _ = _scan_legacy(workspace)
+        expected_keys = {item.legacy_key() for item in items}
+        ctx = multiprocessing.get_context("spawn")
+        start = ctx.Event()
+        queue = ctx.Queue()
+        procs = [
+            ctx.Process(target=_worker_migrate, args=(str(workspace), start, queue)),
+            ctx.Process(target=_worker_migrate, args=(str(workspace), start, queue)),
+        ]
+        try:
+            for proc in procs:
+                proc.start()
+            start.set()
+            for proc in procs:
+                proc.join(timeout=60)
+            for proc in procs:
+                assert proc.exitcode == 0
+            reports = [queue.get(timeout=10) for _ in range(2)]
+        finally:
+            for proc in procs:
+                if proc.is_alive():
+                    proc.terminate()
+                    proc.join(timeout=5)
+
+        for report in reports:
+            assert "error" not in report, report
+            assert report["imported"] + report["skipped"] == len(expected_keys)
+            assert report["failed"] == 0
+            assert report["completed"] is True
+
+        canonical = workspace / MIGRATION_STATE_FILE
+        assert canonical.exists()
+        state = MigrationState.load(canonical)
+        assert set(state.entries) == expected_keys
+        assert len(state.entries) == len(expected_keys)
+
+        rebuilt = _store(workspace, mode="shadow")
+        assert len(rebuilt.structured_repository.current_records()) == len(expected_keys)
+
+
+def dt_utc(iso: str):
+    from datetime import datetime
+
+    return datetime.fromisoformat(iso.replace("Z", "+00:00"))
+
+
+def _scan_legacy(workspace: Path):
+    return scan_legacy_memory(workspace)
