@@ -6,6 +6,7 @@ Evidence excerpts are truncated to 200 characters in every response.
 
 from __future__ import annotations
 
+import hashlib
 import shlex
 from datetime import datetime, timezone
 
@@ -226,16 +227,18 @@ async def cmd_memory_correct(ctx: CommandContext) -> OutboundMessage:
     """Create an explicit correction candidate, then apply the atom rule."""
     store, _, lifecycle = _stack(ctx)
     parts = [part.strip() for part in ctx.args.split("|")]
-    if len(parts) != 3:
+    if len(parts) != 3 or any(not normalize_text(part) for part in parts):
         return _usage(ctx, "/memory-correct <subject>|<slot>|<statement>")
-    subject, slot, statement = parts
-    statement = normalize_text(statement)
-    if not statement:
-        return _usage(ctx, "/memory-correct <subject>|<slot>|<statement>")
+    subject, slot, statement = (normalize_text(part) for part in parts)
     now = datetime.now(timezone.utc)
+    message_id = normalize_text(str((ctx.msg.metadata or {}).get("message_id") or ""))
+    if not message_id:
+        identity = f"{ctx.msg.session_key}|{ctx.msg.timestamp.isoformat()}|{ctx.msg.content}"
+        message_id = "local-" + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
+    evidence_ref = f"command:{message_id}"
     evidence = EvidenceRef(
         kind=EvidenceKind.USER_MESSAGE,
-        ref="command:/memory-correct",
+        ref=evidence_ref,
         excerpt=statement[:_EXCERPT_LIMIT],
     )
     proposal = CandidateProposal(
@@ -243,7 +246,7 @@ async def cmd_memory_correct(ctx: CommandContext) -> OutboundMessage:
         kind=MemoryKind.FACT,
         scope_hint=ScopeKind.PROJECT,
         subject=subject,
-        slot=slot or "general",
+        slot=slot,
         statement=statement,
         tags=("project.fact",),
         confidence=1.0,
@@ -254,7 +257,7 @@ async def cmd_memory_correct(ctx: CommandContext) -> OutboundMessage:
     context = IngestContext(
         actor=ActorKind.USER,
         reason="user:/memory-correct",
-        source_batch="command:memory-correct",
+        source_batch=evidence_ref,
         scope=MemoryScope(kind=ScopeKind.PROJECT, key=store.project_scope_key),
         evidence_catalog={"src:0": evidence},
         now=now,

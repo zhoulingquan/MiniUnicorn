@@ -193,7 +193,7 @@ Beyond the Markdown/JSONL layers above, MiniUnicorn offers a governed, journal-b
 
 ### Modes
 
-Set `agents.defaults.structured_memory.mode` to one of:
+Set `agents.defaults.structuredMemory.mode` to one of:
 
 | Mode | Behavior |
 |------|----------|
@@ -205,11 +205,15 @@ Set `agents.defaults.structured_memory.mode` to one of:
 {
   "agents": {
     "defaults": {
-      "structured_memory": {
+      "structuredMemory": {
         "mode": "shadow",
+        "recallTokenBudget": 2500,
+        "maxRecallHits": 20,
+        "lockTimeoutS": 5,
         "autoPromoteVerified": true,
         "minRepeatedEvidence": 2,
-        "candidateTtlDays": 30
+        "candidateTtlDays": 30,
+        "recallAuditEnabled": false
       }
     }
   }
@@ -221,17 +225,25 @@ Set `agents.defaults.structured_memory.mode` to one of:
 ```text
 memory/
 ├── structured/
-│   ├── journal.jsonl   # Append-only transactions; the single source of truth
-│   └── TAGS.json       # Controlled tag catalog (user.identity, project.decision, ...)
+│   ├── journal.jsonl       # Append-only transactions; the single source of truth
+│   ├── tags.json           # Controlled tag catalog (user.identity, project.decision, ...)
+│   ├── migration-v1.json  # Crash-safe legacy migration progress
+│   └── recall-audit.jsonl # Optional redacted local audit; not Git-tracked
 ├── shared/POLICY.md    # Always-injected policy (only if customized)
-└── migration-v1.json   # Migration progress: legacy_key -> memory id, completed_at
+└── ...                 # Legacy files remain available for rollback
 ```
 
 Candidate facts exist in the journal with `status=candidate` and never enter the model context. Promotion to `active` follows deterministic rules (verified source evidence, confidence threshold) or an explicit user action.
 
+Recall is deterministic and lexical: it routes by stable ID, subject, controlled tags and aliases, then scores source strength, exact scope, importance and freshness. Normal turns search the exact session, current project, original user (or `user:default`) and `shared:*`; subagents inherit the parent session/user identity. No embedding model or vector database is used in C2.
+
 ### Migration
 
-`/memory-migrate --dry-run` scans legacy files (`USER.md`, `MEMORY.md`, `procedural.jsonl`, shared files, `episodic.jsonl`) and reports what would be imported — with zero writes. `/memory-migrate --apply` imports atomically through the lifecycle, is idempotent, and never rewrites legacy files. An interrupted apply resumes from saved progress. Governed mode refuses to start until the migration is complete.
+`/memory-migrate --dry-run` scans legacy files (`USER.md`, `MEMORY.md`, `procedural.jsonl`, shared files, `episodic.jsonl`) and reports what would be imported — with zero writes. `/memory-migrate --apply` imports atomically through the lifecycle, is idempotent, and never rewrites legacy files. An interrupted apply resumes item-by-item from `memory/structured/migration-v1.json`; the old `memory/migration-v1.json` location is still read for compatibility. `completed_at` is written only after a clean scan with no failed items or unresolved issues. Governed mode refuses to start until migration is complete.
+
+If `/memory-status` reports `degraded`, no governed facts are injected. Keep the append-only journal unchanged, inspect the reported code and last valid line, restore the damaged file from backup or memory Git history, then restart and re-run `/memory-status`. Switching temporarily to `shadow` or `legacy` preserves a rollback path while legacy files remain untouched.
+
+With `recallAuditEnabled`, `recall-audit.jsonl` records only timestamps, SHA-256 scope-key hashes, stable hit IDs/scores/reason categories, counters and token totals. Query text, statements and evidence are never written, and only the most recent 1000 lines are retained.
 
 ### Commands
 
@@ -242,7 +254,7 @@ Candidate facts exist in the journal with `status=candidate` and never enter the
 | `/memory-show <id>` | All revisions, evidence and the replace chain |
 | `/memory-promote <id> [--replace <active-id>]` | Promote a candidate; conflicts require an explicit `--replace` |
 | `/memory-revoke <id> <reason>` | Revoke a candidate/active record |
-| `/memory-correct <subject>\|<slot>\|<statement>` | Create an explicit user correction |
+| `/memory-correct <subject>\|<slot>\|<statement>` | Create an explicit user correction; all three fields are required and evidence uses the inbound message ID |
 | `/memory-migrate [--dry-run\|--apply]` | Import legacy memory files |
 
 Evidence excerpts in command output are truncated to 200 characters.

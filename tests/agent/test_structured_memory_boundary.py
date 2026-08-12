@@ -5,10 +5,23 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 from miniunicorn.agent.context import ContextBuilder
 from miniunicorn.agent.memory import MemoryStore
-from miniunicorn.agent.memory_models import MemoryScope, RecallQuery, RecallResult, ScopeKind
+from miniunicorn.agent.memory_lifecycle import IngestContext
+from miniunicorn.agent.memory_models import (
+    ActorKind,
+    CandidateProposal,
+    EvidenceKind,
+    EvidenceRef,
+    MemoryKind,
+    MemoryScope,
+    RecallQuery,
+    RecallResult,
+    ScopeKind,
+    SourceLevel,
+)
 from miniunicorn.config.schema import StructuredMemoryConfig
 
 UTC = timezone.utc
@@ -84,3 +97,91 @@ def test_governed_recall_writes_audit_when_enabled(tmp_path, monkeypatch):
     assert len(written) == 1
     assert written[0][0].query_text == "private governed query"
     assert written[0][1] is result
+
+
+def test_runtime_config_and_dependencies_expose_no_vector_memory_entrypoint():
+    root = Path(__file__).resolve().parents[2]
+    forbidden_config_names = {
+        "embedding_provider",
+        "embedding_model",
+        "vector_store",
+        "vector_database",
+        "vector_backend",
+    }
+    schema_text = (root / "miniunicorn" / "config" / "schema.py").read_text(
+        encoding="utf-8"
+    ).lower()
+    pyproject_text = (root / "pyproject.toml").read_text(encoding="utf-8").lower()
+
+    assert forbidden_config_names.isdisjoint(schema_text.split())
+    assert all(
+        dependency not in pyproject_text
+        for dependency in (
+            "chromadb",
+            "faiss",
+            "qdrant",
+            "milvus",
+            "pinecone",
+            "weaviate",
+            "pgvector",
+            "sentence-transformers",
+        )
+    )
+
+
+def test_governed_prompt_never_whole_injects_shared_legacy_file(tmp_path):
+    shared = tmp_path / "memory" / "shared" / "MEMORY_SHARED.md"
+    shared.parent.mkdir(parents=True)
+    shared.write_text("secret shared legacy fact", encoding="utf-8")
+    builder = ContextBuilder(
+        tmp_path,
+        structured_memory_config=StructuredMemoryConfig(mode="governed"),
+    )
+
+    prompt = builder.build_system_prompt(recall_query="unrelated")
+
+    assert "secret shared legacy fact" not in prompt
+
+
+def test_governed_prompt_never_injects_candidate_record(tmp_path):
+    builder = ContextBuilder(
+        tmp_path,
+        structured_memory_config=StructuredMemoryConfig(mode="governed"),
+    )
+    statement = "Candidate-only private memory fact."
+    evidence = EvidenceRef(
+        kind=EvidenceKind.MODEL_INFERENCE,
+        ref="history:1",
+        excerpt=statement,
+        observed_at=datetime(2026, 8, 12, 9, 0, tzinfo=UTC),
+    )
+    proposal = CandidateProposal(
+        proposal_index=0,
+        kind=MemoryKind.FACT,
+        scope_hint=ScopeKind.PROJECT,
+        subject="MiniUnicorn",
+        slot="boundary.candidate",
+        statement=statement,
+        tags=("architecture.memory",),
+        confidence=0.7,
+        importance=3,
+        evidence_refs=("history:1",),
+        speech_act=SourceLevel.INFERRED,
+    )
+    builder.memory.structured_lifecycle.ingest(
+        proposal,
+        IngestContext(
+            actor=ActorKind.DREAM,
+            reason="boundary test",
+            source_batch="boundary:candidate",
+            scope=MemoryScope(
+                kind=ScopeKind.PROJECT, key=builder.memory.project_scope_key
+            ),
+            evidence_catalog={"history:1": evidence},
+            now=datetime(2026, 8, 12, 9, 0, tzinfo=UTC),
+        ),
+    )
+
+    prompt = builder.build_system_prompt(recall_query="MiniUnicorn architecture.memory")
+
+    assert statement not in prompt

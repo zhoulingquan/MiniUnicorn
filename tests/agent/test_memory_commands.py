@@ -31,9 +31,17 @@ def _router() -> CommandRouter:
     return router
 
 
-async def _dispatch(router: CommandRouter, store, raw: str) -> str:
+async def _dispatch(
+    router: CommandRouter, store, raw: str, *, message_id: str = "msg-test"
+) -> str:
     loop = SimpleNamespace(context=SimpleNamespace(memory=store))
-    msg = InboundMessage(channel="test", sender_id="u1", chat_id="c1", content=raw)
+    msg = InboundMessage(
+        channel="test",
+        sender_id="u1",
+        chat_id="c1",
+        content=raw,
+        metadata={"message_id": message_id},
+    )
     ctx = CommandContext(msg=msg, session=None, key="k1", raw=raw, loop=loop)
     result = await router.dispatch(ctx)
     assert result is not None, f"unhandled command: {raw}"
@@ -347,6 +355,35 @@ class TestCorrect:
         router = _router()
         content = await _dispatch(router, store, "/memory-correct a|b")
         assert "Usage:" in content
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "/memory-correct |slot|statement",
+            "/memory-correct subject| |statement",
+            "/memory-correct subject|slot| ",
+        ],
+    )
+    async def test_correct_requires_all_three_non_empty_fields(self, workspace, raw):
+        store = _store(workspace)
+
+        content = await _dispatch(_router(), store, raw)
+
+        assert "Usage:" in content
+        assert store.structured_repository.current_records() == ()
+
+    async def test_correct_evidence_uses_inbound_message_id(self, workspace):
+        store = _store(workspace)
+
+        await _dispatch(
+            _router(),
+            store,
+            "/memory-correct 用户偏好|general|喜欢用英文交流",
+            message_id="om_abc123",
+        )
+
+        record = store.structured_repository.current_records()[0]
+        assert record.evidence[0].ref == "command:om_abc123"
 
 
 class TestMigrate:

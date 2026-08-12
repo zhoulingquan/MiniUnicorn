@@ -1528,3 +1528,30 @@ Set `agents.defaults.toolHintMaxLength` to control the truncation threshold:
 | Option | Default | Description |
 |--------|---------|-------------|
 | `agents.defaults.toolHintMaxLength` | `40` | Maximum characters for tool hint display. Range: 20–500. Higher values show more of the command or path; lower values keep hints compact. |
+
+## Governed Structured Memory
+
+Configure the journal-backed memory system under `agents.defaults.structuredMemory`:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "structuredMemory": {
+        "mode": "shadow",
+        "recallTokenBudget": 2500,
+        "maxRecallHits": 20,
+        "lockTimeoutS": 5,
+        "autoPromoteVerified": true,
+        "minRepeatedEvidence": 2,
+        "candidateTtlDays": 30,
+        "recallAuditEnabled": false
+      }
+    }
+  }
+}
+```
+
+Use `shadow` first to build and inspect structured records without changing prompt injection. After `/memory-migrate --apply` completes, switch to `governed` to inject only customized policy plus deterministic active-record recall. Recall uses exact session, project, user, and shared scopes; candidate records are never injected.
+
+When `recallAuditEnabled` is true, both shadow and governed recall write a redacted, local `memory/structured/recall-audit.jsonl`. It contains hashed scope keys and hit IDs/scores only, keeps the latest 1000 rows, and is not committed by memory Git history. This C2 implementation intentionally has no embedding model, vector database, or vector-runtime setting.
