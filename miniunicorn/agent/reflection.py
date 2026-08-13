@@ -73,12 +73,10 @@ class Reflection:
         provider: Any,
         model: str,
         workspace: Path | None,
-        structured_mode: bool = False,
     ):
         self.provider = provider
         self.model = model
         self.workspace = workspace
-        self.structured_mode = structured_mode
         self._reflections_dir = workspace / "memory" if workspace is not None else None
         self._reflections_file = (
             self._reflections_dir / "reflections.jsonl"
@@ -87,7 +85,7 @@ class Reflection:
         )
 
     def _parse_structured_response(self, text: str) -> str | None:
-        """Parse the structured-mode JSON reflection; return the lesson text.
+        """Parse the strict JSON reflection; return the lesson text.
 
         Only a JSON object whose exact key set is ``{"lesson"}`` with a
         non-empty trimmed string value is accepted. Invalid JSON, arrays,
@@ -143,7 +141,6 @@ class Reflection:
                         "content": render_template(
                             "agent/reflection_system.md",
                             strip=True,
-                            structured_mode=self.structured_mode,
                         ),
                     },
                     {
@@ -159,8 +156,7 @@ class Reflection:
                 tool_choice=None,
             )
             reflection_text = (response.content or "").strip()
-            if self.structured_mode:
-                reflection_text = self._parse_structured_response(reflection_text)
+            reflection_text = self._parse_structured_response(reflection_text)
             # Truncate to keep file compact
             if reflection_text is not None and len(reflection_text) > _REFLECTION_MAX_CHARS:
                 reflection_text = reflection_text[:_REFLECTION_MAX_CHARS] + "..."
@@ -174,11 +170,10 @@ class Reflection:
                 "reflection": reflection_text,
                 "session_key": session_key,
             }
-            if self.structured_mode:
-                # The stable id is assigned here, in application code, and is
-                # only reported on success once the entry is durably appended.
-                entry["reflection_id"] = new_reflection_id()
-                entry["lesson"] = reflection_text
+            # The stable id is assigned here, in application code, and is only
+            # reported on success once the entry is durably appended.
+            entry["reflection_id"] = new_reflection_id()
+            entry["lesson"] = reflection_text
             if not self._append_reflection(entry):
                 logger.error("Reflection persistence failed; not reporting success")
                 return None

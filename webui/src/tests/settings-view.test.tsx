@@ -87,8 +87,6 @@ function settingsPayload(): SettingsPayload {
       dream: {
         schedule: "cron 0 3 * * *",
         max_batch_size: 20,
-        max_iterations: 15,
-        annotate_line_ages: true,
       },
       unified_session: false,
     },

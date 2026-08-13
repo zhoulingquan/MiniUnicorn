@@ -114,12 +114,12 @@ export function DreamFilesButton() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-sm">
               <Moon className="h-4 w-4 text-muted-foreground" />
-              {tx("settings.dream.files.title", "Dream Generated Files")}
+              {tx("settings.dream.files.title", "Memory Diagnostics")}
             </DialogTitle>
             <DialogDescription>
               {tx(
                 "settings.dream.files.description",
-                "Memory files written and maintained by the Dream consolidation process. Read-only.",
+                "Read-only governed storage, Dream inputs, and legacy import sources.",
               )}
             </DialogDescription>
           </DialogHeader>

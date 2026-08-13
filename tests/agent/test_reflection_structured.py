@@ -1,4 +1,4 @@
-"""Structured-mode Reflection tests: application-assigned stable IDs, legacy fallback.
+"""Structured Reflection tests: strict JSON, stable IDs, and legacy evidence fallback.
 
 Normative source: docs/superpowers/specs/2026-08-12-c2-plan-b-hardening-design.md section 4.2
 """
@@ -33,7 +33,6 @@ def store(workspace):
     return MemoryStore(
         workspace,
         structured_config=StructuredMemoryConfig(
-            mode="governed",
             auto_promote_verified=True,
         ),
     )
@@ -56,7 +55,7 @@ def read_jsonl(path) -> list[dict]:
 async def test_structured_reflection_persists_program_generated_id(workspace):
     provider = make_provider('{"lesson":"Verify exact evidence IDs."}')
     reflection = Reflection(
-        provider=provider, model="m", workspace=workspace, structured_mode=True
+        provider=provider, model="m", workspace=workspace
     )
 
     returned = await reflection.reflect(
@@ -84,7 +83,7 @@ async def test_structured_reflection_persists_program_generated_id(workspace):
 async def test_reflection_ids_stable_across_prune_and_append(workspace, store):
     first_provider = make_provider('{"lesson":"Lesson one."}')
     first = Reflection(
-        provider=first_provider, model="m", workspace=workspace, structured_mode=True
+        provider=first_provider, model="m", workspace=workspace
     )
     first_result = await first.reflect(
         trigger="tool_error",
@@ -105,7 +104,7 @@ async def test_reflection_ids_stable_across_prune_and_append(workspace, store):
 
     second_provider = make_provider('{"lesson":"Lesson two."}')
     second = Reflection(
-        provider=second_provider, model="m", workspace=workspace, structured_mode=True
+        provider=second_provider, model="m", workspace=workspace
     )
     await second.reflect(
         trigger="periodic",
@@ -201,7 +200,7 @@ async def test_rotation_with_full_consumed_cursor_keeps_new_reflection(workspace
 
     provider = make_provider('{"lesson":"New lesson."}')
     reflection = Reflection(
-        provider=provider, model="m", workspace=workspace, structured_mode=True
+        provider=provider, model="m", workspace=workspace
     )
     await reflection.reflect(
         trigger="periodic",
@@ -228,7 +227,7 @@ async def test_rotation_never_drops_unconsumed_entries(workspace, store):
 
     provider = make_provider('{"lesson":"Fresh lesson."}')
     reflection = Reflection(
-        provider=provider, model="m", workspace=workspace, structured_mode=True
+        provider=provider, model="m", workspace=workspace
     )
     await reflection.reflect(
         trigger="periodic",
@@ -252,7 +251,7 @@ async def test_rotation_prunes_consumed_prefix_and_resets_cursor(workspace, stor
 
     provider = make_provider('{"lesson":"Prefix lesson."}')
     reflection = Reflection(
-        provider=provider, model="m", workspace=workspace, structured_mode=True
+        provider=provider, model="m", workspace=workspace
     )
     await reflection.reflect(
         trigger="periodic",
@@ -285,7 +284,6 @@ def test_rotation_failure_preserves_canonical_file_and_cursor(workspace, store, 
         provider=make_provider('{"lesson":"Ignored."}'),
         model="m",
         workspace=workspace,
-        structured_mode=True,
     )
     reflection._maybe_rotate()
 
@@ -318,7 +316,6 @@ def test_rotation_cursor_reset_failure_does_not_renumber_file(workspace, store, 
         provider=make_provider('{"lesson":"Ignored."}'),
         model="m",
         workspace=workspace,
-        structured_mode=True,
     )
 
     reflection._maybe_rotate()
@@ -335,7 +332,6 @@ def test_rotation_cursor_beyond_file_resets_without_dropping_entries(workspace, 
         provider=make_provider('{"lesson":"Ignored."}'),
         model="m",
         workspace=workspace,
-        structured_mode=True,
     )
 
     reflection._maybe_rotate()
@@ -399,7 +395,7 @@ def test_store_prune_file_rewrite_failure_resets_cursor_before_renumbering(
 async def test_structured_reflect_rejects_invalid_payload(workspace, payload):
     provider = make_provider(payload)
     reflection = Reflection(
-        provider=provider, model="m", workspace=workspace, structured_mode=True
+        provider=provider, model="m", workspace=workspace
     )
 
     result = await reflection.reflect(
@@ -422,6 +418,6 @@ async def test_structured_reflect_rejects_invalid_payload(workspace, payload):
 )
 def test_structured_parser_accepts_exact_lesson_object(payload, expected):
     reflection = Reflection(
-        provider=MagicMock(), model="m", workspace=None, structured_mode=True
+        provider=MagicMock(), model="m", workspace=None
     )
     assert reflection._parse_structured_response(payload) == expected

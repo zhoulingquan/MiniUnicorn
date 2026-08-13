@@ -346,8 +346,8 @@ async def test_reflection_persistence(tmp_path, monkeypatch):
     provider = MagicMock(spec=LLMProvider)
     provider.chat_with_retry = AsyncMock(
         side_effect=[
-            LLMResponse(content="Lesson A: always validate inputs.", tool_calls=[], usage={}),
-            LLMResponse(content="Lesson B: cache misses cost tokens.", tool_calls=[], usage={}),
+            LLMResponse(content='{"lesson":"Always validate inputs."}', tool_calls=[], usage={}),
+            LLMResponse(content='{"lesson":"Cache misses cost tokens."}', tool_calls=[], usage={}),
         ]
     )
 
@@ -370,7 +370,7 @@ async def test_reflection_persistence(tmp_path, monkeypatch):
     )
 
     assert r1 is not None and "validate inputs" in r1
-    assert r2 is not None and "cache misses" in r2
+    assert r2 is not None and "Cache misses" in r2
 
     # File exists with 2 lines
     reflections_file = tmp_path / "memory" / "reflections.jsonl"
@@ -380,14 +380,14 @@ async def test_reflection_persistence(tmp_path, monkeypatch):
     assert len(entries) == 2
     assert entries[0]["trigger"] == "tool_error"
     assert entries[1]["trigger"] == "periodic"
-    assert entries[0]["reflection"] == "Lesson A: always validate inputs."
+    assert entries[0]["reflection"] == "Always validate inputs."
     assert entries[0]["timestamp"] == "2024-01-01 00:00"
     assert entries[1]["timestamp"] == "2024-01-01 00:01"
 
     # since_timestamp filtering: only entries strictly newer than the cutoff
     only_newer = reflection.read_unprocessed(since_timestamp=entries[0]["timestamp"])
     assert len(only_newer) == 1
-    assert only_newer[0]["reflection"] == "Lesson B: cache misses cost tokens."
+    assert only_newer[0]["reflection"] == "Cache misses cost tokens."
 
     # A cutoff in the far future returns nothing
     assert reflection.read_unprocessed(since_timestamp="2099-12-31 23:59") == []

@@ -113,7 +113,7 @@ def test_model_preset_setter_replaces_provider_from_snapshot(tmp_path) -> None:
     assert loop.subagents.runner.provider is new_provider
     assert loop.consolidator.provider is new_provider
     assert loop.dream.provider is new_provider
-    assert loop.dream._runner.provider is new_provider
+    assert not hasattr(loop.dream, "_runner")
     assert loop.model == "anthropic/claude-opus-4-5"
     assert loop.context_window_tokens == 200_000
     assert loop.consolidator.max_completion_tokens == 2048

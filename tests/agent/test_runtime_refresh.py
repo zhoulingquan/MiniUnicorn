@@ -49,7 +49,7 @@ def test_provider_refresh_updates_all_model_dependents(tmp_path: Path) -> None:
     assert loop.consolidator.max_completion_tokens == 456
     assert loop.dream.provider is new_provider
     assert loop.dream.model == "new-model"
-    assert loop.dream._runner.provider is new_provider
+    assert not hasattr(loop.dream, "_runner")
 
 
 def test_llm_runtime_refreshes_provider_snapshot(tmp_path: Path) -> None:

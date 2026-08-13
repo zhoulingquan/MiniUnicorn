@@ -1,8 +1,4 @@
-"""AgentLoop -> AgentRunSpec structured_memory_mode wiring (C2 plan B task 3).
-
-Proves the configured StructuredMemoryConfig mode is propagated into the
-AgentRunSpec handed to the runner for governed, shadow and legacy (None) loops.
-"""
+"""AgentLoop uses the single governed structured-memory path."""
 
 from __future__ import annotations
 
@@ -10,8 +6,6 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-
-from miniunicorn.config.schema import StructuredMemoryConfig
 
 
 @pytest.fixture
@@ -67,38 +61,20 @@ def _write_sources(workspace: Path) -> None:
     )
 
 
-def _build_loop(bus, provider, workspace, mode):
+def _build_loop(bus, provider, workspace):
     from miniunicorn.agent.loop_builder import AgentLoopBuilder
 
-    builder = AgentLoopBuilder(bus, provider, workspace)
-    if mode is None:
-        return builder.build()
-    return builder.with_structured_memory_config(StructuredMemoryConfig(mode=mode)).build()
+    return AgentLoopBuilder(bus, provider, workspace).build()
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("mode", "expected"),
-    [
-        ("governed", "governed"),
-        ("shadow", "shadow"),
-        ("legacy", "legacy"),
-        (None, None),
-    ],
-)
-async def test_loop_propagates_structured_memory_mode(workspace, bus, provider, mode, expected):
-    from miniunicorn.agent.memory import MemoryStore
-
+async def test_loop_has_no_structured_memory_mode(workspace, bus, provider):
     _write_sources(workspace)
-    if mode == "governed":
-        store = MemoryStore(workspace, structured_config=StructuredMemoryConfig(mode="governed"))
-        store.run_migration()
-
-    loop = _build_loop(bus, provider, workspace, mode)
+    loop = _build_loop(bus, provider, workspace)
     capture = _CaptureRunner()
     loop.runner = capture  # type: ignore[assignment]
 
     await loop._run_agent_loop([])
 
     assert capture.spec is not None
-    assert capture.spec.structured_memory_mode == expected
+    assert not hasattr(capture.spec, "structured_memory_mode")

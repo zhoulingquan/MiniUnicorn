@@ -237,9 +237,6 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         self.planner_max_replans = getattr(defaults, "planner_max_replans", 3)
         self.enable_reflection = getattr(defaults, "enable_reflection", False)
         self.reflection_interval = getattr(defaults, "reflection_interval", 5)
-        self.structured_memory_mode = (
-            structured_memory_config.mode if structured_memory_config is not None else None
-        )
         self._max_input_tokens_per_turn = getattr(defaults, "max_input_tokens_per_turn", None)
         self._max_cost_per_turn_usd = getattr(defaults, "max_cost_per_turn_usd", None)
         self.tools_config = _tc
@@ -263,13 +260,6 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             disabled_skills=disabled_skills,
             structured_memory_config=structured_memory_config,
         )
-        # Governed mode refuses to start until the legacy migration finished
-        # (spec §14.3): the agent must never run with half-imported memory.
-        if structured_memory_config is not None and structured_memory_config.mode == "governed":
-            if not self.context.memory.migration_completed():
-                raise RuntimeError(
-                    "governed structured memory requires migration: run /memory-migrate --apply first"
-                )
         self.sessions = session_manager or SessionManager(workspace)
         self._webui_turns = WebuiTurnCoordinator(
             bus=self.bus,
@@ -340,8 +330,6 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             provider=provider,
             model=self.model,
             max_batch_size=defaults.dream.max_batch_size,
-            max_iterations=defaults.dream.max_iterations,
-            annotate_line_ages=defaults.dream.annotate_line_ages,
         )
         # Dream 空闲触发器：用户停用时后台触发 Dream，不依赖 cron 定时。
         # 解决"用户不 24h 运行 gateway，凌晨 cron 点大概率关机"的问题。
@@ -775,7 +763,6 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                     planner_max_replans=self.planner_max_replans,
                     enable_reflection=self.enable_reflection,
                     reflection_interval=self.reflection_interval,
-                    structured_memory_mode=self.structured_memory_mode,
                     turn_budget=self._build_turn_budget(),
                 )
             )

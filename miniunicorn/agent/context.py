@@ -106,13 +106,6 @@ class ContextBuilder:
 
     # -- governed structured memory (C2) --------------------------------------
 
-    def _structured_mode(self) -> str | None:
-        """Resolve the structured memory mode: legacy/shadow/governed/None."""
-        structured = self.memory.structured_config
-        if structured is None:
-            return None
-        return structured.mode
-
     def _build_recall_query(
         self,
         query_text: str,
@@ -149,7 +142,7 @@ class ContextBuilder:
         session_key: str | None = None,
         user_key: str | None = None,
     ) -> str:
-        """Run deterministic recall and render its prompt section (governed only)."""
+        """Run deterministic recall and render its prompt section."""
         query = self._build_recall_query(
             query_text, session_key=session_key, user_key=user_key
         )
@@ -159,16 +152,14 @@ class ContextBuilder:
             logger.exception("structured recall failed")
             return self._recall_degraded_diagnostic("recall_error")
         structured = self.memory.structured_config
-        if structured is not None and structured.recall_audit_enabled:
+        if structured.recall_audit_enabled:
             try:
                 self.memory.write_recall_audit(query, result)
             except Exception:
-                logger.exception("governed recall audit failed")
+                logger.exception("structured recall audit failed")
         recall = self.memory.structured_recall
         if result.degraded:
             return self._recall_degraded_diagnostic(result.error_code)
-        if recall is None:
-            return ""
         return recall.render_prompt(result)
 
     @staticmethod
@@ -177,37 +168,7 @@ class ContextBuilder:
         return (
             "# Structured Memory Diagnostic\n\n"
             f"Structured memory recall is unavailable (code: `{code}`). "
-            "No governed memory facts were injected."
-        )
-
-    def _audit_shadow_recall(
-        self,
-        query_text: str,
-        *,
-        session_key: str | None = None,
-        user_key: str | None = None,
-    ) -> None:
-        """Compute recall without injecting (shadow mode); audit omits the query."""
-        query = self._build_recall_query(
-            query_text, session_key=session_key, user_key=user_key
-        )
-        try:
-            result = self.memory.recall_structured(query)
-        except Exception:
-            logger.exception("shadow recall audit failed")
-            return
-        try:
-            self.memory.write_recall_audit(query, result)
-        except Exception:
-            logger.exception("shadow recall audit write failed")
-        ids = "; ".join(f"{hit.record.id}:{hit.score}" for hit in result.hits)
-        logger.info(
-            "structured_recall_shadow hits={} candidates={} filtered={} tokens={} ids={}",
-            len(result.hits),
-            result.candidates,
-            result.filtered,
-            result.tokens_used,
-            ids,
+            "No structured memory facts were injected."
         )
 
     def build_system_prompt(
@@ -229,7 +190,7 @@ class ContextBuilder:
         "Available Subagents" delegation list is omitted — the subagent runs
         as the primary identity for the turn.
 
-        In governed mode only POLICY.md plus the deterministic recall result
+        Only POLICY.md plus the deterministic recall result
         (when ``recall_query`` is given) are injected; legacy MEMORY.md,
         MEMORY_SHARED.md and the USER.md bootstrap are skipped.
         """
@@ -239,9 +200,6 @@ class ContextBuilder:
         parts: list[tuple[int, str]] = []
 
         root = workspace or self.workspace
-        mode = self._structured_mode()
-        governed = mode == "governed"
-        shadow = mode == "shadow"
         if agent_override is not None:
             # Subagent takeover mode: user selected a subagent via @. Run as
             # that subagent's identity instead of the default agent identity.
@@ -259,13 +217,13 @@ class ContextBuilder:
         # light_context 模式跳过 bootstrap 文件(AGENTS.md/SOUL.md/USER.md),
         # 仅保留身份+工具契约+记忆,显著降低 token 消耗。用于心跳等轻量巡检场景。
         if not light_context:
-            bootstrap = self._load_bootstrap_files(root, exclude_user=governed)
+            bootstrap = self._load_bootstrap_files(root, exclude_user=True)
             if bootstrap:
                 parts.append((self._PRIORITY_CRITICAL, bootstrap))
 
         parts.append((self._PRIORITY_CRITICAL, render_template("agent/tool_contract.md")))
 
-        # Cross-session policy: the only always-injected layer in governed mode.
+        # Cross-session policy is the only always-injected memory layer.
         # read_shared_policy already returns "" for missing/bundled-template content.
         policy = self.memory.read_shared_policy()
         if policy and policy.strip():
@@ -273,24 +231,7 @@ class ContextBuilder:
                 logger.warning("shared policy exceeds injection budget; not truncated")
             parts.append((self._PRIORITY_CRITICAL, f"# Shared Policy (Cross-Session)\n\n{policy}"))
 
-        if not governed:
-            memory = self.memory.get_memory_context()
-            if memory and not self._is_template_content(
-                self.memory.read_memory(), "memory/MEMORY.md"
-            ):
-                parts.append((self._PRIORITY_MEMORY, f"# Memory\n\n{memory}"))
-
-            # Inject cross-session shared memory (global facts that apply to every
-            # session, written by Dream when it promotes universally-relevant
-            # content). The agent always receives this shared baseline alongside
-            # its per-session structured memory.
-            shared = self.memory.read_shared_memory()
-            if shared and shared.strip():
-                parts.append(
-                    (self._PRIORITY_SHARED_MEMORY, f"# Shared Memory (Cross-Session)\n\n{shared}")
-                )
-
-        if governed and recall_query and not light_context:
+        if recall_query and not light_context:
             recall_text = self._recall_section(
                 truncate_text(recall_query, 2000),
                 session_key=recall_session_key,
@@ -298,14 +239,6 @@ class ContextBuilder:
             )
             if recall_text:
                 parts.append((self._PRIORITY_MEMORY, recall_text))
-        elif shadow and recall_query and not light_context:
-            structured = self.memory.structured_config
-            if structured is not None and structured.recall_audit_enabled:
-                self._audit_shadow_recall(
-                    truncate_text(recall_query, 2000),
-                    session_key=recall_session_key,
-                    user_key=recall_user_key,
-                )
 
         # 注入 notes.md（主 Agent 的 scratchpad，借鉴 MiMo Code）。
         # 主 Agent 用 write_file/edit_file 往 notes.md append 零散发现，
@@ -538,7 +471,7 @@ class ContextBuilder:
     ) -> str:
         """Load all bootstrap files from workspace.
 
-        In governed mode ``USER.md`` is excluded from bootstrap injection:
+        ``USER.md`` is excluded from bootstrap injection:
         user identity facts flow only through structured memory records.
         """
         parts = []
@@ -638,7 +571,7 @@ class ContextBuilder:
         light_context = (
             bool(getattr(runtime_state, "_light_context", False)) if runtime_state else False
         )
-        # Structured recall (governed/shadow) is keyed on the current user
+        # Structured recall is keyed on the current user
         # message; light/heartbeat turns skip recall entirely.
         recall_query = None if light_context else current_message
         if memory_user_key:

@@ -1,4 +1,4 @@
-"""AGENTS.md/SOUL.md 读写 + Dream 记忆文件只读 handler。"""
+"""AGENTS.md/SOUL.md read-write and memory diagnostics read-only handler."""
 
 from __future__ import annotations
 
@@ -22,11 +22,9 @@ from ._common import require_auth
 # file reads/writes through this endpoint.
 BOOTSTRAP_FILE_ALLOWLIST: tuple[str, ...] = ("AGENTS.md", "SOUL.md")
 
-# Dream 维护的记忆/人格文件白名单。这些文件由 Dream(记忆整合)流程
-# 读取或写入,通过此端点向 WebUI 暴露只读视图。所有路径相对于工作区根目录。
-# SOUL.md 既是 bootstrap 人格文件,也是 Dream 演化的产物(Phase 1 读、
-# Phase 2 可通过 EditFileTool 修改),故在此暴露只读视图;编辑入口仍在
-# Persona section。AGENTS.md 完全由用户手动维护,Dream 不动,故不列入。
+# Memory diagnostics exposed read-only in the WebUI. This list includes
+# active governed storage plus inert legacy import sources for inspection;
+# presence here does not mean Dream edits or prompt-injects a file.
 DREAM_FILE_ALLOWLIST: tuple[str, ...] = (
     "SOUL.md",
     "USER.md",
@@ -102,7 +100,7 @@ def save_bootstrap_file(ctx: RouteContext) -> Response:
 @router.route("/api/dream/files", methods={"GET"})
 @require_auth
 def list_dream_files(ctx: RouteContext) -> Response:
-    """列出 Dream 生成的记忆文件及其元信息(大小、修改时间、是否存在)。"""
+    """List memory files and their metadata for read-only diagnostics."""
     try:
         ws_root = ctx.deps.workspace_path.resolve()
         files = []
@@ -141,7 +139,7 @@ def list_dream_files(ctx: RouteContext) -> Response:
 @router.route("/api/dream/file", methods={"GET"})
 @require_auth
 def read_dream_file(ctx: RouteContext) -> Response:
-    """读取 Dream 生成的记忆文件内容(只读)。"""
+    """Read an allowlisted memory diagnostic file."""
     name = _query_first(ctx.query, "name")
     if not name or name not in DREAM_FILE_ALLOWLIST:
         return _http_error(400, "invalid or missing 'name' parameter")

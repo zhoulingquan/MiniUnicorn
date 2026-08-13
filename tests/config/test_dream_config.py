@@ -6,6 +6,8 @@ def test_dream_config_defaults_to_nightly_cron() -> None:
 
     assert cfg.cron == "0 3 * * *"
     assert cfg.enabled is True
+    assert not hasattr(cfg, "max_iterations")
+    assert not hasattr(cfg, "annotate_line_ages")
 
 
 def test_dream_config_builds_cron_schedule() -> None:

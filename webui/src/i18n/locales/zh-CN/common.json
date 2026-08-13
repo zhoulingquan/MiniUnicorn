@@ -378,8 +378,8 @@
       "custom": "自定义",
       "files": {
         "button": "查看文件",
-        "title": "做梦生成的文件",
-        "description": "由做梦记忆整合流程写入和维护的记忆文件。只读视图。",
+        "title": "记忆诊断文件",
+        "description": "结构化存储、Dream 输入与旧数据导入源的只读视图。",
         "listHeader": "文件",
         "loading": "加载中…",
         "empty": "暂无文件。",
@@ -392,15 +392,15 @@
         "close": "关闭",
         "refresh": "刷新",
         "desc": {
-          "SOUL.md": "Agent 人格/灵魂。Dream Phase 1 读取、Phase 2 可编辑演化。",
-          "USER.md": "用户长期画像。Dream 基于对话历史维护更新。",
-          "memory/MEMORY.md": "长期事实记忆。Dream 提炼的关键事实。",
-          "memory/history.jsonl": "对话历史归档。Consolidator/Dream 压缩的旧消息摘要。",
-          "memory/episodic.jsonl": "情节记忆。按时间顺序的事件流。",
-          "memory/procedural.jsonl": "程序性记忆。Dream 从反思中提炼的教训。",
+          "SOUL.md": "Agent 人格与沟通风格的启动指引文件。",
+          "USER.md": "惰性的旧用户画像导入源；未显式导入时不会注入提示词。",
+          "memory/MEMORY.md": "惰性的旧事实导入源；未显式导入时不会注入提示词。",
+          "memory/history.jsonl": "Consolidator 写入、供 Dream 作为证据消费的对话归档。",
+          "memory/episodic.jsonl": "旧情节记忆导入源。",
+          "memory/procedural.jsonl": "旧程序性记忆导入源。",
           "memory/reflections.jsonl": "反思记录。Reflection 写入,Dream 消费。",
-          "memory/shared/MEMORY_SHARED.md": "跨会话共享事实。Dream 提升的全局知识。",
-          "memory/shared/procedural_shared.jsonl": "跨会话共享教训。Dream 提升的全局经验。"
+          "memory/shared/MEMORY_SHARED.md": "旧跨会话共享事实导入源。",
+          "memory/shared/procedural_shared.jsonl": "旧跨会话共享经验导入源。"
         }
       }
     },

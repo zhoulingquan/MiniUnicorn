@@ -378,8 +378,8 @@
       "custom": "Custom",
       "files": {
         "button": "View Files",
-        "title": "Dream Generated Files",
-        "description": "Memory files written and maintained by the Dream consolidation process. Read-only.",
+        "title": "Memory Diagnostics",
+        "description": "Read-only governed storage, Dream inputs, and legacy import sources.",
         "listHeader": "Files",
         "loading": "Loading…",
         "empty": "No files available.",
@@ -392,15 +392,15 @@
         "close": "Close",
         "refresh": "Refresh",
         "desc": {
-          "SOUL.md": "Agent persona/soul. Read in Dream Phase 1, may be edited in Phase 2.",
-          "USER.md": "Long-term user profile. Maintained by Dream from conversation history.",
-          "memory/MEMORY.md": "Long-term factual memory. Key facts distilled by Dream.",
-          "memory/history.jsonl": "Conversation history archive. Summaries of old messages by Consolidator/Dream.",
-          "memory/episodic.jsonl": "Episodic memory. Chronological event stream.",
-          "memory/procedural.jsonl": "Procedural memory. Lessons distilled by Dream from reflections.",
+          "SOUL.md": "Agent persona and communication style bootstrap file.",
+          "USER.md": "Inert legacy user-profile source; not injected unless explicitly imported.",
+          "memory/MEMORY.md": "Inert legacy fact source; not injected unless explicitly imported.",
+          "memory/history.jsonl": "Conversation archive written by Consolidator and consumed as Dream evidence.",
+          "memory/episodic.jsonl": "Legacy episodic import source.",
+          "memory/procedural.jsonl": "Legacy procedural import source.",
           "memory/reflections.jsonl": "Reflections. Written by Reflection, consumed by Dream.",
-          "memory/shared/MEMORY_SHARED.md": "Cross-session shared facts. Global knowledge promoted by Dream.",
-          "memory/shared/procedural_shared.jsonl": "Cross-session shared lessons. Global experience promoted by Dream."
+          "memory/shared/MEMORY_SHARED.md": "Inert legacy shared-fact import source.",
+          "memory/shared/procedural_shared.jsonl": "Legacy shared-procedure import source."
         }
       }
     },

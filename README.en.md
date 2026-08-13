@@ -84,11 +84,11 @@ Memory is not one giant file. It is layered, with a different medium for each ki
 |-------|--------|------|
 | Short-term session | `session.messages` | Full context of the live conversation |
 | Compressed archive | `memory/history.jsonl` | Append-only, cursor-based history summaries (machine-first) |
-| Long-term knowledge | `SOUL.md` · `USER.md` · `memory/MEMORY.md` | Voice & persona / user profile / project facts |
+| Long-term knowledge | `memory/structured/journal.jsonl` | Structured facts with provenance, status, and scope |
 | Lessons learned | `memory/reflections.jsonl` | One-sentence lessons from failures and periodic reflection |
 | Version history | `GitStore` (embedded Git) | Every change to long-term files is traceable and revertible |
 
-Memory moves in **two stages**: the **Consolidator** summarizes the oldest safe slice into `history.jsonl` when the session approaches the context window; **Dream** runs on a schedule (every 2 hours by default) or via `/dream`, reads the new summaries plus the long-term files, and makes minimal surgical edits rather than wholesale rewrites. The user always retains audit and undo rights: `/dream-log` shows the diff of each change, `/dream-restore` rolls back to any version.
+Memory moves in **two stages**: the **Consolidator** summarizes the oldest safe slice into `history.jsonl` when the session approaches the context window; **Dream** runs on a schedule or via `/dream`, extracts candidate facts from new summaries and reflections, and passes them through a deterministic lifecycle into an append-only structured journal. Normal prompts recall only exact-scope active facts; candidates and legacy Markdown memory files are never injected wholesale.
 
 ### 4. Context management — fighting context rot
 
@@ -104,7 +104,7 @@ Auto-compaction is token-budget driven and skips active tasks. Third-party strat
 
 ### 5. Prompt construction — the world the model sees
 
-Context assembly is layered: base persona (`SOUL.md`) → user profile (`USER.md`) → project facts (`MEMORY.md`) → tool definitions → on-demand memory fragments and skills. **Skills** (`skills/`) are Markdown + YAML frontmatter knowledge packs that enter the context only when relevant — the goal is a minimal high-signal token set, not stuffing everything into the window.
+Context assembly is layered: base persona (`SOUL.md`) → project instructions → tool definitions → deterministically recalled active memory and on-demand skills. `USER.md`, `MEMORY.md`, and `MEMORY_SHARED.md` are optional legacy import sources and are not injected wholesale into normal prompts.
 
 ### 6. Output parsing — from free text to structured action
 

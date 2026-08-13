@@ -1,4 +1,4 @@
-"""ContextBuilder structured memory injection tests: legacy/shadow/governed."""
+"""ContextBuilder single-path structured memory injection tests."""
 
 from __future__ import annotations
 
@@ -94,17 +94,17 @@ def workspace(tmp_path):
     return tmp_path
 
 
-def make_builder(workspace, mode: str | None, **kwargs) -> ContextBuilder:
-    config = None if mode is None else StructuredMemoryConfig(mode=mode, **kwargs)
+def make_builder(workspace, **kwargs) -> ContextBuilder:
+    config = StructuredMemoryConfig(**kwargs) if kwargs else None
     return ContextBuilder(workspace, structured_memory_config=config)
 
 
-class TestGovernedMode:
+class TestStructuredMemoryContext:
     def test_omits_legacy_memory_and_shared(self, workspace):
         shared = workspace / "memory" / "shared" / "MEMORY_SHARED.md"
         shared.parent.mkdir(parents=True, exist_ok=True)
         shared.write_text("- shared legacy fact\n", encoding="utf-8")
-        builder = make_builder(workspace, "governed")
+        builder = make_builder(workspace)
 
         prompt = builder.build_system_prompt()
 
@@ -112,7 +112,7 @@ class TestGovernedMode:
         assert "shared legacy fact" not in prompt
 
     def test_omits_user_bootstrap_keeps_agent_and_soul(self, workspace):
-        builder = make_builder(workspace, "governed")
+        builder = make_builder(workspace)
 
         prompt = builder.build_system_prompt()
 
@@ -121,14 +121,14 @@ class TestGovernedMode:
         assert "Helpful" in prompt
 
     def test_skips_recall_without_query(self, workspace):
-        builder = make_builder(workspace, "governed")
+        builder = make_builder(workspace)
 
         prompt = builder.build_system_prompt()
 
         assert RECALL_HEADER not in prompt
 
     def test_injects_recall_hits(self, workspace):
-        builder = make_builder(workspace, "governed")
+        builder = make_builder(workspace)
         seed_active_record(builder.memory, "Main uses deterministic structured recall.")
 
         prompt = builder.build_system_prompt(
@@ -142,14 +142,14 @@ class TestGovernedMode:
         policy = workspace / "memory" / "shared" / "POLICY.md"
         policy.parent.mkdir(parents=True, exist_ok=True)
         policy.write_text("Never modify production configs without approval.\n", encoding="utf-8")
-        builder = make_builder(workspace, "governed")
+        builder = make_builder(workspace)
 
         prompt = builder.build_system_prompt()
 
         assert "Never modify production configs without approval" in prompt
 
     def test_build_messages_feeds_current_message_as_recall_query(self, workspace):
-        builder = make_builder(workspace, "governed")
+        builder = make_builder(workspace)
         seed_active_record(builder.memory, "MiniUnicorn recall stays local without embeddings.")
 
         messages = builder.build_messages(
@@ -163,7 +163,7 @@ class TestGovernedMode:
     def test_governed_recall_degraded_injects_diagnostic_without_facts(
         self, workspace, monkeypatch
     ):
-        builder = make_builder(workspace, "governed")
+        builder = make_builder(workspace)
         monkeypatch.setattr(
             builder.memory,
             "recall_structured",
@@ -182,7 +182,7 @@ class TestGovernedMode:
         assert RECALL_HEADER not in prompt
 
     def test_build_messages_recall_includes_exact_session_and_user_scopes(self, workspace):
-        builder = make_builder(workspace, "governed")
+        builder = make_builder(workspace)
         seed_active_record(
             builder.memory,
             "Alice prefers compact responses.",
@@ -208,7 +208,7 @@ class TestGovernedMode:
         assert "This session is debugging caching" in system
 
     def test_build_messages_uses_default_user_scope_without_sender(self, workspace):
-        builder = make_builder(workspace, "governed")
+        builder = make_builder(workspace)
         seed_active_record(
             builder.memory,
             "Default user prefers Chinese.",
@@ -223,7 +223,7 @@ class TestGovernedMode:
         assert "Default user prefers Chinese" in messages[0]["content"]
 
     def test_subagent_scope_uses_parent_session_and_user_identity(self, workspace):
-        builder = make_builder(workspace, "governed")
+        builder = make_builder(workspace)
         seed_active_record(
             builder.memory,
             "Parent user wants terse output.",
@@ -240,55 +240,3 @@ class TestGovernedMode:
         )
 
         assert "Parent user wants terse output" in messages[0]["content"]
-
-
-class TestShadowMode:
-    def test_keeps_legacy_injection_without_recall(self, workspace):
-        shared = workspace / "memory" / "shared" / "MEMORY_SHARED.md"
-        shared.parent.mkdir(parents=True, exist_ok=True)
-        shared.write_text("- shared legacy fact\n", encoding="utf-8")
-        builder = make_builder(workspace, "shadow")
-
-        prompt = builder.build_system_prompt(recall_query="anything")
-
-        assert "Legacy memory fact" in prompt
-        assert "shared legacy fact" in prompt
-        assert "Alice the developer" in prompt
-        assert RECALL_HEADER not in prompt
-
-    def test_audit_logs_without_query_text(self, workspace, monkeypatch):
-        builder = make_builder(workspace, "shadow", recall_audit_enabled=True)
-        seed_active_record(builder.memory, "Audit target fact about caching.")
-        logged: list[str] = []
-        monkeypatch.setattr(
-            "miniunicorn.agent.context.logger.info", lambda msg, *args, **kwargs: logged.append(str(msg))
-        )
-
-        builder.build_system_prompt(recall_query="tell me about caching")
-
-        assert any("structured_recall_shadow" in line for line in logged)
-        assert all("tell me about caching" not in line for line in logged)
-
-    def test_audit_disabled_skips_recall(self, workspace, monkeypatch):
-        builder = make_builder(workspace, "shadow", recall_audit_enabled=False)
-        logged: list[str] = []
-        monkeypatch.setattr(
-            "miniunicorn.agent.context.logger.info", lambda msg, *args, **kwargs: logged.append(str(msg))
-        )
-
-        builder.build_system_prompt(recall_query="anything")
-
-        assert not any("structured_recall_shadow" in line for line in logged)
-
-
-class TestLegacyMode:
-    def test_unaffected_by_structured_changes(self, workspace):
-        builder = make_builder(workspace, None)
-
-        prompt = builder.build_system_prompt()
-
-        assert "Legacy memory fact" in prompt
-        assert "Alice the developer" in prompt
-        assert "Workflow rule" in prompt
-        assert RECALL_HEADER not in prompt
-        assert "Shared Policy" not in prompt

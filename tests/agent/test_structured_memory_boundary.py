@@ -110,9 +110,7 @@ def test_recall_audit_concurrent_writers_do_not_lose_rows(tmp_path):
 def test_governed_recall_writes_audit_when_enabled(tmp_path, monkeypatch):
     builder = ContextBuilder(
         tmp_path,
-        structured_memory_config=StructuredMemoryConfig(
-            mode="governed", recall_audit_enabled=True
-        ),
+        structured_memory_config=StructuredMemoryConfig(recall_audit_enabled=True),
     )
     written: list[tuple[RecallQuery, RecallResult]] = []
     result = RecallResult(candidates=1, filtered=1)
@@ -274,7 +272,7 @@ def test_governed_prompt_never_whole_injects_shared_legacy_file(tmp_path):
     shared.write_text("secret shared legacy fact", encoding="utf-8")
     builder = ContextBuilder(
         tmp_path,
-        structured_memory_config=StructuredMemoryConfig(mode="governed"),
+        structured_memory_config=StructuredMemoryConfig(),
     )
 
     prompt = builder.build_system_prompt(recall_query="unrelated")
@@ -285,7 +283,7 @@ def test_governed_prompt_never_whole_injects_shared_legacy_file(tmp_path):
 def test_governed_prompt_never_injects_candidate_record(tmp_path):
     builder = ContextBuilder(
         tmp_path,
-        structured_memory_config=StructuredMemoryConfig(mode="governed"),
+        structured_memory_config=StructuredMemoryConfig(),
     )
     statement = "Candidate-only private memory fact."
     evidence = EvidenceRef(

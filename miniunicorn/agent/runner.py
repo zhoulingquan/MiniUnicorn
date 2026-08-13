@@ -8,7 +8,7 @@ import os
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Callable
 
 from loguru import logger
 
@@ -119,10 +119,6 @@ class AgentRunSpec:
     # Dream to consolidate. Default False = no reflection overhead.
     enable_reflection: bool = False
     reflection_interval: int = 5  # periodic reflection every N iterations
-    # Structured memory mode: "shadow"/"governed" emit structured reflection
-    # entries (program-generated reflection_id + parsed lesson); "legacy"/None
-    # keep the legacy free-text reflection shape.
-    structured_memory_mode: Literal["legacy", "shadow", "governed"] | None = None
 
 
 @dataclass(slots=True)
@@ -431,7 +427,6 @@ class AgentRunner:
                 self.provider,
                 spec.model,
                 spec.workspace,
-                structured_mode=getattr(spec, "structured_memory_mode", None) in ("shadow", "governed"),
             )
 
         for iteration in range(spec.max_iterations):

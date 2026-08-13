@@ -1531,14 +1531,13 @@ Set `agents.defaults.toolHintMaxLength` to control the truncation threshold:
 
 ## Governed Structured Memory
 
-Configure the journal-backed memory system under `agents.defaults.structuredMemory`:
+The governed journal-backed memory system is always enabled. Configure its tuning values under `agents.defaults.structuredMemory`:
 
 ```json
 {
   "agents": {
     "defaults": {
       "structuredMemory": {
-        "mode": "shadow",
         "recallTokenBudget": 2500,
         "maxRecallHits": 20,
         "lockTimeoutS": 5,
@@ -1552,6 +1551,6 @@ Configure the journal-backed memory system under `agents.defaults.structuredMemo
 }
 ```
 
-Use `shadow` first to build and inspect structured records without changing prompt injection. After `/memory-migrate --apply` completes, switch to `governed` to inject only customized policy plus deterministic active-record recall. Recall uses exact session, project, user, and shared scopes; candidate records are never injected.
+MiniUnicorn injects only customized policy plus deterministic active-record recall. Recall uses exact session, project, user, and shared scopes; candidate records and whole legacy fact files are never injected. `/memory-migrate --apply` is optional and imports development-era files into the journal without gating startup.
 
-When `recallAuditEnabled` is true, both shadow and governed recall write a redacted, local `memory/structured/recall-audit.jsonl`. Each row records only: the timestamp, SHA-256 hashes of the allowed scope keys, hit IDs with their scores and reason categories, candidate and filtered counts, budget-excluded hits, token totals, plus any degraded state and error code. Raw query text, memory statements and evidence excerpts are never written. The file keeps the latest 1000 rows and is not committed by memory Git history. This C2 implementation intentionally has no embedding model, vector database, or vector-runtime setting.
+When `recallAuditEnabled` is true, structured recall writes a redacted, local `memory/structured/recall-audit.jsonl`. Each row records only: the timestamp, SHA-256 hashes of the allowed scope keys, hit IDs with their scores and reason categories, candidate and filtered counts, budget-excluded hits, token totals, plus any degraded state and error code. Raw query text, memory statements and evidence excerpts are never written. The file keeps the latest 1000 rows and is not committed by memory Git history. This implementation intentionally has no embedding model, vector database, or vector-runtime setting.

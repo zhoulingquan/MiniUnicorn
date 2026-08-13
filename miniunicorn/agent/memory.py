@@ -19,8 +19,6 @@ from filelock import FileLock
 from loguru import logger
 
 from miniunicorn.agent.reflection import _atomic_rewrite_lines
-from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
-from miniunicorn.agent.tools.registry import ToolRegistry
 from miniunicorn.bus.events import session_key_base
 from miniunicorn.session.manager import Session
 from miniunicorn.utils.gitstore import GitStore
@@ -35,9 +33,7 @@ from miniunicorn.utils.helpers import (
 from miniunicorn.utils.prompt_templates import render_template
 
 if TYPE_CHECKING:
-    from miniunicorn.agent.memory_lifecycle import StructuredMemoryLifecycle
     from miniunicorn.agent.memory_models import MemoryStatus, RecallQuery, RecallResult
-    from miniunicorn.agent.memory_recall import StructuredMemoryRecall
     from miniunicorn.agent.memory_repository import StructuredMemoryRepository
     from miniunicorn.config.schema import StructuredMemoryConfig
     from miniunicorn.providers.base import LLMProvider
@@ -100,7 +96,7 @@ def _dream_source_batch(evidence_refs: Iterable[str]) -> str:
 
 
 class MemoryStore:
-    """Pure file I/O for memory files: MEMORY.md, history.jsonl, SOUL.md, USER.md."""
+    """File-backed governed memory, history, reflection, and import storage."""
 
     _DEFAULT_MAX_HISTORY = 1000
     # Episodic/procedural/reflections 文件条数上限：超出时截断最旧条目。
@@ -125,7 +121,7 @@ class MemoryStore:
     # 角色说明：
     #   - "main_agent": 主 Agent 通过 EditFileTool 间接写入（唯一允许的文件是 notes.md）
     #   - "consolidator": Consolidator 归档时写入 history.jsonl + 清空 notes.md
-    #   - "dream": Dream 提炼后通过 EditFileTool 写入 MEMORY/SOUL/USER + 推进 cursor
+    #   - "dream": Dream 提炼结构化候选并推进消费 cursor
     #   - "memory_store": MemoryStore 内部迁移/截断逻辑（_maybe_migrate_legacy_history 等）
     _WRITER_WHITELIST: dict[str, set[str]] = {
         "notes.md": {"main_agent", "consolidator"},
@@ -208,20 +204,16 @@ class MemoryStore:
             ],
         )
         self._maybe_migrate_legacy_history()
-        # Governed structured memory (C2): journal-backed facts + lifecycle + recall.
-        self.structured_config = structured_config
-        self.structured_repository: StructuredMemoryRepository | None = None
-        self.structured_lifecycle: StructuredMemoryLifecycle | None = None
-        self.structured_recall: StructuredMemoryRecall | None = None
-        mode = structured_config.mode if structured_config is not None else "legacy"
-        if mode in ("shadow", "governed"):
-            self._ensure_structured_bundled_files()
-            self._build_structured_stack()
-            logger.info(
-                "structured_memory_initialized mode={} health={}",
-                mode,
-                self.structured_repository.health.state,  # type: ignore[union-attr]
-            )
+        # Governed structured memory: always on; journal-backed facts + lifecycle + recall.
+        from miniunicorn.config.schema import StructuredMemoryConfig
+
+        self.structured_config = structured_config or StructuredMemoryConfig()
+        self._ensure_structured_bundled_files()
+        self._build_structured_stack()
+        logger.info(
+            "structured_memory_initialized health={}",
+            self.structured_repository.health.state,
+        )
 
     @property
     def project_scope_key(self) -> str:
@@ -264,16 +256,8 @@ class MemoryStore:
             ) as dest:
                 dest.write(source.read())
 
-    def _build_structured_stack(self) -> None:
-        """Construct repository -> lifecycle -> recall from the structured config.
-
-        ``None`` config means the caller opted into ``legacy`` mode; the stack
-        is then built lazily on the first structured command.
-        """
-        if self.structured_config is None:
-            from miniunicorn.agent.memory_models import MemoryWriteError
-
-            raise MemoryWriteError("structured stack requires a structured config")
+    def _build_structured_stack(self) -> StructuredMemoryRepository:
+        """Construct the repository -> lifecycle -> recall stack."""
         from miniunicorn.agent.memory_lifecycle import (
             LifecyclePolicy,
             StructuredMemoryLifecycle,
@@ -292,17 +276,11 @@ class MemoryStore:
         self.structured_repository = repository
         self.structured_lifecycle = StructuredMemoryLifecycle(repository, policy)
         self.structured_recall = StructuredMemoryRecall(repository, repository.tag_catalog)
+        return repository
 
     def _structured_stack_or_build(self) -> StructuredMemoryRepository:
-        """Lazily materialize the structured stack (legacy deferral)."""
-        if self.structured_repository is None:
-            if self.structured_config is None:
-                from miniunicorn.config.schema import StructuredMemoryConfig
-
-                self.structured_config = StructuredMemoryConfig(mode="legacy")
-            self._ensure_structured_bundled_files()
-            self._build_structured_stack()
-        return self.structured_repository  # type: ignore[return-value]
+        """Return the always-initialized structured repository."""
+        return self.structured_repository
 
     def read_shared_policy(self) -> str:
         """Return shared POLICY.md body, or "" when missing or still the bundled
@@ -349,7 +327,7 @@ class MemoryStore:
         }
         ensure_dir(self.recall_audit_file.parent)
         self._assert_path_in_workspace(self.recall_audit_lock_file)
-        lock_timeout = self.structured_config.lock_timeout_s if self.structured_config else 5.0
+        lock_timeout = self.structured_config.lock_timeout_s
         with FileLock(str(self.recall_audit_lock_file), timeout=lock_timeout):
             existing: list[str] = []
             with suppress(FileNotFoundError, OSError):
@@ -1818,28 +1796,11 @@ class Consolidator:
 # ---------------------------------------------------------------------------
 
 
-# Single source of truth for the staleness threshold used in _annotate_with_ages
-# *and* in the Phase 1 prompt template (passed as `stale_threshold_days`).
-# Keep code and prompt aligned — if you bump this, the LLM's instruction string
-# updates automatically.
-_STALE_THRESHOLD_DAYS = 14
-
-
 class Dream:
-    """Two-phase memory processor: analyze history.jsonl, then edit files via AgentRunner.
+    """Extract journal-backed memory proposals from history and reflections."""
 
-    Phase 1 produces an analysis summary (plain LLM call).
-    Phase 2 delegates to AgentRunner with read_file / edit_file tools so the
-    LLM can make targeted, incremental edits instead of replacing entire files.
-    """
-
-    # Caps on prompt-bound inputs so Dream's LLM calls never exceed the model's
-    # context window just because a file (or a legacy large history entry) grew
-    # unexpectedly. Each file still appears in full via read_file when the agent
-    # needs it in Phase 2 — these caps only bound the Phase 1/2 prompt preview.
-    _MEMORY_FILE_MAX_CHARS = 32_000
-    _SOUL_FILE_MAX_CHARS = 16_000
-    _USER_FILE_MAX_CHARS = 16_000
+    # Cap each history entry included in the extraction prompt so a legacy
+    # oversized archive row cannot exhaust the model context window.
     _HISTORY_ENTRY_PREVIEW_MAX_CHARS = 4_000
 
     def __init__(
@@ -1848,376 +1809,23 @@ class Dream:
         provider: LLMProvider,
         model: str,
         max_batch_size: int = 20,
-        max_iterations: int = 10,
-        max_tool_result_chars: int = 16_000,
-        annotate_line_ages: bool = True,
     ):
         self.store = store
         self.provider = provider
         self.model = model
         self.max_batch_size = max_batch_size
-        self.max_iterations = max_iterations
-        self.max_tool_result_chars = max_tool_result_chars
-        # Kill switch for the git-blame-based per-line age annotation in Phase 1.
-        # Default True keeps the #3212 behavior; set False to feed MEMORY.md raw
-        # (e.g. if a specific LLM reacts poorly to the `← Nd` suffix).
-        self.annotate_line_ages = annotate_line_ages
-        self._runner = AgentRunner(provider)
-        self._tools = self._build_tools()
 
     def set_provider(self, provider: LLMProvider, model: str) -> None:
         self.provider = provider
         self.model = model
-        self._runner.provider = provider
-
-    # -- tool registry -------------------------------------------------------
-
-    def _build_tools(self) -> ToolRegistry:
-        """Build a minimal tool registry for the Dream agent."""
-        from miniunicorn.agent.skills import BUILTIN_SKILLS_DIR
-        from miniunicorn.agent.tools.file_state import FileStates
-        from miniunicorn.agent.tools.filesystem import EditFileTool, ReadFileTool, WriteFileTool
-
-        tools = ToolRegistry()
-        workspace = self.store.workspace
-        # Allow reading builtin skills for reference during skill creation
-        extra_read = [BUILTIN_SKILLS_DIR] if BUILTIN_SKILLS_DIR.exists() else None
-        # Dream gets its own FileStates so its caches stay isolated from the
-        # main loop's sessions (issue #3571).
-        file_states = FileStates()
-        tools.register(
-            ReadFileTool(
-                workspace=workspace,
-                allowed_dir=workspace,
-                extra_allowed_dirs=extra_read,
-                file_states=file_states,
-            )
-        )
-        structured = self.store.structured_config
-        structured_mode = structured is not None and structured.mode in ("shadow", "governed")
-        if not structured_mode:
-            # Structured mode removes fact-file editing entirely: facts flow
-            # only through lifecycle candidates, never through edit_file.
-            tools.register(
-                EditFileTool(workspace=workspace, allowed_dir=workspace, file_states=file_states)
-            )
-        # write_file resolves relative paths from workspace root, but can only
-        # write under skills/ so the prompt can safely use skills/<name>/SKILL.md.
-        skills_dir = workspace / "skills"
-        skills_dir.mkdir(parents=True, exist_ok=True)
-        tools.register(
-            WriteFileTool(workspace=workspace, allowed_dir=skills_dir, file_states=file_states)
-        )
-        return tools
-
-    # -- skill listing --------------------------------------------------------
-
-    def _list_existing_skills(self) -> list[str]:
-        """List existing skills as 'name — description' for dedup context."""
-        import re as _re
-
-        from miniunicorn.agent.skills import BUILTIN_SKILLS_DIR
-
-        desc_re = _re.compile(r"^description:\s*(.+)$", _re.MULTILINE | _re.IGNORECASE)
-        entries: dict[str, str] = {}
-        for base in (self.store.workspace / "skills", BUILTIN_SKILLS_DIR):
-            if not base.exists():
-                continue
-            for d in base.iterdir():
-                if not d.is_dir():
-                    continue
-                skill_md = d / "SKILL.md"
-                if not skill_md.exists():
-                    continue
-                # Prefer workspace skills over builtin (same name)
-                if d.name in entries and base == BUILTIN_SKILLS_DIR:
-                    continue
-                content = skill_md.read_text(encoding="utf-8")[:500]
-                m = desc_re.search(content)
-                desc = m.group(1).strip() if m else "(no description)"
-                entries[d.name] = desc
-        return [f"{name} — {desc}" for name, desc in sorted(entries.items())]
 
     # -- main entry ----------------------------------------------------------
 
-    def _annotate_with_ages(self, content: str) -> str:
-        """Append per-line age suffixes to MEMORY.md content.
-
-        Each non-blank line whose age exceeds ``_STALE_THRESHOLD_DAYS`` gets a
-        suffix like ``← 30d`` indicating days since last modification.
-        Returns the original content unchanged if git is unavailable,
-        annotate fails, or the line count doesn't match the age count
-        (which can happen with an uncommitted working-tree edit — better to
-        skip annotation than to tag the wrong line).
-        SOUL.md and USER.md are never annotated.
-        """
-        file_path = "memory/MEMORY.md"
-        try:
-            ages = self.store.git.line_ages(file_path)
-        except Exception:
-            logger.debug("line_ages failed for {}", file_path)
-            return content
-        if not ages:
-            return content
-
-        had_trailing = content.endswith("\n")
-        lines = content.splitlines()
-        # If HEAD-blob line count disagrees with the working-tree content we
-        # received, ages would be assigned to the wrong lines — skip entirely
-        # and feed the LLM un-annotated content rather than misleading data.
-        if len(lines) != len(ages):
-            logger.debug(
-                "line_ages length mismatch for {} (lines={}, ages={}); skipping annotation",
-                file_path,
-                len(lines),
-                len(ages),
-            )
-            return content
-
-        annotated: list[str] = []
-        for line, age in zip(lines, ages):
-            if not line.strip():
-                annotated.append(line)
-                continue
-            if age.age_days > _STALE_THRESHOLD_DAYS:
-                annotated.append(f"{line}  \u2190 {age.age_days}d")
-            else:
-                annotated.append(line)
-        result = "\n".join(annotated)
-        if had_trailing:
-            result += "\n"
-        return result
-
     async def run(self) -> bool:
         """Process unprocessed history entries. Returns True if work was done."""
-        structured = self.store.structured_config
-        if structured is not None and structured.mode in ("shadow", "governed"):
-            return await self._run_structured_batch()
-        from miniunicorn.agent.skills import BUILTIN_SKILLS_DIR
+        return await self._run_structured_batch()
 
-        last_cursor = self.store.get_last_dream_cursor()
-        entries = self.store.read_unprocessed_history(since_cursor=last_cursor)
-
-        # Read unprocessed reflections (from P2 Reflection mechanism)
-        last_refl_cursor = self.store.get_last_reflections_cursor()
-        reflections = self.store.read_unprocessed_reflections(since_cursor=last_refl_cursor)
-
-        if not entries and not reflections:
-            return False
-
-        # If only reflections (no new history), still process them
-        if not entries and reflections:
-            logger.info(
-                "Dream: processing {} reflections only (no new history)",
-                len(reflections),
-            )
-
-        batch = entries[: self.max_batch_size] if entries else []
-        if batch:
-            logger.info(
-                "Dream: processing {} entries (cursor {}→{}), batch={}",
-                len(entries),
-                last_cursor,
-                batch[-1]["cursor"],
-                len(batch),
-            )
-
-        # Build history text for LLM — cap each entry so a legacy oversized
-        # record (e.g. pre-#3412 raw_archive dump) can't blow up the prompt.
-        history_text = (
-            "\n".join(
-                f"[{e['timestamp']}] "
-                f"{truncate_text(e['content'], self._HISTORY_ENTRY_PREVIEW_MAX_CHARS)}"
-                for e in batch
-            )
-            if batch
-            else "(no new history)"
-        )
-
-        # Current file contents + per-line age annotations (MEMORY.md only).
-        # Each file is capped in the *prompt preview* only; Phase 2 still sees
-        # the full file via the read_file tool.
-        current_date = datetime.now().strftime("%Y-%m-%d")
-        raw_memory = self.store.read_memory() or "(empty)"
-        annotated_memory = (
-            self._annotate_with_ages(raw_memory) if self.annotate_line_ages else raw_memory
-        )
-        current_memory = truncate_text(annotated_memory, self._MEMORY_FILE_MAX_CHARS)
-        current_soul = truncate_text(
-            self.store.read_soul() or "(empty)",
-            self._SOUL_FILE_MAX_CHARS,
-        )
-        current_user = truncate_text(
-            self.store.read_user() or "(empty)",
-            self._USER_FILE_MAX_CHARS,
-        )
-
-        file_context = (
-            f"## Current Date\n{current_date}\n\n"
-            f"## Current MEMORY.md ({len(current_memory)} chars)\n{current_memory}\n\n"
-            f"## Current SOUL.md ({len(current_soul)} chars)\n{current_soul}\n\n"
-            f"## Current USER.md ({len(current_user)} chars)\n{current_user}"
-        )
-
-        # Build reflections context for Phase 1 — lessons learned from
-        # failures/mistakes that Dream should consolidate into procedural.jsonl.
-        reflections_text = ""
-        if reflections:
-            reflections_text = "\n\n## Recent Reflections (Lessons Learned)\n"
-            for r in reflections:
-                trigger = r.get("trigger", "unknown")
-                reflection = r.get("reflection", "")
-                ts = r.get("timestamp", "")
-                reflections_text += f"- [{ts}] ({trigger}) {reflection}\n"
-
-            # Show current procedural lessons so the LLM can dedup
-            current_procedural = self.store.read_procedural(limit=50)
-            if current_procedural:
-                reflections_text += "\n## Current Procedural Lessons\n"
-                for p in current_procedural:
-                    reflections_text += f"- [{p.get('timestamp', '')}] {p.get('content', '')}\n"
-
-        # Phase 1: Analyze (no skills list — dedup is Phase 2's job)
-        phase1_prompt = (
-            f"## Conversation History\n{history_text}\n\n{file_context}{reflections_text}"
-        )
-
-        try:
-            phase1_response = await self.provider.chat_with_retry(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": render_template(
-                            "agent/dream_phase1.md",
-                            strip=True,
-                            stale_threshold_days=_STALE_THRESHOLD_DAYS,
-                        ),
-                    },
-                    {"role": "user", "content": phase1_prompt},
-                ],
-                tools=None,
-                tool_choice=None,
-            )
-            analysis = phase1_response.content or ""
-            logger.debug("Dream Phase 1 analysis ({} chars): {}", len(analysis), analysis[:500])
-        except Exception:
-            logger.exception("Dream Phase 1 failed")
-            return False
-
-        # Phase 2: Delegate to AgentRunner with read_file / edit_file
-        existing_skills = self._list_existing_skills()
-        skills_section = ""
-        if existing_skills:
-            skills_section = "\n\n## Existing Skills\n" + "\n".join(
-                f"- {s}" for s in existing_skills
-            )
-        phase2_prompt = f"## Analysis Result\n{analysis}\n\n{file_context}{skills_section}"
-
-        tools = self._tools
-        skill_creator_path = BUILTIN_SKILLS_DIR / "skill-creator" / "SKILL.md"
-        messages: list[dict[str, Any]] = [
-            {
-                "role": "system",
-                "content": render_template(
-                    "agent/dream_phase2.md",
-                    strip=True,
-                    skill_creator_path=str(skill_creator_path),
-                ),
-            },
-            {"role": "user", "content": phase2_prompt},
-        ]
-
-        try:
-            result = await self._runner.run(
-                AgentRunSpec(
-                    initial_messages=messages,
-                    tools=tools,
-                    model=self.model,
-                    max_iterations=self.max_iterations,
-                    max_tool_result_chars=self.max_tool_result_chars,
-                    fail_on_tool_error=False,
-                )
-            )
-            logger.debug(
-                "Dream Phase 2 complete: stop_reason={}, tool_events={}",
-                result.stop_reason,
-                len(result.tool_events),
-            )
-            for ev in result.tool_events or []:
-                logger.info(
-                    "Dream tool_event: name={}, status={}, detail={}",
-                    ev.get("name"),
-                    ev.get("status"),
-                    ev.get("detail", "")[:200],
-                )
-        except Exception:
-            logger.exception("Dream Phase 2 failed")
-            result = None
-
-        # Build changelog from tool events
-        changelog: list[str] = []
-        if result and result.tool_events:
-            for event in result.tool_events:
-                if event["status"] == "ok":
-                    changelog.append(f"{event['name']}: {event['detail']}")
-
-        # Only advance cursor on successful completion to prevent silent loss
-        if result and result.stop_reason == "completed":
-            if batch:
-                new_cursor = batch[-1]["cursor"]
-                self.store.set_last_dream_cursor(new_cursor)
-                logger.info(
-                    "Dream done: {} change(s), cursor advanced to {}",
-                    len(changelog),
-                    new_cursor,
-                )
-            else:
-                logger.info(
-                    "Dream done: {} change(s) (reflections only)",
-                    len(changelog),
-                )
-            # Advance reflections cursor after successful processing
-            if reflections:
-                last_line = max(r.get("_line", 0) for r in reflections)
-                self.store.set_last_reflections_cursor(last_line)
-        else:
-            reason = result.stop_reason if result else "exception"
-            logger.warning(
-                "Dream incomplete ({}): cursor NOT advanced, will retry next cron cycle",
-                reason,
-            )
-
-        self.store.compact_history()
-
-        # 文件层清理：截断 episodic/procedural/shared_procedural/reflections
-        # 中已处理或过旧的条目，避免 append-only 文件无限增长。
-        # 放在 compact_history 之后、git commit 之前，这样截断也会被 commit 记录。
-        try:
-            pruned = self.store.run_memory_hygiene()
-            if any(v > 0 for v in pruned.values()):
-                logger.info("Dream file hygiene: {}", pruned)
-        except Exception:
-            logger.debug("File hygiene failed", exc_info=True)
-
-        # Git auto-commit (only when there are actual changes)
-        if changelog and self.store.git.is_initialized():
-            ts = batch[-1]["timestamp"] if batch else datetime.now().strftime("%Y-%m-%d %H:%M")
-            summary = f"dream: {ts}, {len(changelog)} change(s)"
-            commit_msg = f"{summary}\n\n{analysis.strip()}"
-            sha = self.store.git.auto_commit(commit_msg)
-            if sha:
-                logger.info("Dream commit: {}", sha)
-                # 本次 Dream 产生了新 commit，顺带做 GC 回收 loose objects，
-                # 避免 .git/objects 长期累积膨胀。失败不影响 Dream 主流程。
-                try:
-                    self.store.git.gc()
-                except Exception:
-                    logger.debug("Dream gc skipped", exc_info=True)
-
-        return True
-
-    # -- structured mode: strict extraction -> lifecycle candidates -------------
+    # -- strict extraction -> lifecycle candidates --------------------------
 
     def _structured_summary(self, repository: Any, status: MemoryStatus) -> str:
         lines = []
@@ -2226,7 +1834,7 @@ class Dream:
         return "\n".join(lines)
 
     async def _run_structured_batch(self) -> bool:
-        """Structured-mode Dream: extract proposals, ingest through lifecycle,
+        """Extract proposals and ingest them through the lifecycle,
         advance cursors only on full success (fail-closed, idempotent retry).
 
         On any provider/parse/ingest error, both cursors stay put and the next
@@ -2335,8 +1943,6 @@ class Dream:
         system_prompt = render_template(
             "agent/dream_phase1.md",
             strip=True,
-            stale_threshold_days=_STALE_THRESHOLD_DAYS,
-            structured_mode=True,
             allowed_scope_hints=", ".join(kind.value for kind in scope_by_hint),
         )
         try:

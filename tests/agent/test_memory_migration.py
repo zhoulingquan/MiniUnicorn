@@ -1,7 +1,7 @@
-"""Migration tests for governed structured memory (design section 14).
+"""Optional import tests for governed structured memory.
 
 Covers deterministic mapping, idempotent legacy_key, zero-write dry-run,
-journal-backed apply, completed_at semantics and the governed startup gate.
+journal-backed apply, completed_at semantics, and startup independence.
 """
 
 from __future__ import annotations
@@ -55,10 +55,10 @@ def provider():
     return provider
 
 
-def _store(workspace: Path, mode: str = "governed"):
+def _store(workspace: Path):
     from miniunicorn.agent.memory import MemoryStore
 
-    return MemoryStore(workspace, structured_config=StructuredMemoryConfig(mode=mode))
+    return MemoryStore(workspace, structured_config=StructuredMemoryConfig())
 
 
 def _snapshot(workspace: Path) -> dict[str, str]:
@@ -475,19 +475,19 @@ class TestApply:
 
 
 # ---------------------------------------------------------------------------
-# Governed startup gate (spec §14.3)
+# Migration is optional import state, never a startup gate
 # ---------------------------------------------------------------------------
 
 
-class TestGovernedStartupGate:
-    def test_governed_loop_requires_migration(self, workspace, bus, provider):
+class TestOptionalMigrationStartup:
+    def test_loop_starts_with_unimported_legacy_sources(self, workspace, bus, provider):
         from miniunicorn.agent.loop_builder import AgentLoopBuilder
 
         _write_all_sources(workspace)
-        with pytest.raises(RuntimeError, match="memory-migrate"):
-            AgentLoopBuilder(bus, provider, workspace).with_structured_memory_config(
-                StructuredMemoryConfig(mode="governed")
-            ).build()
+        loop = AgentLoopBuilder(bus, provider, workspace).build()
+        prompt = loop.context.build_system_prompt(recall_query="SQLite memory")
+        assert loop.context.memory.migration_completed() is False
+        assert "SQLite" not in prompt
 
     def test_governed_loop_starts_after_migration(self, workspace, bus, provider):
         from miniunicorn.agent.loop_builder import AgentLoopBuilder
@@ -496,17 +496,14 @@ class TestGovernedStartupGate:
         store = _store(workspace)
         store.run_migration()
         loop = AgentLoopBuilder(bus, provider, workspace).with_structured_memory_config(
-            StructuredMemoryConfig(mode="governed")
+            StructuredMemoryConfig()
         ).build()
         assert loop.context.memory.migration_completed() is True
 
-    def test_shadow_loop_starts_without_migration(self, workspace, bus, provider):
+    def test_empty_loop_starts_without_migration(self, workspace, bus, provider):
         from miniunicorn.agent.loop_builder import AgentLoopBuilder
 
-        _write_all_sources(workspace)
-        loop = AgentLoopBuilder(bus, provider, workspace).with_structured_memory_config(
-            StructuredMemoryConfig(mode="shadow")
-        ).build()
+        loop = AgentLoopBuilder(bus, provider, workspace).build()
         assert loop.context.memory.migration_completed() is False
 
     def test_governed_loop_accepts_completed_legacy_manifest(self, workspace, bus, provider):
@@ -519,7 +516,7 @@ class TestGovernedStartupGate:
         ).save(workspace / LEGACY_MIGRATION_STATE_FILE)
 
         loop = AgentLoopBuilder(bus, provider, workspace).with_structured_memory_config(
-            StructuredMemoryConfig(mode="governed")
+            StructuredMemoryConfig()
         ).build()
 
         assert loop.context.memory.migration_completed() is True
@@ -533,7 +530,7 @@ class TestGovernedStartupGate:
             '{"entries": {"a": "ok", "b": 1}}',
         ],
     )
-    def test_governed_loop_fails_closed_on_malformed_manifest(
+    def test_loop_ignores_malformed_optional_import_manifest_at_startup(
         self, workspace, bus, provider, raw
     ):
         from miniunicorn.agent.loop_builder import AgentLoopBuilder
@@ -543,10 +540,8 @@ class TestGovernedStartupGate:
         canonical.parent.mkdir(parents=True, exist_ok=True)
         canonical.write_text(raw, encoding="utf-8")
 
-        with pytest.raises(RuntimeError, match="memory-migrate"):
-            AgentLoopBuilder(bus, provider, workspace).with_structured_memory_config(
-                StructuredMemoryConfig(mode="governed")
-            ).build()
+        loop = AgentLoopBuilder(bus, provider, workspace).build()
+        assert loop.context.memory.structured_repository.health.state == "healthy"
 
 
 # ---------------------------------------------------------------------------
@@ -887,7 +882,7 @@ class TestDirectoryFsyncErrnoHandling:
 
 def _worker_migrate(workspace: str, start, queue) -> None:
     workspace_path = Path(workspace)
-    store = _store(workspace_path, mode="shadow")
+    store = _store(workspace_path)
     start.wait()
     try:
         report = store.run_migration()
@@ -944,7 +939,7 @@ class TestTwoProcessMigration:
         assert set(state.entries) == expected_keys
         assert len(state.entries) == len(expected_keys)
 
-        rebuilt = _store(workspace, mode="shadow")
+        rebuilt = _store(workspace)
         assert len(rebuilt.structured_repository.current_records()) == len(expected_keys)
 
 

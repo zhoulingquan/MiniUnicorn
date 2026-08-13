@@ -82,12 +82,6 @@ class DreamConfig(Base):
         validation_alias=AliasChoices("modelOverride", "model", "model_override"),
     )  # Optional Dream-specific model override
     max_batch_size: int = Field(default=20, ge=1)  # Max history entries per run
-    # Bumped from 10 to 15 in #3212 (exp002: +30% dedup, no accuracy loss; >15 plateaus).
-    max_iterations: int = Field(default=15, ge=1)  # Max tool calls per Phase 2
-    # Per-line git-blame age annotation in Phase 1 prompt (see #3212). Default
-    # on — set to False to feed MEMORY.md raw if a specific LLM reacts poorly
-    # to the `← Nd` suffix or you want deterministic, git-independent prompts.
-    annotate_line_ages: bool = True
     # 空闲触发：用户不使用时在后台触发 Dream，不依赖 cron 定时。
     # 解决"用户不 24 小时运行 gateway，凌晨 cron 点大概率关机"的问题。
     # 借鉴 Claude Dreaming 的"会话间空闲自动触发"机制。
@@ -158,13 +152,14 @@ class ModelPresetConfig(Base):
 
 
 class StructuredMemoryConfig(Base):
-    """Governed structured memory settings (C2). Modes: legacy (off), shadow
-    (journal + lifecycle + recall active, no context injection), governed
-    (context injection via deterministic recall)."""
+    """Governed structured memory settings (C2). Tuning values for recall and lifecycle.
+
+    Controlled mode is always governed; supplying a ``mode`` key is a
+    configuration error.
+    """
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forbid")
 
-    mode: Literal["legacy", "shadow", "governed"] = "shadow"
     recall_token_budget: int = Field(default=2500, ge=256, le=16_000)
     max_recall_hits: int = Field(default=20, ge=1, le=100)
     lock_timeout_s: float = Field(default=5.0, ge=0.1, le=30.0)

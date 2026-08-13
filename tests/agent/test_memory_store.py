@@ -561,20 +561,20 @@ class TestStructuredMemoryStore:
         expire_due.assert_called_once_with(now)
         assert result["structured_expired"] == 0
 
-    def test_legacy_hygiene_reports_zero_structured_expiry(self, tmp_path):
+    def test_default_hygiene_runs_structured_expiry(self, tmp_path):
         store = MemoryStore(tmp_path)
 
         assert store.run_memory_hygiene()["structured_expired"] == 0
 
-    def test_defaults_to_legacy_without_config(self, tmp_path):
+    def test_defaults_to_structured_stack_without_config(self, tmp_path):
         store = MemoryStore(tmp_path)
 
-        assert store.structured_config is None
-        assert store.structured_repository is None
-        assert store.structured_lifecycle is None
-        assert store.structured_recall is None
+        assert isinstance(store.structured_config, StructuredMemoryConfig)
+        assert store.structured_repository is not None
+        assert store.structured_lifecycle is not None
+        assert store.structured_recall is not None
 
-    def test_shadow_mode_constructs_stack_immediately(self, tmp_path):
+    def test_explicit_config_constructs_stack_immediately(self, tmp_path):
         store = MemoryStore(tmp_path, structured_config=StructuredMemoryConfig())
 
         assert store.structured_repository is not None
@@ -604,9 +604,9 @@ class TestStructuredMemoryStore:
         assert "memory/structured/journal.lock" not in tracked
         assert "memory/structured/recall-audit.jsonl" not in tracked
 
-    def test_legacy_defers_construction_until_structured_command(self, tmp_path):
+    def test_default_store_recall_uses_existing_stack(self, tmp_path):
         store = MemoryStore(tmp_path)
-        assert store.structured_repository is None
+        repository = store.structured_repository
 
         query = RecallQuery(
             query_text="architecture.memory",
@@ -615,7 +615,7 @@ class TestStructuredMemoryStore:
         )
         result = store.recall_structured(query)
 
-        assert store.structured_repository is not None
+        assert store.structured_repository is repository
         assert store.structured_recall is not None
         assert result.degraded is False
 

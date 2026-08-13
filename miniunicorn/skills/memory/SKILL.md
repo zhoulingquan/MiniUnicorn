@@ -1,6 +1,6 @@
 ---
 name: memory
-description: Legacy Dream files plus governed, journal-backed structured memory.
+description: Always-on governed, journal-backed structured memory.
 always: true
 ---
 
@@ -8,14 +8,13 @@ always: true
 
 ## Structure
 
-- `SOUL.md` — Bot personality and communication style. **Managed by Dream.** Do NOT edit.
-- `USER.md` — User profile and preferences. **Managed by Dream.** Do NOT edit.
-- `memory/MEMORY.md` — Long-term facts (project context, important events). **Managed by Dream.** Do NOT edit.
+- `SOUL.md` — Bot personality and communication style; bootstrap guidance, not a fact store.
+- `USER.md` and `memory/MEMORY.md` — inert legacy import sources; never injected automatically.
 - `memory/history.jsonl` — append-only JSONL, not loaded into context. Prefer the built-in `grep` tool to search it.
 - `memory/structured/journal.jsonl` — append-only governed record revisions. **Never edit directly.**
 - `memory/structured/tags.json` — controlled tag catalog. **Never edit during a turn.**
 
-In governed mode, only active records returned by deterministic exact-scope recall enter context. Candidates never enter context, and USER.md/MEMORY.md are not injected wholesale. Refer to records by their stable `mem_...` IDs and use `/memory-show`, `/memory-promote`, `/memory-revoke`, or `/memory-correct` for management. `/memory-correct` requires non-empty subject, slot and statement fields.
+Only active records returned by deterministic exact-scope recall enter context. Candidates never enter context. Refer to records by their stable `mem_...` IDs and use `/memory-show`, `/memory-promote`, `/memory-revoke`, or `/memory-correct` for management. `/memory-correct` requires non-empty subject, slot and statement fields.
 
 ## Search Past Events
 
@@ -35,7 +34,7 @@ Examples (replace `keyword`):
 
 ## Important
 
-- **Do NOT edit SOUL.md, USER.md, MEMORY.md, or any file under `memory/structured/`.** Use the memory commands for governed records.
-- If you notice outdated information, it will be corrected when Dream runs next.
-- Users can view Dream's activity with the `/dream-log` command.
+- **Do NOT edit any file under `memory/structured/`.** Use the memory commands for governed records.
+- Correct outdated facts explicitly with `/memory-correct`; Dream only proposes facts from history and reflections.
+- Use `/memory-migrate --apply` only when intentionally importing legacy files.
 - If `/memory-status` is degraded, do not infer missing facts or edit the journal. Report the diagnostic and use backup/memory Git history for recovery.

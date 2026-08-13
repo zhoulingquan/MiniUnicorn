@@ -62,17 +62,12 @@ def _split_args_or_usage(
         return None, _usage(ctx, usage)
 
 
-def _stack(ctx: CommandContext, *, allow_legacy: bool = False):
-    """Return (store, repository, lifecycle); None repository when not structured."""
+def _stack(ctx: CommandContext):
+    """Return the always-active store, repository, and lifecycle."""
     loop = ctx.loop
     if loop is None:
         raise MemoryError("memory commands require an agent loop")
     store = loop.context.memory
-    if store.structured_repository is None:
-        if allow_legacy:
-            store._structured_stack_or_build()
-        else:
-            raise MemoryError("structured memory is not active (mode: legacy)")
     return store, store.structured_repository, store.structured_lifecycle
 
 
@@ -97,19 +92,19 @@ def _requires_stack(handler):
 
 @_requires_stack
 async def cmd_memory_status(ctx: CommandContext) -> OutboundMessage:
-    """Show mode, health, status counts, migration state and last write error."""
+    """Show architecture, health, status counts, import state and last write error."""
     store, repository, _ = _stack(ctx)
     counts = {s.value: len(repository.current_records(s)) for s in MemoryStatus}  # type: ignore[union-attr]
     state = load_migration_state(store.workspace)
     migration = (
         f"completed at `{state.completed_at.isoformat()}`"
         if state.completed_at is not None
-        else "pending (run `/memory-migrate --apply`)"
+        else "pending (optional; run `/memory-migrate --apply` to import)"
     )
     health = repository.health  # type: ignore[union-attr]
     lines = [
         "## Memory status",
-        f"- Mode: `{store.structured_config.mode if store.structured_config else 'legacy'}`",
+        "- Architecture: `governed`",
         f"- Health: `{health.state}` (last valid journal line: `{health.last_valid_line}`)",
         (
             f"- Records: candidate={counts['candidate']} active={counts['active']} "
@@ -292,13 +287,13 @@ async def cmd_memory_correct(ctx: CommandContext) -> OutboundMessage:
 
 
 # ---------------------------------------------------------------------------
-# Migration (works in any mode)
+# Optional legacy import
 # ---------------------------------------------------------------------------
 
 
 async def cmd_memory_migrate(ctx: CommandContext) -> OutboundMessage:
     """Run the legacy -> structured migration (dry-run by default)."""
-    store, _, _ = _stack(ctx, allow_legacy=True)
+    store, _, _ = _stack(ctx)
     arg = ctx.args.strip()
     try:
         if arg in ("", "--dry-run"):

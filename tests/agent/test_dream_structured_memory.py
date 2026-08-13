@@ -18,7 +18,6 @@ def store(tmp_path):
     s = MemoryStore(
         tmp_path,
         structured_config=StructuredMemoryConfig(
-            mode="governed",
             auto_promote_verified=True,
         ),
     )
@@ -323,21 +322,18 @@ class TestReflectionOnlyBatches:
 
 
 class TestStructuredToolRegistry:
-    def test_structured_mode_omits_edit_file(self, dream):
-        tools = dream._build_tools()
-        assert tools.get("edit_file") is None
-        assert tools.has("read_file")
-        assert tools.has("write_file")
+    def test_dream_has_no_direct_file_mutation_tools(self, dream):
+        assert not hasattr(dream, "_tools")
+        assert not hasattr(dream, "_build_tools")
 
-    def test_legacy_mode_keeps_edit_file(self, tmp_path, mock_provider):
-        legacy = Dream(
+    def test_default_store_also_has_no_direct_file_mutation_tools(self, tmp_path, mock_provider):
+        dream = Dream(
             store=MemoryStore(tmp_path),
             provider=mock_provider,
             model="test-model",
             max_batch_size=5,
         )
-        tools = legacy._build_tools()
-        assert tools.has("edit_file")
+        assert not hasattr(dream, "_tools")
 
 
 # ---------------------------------------------------------------------------

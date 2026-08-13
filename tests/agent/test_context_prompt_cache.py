@@ -55,8 +55,9 @@ def test_system_prompt_reflects_current_dream_memory_contract(tmp_path) -> None:
     prompt = builder.build_system_prompt()
 
     assert "memory/history.jsonl" in prompt
-    assert "automatically managed by Dream" in prompt
-    assert "do not edit directly" in prompt
+    assert "memory/structured/journal.jsonl" in prompt
+    assert "never edit the journal directly" in prompt
+    assert "automatically managed by Dream" not in prompt
     assert "memory/HISTORY.md" not in prompt
     assert "write important facts here" not in prompt
 
@@ -375,8 +376,8 @@ def test_template_memory_md_is_skipped(tmp_path) -> None:
     assert "This file is automatically updated by MiniUnicorn" not in prompt
 
 
-def test_customized_memory_md_is_injected(tmp_path) -> None:
-    """A Dream-populated MEMORY.md should be injected normally."""
+def test_customized_memory_md_is_not_injected(tmp_path) -> None:
+    """Legacy MEMORY.md is an inert import source on the single path."""
     workspace = _make_workspace(tmp_path)
     from miniunicorn.utils.helpers import sync_workspace_templates
 
@@ -389,5 +390,5 @@ def test_customized_memory_md_is_injected(tmp_path) -> None:
     builder = ContextBuilder(workspace)
     prompt = builder.build_system_prompt()
 
-    assert "# Memory\n\n## Long-term Memory" in prompt
-    assert "User prefers dark mode" in prompt
+    assert "# Memory\n\n## Long-term Memory" not in prompt
+    assert "User prefers dark mode" not in prompt

@@ -591,8 +591,6 @@ def _run_gateway(
     if dream_cfg.model_override:
         agent.dream.model = dream_cfg.model_override
     agent.dream.max_batch_size = dream_cfg.max_batch_size
-    agent.dream.max_iterations = dream_cfg.max_iterations
-    agent.dream.annotate_line_ages = dream_cfg.annotate_line_ages
     # 同步空闲触发器配置（方案B：会话间空闲自动触发 Dream）
     agent.dream_idle_trigger.update_config(
         enabled=dream_cfg.idle_trigger_enabled,

@@ -17,10 +17,10 @@ def workspace(tmp_path):
     return tmp_path
 
 
-def _store(workspace, mode: str = "governed"):
+def _store(workspace):
     from miniunicorn.agent.memory import MemoryStore
 
-    return MemoryStore(workspace, structured_config=StructuredMemoryConfig(mode=mode))
+    return MemoryStore(workspace, structured_config=StructuredMemoryConfig())
 
 
 def _router() -> CommandRouter:
@@ -61,7 +61,7 @@ class TestStatus:
         store = _seed(workspace)
         router = _router()
         content = await _dispatch(router, store, "/memory-status")
-        assert "Mode: `governed`" in content
+        assert "Architecture: `governed`" in content
         assert "Health: `healthy`" in content
         assert "candidate=0 active=1" in content
         assert "Migration: completed" in content
@@ -72,11 +72,11 @@ class TestStatus:
         content = await _dispatch(router, store, "/memory-status")
         assert "Migration: pending" in content
 
-    async def test_status_legacy_mode(self, workspace):
-        store = _store(workspace, mode="legacy")
+    async def test_status_always_reports_governed_architecture(self, workspace):
+        store = _store(workspace)
         router = _router()
         content = await _dispatch(router, store, "/memory-status")
-        assert "not active" in content
+        assert "Architecture: `governed`" in content
 
     async def test_status_reads_completed_legacy_manifest(self, workspace):
         from datetime import datetime, timezone

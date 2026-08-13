@@ -1,10 +1,4 @@
-"""Runner-level tests for structured Reflection mode propagation (C2 plan B task 3).
-
-The Reflection module already supports ``structured_mode``; these tests prove the
-mode reaches it through ``AgentRunSpec.structured_memory_mode`` and the
-``AgentRunner`` construction path, producing program-generated ``reflection_id``
-entries only for structured modes (shadow/governed).
-"""
+"""Runner-level tests for always-structured Reflection entries."""
 
 from __future__ import annotations
 
@@ -55,7 +49,7 @@ class _ReflectionProvider:
 
 
 @pytest.mark.asyncio
-async def test_runner_governed_reflection_persists_structured_entry(tmp_path):
+async def test_runner_reflection_persists_structured_entry(tmp_path):
     from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
     provider = _ReflectionProvider('{"lesson": "Verify exact evidence IDs."}')
@@ -73,7 +67,6 @@ async def test_runner_governed_reflection_persists_structured_entry(tmp_path):
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
             enable_reflection=True,
             workspace=tmp_path,
-            structured_memory_mode="governed",
         )
     )
 
@@ -83,16 +76,11 @@ async def test_runner_governed_reflection_persists_structured_entry(tmp_path):
     assert entries[0]["lesson"] == "Verify exact evidence IDs."
 
 
-@pytest.mark.parametrize(
-    ("mode", "expected_structured"),
-    [("shadow", True), ("legacy", False), (None, False)],
-)
 @pytest.mark.asyncio
-async def test_runner_reflection_mode_shapes_entry(tmp_path, mode, expected_structured):
+async def test_runner_rejects_unstructured_reflection(tmp_path):
     from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 
-    lesson = "A durable lesson."
-    provider = _ReflectionProvider(f'{{"lesson": "{lesson}"}}')
+    provider = _ReflectionProvider("A free-text lesson is invalid.")
     tools = MagicMock()
     tools.get_definitions.return_value = []
     tools.execute = AsyncMock(return_value="tool result")
@@ -107,16 +95,8 @@ async def test_runner_reflection_mode_shapes_entry(tmp_path, mode, expected_stru
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
             enable_reflection=True,
             workspace=tmp_path,
-            structured_memory_mode=mode,
         )
     )
 
     entries = _reflections(tmp_path)
-    assert len(entries) == 1
-    assert ("reflection_id" in entries[0]) is expected_structured
-    if expected_structured:
-        assert _REFLECTION_ID_RE.fullmatch(entries[0]["reflection_id"])
-        assert entries[0]["lesson"] == lesson
-    else:
-        assert "reflection_id" not in entries[0]
-        assert entries[0]["reflection"] == f'{{"lesson": "{lesson}"}}'
+    assert entries == []

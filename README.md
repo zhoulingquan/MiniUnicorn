@@ -84,11 +84,11 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 |----|------|------|
 | 短期会话 | `session.messages` | 活跃对话的完整上下文 |
 | 压缩归档 | `memory/history.jsonl` | 追加式、带游标的历史摘要（机器优先） |
-| 长期知识 | `SOUL.md` · `USER.md` · `memory/MEMORY.md` | 语气人格 / 用户画像 / 项目事实 |
+| 长期知识 | `memory/structured/journal.jsonl` | 有来源、状态与作用域的结构化事实 |
 | 教训沉淀 | `memory/reflections.jsonl` | 失败与周期性反思的一句话教训 |
 | 版本历史 | `GitStore`（内嵌 Git） | 长期文件每次变更可追溯、可回滚 |
 
-记忆经**两阶段流转**：**Consolidator** 在会话逼近上下文窗口时把最旧的安全片段摘要进 `history.jsonl`；**Dream** 按周期（默认 2 小时）或 `/dream` 手动触发，读取新增摘要与长期文件，做最小外科手术式编辑而非整体重写。用户始终保有审计与撤销权：`/dream-log` 查看每次改动 diff，`/dream-restore` 回滚到任意版本。
+记忆经**两阶段流转**：**Consolidator** 在会话逼近上下文窗口时把最旧的安全片段摘要进 `history.jsonl`；**Dream** 按周期或 `/dream` 手动触发，从新增摘要与反思中提取候选事实，再由确定性的生命周期写入追加式结构化日志。正常提示词只召回符合精确作用域的 active 事实；候选事实和旧 Markdown 记忆文件不会整体注入。
 
 ### 4. 上下文管理 — 对抗上下文腐烂
 
@@ -104,7 +104,7 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 
 ### 5. Prompt 构建 — 模型看到的世界
 
-上下文组装是分层的：基础人格（`SOUL.md`）→ 用户画像（`USER.md`）→ 项目事实（`MEMORY.md`）→ 工具定义 → 按需注入的记忆片段与技能。**技能**（`skills/`）是 Markdown + YAML frontmatter 的知识包，只在相关时进入上下文——目标是最小高信号 token 集合，而非把一切塞进窗口。
+上下文组装是分层的：基础人格（`SOUL.md`）→ 项目指令 → 工具定义 → 确定性召回的 active 记忆与按需技能。`USER.md`、`MEMORY.md` 和 `MEMORY_SHARED.md` 仅作为可选旧数据导入源，不会整体进入正常提示词。
 
 ### 6. 输出解析 — 从自由文本到结构化行动
 
