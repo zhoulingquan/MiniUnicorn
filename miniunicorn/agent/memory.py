@@ -18,8 +18,10 @@ import tiktoken
 from filelock import FileLock
 from loguru import logger
 
+from miniunicorn.agent.reflection import _atomic_rewrite_lines
 from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 from miniunicorn.agent.tools.registry import ToolRegistry
+from miniunicorn.bus.events import session_key_base
 from miniunicorn.session.manager import Session
 from miniunicorn.utils.gitstore import GitStore
 from miniunicorn.utils.helpers import (
@@ -681,7 +683,12 @@ class MemoryStore:
         results: list[dict[str, Any]] = []
         try:
             with open(rf, "r", encoding="utf-8") as f:
-                for idx, line in enumerate(f, 1):
+                lines = f.readlines()
+                # Rotation/pruning can only safely retain a physical cursor
+                # within the current file. A larger cursor is stale, so replay
+                # all current lines rather than permanently hiding them.
+                effective_cursor = since_cursor if since_cursor <= len(lines) else 0
+                for idx, line in enumerate(lines, 1):
                     line = line.strip()
                     if not line:
                         continue
@@ -690,7 +697,7 @@ class MemoryStore:
                     except json.JSONDecodeError:
                         continue
                     entry["_line"] = idx
-                    if idx > since_cursor:
+                    if idx > effective_cursor:
                         results.append(entry)
         except Exception:
             return []
@@ -714,21 +721,23 @@ class MemoryStore:
                 lines = f.readlines()
         except Exception:
             return 0
+        if cursor > len(lines):
+            # The physical-line cursor is stale; no current line is proven
+            # consumed. Reset and retain all entries for safe reprocessing.
+            _atomic_rewrite_lines(self._reflections_cursor_file, ["0\n"])
+            return 0
         # cursor 是 1-based 行号，保留 cursor 之后（未处理）的行
         kept = lines[cursor:]
         if len(kept) == len(lines):
             # 没有可截断的（cursor 超出文件范围等）
             return 0
-        tmp = rf.with_suffix(".tmp")
-        try:
-            with open(tmp, "w", encoding="utf-8") as f:
-                f.writelines(kept)
-            os.replace(tmp, rf)
-        except Exception:
-            logger.exception("prune_reflections_after_cursor write failed")
+        # Reset before renumbering. A failed file rewrite may cause harmless
+        # duplicate processing, while the reverse order can permanently skip
+        # unconsumed entries under the old physical-line cursor.
+        if not _atomic_rewrite_lines(self._reflections_cursor_file, ["0\n"]):
             return 0
-        # 重置 cursor：截断后未处理条目从行 1 开始
-        self.set_last_reflections_cursor(0)
+        if not _atomic_rewrite_lines(rf, kept):
+            return 0
         pruned = len(lines) - len(kept)
         logger.info(
             "Pruned {} processed reflection(s), {} remaining",
@@ -2289,7 +2298,9 @@ class Dream:
         }
         scope_inputs = list(batch) + reflections
         session_keys = {
-            str(entry["session_key"]) for entry in scope_inputs if entry.get("session_key")
+            session_key_base(str(entry["session_key"]))
+            for entry in scope_inputs
+            if entry.get("session_key")
         }
         user_keys = {str(entry["user_key"]) for entry in scope_inputs if entry.get("user_key")}
         if (
@@ -2297,7 +2308,7 @@ class Dream:
             and len(session_keys) == 1
             and all(entry.get("session_key") for entry in scope_inputs)
         ):
-            session_key = next(iter(session_keys)).split("#", 1)[0]
+            session_key = next(iter(session_keys))
             scope_by_hint[ScopeKind.SESSION] = MemoryScope(
                 kind=ScopeKind.SESSION, key=f"session:{session_key}"
             )

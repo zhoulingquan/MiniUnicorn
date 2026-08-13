@@ -38,6 +38,28 @@ def new_reflection_id() -> str:
     return f"rfl_{uuid.uuid4().hex}"
 
 
+def _atomic_rewrite_lines(path: Path, lines: list[str]) -> bool:
+    """Rewrite a text file with a unique sibling temp, fsync, and atomic replace.
+
+    Returns True only when the canonical file was durably replaced.
+    """
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+        return True
+    except Exception:
+        logger.exception("Atomic rewrite failed for {}", path)
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return False
+
+
 class Reflection:
     """Produces and persists short "lesson learned" entries.
 
@@ -67,19 +89,24 @@ class Reflection:
     def _parse_structured_response(self, text: str) -> str | None:
         """Parse the structured-mode JSON reflection; return the lesson text.
 
-        The model only supplies a lesson. The stable ``reflection_id`` is
-        assigned by the application after parsing and never by the model.
+        Only a JSON object whose exact key set is ``{"lesson"}`` with a
+        non-empty trimmed string value is accepted. Invalid JSON, arrays,
+        null, missing/extra keys, empty strings, and non-string values return
+        None. The stable ``reflection_id`` is assigned by the application
+        after parsing and never by the model.
         """
+        if not text:
+            return None
         try:
             obj = json.loads(text)
-        except json.JSONDecodeError:
-            return text if text else None
-        if not isinstance(obj, dict):
-            return text if text else None
+        except (json.JSONDecodeError, TypeError):
+            return None
+        if not isinstance(obj, dict) or set(obj) != {"lesson"}:
+            return None
         lesson = obj.get("lesson")
-        if isinstance(lesson, str) and lesson.strip():
-            return lesson.strip()
-        return text if text else None
+        if not isinstance(lesson, str) or not lesson.strip():
+            return None
+        return lesson.strip()
 
     async def reflect(
         self,
@@ -207,18 +234,44 @@ class Reflection:
             return False
 
     def _maybe_rotate(self) -> None:
-        """Drop oldest entries if file exceeds _MAX_REFLECTIONS lines."""
+        """Prune consumed prefix (cursor-safe); never drop unconsumed entries.
+
+        When the file exceeds ``_MAX_REFLECTIONS`` lines, exactly the lines
+        consumed by Dream (up to the sibling ``.reflections_cursor``) are
+        atomically pruned and the cursor reset to 0. Unconsumed entries are
+        never discarded merely to satisfy the cap: losslessness is secondary
+        only to correctness, so a large backlog is retained until consumed.
+        """
         assert self._reflections_file is not None
         try:
             with open(self._reflections_file, "r", encoding="utf-8") as f:
                 lines = f.readlines()
             if len(lines) <= _MAX_REFLECTIONS:
                 return
-            kept = lines[-_MAX_REFLECTIONS:]
-            tmp = self._reflections_file.with_suffix(".tmp")
-            with open(tmp, "w", encoding="utf-8") as f:
-                f.writelines(kept)
-            os.replace(tmp, self._reflections_file)
+            cursor_path = self._reflections_dir / ".reflections_cursor"
+            try:
+                cursor = int(cursor_path.read_text(encoding="utf-8").strip())
+            except (FileNotFoundError, ValueError):
+                cursor = 0
+            if cursor <= 0:
+                # All entries are unconsumed: retain them until Dream consumes.
+                return
+            if cursor > len(lines):
+                # A stale physical-line cursor cannot safely prove that any
+                # current entry was consumed. Reset it and retain everything.
+                _atomic_rewrite_lines(cursor_path, ["0\n"])
+                return
+            kept = lines[cursor:]
+            if len(kept) == len(lines):
+                return
+            # Reset the physical-line cursor before renumbering the canonical
+            # file. If the subsequent file rewrite fails, Dream may process
+            # already-consumed entries again, but no unconsumed entry can be
+            # skipped. The opposite order can permanently skip the new prefix
+            # when the cursor reset fails after a successful file rewrite.
+            if not _atomic_rewrite_lines(cursor_path, ["0\n"]):
+                return
+            _atomic_rewrite_lines(self._reflections_file, kept)
         except Exception:
             logger.exception("Reflection rotation failed")
 

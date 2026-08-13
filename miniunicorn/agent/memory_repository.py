@@ -387,6 +387,28 @@ class StructuredMemoryRepository:
     def get(self, memory_id: str) -> MemoryRecord | None:
         return self._current.get(memory_id)
 
+    def get_current(
+        self, memory_id: str, *, synchronize: bool = True
+    ) -> MemoryRecord | None:
+        """Return the committed current record for *memory_id*.
+
+        With ``synchronize=True`` (default) the journal is replayed under the
+        shared file lock first so the read observes commits made by other
+        repository instances; this is the atomic synchronized read used by the
+        lifecycle to reconcile optimistic revision races.
+        """
+        if not synchronize:
+            return self._current.get(memory_id)
+        try:
+            with FileLock(str(self.lock_path), timeout=self.lock_timeout_s):
+                self.rebuild()
+                self._require_healthy()
+        except FileLockTimeout as exc:
+            raise MemoryLockTimeout(
+                f"journal lock timeout after {self.lock_timeout_s}s"
+            ) from exc
+        return self._current.get(memory_id)
+
     def revisions(self, memory_id: str) -> tuple[MemoryRecord, ...]:
         return tuple(self._revision_history[memory_id])
 

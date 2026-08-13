@@ -524,6 +524,30 @@ class TestGovernedStartupGate:
 
         assert loop.context.memory.migration_completed() is True
 
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "[]",
+            "null",
+            '{"entries": []}',
+            '{"entries": {"a": "ok", "b": 1}}',
+        ],
+    )
+    def test_governed_loop_fails_closed_on_malformed_manifest(
+        self, workspace, bus, provider, raw
+    ):
+        from miniunicorn.agent.loop_builder import AgentLoopBuilder
+
+        _write_all_sources(workspace)
+        canonical = workspace / MIGRATION_STATE_FILE
+        canonical.parent.mkdir(parents=True, exist_ok=True)
+        canonical.write_text(raw, encoding="utf-8")
+
+        with pytest.raises(RuntimeError, match="memory-migrate"):
+            AgentLoopBuilder(bus, provider, workspace).with_structured_memory_config(
+                StructuredMemoryConfig(mode="governed")
+            ).build()
+
 
 # ---------------------------------------------------------------------------
 # C2 plan B: unified state loading, migration lock, durable unique-temp save
@@ -695,6 +719,170 @@ class TestDurableManifestSave:
             state.save(path)
         leftovers = list(path.parent.glob(f".{path.name}.*.tmp"))
         assert leftovers == []
+
+
+class TestMalformedMigrationState:
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "[]",
+            "null",
+            '"just a string"',
+            '{"completed_at": "2026-08-11T09:00:00+00:00"}',
+            '{"entries": []}',
+            '{"entries": null}',
+            '{"entries": {"a": 1}}',
+            '{"entries": {"a": "ok", "b": 1}}',
+            '{"entries": [["a", "b"]]}',
+        ],
+    )
+    def test_malformed_manifest_loads_incomplete_state(self, workspace, raw):
+        path = workspace / MIGRATION_STATE_FILE
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(raw, encoding="utf-8")
+
+        state = MigrationState.load(path)
+
+        assert state.entries == {}
+        assert state.completed_at is None
+
+    def test_invalid_completed_at_yields_incomplete_state(self, workspace):
+        path = workspace / MIGRATION_STATE_FILE
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {"entries": {"a": "mem_" + "a" * 32}, "completed_at": "not-a-date"}
+            ),
+            encoding="utf-8",
+        )
+
+        state = MigrationState.load(path)
+
+        assert state.completed_at is None
+        assert state.entries == {"a": "mem_" + "a" * 32}
+
+    def test_valid_manifest_preserves_entries_and_completion(self, workspace):
+        path = workspace / MIGRATION_STATE_FILE
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "entries": {"a": "mem_" + "a" * 32},
+                    "completed_at": "2026-08-11T09:00:00+00:00",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        state = MigrationState.load(path)
+
+        assert state.entries == {"a": "mem_" + "a" * 32}
+        assert state.completed_at is not None
+
+
+class TestDirectoryFsyncErrnoHandling:
+    @staticmethod
+    def _patch_dir_fsync(monkeypatch, save_path, open_errno=None, fsync_errno=None):
+        monkeypatch.setattr(os, "name", "posix")
+        target_dir = os.fspath(save_path.parent)
+        dir_fds: list[Path] = []
+        closed: list[object] = []
+        real_open = os.open
+        real_close = os.close
+
+        def fake_open(open_path, flags, *rest):
+            if os.fspath(open_path) == target_dir and flags == 0:
+                dir_fds.append(Path(open_path))
+                if open_errno is not None:
+                    exc = OSError("simulated dir open error")
+                    exc.errno = open_errno
+                    raise exc
+                return 7777
+            return real_open(open_path, flags, *rest)
+
+        def fake_fsync(fd):
+            if fd == 7777 and fsync_errno is not None:
+                exc = OSError("simulated dir fsync error")
+                exc.errno = fsync_errno
+                raise exc
+
+        def fake_close(fd):
+            if fd == 7777:
+                closed.append("dir-closed")
+            else:
+                real_close(fd)
+
+        monkeypatch.setattr(os, "open", fake_open)
+        monkeypatch.setattr(os, "fsync", fake_fsync)
+        monkeypatch.setattr(os, "close", fake_close)
+        return dir_fds, closed
+
+    def test_unsupported_dir_fsync_errno_is_ignored(self, workspace, monkeypatch):
+        import errno
+
+        save_path = workspace / MIGRATION_STATE_FILE
+        dir_fds, closed = self._patch_dir_fsync(
+            monkeypatch, save_path, fsync_errno=errno.EINVAL
+        )
+        state = MigrationState(entries={"a": "mem_" + "a" * 32}, completed_at=None)
+
+        state.save(save_path)
+
+        assert [os.fspath(p).replace("\\", "/") for p in dir_fds] == [
+            os.fspath(save_path.parent).replace("\\", "/")
+        ]
+        assert closed == ["dir-closed"]
+        assert save_path.exists()
+
+    def test_unsupported_dir_open_errno_is_ignored(self, workspace, monkeypatch):
+        import errno
+
+        save_path = workspace / MIGRATION_STATE_FILE
+        dir_fds, closed = self._patch_dir_fsync(
+            monkeypatch, save_path, open_errno=errno.ENOTSUP
+        )
+        state = MigrationState(entries={"a": "mem_" + "a" * 32}, completed_at=None)
+
+        state.save(save_path)
+
+        assert [os.fspath(p).replace("\\", "/") for p in dir_fds] == [
+            os.fspath(save_path.parent).replace("\\", "/")
+        ]
+        assert closed == []
+        assert save_path.exists()
+
+    def test_dir_fsync_real_error_propagates_and_close_still_occurs(
+        self, workspace, monkeypatch
+    ):
+        import errno
+
+        save_path = workspace / MIGRATION_STATE_FILE
+        dir_fds, closed = self._patch_dir_fsync(
+            monkeypatch, save_path, fsync_errno=errno.EIO
+        )
+        state = MigrationState(entries={"a": "mem_" + "a" * 32}, completed_at=None)
+
+        with pytest.raises(OSError):
+            state.save(save_path)
+
+        assert closed == ["dir-closed"]
+        # Canonical manifest was already replaced: never rolled back.
+        assert save_path.exists()
+
+    def test_dir_open_real_error_propagates(self, workspace, monkeypatch):
+        import errno
+
+        save_path = workspace / MIGRATION_STATE_FILE
+        dir_fds, closed = self._patch_dir_fsync(
+            monkeypatch, save_path, open_errno=errno.EIO
+        )
+        state = MigrationState(entries={"a": "mem_" + "a" * 32}, completed_at=None)
+
+        with pytest.raises(OSError):
+            state.save(save_path)
+
+        assert closed == []
 
 
 def _worker_migrate(workspace: str, start, queue) -> None:

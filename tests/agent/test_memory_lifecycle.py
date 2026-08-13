@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import shutil
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from miniunicorn.agent.memory_lifecycle import (
     REASON_REPLACED,
     REASON_SAME_RANK,
     IngestContext,
+    IngestResult,
     LifecyclePolicy,
     MemoryEvidenceUnresolved,
     MemoryLifecycleError,
@@ -34,6 +36,7 @@ from miniunicorn.agent.memory_models import (
     EvidenceRef,
     MemoryOperation,
     MemoryRecord,
+    MemoryRevisionConflict,
     MemoryScope,
     MemoryStatus,
     MemoryTransaction,
@@ -843,3 +846,346 @@ def test_identical_merge_retry_returns_same_terminal_and_active_replacement(
         record.id: len(lifecycle.repository.revisions(record.id))
         for record in lifecycle.repository.current_records()
     } == records_before
+
+
+# ---------------------------------------------------------------------------
+# C2 plan B review closeout: retry-safe post-create ingestion
+# ---------------------------------------------------------------------------
+
+
+def _concurrent_ingest(
+    workspace: Path,
+    policy: LifecyclePolicy,
+    proposal_data: CandidateProposal,
+    context: IngestContext,
+) -> tuple[IngestResult, IngestResult]:
+    """Ingest the same proposal from two lifecycle instances concurrently.
+
+    A barrier is inserted immediately before the post-create transition append
+    so both instances observe the candidate at revision 1 before either commits
+    its promotion/merge/block (reproducing the optimistic revision race).
+    """
+    first_repo = StructuredMemoryRepository(workspace, lock_timeout_s=5.0)
+    second_repo = StructuredMemoryRepository(workspace, lock_timeout_s=5.0)
+    first_lifecycle = StructuredMemoryLifecycle(first_repo, policy)
+    second_lifecycle = StructuredMemoryLifecycle(second_repo, policy)
+
+    barrier = threading.Barrier(2)
+    real_append = first_repo.append_transaction
+
+    def synced_append(transaction):
+        barrier.wait(timeout=10)
+        return real_append(transaction)
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(first_repo, "append_transaction", synced_append)
+    monkeypatch.setattr(second_repo, "append_transaction", synced_append)
+
+    results: dict[str, IngestResult] = {}
+    errors: dict[str, BaseException] = {}
+
+    def ingest_on(key: str, lifecycle: StructuredMemoryLifecycle) -> None:
+        try:
+            results[key] = lifecycle.ingest(proposal_data, context)
+        except BaseException as exc:  # noqa: BLE001 - collect for the assertion
+            errors[key] = exc
+
+    threads = [
+        threading.Thread(target=ingest_on, args=("a", first_lifecycle)),
+        threading.Thread(target=ingest_on, args=("b", second_lifecycle)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+    monkeypatch.undo()
+
+    assert not errors, errors
+    return results["a"], results["b"]
+
+
+def _journal_lines(workspace: Path) -> list[str]:
+    journal = workspace / "memory" / "structured" / "journal.jsonl"
+    return journal.read_text(encoding="utf-8").splitlines()
+
+
+def test_concurrent_auto_promotion_reconciles_to_single_lineage(
+    workspace, policy, file_context
+):
+    verified = proposal(
+        evidence_refs=("file:pyproject",),
+        speech_act="verified",
+        confidence=0.9,
+    )
+    first, second = _concurrent_ingest(workspace, policy, verified, file_context)
+
+    assert first.candidate_id == second.candidate_id
+    assert first.final_status is MemoryStatus.ACTIVE
+    assert second.final_status is MemoryStatus.ACTIVE
+    assert first.active_id == first.candidate_id
+    assert second.active_id == first.candidate_id
+
+    repo = StructuredMemoryRepository(workspace)
+    revisions = repo.revisions(first.candidate_id)
+    assert [record.status for record in revisions] == [
+        MemoryStatus.CANDIDATE,
+        MemoryStatus.ACTIVE,
+    ]
+    assert len(repo.current_records()) == 1
+    assert len(_journal_lines(workspace)) == 2  # create + promote; no duplicate
+
+
+def test_concurrent_identical_merge_reconciles_to_superseded(workspace, policy, context):
+    seed_repo = StructuredMemoryRepository(workspace, lock_timeout_s=5.0)
+    active = seed_active_decision(seed_repo)
+    duplicate = proposal(
+        statement=active.statement,
+        kind="decision",
+        slot=active.slot,
+        tags=("architecture.memory", "project.decision"),
+        speech_act="confirmed_decision",
+        evidence_refs=("history:1",),
+        confidence=0.95,
+        importance=5,
+    )
+    first, second = _concurrent_ingest(workspace, policy, duplicate, context)
+
+    assert first.candidate_id == second.candidate_id
+    assert first.final_status is MemoryStatus.SUPERSEDED
+    assert second.final_status is MemoryStatus.SUPERSEDED
+    assert first.active_id == active.id
+    assert second.active_id == active.id
+
+    repo = StructuredMemoryRepository(workspace)
+    candidate_revs = repo.revisions(first.candidate_id)
+    assert [record.status for record in candidate_revs] == [
+        MemoryStatus.CANDIDATE,
+        MemoryStatus.SUPERSEDED,
+    ]
+    active_revs = repo.revisions(active.id)
+    assert [record.status for record in active_revs] == [
+        MemoryStatus.ACTIVE,
+        MemoryStatus.ACTIVE,
+    ]
+    assert len(_journal_lines(workspace)) == 3  # seed + create + merge
+
+
+def test_concurrent_lower_rank_block_reconciles_to_candidate(workspace, policy, context):
+    seed_repo = StructuredMemoryRepository(workspace, lock_timeout_s=5.0)
+    active = seed_active_decision(seed_repo)
+    weak = proposal(
+        statement="A weaker claim",
+        kind="decision",
+        slot=active.slot,
+        tags=("architecture.memory", "project.decision"),
+        speech_act="inferred",
+        evidence_refs=("history:1",),
+        confidence=0.6,
+        importance=3,
+    )
+    first, second = _concurrent_ingest(workspace, policy, weak, context)
+
+    assert first.candidate_id == second.candidate_id
+    assert first.final_status is MemoryStatus.CANDIDATE
+    assert second.final_status is MemoryStatus.CANDIDATE
+    assert first.active_id is None
+    assert second.active_id is None
+
+    repo = StructuredMemoryRepository(workspace)
+    revisions = repo.revisions(first.candidate_id)
+    assert [record.status for record in revisions] == [
+        MemoryStatus.CANDIDATE,
+        MemoryStatus.CANDIDATE,
+    ]
+    assert revisions[1].blocked_by == (active.id,)
+    assert len(_journal_lines(workspace)) == 3  # seed + create + block
+
+
+def test_reconcile_conflict_after_promotion_returns_committed_active(
+    workspace, policy, file_context, monkeypatch
+):
+    repo = StructuredMemoryRepository(workspace, lock_timeout_s=5.0)
+    lifecycle = StructuredMemoryLifecycle(repo, policy)
+    verified = proposal(
+        evidence_refs=("file:pyproject",),
+        speech_act="verified",
+        confidence=0.9,
+    )
+    real_append = repo.append_transaction
+    state = {"conflicted": False}
+
+    def conflict_then_commit(transaction):
+        if not state["conflicted"]:
+            state["conflicted"] = True
+            real_append(transaction)
+            raise MemoryRevisionConflict("simulated concurrent promotion")
+        return real_append(transaction)
+
+    monkeypatch.setattr(repo, "append_transaction", conflict_then_commit)
+
+    result = lifecycle.ingest(verified, file_context)
+
+    assert result.final_status is MemoryStatus.ACTIVE
+    assert result.active_id == result.candidate_id
+    assert len(result.transaction_ids) == 1
+    assert len(repo.revisions(result.candidate_id)) == 2
+    assert len(_journal_lines(workspace)) == 2  # create + promote; no retry duplicate
+
+
+def test_reconcile_conflict_after_merge_returns_committed_superseded(
+    workspace, policy, context, monkeypatch
+):
+    repo = StructuredMemoryRepository(workspace, lock_timeout_s=5.0)
+    active = seed_active_decision(repo)
+    lifecycle = StructuredMemoryLifecycle(repo, policy)
+    duplicate = proposal(
+        statement=active.statement,
+        kind="decision",
+        slot=active.slot,
+        tags=("architecture.memory", "project.decision"),
+        speech_act="confirmed_decision",
+        evidence_refs=("history:1",),
+        confidence=0.95,
+        importance=5,
+    )
+    real_append = repo.append_transaction
+    state = {"conflicted": False}
+
+    def conflict_then_commit(transaction):
+        if not state["conflicted"]:
+            state["conflicted"] = True
+            real_append(transaction)
+            raise MemoryRevisionConflict("simulated concurrent merge")
+        return real_append(transaction)
+
+    monkeypatch.setattr(repo, "append_transaction", conflict_then_commit)
+
+    result = lifecycle.ingest(duplicate, context)
+
+    assert result.final_status is MemoryStatus.SUPERSEDED
+    assert result.active_id == active.id
+    assert repo.get(result.candidate_id).replacement_id == active.id
+    assert len(_journal_lines(workspace)) == 3  # seed + create + merge
+
+
+def test_reconcile_conflict_after_block_returns_committed_candidate(
+    workspace, policy, context, monkeypatch
+):
+    repo = StructuredMemoryRepository(workspace, lock_timeout_s=5.0)
+    active = seed_active_decision(repo)
+    lifecycle = StructuredMemoryLifecycle(repo, policy)
+    weak = proposal(
+        statement="A weaker claim",
+        kind="decision",
+        slot=active.slot,
+        tags=("architecture.memory", "project.decision"),
+        speech_act="inferred",
+        evidence_refs=("history:1",),
+        confidence=0.6,
+        importance=3,
+    )
+    real_append = repo.append_transaction
+    state = {"conflicted": False}
+
+    def conflict_then_commit(transaction):
+        if not state["conflicted"]:
+            state["conflicted"] = True
+            real_append(transaction)
+            raise MemoryRevisionConflict("simulated concurrent block")
+        return real_append(transaction)
+
+    monkeypatch.setattr(repo, "append_transaction", conflict_then_commit)
+
+    result = lifecycle.ingest(weak, context)
+
+    assert result.final_status is MemoryStatus.CANDIDATE
+    assert result.active_id is None
+    assert result.reason_code == REASON_EXISTING
+    record = repo.get(result.candidate_id)
+    assert record.revision == 2
+    assert record.blocked_by == (active.id,)
+    assert len(_journal_lines(workspace)) == 3  # seed + create + block
+
+
+# ---------------------------------------------------------------------------
+# C2 plan B review closeout: cumulative blocked_by
+# ---------------------------------------------------------------------------
+
+
+def test_candidate_blocked_by_accumulates_new_active_conflict(lifecycle, active_decision, context):
+    weak = proposal(
+        statement="A weaker claim",
+        kind="decision",
+        slot=active_decision.slot,
+        tags=("architecture.memory", "project.decision"),
+        speech_act="inferred",
+        evidence_refs=("history:1",),
+        confidence=0.6,
+        importance=3,
+    )
+    first = lifecycle.ingest(weak, context)
+    assert lifecycle.repository.get(first.candidate_id).blocked_by == (active_decision.id,)
+
+    correction = proposal(
+        statement="Main uses deterministic structured recall without embeddings.",
+        kind="decision",
+        slot=active_decision.slot,
+        tags=("architecture.memory", "project.decision"),
+        speech_act="explicit_correction",
+        evidence_refs=("command:msg-42",),
+        confidence=1.0,
+        importance=5,
+    )
+    lifecycle.ingest(correction, context)
+    active_records = lifecycle.repository.current_records(MemoryStatus.ACTIVE)
+    assert len(active_records) == 1
+    replacement = active_records[0]
+    assert replacement.id != active_decision.id
+
+    retry = lifecycle.ingest(weak, context)
+
+    record = lifecycle.repository.get(first.candidate_id)
+    assert record.status is MemoryStatus.CANDIDATE
+    assert record.blocked_by == tuple(sorted({active_decision.id, replacement.id}))
+    assert retry.final_status is MemoryStatus.CANDIDATE
+
+
+def test_reingest_against_existing_blocker_is_zero_write(
+    lifecycle, active_decision, context, workspace
+):
+    weak = proposal(
+        statement="A weaker claim",
+        kind="decision",
+        slot=active_decision.slot,
+        tags=("architecture.memory", "project.decision"),
+        speech_act="inferred",
+        evidence_refs=("history:1",),
+        confidence=0.6,
+        importance=3,
+    )
+    first = lifecycle.ingest(weak, context)
+    correction = proposal(
+        statement="Main uses deterministic structured recall without embeddings.",
+        kind="decision",
+        slot=active_decision.slot,
+        tags=("architecture.memory", "project.decision"),
+        speech_act="explicit_correction",
+        evidence_refs=("command:msg-42",),
+        confidence=1.0,
+        importance=5,
+    )
+    lifecycle.ingest(correction, context)
+    replacement = lifecycle.repository.current_records(MemoryStatus.ACTIVE)[0]
+    lifecycle.ingest(weak, context)
+    record = lifecycle.repository.get(first.candidate_id)
+    assert record.blocked_by == tuple(sorted({active_decision.id, replacement.id}))
+    journal_before = len(_journal_lines(workspace))
+
+    retry = lifecycle.ingest(weak, context)
+
+    assert retry.reason_code == REASON_EXISTING
+    assert retry.transaction_ids == ()
+    record_after = lifecycle.repository.get(first.candidate_id)
+    assert record_after.revision == record.revision
+    assert record_after.blocked_by == record.blocked_by
+    assert len(_journal_lines(workspace)) == journal_before

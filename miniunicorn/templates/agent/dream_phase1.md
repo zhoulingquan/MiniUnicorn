@@ -18,7 +18,7 @@ prose around it, no trailing explanation:
       "aliases": ["全局记忆"],
       "confidence": 1.0,
       "importance": 5,
-      "evidence_refs": ["history:1"],
+      "evidence_refs": ["history:<cursor shown in input>"],
       "speech_act": "confirmed_decision",
       "expires_at": null
     }

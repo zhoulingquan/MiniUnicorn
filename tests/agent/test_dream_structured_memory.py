@@ -349,24 +349,25 @@ class TestEvidencePromptContract:
     async def test_user_prompt_shows_real_history_cursor_and_citing_it_succeeds(
         self, store, dream, mock_provider
     ):
-        store.append_history("First batch.")
-        store.set_last_dream_cursor(1)
+        for i in range(41):
+            store.append_history(f"Prior fact {i}.")
+        store.set_last_dream_cursor(41)
         store.append_history("Second batch fact.")
         set_provider_response(
             mock_provider,
-            raw_batch(proposal(evidence_refs=["history:2"])),
+            raw_batch(proposal(evidence_refs=["history:42"])),
         )
 
         result = await dream.run()
 
         assert result is True
-        user_prompt = mock_provider.chat_with_retry.await_args_list[0].kwargs["messages"][1][
-            "content"
-        ]
-        assert "[history:2 |" in user_prompt
-        assert "history:1" not in user_prompt
+        messages = mock_provider.chat_with_retry.await_args_list[0].kwargs["messages"]
+        user_prompt = messages[1]["content"]
+        assert "[history:42 |" in user_prompt
+        for message in messages:
+            assert "history:1" not in message["content"]
         record = all_records(store)[0]
-        assert record.evidence[0].ref == "history:2"
+        assert record.evidence[0].ref == "history:42"
 
     async def test_reflection_prompt_shows_stable_reflection_id_verbatim(
         self, store, dream, mock_provider
@@ -512,6 +513,65 @@ class TestDynamicIdentityScopes:
 
     async def test_missing_identity_omits_fine_scopes(self, store, dream, mock_provider):
         store.append_history("A fact without identity.")
+        set_provider_response(mock_provider, '{"schema_version":1,"proposals":[]}')
+
+        assert await dream.run() is True
+
+        system_prompt = mock_provider.chat_with_retry.await_args_list[0].kwargs["messages"][0][
+            "content"
+        ]
+        assert self.allowed_scope_line(system_prompt) == (
+            "Allowed scope_hint values for this batch: project, shared."
+        )
+
+    async def test_subagent_namespaced_sessions_open_parent_session_scope(
+        self, store, dream, mock_provider
+    ):
+        store.append_history("Subagent A fact.", session_key="web:chat#sub:a")
+        store.append_history("Subagent B fact.", session_key="web:chat#sub:b")
+        set_provider_response(
+            mock_provider,
+            raw_batch(
+                proposal(
+                    scope_hint="session",
+                    statement="Use deterministic structured recall.",
+                    evidence_refs=["history:1", "history:2"],
+                )
+            ),
+        )
+
+        assert await dream.run() is True
+
+        system_prompt = mock_provider.chat_with_retry.await_args_list[0].kwargs["messages"][0][
+            "content"
+        ]
+        allowed = self.allowed_scope_line(system_prompt)
+        assert "session" in allowed
+        record = all_records(store)[0]
+        assert record.scope.kind is ScopeKind.SESSION
+        assert record.scope.key == "session:web:chat"
+
+    async def test_different_parent_sessions_omit_session_scope(
+        self, store, dream, mock_provider
+    ):
+        store.append_history("Chat A subagent fact.", session_key="web:chat#sub:a")
+        store.append_history("Chat B subagent fact.", session_key="web:other#sub:a")
+        set_provider_response(mock_provider, '{"schema_version":1,"proposals":[]}')
+
+        assert await dream.run() is True
+
+        system_prompt = mock_provider.chat_with_retry.await_args_list[0].kwargs["messages"][0][
+            "content"
+        ]
+        assert self.allowed_scope_line(system_prompt) == (
+            "Allowed scope_hint values for this batch: project, shared."
+        )
+
+    async def test_mixed_session_identity_omits_session_scope(
+        self, store, dream, mock_provider
+    ):
+        store.append_history("Namespaced fact.", session_key="web:chat#sub:a")
+        store.append_history("Identity-less fact.")
         set_provider_response(mock_provider, '{"schema_version":1,"proposals":[]}')
 
         assert await dream.run() is True

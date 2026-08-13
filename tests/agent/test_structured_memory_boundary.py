@@ -10,6 +10,10 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+from packaging.requirements import InvalidRequirement, Requirement
+from packaging.utils import canonicalize_name
+
 from miniunicorn.agent.context import ContextBuilder
 from miniunicorn.agent.memory import MemoryStore
 from miniunicorn.agent.memory_lifecycle import IngestContext
@@ -139,6 +143,24 @@ FORBIDDEN_VECTOR_IMPORTS = {
     "weaviate",
 }
 
+_FORBIDDEN_CANONICAL = {canonicalize_name(name) for name in FORBIDDEN_VECTOR_IMPORTS}
+
+
+def declared_package_names(dependencies: list[str]) -> set[str]:
+    """Canonical distribution names of a PEP 508 requirement list.
+
+    Version specifiers, extras, markers, and URL requirements are handled by
+    ``packaging.requirements.Requirement``. An unparseable declared dependency
+    is a boundary violation and must fail loudly, not disappear.
+    """
+    names: set[str] = set()
+    for spec in dependencies:
+        try:
+            names.add(canonicalize_name(Requirement(spec).name))
+        except InvalidRequirement as exc:
+            raise AssertionError(f"unparseable declared dependency: {spec!r}: {exc}")
+    return names
+
 _EXPLICIT_RUNTIME_FILES = (
     "miniunicorn/agent/context.py",
     "miniunicorn/agent/loop.py",
@@ -212,20 +234,38 @@ def test_runtime_config_and_dependencies_expose_no_vector_memory_entrypoint():
             spec for spec in optional.values() if isinstance(spec, list)
         )
 
-    def package_names(dependencies: list[str]) -> set[str]:
-        names: set[str] = set()
-        for spec in dependencies:
-            name = spec.split(";", 1)[0].split("[", 1)[0].split(" ", 1)[0]
-            names.add(name.replace("-", "_").lower())
-        return names
-
-    declared = set().union(*(package_names(deps) for deps in dependency_lists))
+    declared = set().union(*(declared_package_names(deps) for deps in dependency_lists))
 
     assert all(name not in schema_text for name in forbidden_config_names)
-    assert declared.isdisjoint(FORBIDDEN_VECTOR_IMPORTS), sorted(
-        declared & FORBIDDEN_VECTOR_IMPORTS
+    assert declared.isdisjoint(_FORBIDDEN_CANONICAL), sorted(
+        declared & _FORBIDDEN_CANONICAL
     )
     assert len(dependency_lists) >= 2  # both regular and optional tables scanned
+
+
+def test_declared_package_names_parses_pep508_specifiers():
+    dependencies = [
+        "lancedb>=0.1",
+        "chromadb[server]~=1.0; python_version >= '3.11'",
+        "LanceDB==1.2.3",
+        "qdrant_client>=0.10",
+        "sentence_transformers @ https://example.com/st-1.0.tar.gz",
+        "requests>=2.31",
+    ]
+
+    names = declared_package_names(dependencies)
+
+    assert canonicalize_name("lancedb") in names
+    assert canonicalize_name("chromadb") in names
+    assert canonicalize_name("qdrant-client") in names
+    assert canonicalize_name("sentence-transformers") in names
+    assert canonicalize_name("requests") in names
+    assert names.isdisjoint(_FORBIDDEN_CANONICAL) is False
+
+
+def test_unparseable_declared_dependency_fails_loudly():
+    with pytest.raises(AssertionError, match="unparseable declared dependency"):
+        declared_package_names(["lancedb =="])
 
 
 def test_governed_prompt_never_whole_injects_shared_legacy_file(tmp_path):

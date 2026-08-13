@@ -74,6 +74,7 @@ dev = [
     "pytest-cov>=6.0.0,<7.0.0",
     "ruff>=0.1.0",
     "pymupdf>=1.25.0",
+    "packaging>=26.0",
 ]
 
 [project.scripts]

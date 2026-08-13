@@ -168,3 +168,260 @@ def test_new_reflection_id_format():
     assert _REFLECTION_ID_RE.match(first), first
     assert _REFLECTION_ID_RE.match(second), second
     assert first != second
+
+
+# ---------------------------------------------------------------------------
+# C2 plan B review closeout: cursor-safe rotation + strict structured parsing
+# ---------------------------------------------------------------------------
+
+
+def _write_entries(path, count: int, *, start_iteration: int = 0) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        for i in range(count):
+            iteration = start_iteration + i
+            entry = {
+                "timestamp": f"2026-08-13 09:{iteration % 60:02d}",
+                "trigger": "periodic",
+                "iteration": iteration,
+                "context": f"old {iteration}",
+                "reflection": f"Old {iteration}",
+                "lesson": f"Old {iteration}",
+                "reflection_id": f"rfl_{iteration:032x}",
+                "session_key": None,
+            }
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+@pytest.mark.asyncio
+async def test_rotation_with_full_consumed_cursor_keeps_new_reflection(workspace, store):
+    path = workspace / "memory" / "reflections.jsonl"
+    _write_entries(path, 500)
+    store.set_last_reflections_cursor(500)
+
+    provider = make_provider('{"lesson":"New lesson."}')
+    reflection = Reflection(
+        provider=provider, model="m", workspace=workspace, structured_mode=True
+    )
+    await reflection.reflect(
+        trigger="periodic",
+        iteration=500,
+        context_summary="new",
+        messages=[{"role": "user", "content": "x"}],
+    )
+
+    persisted = read_jsonl(path)[-1]
+    persisted_id = persisted["reflection_id"]
+    assert _REFLECTION_ID_RE.match(persisted_id)
+
+    entries = store.read_unprocessed_reflections(since_cursor=0)
+    assert len(entries) == 1
+    assert entries[0]["lesson"] == "New lesson."
+    assert entries[0]["reflection_id"] == persisted_id
+    assert store.get_last_reflections_cursor() == 0
+
+
+@pytest.mark.asyncio
+async def test_rotation_never_drops_unconsumed_entries(workspace, store):
+    path = workspace / "memory" / "reflections.jsonl"
+    _write_entries(path, 501)
+
+    provider = make_provider('{"lesson":"Fresh lesson."}')
+    reflection = Reflection(
+        provider=provider, model="m", workspace=workspace, structured_mode=True
+    )
+    await reflection.reflect(
+        trigger="periodic",
+        iteration=501,
+        context_summary="fresh",
+        messages=[{"role": "user", "content": "y"}],
+    )
+
+    lines = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+    assert len(lines) == 502
+    assert lines[0]["lesson"] == "Old 0"
+    assert lines[-1]["lesson"] == "Fresh lesson."
+    assert store.get_last_reflections_cursor() == 0
+
+
+@pytest.mark.asyncio
+async def test_rotation_prunes_consumed_prefix_and_resets_cursor(workspace, store):
+    path = workspace / "memory" / "reflections.jsonl"
+    _write_entries(path, 501)
+    store.set_last_reflections_cursor(200)
+
+    provider = make_provider('{"lesson":"Prefix lesson."}')
+    reflection = Reflection(
+        provider=provider, model="m", workspace=workspace, structured_mode=True
+    )
+    await reflection.reflect(
+        trigger="periodic",
+        iteration=501,
+        context_summary="prefix",
+        messages=[{"role": "user", "content": "z"}],
+    )
+
+    lines = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+    assert len(lines) == 302
+    assert lines[0]["iteration"] == 200
+    assert lines[-1]["lesson"] == "Prefix lesson."
+    assert lines[-1]["reflection_id"].startswith("rfl_")
+    assert store.get_last_reflections_cursor() == 0
+
+
+def test_rotation_failure_preserves_canonical_file_and_cursor(workspace, store, monkeypatch):
+    import miniunicorn.agent.reflection as reflection_module
+
+    path = workspace / "memory" / "reflections.jsonl"
+    _write_entries(path, 501)
+    store.set_last_reflections_cursor(200)
+    original = path.read_text(encoding="utf-8")
+
+    def _boom(*args, **kwargs):
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(reflection_module.os, "replace", _boom)
+    reflection = Reflection(
+        provider=make_provider('{"lesson":"Ignored."}'),
+        model="m",
+        workspace=workspace,
+        structured_mode=True,
+    )
+    reflection._maybe_rotate()
+
+    assert path.read_text(encoding="utf-8") == original
+    assert store.get_last_reflections_cursor() == 200
+
+
+def test_rotation_cursor_reset_failure_does_not_renumber_file(workspace, store, monkeypatch):
+    """A cursor write failure must happen before the canonical file is renumbered.
+
+    Otherwise the old physical cursor can skip the newly renumbered unconsumed
+    prefix forever. Leaving the original file and cursor untouched is safe.
+    """
+    import miniunicorn.agent.reflection as reflection_module
+
+    path = workspace / "memory" / "reflections.jsonl"
+    cursor_path = workspace / "memory" / ".reflections_cursor"
+    _write_entries(path, 501)
+    store.set_last_reflections_cursor(200)
+    original = path.read_text(encoding="utf-8")
+    real_rewrite = reflection_module._atomic_rewrite_lines
+
+    def fail_cursor_reset(target, lines):
+        if target == cursor_path:
+            return False
+        return real_rewrite(target, lines)
+
+    monkeypatch.setattr(reflection_module, "_atomic_rewrite_lines", fail_cursor_reset)
+    reflection = Reflection(
+        provider=make_provider('{"lesson":"Ignored."}'),
+        model="m",
+        workspace=workspace,
+        structured_mode=True,
+    )
+
+    reflection._maybe_rotate()
+
+    assert path.read_text(encoding="utf-8") == original
+    assert store.get_last_reflections_cursor() == 200
+
+
+def test_rotation_cursor_beyond_file_resets_without_dropping_entries(workspace, store):
+    path = workspace / "memory" / "reflections.jsonl"
+    _write_entries(path, 501)
+    store.set_last_reflections_cursor(700)
+    reflection = Reflection(
+        provider=make_provider('{"lesson":"Ignored."}'),
+        model="m",
+        workspace=workspace,
+        structured_mode=True,
+    )
+
+    reflection._maybe_rotate()
+
+    assert len(read_jsonl(path)) == 501
+    assert store.get_last_reflections_cursor() == 0
+    assert len(store.read_unprocessed_reflections(since_cursor=0)) == 501
+
+
+def test_read_stale_cursor_falls_back_to_all_physical_lines(workspace, store):
+    path = workspace / "memory" / "reflections.jsonl"
+    _write_entries(path, 2)
+
+    entries = store.read_unprocessed_reflections(since_cursor=700)
+
+    assert [entry["iteration"] for entry in entries] == [0, 1]
+
+
+def test_store_prune_file_rewrite_failure_resets_cursor_before_renumbering(
+    workspace, store, monkeypatch
+):
+    import miniunicorn.agent.memory as memory_module
+
+    path = workspace / "memory" / "reflections.jsonl"
+    cursor_path = workspace / "memory" / ".reflections_cursor"
+    _write_entries(path, 3)
+    store.set_last_reflections_cursor(2)
+    original = path.read_text(encoding="utf-8")
+    real_rewrite = memory_module._atomic_rewrite_lines
+
+    def fail_file_rewrite(target, lines):
+        if target == path:
+            return False
+        return real_rewrite(target, lines)
+
+    monkeypatch.setattr(memory_module, "_atomic_rewrite_lines", fail_file_rewrite)
+
+    assert store.prune_reflections_after_cursor() == 0
+    assert path.read_text(encoding="utf-8") == original
+    assert cursor_path.read_text(encoding="utf-8").strip() == "0"
+    assert len(store.read_unprocessed_reflections(since_cursor=0)) == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "just some text",
+        "[1, 2]",
+        "null",
+        "{}",
+        '{"lesson": "x", "extra": 1}',
+        '{"missing": "x"}',
+        '{"lesson": ""}',
+        '{"lesson": "   "}',
+        '{"lesson": 42}',
+        '{"lesson": null}',
+        "",
+    ],
+)
+async def test_structured_reflect_rejects_invalid_payload(workspace, payload):
+    provider = make_provider(payload)
+    reflection = Reflection(
+        provider=provider, model="m", workspace=workspace, structured_mode=True
+    )
+
+    result = await reflection.reflect(
+        trigger="tool_error",
+        iteration=1,
+        context_summary="boom",
+        messages=[{"role": "user", "content": "x"}],
+    )
+
+    assert result is None
+    assert not (workspace / "memory" / "reflections.jsonl").exists()
+
+
+@pytest.mark.parametrize(
+    "payload, expected",
+    [
+        ('{"lesson": "A lesson."}', "A lesson."),
+        ('{"lesson": "  padded  lesson  "}', "padded  lesson"),
+    ],
+)
+def test_structured_parser_accepts_exact_lesson_object(payload, expected):
+    reflection = Reflection(
+        provider=MagicMock(), model="m", workspace=None, structured_mode=True
+    )
+    assert reflection._parse_structured_response(payload) == expected

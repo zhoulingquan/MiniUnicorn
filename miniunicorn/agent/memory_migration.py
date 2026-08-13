@@ -11,6 +11,7 @@ Normative source: docs/superpowers/specs/2026-08-11-c2-governed-structured-memor
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -73,6 +74,14 @@ _EVENT_TAGS: tuple[str, ...] = ("session.event",)
 _MAX_STATEMENT_CHARS = 500
 _MAX_SUBJECT_CHARS = 160
 _MAX_EVIDENCE_EXCERPT = 1000
+
+# errno values that unambiguously mean directory fsync/open is unsupported on
+# the platform/filesystem. Real I/O failures (EIO, ENOSPC, EROFS, ...) must
+# propagate so callers never mark a manifest save successful when durability
+# was not achieved.
+_DIRECTORY_FSYNC_UNSUPPORTED_ERRNOS = frozenset(
+    errno for errno in (errno.EINVAL, errno.ENOTSUP, errno.EOPNOTSUPP) if errno is not None
+)
 
 
 @dataclass(frozen=True)
@@ -361,22 +370,41 @@ class MigrationState:
             return cls(entries={}, completed_at=None)
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
-            entries = {
-                str(key): str(value)
-                for key, value in payload.get("entries", {}).items()
-                if isinstance(key, str) and isinstance(value, str)
-            }
-            completed_raw = payload.get("completed_at")
-            completed_at: datetime | None = None
-            if isinstance(completed_raw, str):
-                try:
-                    completed_at = datetime.fromisoformat(completed_raw)
-                except ValueError:
-                    completed_at = None
-            return cls(entries=entries, completed_at=completed_at)
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, UnicodeDecodeError) as exc:
             logger.warning("memory_migration_state_unreadable path={} error={}", path, exc)
             return cls(entries={}, completed_at=None)
+        if not isinstance(payload, dict):
+            logger.warning(
+                "memory_migration_state_malformed path={} reason={}", path, "root not an object"
+            )
+            return cls(entries={}, completed_at=None)
+        if "entries" not in payload:
+            logger.warning(
+                "memory_migration_state_malformed path={} reason={}", path, "entries missing"
+            )
+            return cls(entries={}, completed_at=None)
+        raw_entries = payload["entries"]
+        if not isinstance(raw_entries, dict) or not all(
+            isinstance(key, str) and isinstance(value, str)
+            for key, value in raw_entries.items()
+        ):
+            logger.warning(
+                "memory_migration_state_malformed path={} reason={}", path, "entries not string map"
+            )
+            return cls(entries={}, completed_at=None)
+        completed_at: datetime | None = None
+        completed_raw = payload.get("completed_at")
+        if isinstance(completed_raw, str):
+            try:
+                completed_at = datetime.fromisoformat(completed_raw)
+            except ValueError:
+                logger.warning(
+                    "memory_migration_state_malformed path={} reason={}",
+                    path,
+                    "invalid completed_at",
+                )
+                completed_at = None
+        return cls(entries=dict(raw_entries), completed_at=completed_at)
 
     def save(self, path: Path) -> None:
         payload = {
@@ -403,16 +431,20 @@ class MigrationState:
                 os.fsync(stream.fileno())
             os.replace(temp_path, path)
             if os.name == "posix":
+                dir_fd: int | None = None
                 try:
                     dir_fd = os.open(path.parent, os.O_RDONLY)
+                except OSError as exc:
+                    if exc.errno not in _DIRECTORY_FSYNC_UNSUPPORTED_ERRNOS:
+                        raise
+                else:
                     try:
                         os.fsync(dir_fd)
-                    except OSError:
-                        pass
+                    except OSError as exc:
+                        if exc.errno not in _DIRECTORY_FSYNC_UNSUPPORTED_ERRNOS:
+                            raise
                     finally:
                         os.close(dir_fd)
-                except OSError:
-                    pass
         finally:
             if temp_path is not None:
                 try:

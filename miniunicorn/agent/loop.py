@@ -237,6 +237,9 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         self.planner_max_replans = getattr(defaults, "planner_max_replans", 3)
         self.enable_reflection = getattr(defaults, "enable_reflection", False)
         self.reflection_interval = getattr(defaults, "reflection_interval", 5)
+        self.structured_memory_mode = (
+            structured_memory_config.mode if structured_memory_config is not None else None
+        )
         self._max_input_tokens_per_turn = getattr(defaults, "max_input_tokens_per_turn", None)
         self._max_cost_per_turn_usd = getattr(defaults, "max_cost_per_turn_usd", None)
         self.tools_config = _tc
@@ -772,6 +775,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                     planner_max_replans=self.planner_max_replans,
                     enable_reflection=self.enable_reflection,
                     reflection_interval=self.reflection_interval,
+                    structured_memory_mode=self.structured_memory_mode,
                     turn_budget=self._build_turn_budget(),
                 )
             )

@@ -24,6 +24,7 @@ from miniunicorn.agent.memory_models import (
     EvidenceRef,
     MemoryOperation,
     MemoryRecord,
+    MemoryRevisionConflict,
     MemoryScope,
     MemoryStatus,
     MemoryTransaction,
@@ -48,6 +49,12 @@ REASON_BLOCKED_LOWER_RANK = "blocked_by_higher_rank"
 REASON_SAME_RANK = "same_rank_requires_explicit_replace"
 REASON_CORRECTION_CONFLICT = "correction_conflict_requires_explicit_replace"
 REASON_EXISTING = "existing_candidate_returned"
+
+# Post-create reconciliation attempts for optimistic revision races: on a
+# MemoryRevisionConflict the committed state is refreshed and the deterministic
+# result resumed. Small explicit bound; no sleeps and no broad exception
+# swallowing.
+_INGEST_RECONCILE_ATTEMPTS = 3
 
 SOURCE_RANK = {
     SourceLevel.INFERRED: 1,
@@ -181,9 +188,23 @@ class StructuredMemoryLifecycle:
             recorded_at=now,
         )
         current, created = self.repository.append_create_if_absent(create_tx)
-        if not created:
-            return self._resume_existing(current, context, now)
-        return self._apply_after_ingest(record, context, now, create_tx.tx_id)
+        record = current
+        create_tx_id = create_tx.tx_id if created else ""
+        for attempt in range(_INGEST_RECONCILE_ATTEMPTS):
+            if record.status is not MemoryStatus.CANDIDATE:
+                return self._resume_existing(record, context, now, create_tx_id)
+            try:
+                return self._apply_after_ingest(record, context, now, create_tx_id)
+            except MemoryRevisionConflict:
+                if attempt == _INGEST_RECONCILE_ATTEMPTS - 1:
+                    raise
+                fresh = self.repository.get_current(record.id)
+                if fresh is None:
+                    raise
+                record = fresh
+        raise MemoryRevisionConflict(
+            f"post-create reconciliation exhausted for {record.id}"
+        )
 
     def _resolve_evidence(self, proposal: CandidateProposal, context: IngestContext) -> tuple[EvidenceRef, ...]:
         resolved: list[EvidenceRef] = []
@@ -241,11 +262,20 @@ class StructuredMemoryLifecycle:
         return tuple(sorted(set(canonical)))
 
     def _resume_existing(
-        self, record: MemoryRecord, context: IngestContext, now: datetime
+        self,
+        record: MemoryRecord,
+        context: IngestContext,
+        now: datetime,
+        create_tx_id: str = "",
     ) -> IngestResult:
-        """Resume the deterministic lifecycle work for an already-created record."""
+        """Resume the deterministic lifecycle work for an already-created record.
+
+        ``create_tx_id`` is only reported for the caller that actually created
+        revision 1 (the ``created=True`` path re-entering after a conflict);
+        other callers pass the empty default and never claim the create.
+        """
         if record.status is MemoryStatus.CANDIDATE:
-            return self._apply_after_ingest(record, context, now, "")
+            return self._apply_after_ingest(record, context, now, create_tx_id)
         active_id = record.id if record.status is MemoryStatus.ACTIVE else None
         if record.status is MemoryStatus.SUPERSEDED and record.replacement_id:
             replacement = self.repository.get(record.replacement_id)
@@ -255,7 +285,7 @@ class StructuredMemoryLifecycle:
             candidate_id=record.id,
             final_status=record.status,
             active_id=active_id,
-            transaction_ids=(),
+            transaction_ids=(create_tx_id,) if create_tx_id else (),
             reason_code=REASON_EXISTING,
         )
 
@@ -295,7 +325,7 @@ class StructuredMemoryLifecycle:
         now: datetime,
         create_tx_id: str,
     ) -> IngestResult:
-        if candidate.blocked_by == (existing.id,):
+        if existing.id in candidate.blocked_by:
             return IngestResult(
                 candidate_id=candidate.id,
                 final_status=MemoryStatus.CANDIDATE,
@@ -578,7 +608,7 @@ class StructuredMemoryLifecycle:
         blocked = candidate.model_copy(
             update={
                 "revision": candidate.revision + 1,
-                "blocked_by": (blocked_by,),
+                "blocked_by": tuple(sorted(set(candidate.blocked_by) | {blocked_by})),
                 "updated_at": now,
                 "status_reason": "blocked by active conflict",
             }

@@ -97,6 +97,28 @@ class TestStatus:
 
         assert "Migration: completed at `2026-08-11T09:00:00+00:00`" in content
 
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "[]",
+            "null",
+            '{"entries": []}',
+            '{"entries": {"a": "ok", "b": 1}}',
+        ],
+    )
+    async def test_status_fails_closed_on_malformed_manifest(self, workspace, raw):
+        from miniunicorn.agent.memory_migration import MIGRATION_STATE_FILE
+
+        canonical = workspace / MIGRATION_STATE_FILE
+        canonical.parent.mkdir(parents=True, exist_ok=True)
+        canonical.write_text(raw, encoding="utf-8")
+        store = _store(workspace)
+        router = _router()
+
+        content = await _dispatch(router, store, "/memory-status")
+
+        assert "Migration: pending" in content
+
 
 class TestList:
     async def test_list_shows_fields_and_default_limit(self, workspace):
