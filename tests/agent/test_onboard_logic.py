@@ -10,6 +10,7 @@ from typing import Any, cast
 
 from pydantic import BaseModel, Field
 
+from miniunicorn.agent.memory import MemoryStore
 from miniunicorn.cli import onboard as onboard_wizard
 from miniunicorn.cli.commands import _merge_missing_defaults
 from miniunicorn.cli.onboard import (
@@ -22,7 +23,8 @@ from miniunicorn.cli.onboard import (
     _input_text,
     run_onboard,
 )
-from miniunicorn.config.schema import Config
+from miniunicorn.config.schema import Config, StructuredMemoryConfig
+from miniunicorn.utils.gitstore import GOVERNED_MEMORY_TRACKED_FILES
 from miniunicorn.utils.helpers import sync_workspace_templates
 
 
@@ -373,6 +375,50 @@ class TestSyncWorkspaceTemplates:
         sync_workspace_templates(workspace, silent=True)
 
         assert (workspace / "memory").exists() or (workspace / "skills").exists()
+
+    def test_does_not_create_removed_memory_files(self, tmp_path):
+        workspace = tmp_path / "workspace"
+
+        sync_workspace_templates(workspace, silent=True)
+
+        removed = (
+            "USER.md",
+            "memory/MEMORY.md",
+            "memory/episodic.jsonl",
+            "memory/procedural.jsonl",
+            "memory/shared/MEMORY_SHARED.md",
+            "memory/shared/procedural_shared.jsonl",
+            "memory/structured/migration-v1.json",
+        )
+        assert all(not (workspace / path).exists() for path in removed)
+
+    def test_memory_git_tracks_the_governed_file_set(self, tmp_path):
+        workspace = tmp_path / "workspace"
+
+        sync_workspace_templates(workspace, silent=True)
+
+        gitignore = (workspace / ".gitignore").read_text(encoding="utf-8")
+        for path in GOVERNED_MEMORY_TRACKED_FILES:
+            assert f"!{path}" in gitignore
+
+    def test_governed_memory_is_healthy_after_workspace_sync(self, tmp_path):
+        workspace = tmp_path / "workspace"
+
+        sync_workspace_templates(workspace, silent=True)
+        store = MemoryStore(workspace, structured_config=StructuredMemoryConfig())
+
+        assert store.structured_repository.health.state == "healthy"
+        assert store.structured_repository.tag_catalog.tags
+
+    def test_preserves_preexisting_removed_file_without_deleting_it(self, tmp_path):
+        workspace = tmp_path / "workspace"
+        legacy = workspace / "USER.md"
+        legacy.parent.mkdir(parents=True)
+        legacy.write_text("developer data", encoding="utf-8")
+
+        sync_workspace_templates(workspace, silent=True)
+
+        assert legacy.read_text(encoding="utf-8") == "developer data"
 
     def test_returns_list_of_added_files(self, tmp_path):
         """Should return list of relative paths for added files."""

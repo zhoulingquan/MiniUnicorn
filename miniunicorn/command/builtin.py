@@ -114,7 +114,7 @@ BUILTIN_COMMAND_SPECS: tuple[BuiltinCommandSpec, ...] = (
     BuiltinCommandSpec(
         "/memory-status",
         "Memory status",
-        "Show structured memory mode, health, counts and migration state.",
+        "Show governed memory architecture, health and record counts.",
         "database",
     ),
     BuiltinCommandSpec(
@@ -151,13 +151,6 @@ BUILTIN_COMMAND_SPECS: tuple[BuiltinCommandSpec, ...] = (
         "Create an explicit correction record.",
         "pencil",
         "<subject>|<slot>|<statement>",
-    ),
-    BuiltinCommandSpec(
-        "/memory-migrate",
-        "Migrate memory",
-        "Import legacy memory files into the structured repository.",
-        "arrow-right-left",
-        "[--dry-run|--apply]",
     ),
 )
 
@@ -350,7 +343,7 @@ async def cmd_dream(ctx: CommandContext) -> OutboundMessage:
     async def _run_dream():
         t0 = time.monotonic()
         try:
-            did_work = await loop.dream.run()
+            did_work = await loop.run_all_dreams()
             elapsed = time.monotonic() - t0
             if did_work:
                 content = f"Dream completed in {elapsed:.1f}s."
@@ -537,14 +530,22 @@ async def cmd_dream_restore(ctx: CommandContext) -> OutboundMessage:
         sha = args.split()[0]
         result = git.show_commit_diff(sha)
         changed_files = _format_changed_files(result[1]) if result else "the tracked memory files"
-        new_sha = git.revert(sha)
+        new_sha, health = store.restore_memory_version(sha)
         if new_sha:
-            content = (
-                f"Restored Dream memory to the state before `{sha}`.\n\n"
-                f"- New safety commit: `{new_sha}`\n"
-                f"- Restored files: {changed_files}\n\n"
-                f"Use `/dream-log {new_sha}` to inspect the restore diff."
-            )
+            if health.state == "healthy":
+                content = (
+                    f"Restored Dream memory to the state before `{sha}`.\n\n"
+                    f"- New safety commit: `{new_sha}`\n"
+                    f"- Restored files: {changed_files}\n\n"
+                    f"Use `/dream-log {new_sha}` to inspect the restore diff."
+                )
+            else:
+                content = (
+                    f"Restored files from `{sha}`, but governed memory is degraded.\n\n"
+                    f"- New safety commit: `{new_sha}`\n"
+                    f"- Error: `{health.error_code or 'unknown'}`\n"
+                    "Restarting will not repair a damaged journal; restore a known-good version."
+                )
         else:
             content = (
                 f"Couldn't restore Dream change `{sha}`.\n\n"

@@ -2,6 +2,9 @@ import json
 import socket
 from unittest.mock import patch
 
+import pydantic
+import pytest
+
 from miniunicorn.config.loader import load_config, save_config
 from miniunicorn.security.network import validate_url_target
 
@@ -262,3 +265,53 @@ def test_load_config_accepts_legacy_local_preview_access(tmp_path) -> None:
     config = load_config(config_path)
 
     assert config.tools.webui_allow_local_service_access is False
+
+
+class TestLoadConfigValidationFailurePropagates:
+    def test_structured_memory_mode_raises_validation_error(self, tmp_path) -> None:
+        """structuredMemory.mode is a hard error and must never be swallowed."""
+        config_path = tmp_path / "config.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "agents": {
+                        "defaults": {
+                            "model": "some-model",
+                            "structuredMemory": {"mode": "shadow"},
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(pydantic.ValidationError):
+            load_config(config_path)
+
+    def test_out_of_range_value_raises_validation_error(self, tmp_path) -> None:
+        """Any Pydantic ValidationError propagates instead of returning defaults."""
+        config_path = tmp_path / "config.json"
+        config_path.write_text(
+            json.dumps({"agents": {"defaults": {"maxMessages": -1}}}),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(pydantic.ValidationError):
+            load_config(config_path)
+
+    def test_missing_config_still_returns_defaults(self, tmp_path) -> None:
+        """Missing config file behavior remains unchanged."""
+        config_path = tmp_path / "does-not-exist.json"
+
+        config = load_config(config_path)
+
+        assert config.agents.defaults.max_tokens == 8192
+
+    def test_malformed_json_still_falls_back_to_defaults(self, tmp_path) -> None:
+        """Keep the existing product fallback for malformed (non-JSON) files."""
+        config_path = tmp_path / "config.json"
+        config_path.write_text("{ this is not valid json", encoding="utf-8")
+
+        config = load_config(config_path)
+
+        assert config.agents.defaults.max_tokens == 8192

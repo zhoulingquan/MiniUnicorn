@@ -10,6 +10,15 @@ from pathlib import Path
 
 from loguru import logger
 
+GOVERNED_MEMORY_TRACKED_FILES: tuple[str, ...] = (
+    "SOUL.md",
+    "notes.md",
+    "memory/.dream_cursor",
+    "memory/structured/journal.jsonl",
+    "memory/structured/tags.json",
+    "memory/shared/POLICY.md",
+)
+
 
 @dataclass
 class CommitInfo:
@@ -193,14 +202,16 @@ class GitStore:
         """Generate .gitignore content from tracked files."""
         dirs: set[str] = set()
         for f in self._tracked_files:
-            parent = str(Path(f).parent)
-            if parent != ".":
-                dirs.add(parent)
+            path = Path(f.replace("\\", "/"))
+            for parent in path.parents:
+                if str(parent) == ".":
+                    break
+                dirs.add(parent.as_posix())
         lines = ["/*"]
-        for d in sorted(dirs):
+        for d in sorted(dirs, key=lambda value: (value.count("/"), value)):
             lines.append(f"!{d}/")
         for f in self._tracked_files:
-            lines.append(f"!{f}")
+            lines.append(f"!{f.replace(chr(92), '/')}")
         lines.append("!.gitignore")
         return "\n".join(lines) + "\n"
 

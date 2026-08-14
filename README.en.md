@@ -88,7 +88,7 @@ Memory is not one giant file. It is layered, with a different medium for each ki
 | Lessons learned | `memory/reflections.jsonl` | One-sentence lessons from failures and periodic reflection |
 | Version history | `GitStore` (embedded Git) | Every change to long-term files is traceable and revertible |
 
-Memory moves in **two stages**: the **Consolidator** summarizes the oldest safe slice into `history.jsonl` when the session approaches the context window; **Dream** runs on a schedule or via `/dream`, extracts candidate facts from new summaries and reflections, and passes them through a deterministic lifecycle into an append-only structured journal. Normal prompts recall only exact-scope active facts; candidates and legacy Markdown memory files are never injected wholesale.
+Memory moves in **two stages**: the **Consolidator** summarizes the oldest safe slice into `history.jsonl` when the session approaches the context window; **Dream** runs on a schedule or via `/dream`, extracts candidate facts from new summaries and reflections, and passes them through a deterministic lifecycle into an append-only structured journal. Normal prompts recall only exact-scope active facts; candidates never enter the prompt.
 
 ### 4. Context management — fighting context rot
 
@@ -104,7 +104,7 @@ Auto-compaction is token-budget driven and skips active tasks. Third-party strat
 
 ### 5. Prompt construction — the world the model sees
 
-Context assembly is layered: base persona (`SOUL.md`) → project instructions → tool definitions → deterministically recalled active memory and on-demand skills. `USER.md`, `MEMORY.md`, and `MEMORY_SHARED.md` are optional legacy import sources and are not injected wholesale into normal prompts.
+Context assembly is layered: base persona (`SOUL.md`) → project instructions → tool definitions → deterministically recalled active memory and on-demand skills. Durable facts come only from the append-only structured journal and are recalled under exact scope rules.
 
 ### 6. Output parsing — from free text to structured action
 

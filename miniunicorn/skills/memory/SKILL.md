@@ -9,8 +9,9 @@ always: true
 ## Structure
 
 - `SOUL.md` — Bot personality and communication style; bootstrap guidance, not a fact store.
-- `USER.md` and `memory/MEMORY.md` — inert legacy import sources; never injected automatically.
 - `memory/history.jsonl` — append-only JSONL, not loaded into context. Prefer the built-in `grep` tool to search it.
+- `memory/reflections.jsonl` — strict lessons used as Dream evidence.
+- `memory/shared/POLICY.md` — explicitly authored cross-session policy.
 - `memory/structured/journal.jsonl` — append-only governed record revisions. **Never edit directly.**
 - `memory/structured/tags.json` — controlled tag catalog. **Never edit during a turn.**
 
@@ -36,5 +37,4 @@ Examples (replace `keyword`):
 
 - **Do NOT edit any file under `memory/structured/`.** Use the memory commands for governed records.
 - Correct outdated facts explicitly with `/memory-correct`; Dream only proposes facts from history and reflections.
-- Use `/memory-migrate --apply` only when intentionally importing legacy files.
 - If `/memory-status` is degraded, do not infer missing facts or edit the journal. Report the diagnostic and use backup/memory Git history for recovery.

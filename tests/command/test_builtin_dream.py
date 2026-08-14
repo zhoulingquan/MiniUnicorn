@@ -10,6 +10,11 @@ from miniunicorn.command.router import CommandContext
 from miniunicorn.utils.gitstore import CommitInfo
 
 
+class _Health:
+    state = "healthy"
+    error_code = None
+
+
 class _FakeStore:
     def __init__(self, git, last_dream_cursor: int = 1):
         self.git = git
@@ -17,6 +22,9 @@ class _FakeStore:
 
     def get_last_dream_cursor(self) -> int:
         return self._last_dream_cursor
+
+    def restore_memory_version(self, sha: str):
+        return self.git.revert(sha), _Health()
 
 
 class _FakeGit:
@@ -120,9 +128,9 @@ async def test_dream_restore_success_mentions_files_and_followup() -> None:
         "@@ -1 +1 @@\n"
         "-old\n"
         "+new\n"
-        "diff --git a/memory/MEMORY.md b/memory/MEMORY.md\n"
-        "--- a/memory/MEMORY.md\n"
-        "+++ b/memory/MEMORY.md\n"
+        "diff --git a/memory/structured/journal.jsonl b/memory/structured/journal.jsonl\n"
+        "--- a/memory/structured/journal.jsonl\n"
+        "+++ b/memory/structured/journal.jsonl\n"
         "@@ -1 +1 @@\n"
         "-old\n"
         "+new\n"
@@ -136,5 +144,5 @@ async def test_dream_restore_success_mentions_files_and_followup() -> None:
 
     assert "Restored Dream memory to the state before `abcd1234`." in out.content
     assert "- New safety commit: `eeee9999`" in out.content
-    assert "- Restored files: `SOUL.md`, `memory/MEMORY.md`" in out.content
+    assert "- Restored files: `SOUL.md`, `memory/structured/journal.jsonl`" in out.content
     assert "Use `/dream-log eeee9999` to inspect the restore diff." in out.content

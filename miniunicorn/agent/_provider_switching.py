@@ -60,7 +60,8 @@ class ProviderSwitchingMixin:
         self.runner.provider = provider
         self.subagents.set_provider(provider, model)
         self.consolidator.set_provider(provider, model, context_window_tokens)
-        self.dream.set_provider(provider, model)
+        self.dream.set_provider(provider, model, context_window_tokens)
+        self._sync_runtime_helpers(provider, model, context_window_tokens)
         self._provider_signature = snapshot.signature
         if publish_update and self._runtime_model_publisher is not None:
             self._runtime_model_publisher(

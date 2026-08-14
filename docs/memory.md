@@ -35,7 +35,7 @@ When enabled, Reflection asks for exact JSON in the form `{"lesson":"..."}`. App
 
 ### Dream
 
-Dream runs on its configured cron schedule, on idle/backlog triggers, or via `/dream`. It reads unprocessed history and reflections, asks the model for strictly validated proposals, and passes those proposals to the deterministic lifecycle. It does not edit `USER.md`, `MEMORY.md`, `MEMORY_SHARED.md`, `SOUL.md`, or the structured journal directly.
+Dream runs on its configured cron schedule, on idle/backlog triggers, or via `/dream`. It reads unprocessed history and reflections, asks the model for strictly validated proposals, and passes those proposals to the deterministic lifecycle. It never writes `SOUL.md`, policy, or the structured journal directly.
 
 New facts normally begin as candidates. Promotion to active follows lifecycle rules or an explicit memory command. Candidates never enter model context.
 
@@ -45,7 +45,6 @@ New facts normally begin as candidates. Promotion to active follows lifecycle ru
 workspace/
 ├── AGENTS.md                    # Project instructions loaded as bootstrap context
 ├── SOUL.md                      # Persona/style bootstrap context
-├── USER.md                      # Inert legacy import source
 ├── notes.md                     # Agent scratchpad folded into history
 └── memory/
     ├── history.jsonl            # Consolidated conversation evidence
@@ -55,23 +54,20 @@ workspace/
     ├── structured/
     │   ├── journal.jsonl        # Append-only transactions; source of truth
     │   ├── tags.json            # Controlled tag catalog
-    │   ├── migration-v1.json    # Optional legacy-import progress
     │   └── recall-audit.jsonl   # Optional redacted local audit
     └── shared/
         └── POLICY.md             # Always injected only when customized
 ```
 
-Older files such as `memory/MEMORY.md`, `memory/shared/MEMORY_SHARED.md`, `episodic.jsonl`, and `procedural.jsonl` remain inert import sources. Normal runtime does not inject or mutate them.
-
 ## Prompt rules
 
 For a normal, non-light turn, MiniUnicorn:
 
-- loads bootstrap identity/instructions while excluding `USER.md`;
+- loads `AGENTS.md` and `SOUL.md` as bootstrap instructions and identity;
 - includes customized `memory/shared/POLICY.md`;
 - recalls by the exact session, project, user, and shared scopes;
 - injects only active hits within count and token budgets;
-- never injects candidates or complete legacy files.
+- never injects candidates or the whole journal.
 
 Light/heartbeat contexts skip recall. Subagents inherit their parent session and user identity. If the repository or recall path is degraded, recall fails closed: no fact content is injected, only a content-free diagnostic.
 
@@ -118,26 +114,16 @@ Every record is created at most once per `(source_batch, content_hash)` pair. Th
 
 Fact changes use append-only revisions with stable `mem_...` IDs. Promotion, revocation, correction, expiry, conflict blocking, and replacement are validated in application code under the repository lock.
 
-## Optional legacy import
-
-Legacy data is never imported automatically and never gates startup.
-
-- `/memory-migrate --dry-run` scans legacy sources and performs zero writes.
-- `/memory-migrate --apply` imports through the lifecycle without rewriting sources.
-- Apply is file-locked, resumable, idempotent, and fail-closed.
-- `memory/structured/migration-v1.json` records progress; it is import state, not a feature flag.
-
 ## Commands
 
 | Command | What it does |
 |---------|--------------|
-| `/memory-status` | Show architecture, health, record counts, and optional import state |
+| `/memory-status` | Show architecture, journal health, and record counts |
 | `/memory-list [status]` | List records, up to 20 |
 | `/memory-show <id>` | Show revisions, evidence, and replacement chain |
 | `/memory-promote <id> [--replace <active-id>]` | Promote a candidate |
 | `/memory-revoke <id> <reason>` | Revoke a candidate or active record |
 | `/memory-correct <subject>\|<slot>\|<statement>` | Create an explicit user correction |
-| `/memory-migrate [--dry-run\|--apply]` | Optionally import legacy files |
 | `/dream` | Process pending history/reflections now |
 | `/dream-log [sha]` | Inspect a recorded Dream journal change |
 | `/dream-restore [sha]` | Inspect or restore a recorded memory version |

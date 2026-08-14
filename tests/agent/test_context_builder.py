@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-import pytest
-
 from miniunicorn.agent.context import ContextBuilder
 from miniunicorn.session.goal_state import GOAL_STATE_KEY
 
@@ -166,19 +164,12 @@ class TestIsTemplateContent:
     def test_content_matching_template(self):
         from importlib.resources import files as pkg_files
 
-        tpl = pkg_files("miniunicorn") / "templates" / "memory" / "MEMORY.md"
-        if not tpl.is_file():
-            pytest.skip("MEMORY.md template not bundled")
+        tpl = pkg_files("miniunicorn") / "templates" / "memory" / "POLICY.md"
         original = tpl.read_text(encoding="utf-8")
-        assert ContextBuilder._is_template_content(original, "memory/MEMORY.md") is True
+        assert ContextBuilder._is_template_content(original, "memory/POLICY.md") is True
 
     def test_modified_content_returns_false(self):
-        from importlib.resources import files as pkg_files
-
-        tpl = pkg_files("miniunicorn") / "templates" / "memory" / "MEMORY.md"
-        if not tpl.is_file():
-            pytest.skip("MEMORY.md template not bundled")
-        assert ContextBuilder._is_template_content("totally different", "memory/MEMORY.md") is False
+        assert ContextBuilder._is_template_content("totally different", "memory/POLICY.md") is False
 
 
 # ---------------------------------------------------------------------------

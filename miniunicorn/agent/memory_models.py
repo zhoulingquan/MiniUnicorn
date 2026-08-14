@@ -121,7 +121,6 @@ class EvidenceKind(str, Enum):
 class ActorKind(str, Enum):
     DREAM = "dream"
     USER = "user"
-    MIGRATION = "migration"
     SYSTEM = "system"
 
 

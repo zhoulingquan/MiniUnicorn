@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import os
+import threading
 import time
 from contextlib import AsyncExitStack, nullcontext, suppress
 from pathlib import Path
@@ -26,7 +27,7 @@ from miniunicorn.agent._state_machine import (
 from miniunicorn.agent.autocompact import AutoCompact
 from miniunicorn.agent.context import ContextBuilder
 from miniunicorn.agent.hook import AgentHook, CompositeHook
-from miniunicorn.agent.memory import Consolidator, Dream
+from miniunicorn.agent.memory import Consolidator, Dream, MemoryStore
 from miniunicorn.agent.progress_hook import AgentProgressHook
 from miniunicorn.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRunSpec
 from miniunicorn.agent.subagent import SubagentManager
@@ -46,6 +47,7 @@ from miniunicorn.config.schema import AgentDefaults, ModelPresetConfig, Structur
 from miniunicorn.providers.base import LLMProvider
 from miniunicorn.providers.factory import ProviderSnapshot
 from miniunicorn.security.workspace_access import (
+    WorkspaceScope,
     WorkspaceScopeResolver,
     bind_workspace_scope,
     reset_workspace_scope,
@@ -324,13 +326,24 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             sessions=self.sessions,
             consolidator=self.consolidator,
             session_ttl_minutes=session_ttl_minutes,
+            consolidator_for=self._consolidator_for_session,
         )
         self.dream = Dream(
             store=self.context.memory,
             provider=provider,
             model=self.model,
             max_batch_size=defaults.dream.max_batch_size,
+            context_window_tokens=self.context_window_tokens,
+            max_completion_tokens=provider.generation.max_tokens,
         )
+        # Per-workspace runtime helpers: one Consolidator/Dream per resolved
+        # effective workspace path, lazily created under a lock so concurrent
+        # turns cannot build duplicates. The default workspace's helpers are
+        # always ``self.consolidator``/``self.dream``.
+        self._default_root = self._resolved_root(workspace)
+        self._workspace_helpers_lock = threading.Lock()
+        self._workspace_consolidators: dict[str, Consolidator] = {}
+        self._workspace_dreams: dict[str, Dream] = {}
         # Dream 空闲触发器：用户停用时后台触发 Dream，不依赖 cron 定时。
         # 解决"用户不 24h 运行 gateway，凌晨 cron 点大概率关机"的问题。
         # gateway 启动时由 _gateway_runner 从 DreamConfig 同步配置。
@@ -338,6 +351,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
 
         self.dream_idle_trigger = DreamIdleTrigger(
             self.dream,
+            dreams=self.all_dreams,
             enabled=defaults.dream.idle_trigger_enabled,
             min_idle_seconds=defaults.dream.idle_trigger_min_seconds,
             min_entries=defaults.dream.idle_trigger_min_entries,
@@ -407,6 +421,126 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
     def _runtime_chat_id(msg: InboundMessage) -> str:
         """Return the chat id shown in runtime metadata for the model."""
         return str(msg.metadata.get("context_chat_id") or msg.chat_id)
+
+    # -- per-workspace memory / runtime helpers ------------------------------
+
+    def _resolved_root(self, workspace: Path | str) -> str:
+        return str(Path(workspace).expanduser().resolve())
+
+    def memory_for(self, workspace: Path | str | None = None) -> MemoryStore:
+        """Resolve the governed ``MemoryStore`` for an effective workspace."""
+        root = workspace or self.context.workspace
+        return self.context.memory_for(root)
+
+    def _consolidator_for(self, workspace: Path | str) -> Consolidator:
+        """Return the Consolidator bound to a resolved effective workspace."""
+        root = self._resolved_root(workspace)
+        if root == self._default_root:
+            return self.consolidator
+        helper = self._workspace_consolidators.get(root)
+        if helper is not None:
+            return helper
+        with self._workspace_helpers_lock:
+            helper = self._workspace_consolidators.get(root)
+            if helper is None:
+                helper = Consolidator(
+                    store=self.memory_for(Path(root)),
+                    provider=self.provider,
+                    model=self.consolidator.model,
+                    sessions=self.sessions,
+                    context_window_tokens=self.context_window_tokens,
+                    build_messages=self.context.build_messages,
+                    get_tool_definitions=self.tools.get_definitions,
+                    max_completion_tokens=self.consolidator.max_completion_tokens,
+                    consolidation_ratio=self.consolidator.consolidation_ratio,
+                )
+                self._workspace_consolidators[root] = helper
+        return helper
+
+    def _dream_for(self, workspace: Path | str) -> Dream:
+        """Return the Dream bound to a resolved effective workspace."""
+        root = self._resolved_root(workspace)
+        if root == self._default_root:
+            return self.dream
+        helper = self._workspace_dreams.get(root)
+        if helper is not None:
+            return helper
+        with self._workspace_helpers_lock:
+            helper = self._workspace_dreams.get(root)
+            if helper is None:
+                helper = Dream(
+                    store=self.memory_for(Path(root)),
+                    provider=self.provider,
+                    model=self.dream.model,
+                    max_batch_size=self.dream.max_batch_size,
+                    context_window_tokens=self.dream.context_window_tokens,
+                    max_completion_tokens=self.dream.max_completion_tokens,
+                )
+                self._workspace_dreams[root] = helper
+        return helper
+
+    def all_dreams(self) -> list[Dream]:
+        """Return the default Dream plus a Dream for every known workspace store.
+
+        Lazy-creates (and caches) Dreams for effective workspaces that have a
+        governed store but have not been dream-processed yet, so idle/cron
+        Dream runs cover them even before any B turn triggers consolidation.
+        """
+        dreams = [self.dream]
+        for store in self.context.memory_registry.known_stores():
+            root = self._resolved_root(store.workspace)
+            if root != self._default_root:
+                dreams.append(self._dream_for(Path(root)))
+        return dreams
+
+    async def run_all_dreams(self) -> bool:
+        """Run every known Dream (default + effective workspaces)."""
+        did_work = False
+        for dream in self.all_dreams():
+            try:
+                if await dream.run():
+                    did_work = True
+            except Exception:
+                logger.exception("dream_failed workspace={}", dream.store.workspace)
+        return did_work
+
+    def _turn_scope(self, msg: InboundMessage, session: Session) -> WorkspaceScope:
+        """Resolve the effective workspace scope for a turn."""
+        return self.workspace_scopes.for_turn(
+            channel=msg.channel,
+            message_metadata=msg.metadata,
+            session_metadata=session.metadata,
+        )
+
+    def _consolidator_for_session(self, session_key: str) -> Consolidator:
+        """Return the Consolidator for a session's persisted effective workspace.
+
+        AutoCompact resolves idle sessions by key only, so the persisted
+        ``workspace_scope`` session metadata is re-read here to route archival
+        to the session's workspace consolidator instead of the default one.
+        """
+        session = self.sessions.get_or_create(session_key)
+        scope = self.workspace_scopes.for_turn(
+            channel=self.workspace_scopes.scoped_channel,
+            message_metadata=None,
+            session_metadata=session.metadata,
+        )
+        return self._consolidator_for(scope.project_path)
+
+    def _sync_runtime_helpers(
+        self,
+        provider: LLMProvider,
+        model: str,
+        context_window_tokens: int,
+    ) -> None:
+        """Propagate a provider snapshot to every cached workspace helper."""
+        with self._workspace_helpers_lock:
+            consolidators = list(self._workspace_consolidators.values())
+            dreams = list(self._workspace_dreams.values())
+        for helper in consolidators:
+            helper.set_provider(provider, model, context_window_tokens)
+        for helper in dreams:
+            helper.set_provider(provider, model, context_window_tokens)
 
     async def _build_bus_progress_callback(
         self, msg: InboundMessage
@@ -589,6 +723,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         message_id: str | None = None,
         metadata: dict[str, Any] | None = None,
         session_key: str | None = None,
+        user_key: str | None = None,
         pending_queue: asyncio.Queue | None = None,
         agent_override: SubagentDefinition | None = None,
         turn_hooks: list[AgentHook] | None = None,
@@ -737,7 +872,8 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                     error_message="Sorry, I encountered an error calling the AI model.",
                     concurrent_tools=True,
                     workspace=effective_scope.project_path,
-                    session_key=session.key if session else None,
+                    session_key=session.key if session else session_key,
+                    user_key=user_key,
                     context_window_tokens=self.context_window_tokens,
                     context_block_limit=self.context_block_limit,
                     provider_retry_mode=self.provider_retry_mode,
@@ -1071,7 +1207,8 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         if pending:
             logger.info("Memory compact triggered for session {}", key)
 
-        await self.consolidator.maybe_consolidate_by_tokens(
+        workspace_scope = self.workspace_scopes.for_message(msg, session.metadata)
+        await self._consolidator_for(workspace_scope.project_path).maybe_consolidate_by_tokens(
             session,
             replay_max_messages=self._max_messages,
         )
@@ -1093,7 +1230,6 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         }
         history = session.get_history(**_hist_kwargs)
         current_role = "assistant" if is_subagent else "user"
-        workspace_scope = self.workspace_scopes.for_message(msg, session.metadata)
         memory_user_key = None
         if is_subagent:
             parent_sender = next(
@@ -1107,6 +1243,8 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                 None,
             )
             memory_user_key = f"user:{parent_sender}" if parent_sender else "user:default"
+        elif msg.sender_id and msg.sender_id != "subagent":
+            memory_user_key = f"user:{msg.sender_id}"
 
         messages = self.context.build_messages(
             history=history,
@@ -1133,6 +1271,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             message_id=msg.metadata.get("message_id"),
             metadata=msg.metadata,
             session_key=key,
+            user_key=memory_user_key,
             pending_queue=pending_queue,
         )
         wall_done = time.time()
@@ -1140,11 +1279,11 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         self._save_turn(session, all_msgs, 1 + len(history), turn_latency_ms=latency_ms)
         if channel == "websocket":
             self._pending_turn_latency_ms[key] = latency_ms
-        session.enforce_file_cap(on_archive=self.context.memory.raw_archive)
+        session.enforce_file_cap(on_archive=self.memory_for(workspace_scope.project_path).raw_archive)
         self._clear_runtime_checkpoint(session)
         self.sessions.save(session)
         self._schedule_background(
-            self.consolidator.maybe_consolidate_by_tokens(
+            self._consolidator_for(workspace_scope.project_path).maybe_consolidate_by_tokens(
                 session,
                 replay_max_messages=self._max_messages,
             )

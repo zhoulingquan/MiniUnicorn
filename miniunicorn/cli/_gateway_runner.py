@@ -32,6 +32,7 @@ from typing import Any
 from loguru import logger
 
 from miniunicorn import __logo__, __version__
+from miniunicorn.agent.memory import count_pending_dream_entries
 from miniunicorn.bus.events import OutboundMessage
 from miniunicorn.cli._heartbeat import (
     _HEARTBEAT_LIGHT_PREAMBLE,
@@ -48,6 +49,11 @@ from miniunicorn.cron.types import CronJob, CronPayload, CronSchedule
 # ---------------------------------------------------------------------------
 # Module-level helpers extracted from the body of _run_gateway
 # ---------------------------------------------------------------------------
+
+
+def _dream_backlog_total(stores) -> int:
+    """Return the combined cursor-visible Dream backlog for all stores."""
+    return sum(count_pending_dream_entries(store) for store in stores)
 
 
 def _pick_heartbeat_target(channels, session_manager) -> tuple[str, str]:
@@ -75,7 +81,7 @@ async def _handle_dream_job(job: CronJob, agent) -> None:
     Was the ``if job.name == "dream":`` branch of ``on_cron_job``.
     """
     try:
-        await agent.dream.run()
+        await agent.run_all_dreams()
         logger.info("Dream cron job completed")
     except Exception:
         logger.exception("Dream cron job failed")
@@ -615,13 +621,13 @@ def _run_gateway(
         # 解决"连续多天不开，catch_up 只补 1 次"的漏洞。
         if dream_cfg.startup_backlog_threshold > 0:
             try:
-                cursor = agent.context.memory.get_last_dream_cursor()
-                backlog = agent.context.memory.read_unprocessed_history(since_cursor=cursor)
+                stores = agent.context.memory_registry.known_stores()
+                total_backlog = _dream_backlog_total(stores)
             except Exception:
-                backlog = []
-            if len(backlog) >= dream_cfg.startup_backlog_threshold:
+                total_backlog = 0
+            if total_backlog >= dream_cfg.startup_backlog_threshold:
                 console.print(
-                    f"[yellow]![/yellow] Dream: {len(backlog)} backlog entries "
+                    f"[yellow]![/yellow] Dream: {total_backlog} backlog entries "
                     f"(threshold={dream_cfg.startup_backlog_threshold}), triggering immediate run"
                 )
                 need_dream_catchup = True
@@ -675,7 +681,7 @@ def _run_gateway(
             await cron.start()
             # 启动时积压触发的 dream：此时已有 running loop，可安全调度后台任务。
             if need_dream_catchup:
-                asyncio.create_task(agent.dream.run())
+                asyncio.create_task(agent.run_all_dreams())
             tasks = [
                 agent.run(),
                 channels.start_all(),

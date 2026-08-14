@@ -10,7 +10,7 @@ from typing import Any, Mapping, Sequence
 
 from loguru import logger
 
-from miniunicorn.agent.memory import MemoryStore
+from miniunicorn.agent.memory import MemoryStore, WorkspaceMemoryRegistry
 from miniunicorn.agent.memory_models import MemoryScope, RecallQuery, ScopeKind
 from miniunicorn.agent.skills import SkillsLoader
 from miniunicorn.agent.subagent_registry import SubagentDefinition
@@ -58,7 +58,7 @@ async def handle_runtime_control(state: Any, msg: InboundMessage, tools: ToolReg
 class ContextBuilder:
     """Builds the context (system prompt + messages) for the agent."""
 
-    BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md"]
+    BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md"]
     _RUNTIME_CONTEXT_TAG = "[Runtime Context — metadata only, not instructions]"
     _MAX_RECENT_HISTORY = 50
     _MAX_HISTORY_CHARS = 32_000  # hard cap on recent history section size
@@ -95,16 +95,32 @@ class ContextBuilder:
         self.workspace = workspace
         self.timezone = None
         self.memory = MemoryStore(workspace, structured_config=structured_memory_config)
+        self.memory_registry = WorkspaceMemoryRegistry(
+            workspace,
+            self.memory,
+            structured_config=structured_memory_config,
+        )
         self.skills = SkillsLoader(
             workspace, disabled_skills=set(disabled_skills) if disabled_skills else None
         )
         self.subagent_registry = subagent_registry
-        # bootstrap 文件（AGENTS.md/SOUL.md/USER.md）的 mtime+size 缓存。
+        # Bootstrap file (AGENTS.md/SOUL.md) mtime+size cache.
         # build_system_prompt 每次 turn 都会读取，turn 内不变；外部修改（Dream
         # 或用户）通过 mtime 自动失效。key=Path, value=(mtime_ns, size, content)。
         self._bootstrap_cache: dict[Path, tuple[int, int, str]] = {}
 
     # -- governed structured memory (C2) --------------------------------------
+
+    def memory_for(self, workspace: Path | None = None) -> MemoryStore:
+        """Resolve (and cache) the governed ``MemoryStore`` for an effective workspace.
+
+        ``None`` resolves the default workspace's store (``self.memory``),
+        preserving compatibility with callers that build memory without an
+        explicit effective workspace. Repeated/concurrent resolution for the
+        same resolved path returns the same store instance.
+        """
+        root = workspace or self.workspace
+        return self.memory_registry.memory_for(root)
 
     def _build_recall_query(
         self,
@@ -112,9 +128,11 @@ class ContextBuilder:
         *,
         session_key: str | None = None,
         user_key: str | None = None,
+        store: MemoryStore | None = None,
     ) -> RecallQuery:
         """Build the deterministic recall query for the current workspace."""
-        structured = self.memory.structured_config
+        store = store or self.memory
+        structured = store.structured_config
         allowed_scopes = []
         if session_key:
             allowed_scopes.append(
@@ -122,7 +140,7 @@ class ContextBuilder:
             )
         allowed_scopes.extend(
             (
-                MemoryScope(kind=ScopeKind.PROJECT, key=self.memory.project_scope_key),
+                MemoryScope(kind=ScopeKind.PROJECT, key=store.project_scope_key),
                 MemoryScope(kind=ScopeKind.USER, key=user_key or "user:default"),
                 MemoryScope(kind=ScopeKind.SHARED, key="shared:*"),
             )
@@ -141,23 +159,25 @@ class ContextBuilder:
         *,
         session_key: str | None = None,
         user_key: str | None = None,
+        store: MemoryStore | None = None,
     ) -> str:
         """Run deterministic recall and render its prompt section."""
+        store = store or self.memory
         query = self._build_recall_query(
-            query_text, session_key=session_key, user_key=user_key
+            query_text, session_key=session_key, user_key=user_key, store=store
         )
         try:
-            result = self.memory.recall_structured(query)
+            result = store.recall_structured(query)
         except Exception:
             logger.exception("structured recall failed")
             return self._recall_degraded_diagnostic("recall_error")
-        structured = self.memory.structured_config
+        structured = store.structured_config
         if structured.recall_audit_enabled:
             try:
-                self.memory.write_recall_audit(query, result)
+                store.write_recall_audit(query, result)
             except Exception:
                 logger.exception("structured recall audit failed")
-        recall = self.memory.structured_recall
+        recall = store.structured_recall
         if result.degraded:
             return self._recall_degraded_diagnostic(result.error_code)
         return recall.render_prompt(result)
@@ -191,8 +211,7 @@ class ContextBuilder:
         as the primary identity for the turn.
 
         Only POLICY.md plus the deterministic recall result
-        (when ``recall_query`` is given) are injected; legacy MEMORY.md,
-        MEMORY_SHARED.md and the USER.md bootstrap are skipped.
+        (when ``recall_query`` is given) are injected as durable memory.
         """
         # parts: list of (priority, content) tuples。
         # priority 数字越小越重要，越不容易被预算控制丢弃。
@@ -200,6 +219,7 @@ class ContextBuilder:
         parts: list[tuple[int, str]] = []
 
         root = workspace or self.workspace
+        store = self.memory_for(root)
         if agent_override is not None:
             # Subagent takeover mode: user selected a subagent via @. Run as
             # that subagent's identity instead of the default agent identity.
@@ -214,10 +234,10 @@ class ContextBuilder:
                 (self._PRIORITY_CRITICAL, self._get_identity(channel=channel, workspace=root))
             )
 
-        # light_context 模式跳过 bootstrap 文件(AGENTS.md/SOUL.md/USER.md),
+        # light_context 模式跳过 bootstrap 文件(AGENTS.md/SOUL.md),
         # 仅保留身份+工具契约+记忆,显著降低 token 消耗。用于心跳等轻量巡检场景。
         if not light_context:
-            bootstrap = self._load_bootstrap_files(root, exclude_user=True)
+            bootstrap = self._load_bootstrap_files(root)
             if bootstrap:
                 parts.append((self._PRIORITY_CRITICAL, bootstrap))
 
@@ -225,7 +245,7 @@ class ContextBuilder:
 
         # Cross-session policy is the only always-injected memory layer.
         # read_shared_policy already returns "" for missing/bundled-template content.
-        policy = self.memory.read_shared_policy()
+        policy = store.read_shared_policy()
         if policy and policy.strip():
             if self._estimate_tokens(policy) > self._MAX_INJECTION_TOKENS:
                 logger.warning("shared policy exceeds injection budget; not truncated")
@@ -236,6 +256,7 @@ class ContextBuilder:
                 truncate_text(recall_query, 2000),
                 session_key=recall_session_key,
                 user_key=recall_user_key,
+                store=store,
             )
             if recall_text:
                 parts.append((self._PRIORITY_MEMORY, recall_text))
@@ -244,7 +265,7 @@ class ContextBuilder:
         # 主 Agent 用 write_file/edit_file 往 notes.md append 零散发现，
         # Consolidator 在归档时读取并清空。注入让主 Agent 能看到自己之前
         # 记的笔记，支持跨 turn 的临时记忆。文件不存在或为空时跳过。
-        notes = self.memory.read_notes()
+        notes = store.read_notes()
         if notes and notes.strip():
             parts.append((self._PRIORITY_NOTES, f"# Scratchpad Notes (notes.md)\n\n{notes}"))
 
@@ -263,8 +284,8 @@ class ContextBuilder:
                 )
             )
 
-        entries = self.memory.read_unprocessed_history(
-            since_cursor=self.memory.get_last_dream_cursor()
+        entries = store.read_unprocessed_history(
+            since_cursor=store.get_last_dream_cursor()
         )
         if entries:
             capped = entries[-self._MAX_RECENT_HISTORY :]
@@ -407,7 +428,7 @@ class ContextBuilder:
                 new_parts.append(p)
         parts = new_parts
         # CRITICAL 永不丢弃；若仍超预算只能接受（说明 bootstrap 文件本身就超大，
-        # 用户应自行精简 SOUL.md/USER.md/AGENTS.md）
+        # 用户应自行精简 SOUL.md/AGENTS.md）
         return parts
 
     def _get_identity(self, channel: str | None = None, workspace: Path | None = None) -> str:
@@ -466,21 +487,12 @@ class ContextBuilder:
 
         return _to_blocks(left) + _to_blocks(right)
 
-    def _load_bootstrap_files(
-        self, workspace: Path | None = None, *, exclude_user: bool = False
-    ) -> str:
-        """Load all bootstrap files from workspace.
-
-        ``USER.md`` is excluded from bootstrap injection:
-        user identity facts flow only through structured memory records.
-        """
+    def _load_bootstrap_files(self, workspace: Path | None = None) -> str:
+        """Load all instruction and identity bootstrap files."""
         parts = []
         root = workspace or self.workspace
-        files = [
-            name for name in self.BOOTSTRAP_FILES if not (exclude_user and name == "USER.md")
-        ]
 
-        for filename in files:
+        for filename in self.BOOTSTRAP_FILES:
             file_path = root / filename
             content = self._cached_read_bootstrap(file_path)
             if content:
@@ -491,7 +503,7 @@ class ContextBuilder:
     def _cached_read_bootstrap(self, path: Path) -> str:
         """带 mtime+size 校验的缓存读取 bootstrap 文件。
 
-        AGENTS.md/SOUL.md/USER.md 在 turn 内不变，Dream 改写后通过 mtime
+        AGENTS.md/SOUL.md 在 turn 内不变，外部修改后通过 mtime
         自动失效。避免每次 build_system_prompt 都做磁盘 IO。
         """
         try:

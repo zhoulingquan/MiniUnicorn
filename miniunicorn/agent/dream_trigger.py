@@ -14,10 +14,12 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from typing import TYPE_CHECKING
 
 from loguru import logger
+
+from miniunicorn.agent.memory import count_pending_dream_entries
 
 if TYPE_CHECKING:
     from miniunicorn.agent.memory import Dream
@@ -39,12 +41,14 @@ class DreamIdleTrigger:
         self,
         dream: "Dream",
         *,
+        dreams: Callable[[], list["Dream"]] | None = None,
         enabled: bool = True,
         min_idle_seconds: int = 300,
         min_entries: int = 5,
         min_interval_s: int = 3600,
     ) -> None:
         self.dream = dream
+        self._dreams = dreams or (lambda: [dream])
         self.enabled = enabled
         self.min_idle_seconds = min_idle_seconds
         self.min_entries = min_entries
@@ -100,23 +104,23 @@ class DreamIdleTrigger:
         # 距上次 dream 间隔不足不触发
         if self._last_trigger_ts and now - self._last_trigger_ts < self.min_interval_s:
             return
-        # 检查是否有足够的新数据
-        try:
-            cursor = self.dream.store.get_last_dream_cursor()
-            unprocessed = self.dream.store.read_unprocessed_history(since_cursor=cursor)
-        except Exception:
-            logger.debug("Dream idle trigger: failed to read unprocessed history", exc_info=True)
-            return
-        if len(unprocessed) < self.min_entries:
-            return
-        # 满足所有条件，后台触发
-        self._last_trigger_ts = now
-        logger.info(
-            "Dream idle trigger: {} unprocessed entries, triggering background dream",
-            len(unprocessed),
-        )
-        # 跟踪后台 dream 任务，避免被 GC 回收
-        self._dream_task = asyncio.create_task(self._safe_run())
+        # 检查是否有足够的新数据（任一 workspace 满足即可）
+        for dream in self._dreams():
+            try:
+                pending = count_pending_dream_entries(dream.store)
+            except Exception:
+                logger.debug("Dream idle trigger: failed to count pending evidence", exc_info=True)
+                continue
+            if pending >= self.min_entries:
+                # 满足所有条件，后台触发
+                self._last_trigger_ts = now
+                logger.info(
+                    "Dream idle trigger: {} unprocessed entries, triggering background dream",
+                    pending,
+                )
+                # 跟踪后台 dream 任务，避免被 GC 回收
+                self._dream_task = asyncio.create_task(self._safe_run())
+                return
 
     async def _safe_run(self) -> None:
         """安全执行 Dream.run()，捕获异常并重置运行标志。"""
@@ -125,7 +129,13 @@ class DreamIdleTrigger:
             import time as _time
 
             t0 = _time.monotonic()
-            did_work = await self.dream.run()
+            did_work = False
+            for dream in self._dreams():
+                try:
+                    if await dream.run():
+                        did_work = True
+                except Exception:
+                    logger.exception("Dream idle trigger: dream run failed")
             elapsed = _time.monotonic() - t0
             if did_work:
                 logger.info("Dream idle trigger completed in {:.1f}s", elapsed)

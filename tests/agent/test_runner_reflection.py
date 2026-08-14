@@ -100,3 +100,33 @@ async def test_runner_rejects_unstructured_reflection(tmp_path):
 
     entries = _reflections(tmp_path)
     assert entries == []
+
+
+@pytest.mark.asyncio
+async def test_runner_passes_session_and_user_identity_to_reflection(tmp_path):
+    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
+
+    provider = _ReflectionProvider('{"lesson":"Identity flows into reflections."}')
+    tools = MagicMock()
+    tools.get_definitions.return_value = []
+    tools.execute = AsyncMock(return_value="tool result")
+
+    runner = AgentRunner(provider)
+    await runner.run(
+        AgentRunSpec(
+            initial_messages=[],
+            tools=tools,
+            model="test-model",
+            max_iterations=1,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+            enable_reflection=True,
+            workspace=tmp_path,
+            session_key="web:chat-7#sub:task-1",
+            user_key="user:alice",
+        )
+    )
+
+    entries = _reflections(tmp_path)
+    assert len(entries) == 1
+    assert entries[0]["session_key"] == "web:chat-7#sub:task-1"
+    assert entries[0]["user_key"] == "user:alice"

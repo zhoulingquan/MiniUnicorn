@@ -119,6 +119,9 @@ class AgentRunSpec:
     # Dream to consolidate. Default False = no reflection overhead.
     enable_reflection: bool = False
     reflection_interval: int = 5  # periodic reflection every N iterations
+    # Governed user identity for this run (e.g. "user:alice"). Forwarded to
+    # reflections so Dream can partition evidence by the exact identity tuple.
+    user_key: str | None = None
 
 
 @dataclass(slots=True)
@@ -622,6 +625,7 @@ class AgentRunner:
                             context_summary=error,
                             messages=messages,
                             session_key=spec.session_key,
+                            user_key=spec.user_key,
                         )
                     await hook.after_iteration(context)
                     should_continue, injection_cycles = await self._try_drain_injections(
@@ -673,6 +677,7 @@ class AgentRunner:
                             context_summary=f"Periodic reflection at iteration {iteration}",
                             messages=messages,
                             session_key=spec.session_key,
+                            user_key=spec.user_key,
                         )
                     )
                     self._reflection_tasks.add(task)
@@ -808,6 +813,7 @@ class AgentRunner:
                         context_summary=final_content or "LLM error",
                         messages=messages,
                         session_key=spec.session_key,
+                        user_key=spec.user_key,
                     )
                 await hook.after_iteration(context)
                 should_continue, injection_cycles = await self._try_drain_injections(
@@ -913,6 +919,7 @@ class AgentRunner:
                     context_summary=f"Hit max_iterations ({spec.max_iterations})",
                     messages=messages,
                     session_key=spec.session_key,
+                    user_key=spec.user_key,
                 )
             # Drain any remaining injections so they are appended to the
             # conversation history instead of being re-published as

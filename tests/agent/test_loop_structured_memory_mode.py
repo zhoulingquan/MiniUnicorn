@@ -50,17 +50,6 @@ class _CaptureRunner:
         return result
 
 
-def _write_sources(workspace: Path) -> None:
-    (workspace / "USER.md").write_text("## Identity\n- 我叫 OOOH\n", encoding="utf-8")
-    (workspace / "memory").mkdir(exist_ok=True)
-    (workspace / "memory" / "MEMORY.md").write_text(
-        "## Decision\n- 用 SQLite 做存储\n", encoding="utf-8"
-    )
-    (workspace / "memory" / "procedural.jsonl").write_text(
-        '{"content": "先跑测试再打包"}\n', encoding="utf-8"
-    )
-
-
 def _build_loop(bus, provider, workspace):
     from miniunicorn.agent.loop_builder import AgentLoopBuilder
 
@@ -69,7 +58,6 @@ def _build_loop(bus, provider, workspace):
 
 @pytest.mark.asyncio
 async def test_loop_has_no_structured_memory_mode(workspace, bus, provider):
-    _write_sources(workspace)
     loop = _build_loop(bus, provider, workspace)
     capture = _CaptureRunner()
     loop.runner = capture  # type: ignore[assignment]
@@ -78,3 +66,20 @@ async def test_loop_has_no_structured_memory_mode(workspace, bus, provider):
 
     assert capture.spec is not None
     assert not hasattr(capture.spec, "structured_memory_mode")
+
+
+@pytest.mark.asyncio
+async def test_run_agent_loop_propagates_turn_identity_into_spec(workspace, bus, provider):
+    loop = _build_loop(bus, provider, workspace)
+    capture = _CaptureRunner()
+    loop.runner = capture  # type: ignore[assignment]
+
+    await loop._run_agent_loop(
+        [],
+        session_key="web:chat-7#sub:task-1",
+        user_key="user:alice",
+    )
+
+    assert capture.spec is not None
+    assert capture.spec.session_key == "web:chat-7#sub:task-1"
+    assert capture.spec.user_key == "user:alice"

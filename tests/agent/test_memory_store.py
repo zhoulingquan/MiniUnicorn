@@ -1,6 +1,7 @@
 """Tests for the restructured MemoryStore — pure file I/O layer."""
 
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -30,13 +31,6 @@ def store(tmp_path):
 
 
 class TestMemoryStoreBasicIO:
-    def test_read_memory_returns_empty_when_missing(self, store):
-        assert store.read_memory() == ""
-
-    def test_write_and_read_memory(self, store):
-        store.write_memory("hello")
-        assert store.read_memory() == "hello"
-
     def test_read_soul_returns_empty_when_missing(self, store):
         assert store.read_soul() == ""
 
@@ -44,21 +38,32 @@ class TestMemoryStoreBasicIO:
         store.write_soul("soul content")
         assert store.read_soul() == "soul content"
 
-    def test_read_user_returns_empty_when_missing(self, store):
-        assert store.read_user() == ""
-
-    def test_write_and_read_user(self, store):
-        store.write_user("user content")
-        assert store.read_user() == "user content"
-
-    def test_get_memory_context_returns_empty_when_missing(self, store):
-        assert store.get_memory_context() == ""
-
-    def test_get_memory_context_returns_formatted_content(self, store):
-        store.write_memory("important fact")
-        ctx = store.get_memory_context()
-        assert "Long-term Memory" in ctx
-        assert "important fact" in ctx
+    @pytest.mark.parametrize(
+        "name",
+        (
+            "memory_file",
+            "user_file",
+            "procedural_file",
+            "shared_memory_file",
+            "shared_procedural_file",
+            "migration_plan",
+            "run_migration",
+            "migration_completed",
+            "read_memory",
+            "write_memory",
+            "read_user",
+            "write_user",
+            "get_memory_context",
+            "append_episodic",
+            "read_episodic",
+            "append_procedural",
+            "read_procedural",
+            "read_shared_memory",
+            "read_shared_procedural",
+        ),
+    )
+    def test_removed_legacy_api_is_absent(self, store, name):
+        assert not hasattr(store, name)
 
 
 class TestHistoryWithCursor:
@@ -259,26 +264,22 @@ class TestDreamCursor:
 
     def test_git_restore_rolls_back_dream_cursor(self, tmp_path):
         store = MemoryStore(tmp_path)
-        store.write_memory("before")
         store.set_last_dream_cursor(1)
         assert store.git.init() is True
 
-        store.write_memory("after")
         store.set_last_dream_cursor(2)
         dream_sha = store.git.auto_commit("dream: update")
         assert dream_sha is not None
 
-        store.write_memory("newer")
         store.set_last_dream_cursor(3)
 
         restore_sha = store.git.revert(dream_sha)
 
         assert restore_sha is not None
-        assert store.read_memory() == "before"
         assert store.get_last_dream_cursor() == 1
 
 
-class TestLegacyHistoryMigration:
+class TestHistoryInput:
     def test_read_unprocessed_history_handles_entries_without_cursor(self, store):
         """JSONL entries with cursor=1 are correctly parsed and returned."""
         store.history_file.write_text(
@@ -289,152 +290,17 @@ class TestLegacyHistoryMigration:
         assert len(entries) == 1
         assert entries[0]["cursor"] == 1
 
-    def test_migrates_legacy_history_md_preserving_partial_entries(self, tmp_path):
+    def test_history_md_is_ignored_without_mutation(self, tmp_path):
         memory_dir = tmp_path / "memory"
         memory_dir.mkdir()
         legacy_file = memory_dir / "HISTORY.md"
-        legacy_content = (
-            "[2026-04-01 10:00] User prefers dark mode.\n\n"
-            "[2026-04-01 10:05] [RAW] 2 messages\n"
-            "[2026-04-01 10:04] USER: hello\n"
-            "[2026-04-01 10:04] ASSISTANT: hi\n\n"
-            "Legacy chunk without timestamp.\n"
-            "Keep whatever content we can recover.\n"
-        )
-        legacy_file.write_text(legacy_content, encoding="utf-8")
-
-        store = MemoryStore(tmp_path)
-        fallback_timestamp = datetime.fromtimestamp(
-            (memory_dir / "HISTORY.md.bak").stat().st_mtime,
-        ).strftime("%Y-%m-%d %H:%M")
-
-        entries = store.read_unprocessed_history(since_cursor=0)
-        assert [entry["cursor"] for entry in entries] == [1, 2, 3]
-        assert entries[0]["timestamp"] == "2026-04-01 10:00"
-        assert entries[0]["content"] == "User prefers dark mode."
-        assert entries[1]["timestamp"] == "2026-04-01 10:05"
-        assert entries[1]["content"].startswith("[RAW] 2 messages")
-        assert "USER: hello" in entries[1]["content"]
-        assert entries[2]["timestamp"] == fallback_timestamp
-        assert entries[2]["content"].startswith("Legacy chunk without timestamp.")
-        assert store.read_file(store._cursor_file).strip() == "3"
-        assert store.read_file(store._dream_cursor_file).strip() == "3"
-        assert not legacy_file.exists()
-        assert (memory_dir / "HISTORY.md.bak").read_text(encoding="utf-8") == legacy_content
-
-    def test_migrates_consecutive_entries_without_blank_lines(self, tmp_path):
-        memory_dir = tmp_path / "memory"
-        memory_dir.mkdir()
-        legacy_file = memory_dir / "HISTORY.md"
-        legacy_content = (
-            "[2026-04-01 10:00] First event.\n"
-            "[2026-04-01 10:01] Second event.\n"
-            "[2026-04-01 10:02] Third event.\n"
-        )
-        legacy_file.write_text(legacy_content, encoding="utf-8")
+        legacy_file.write_text("developer data", encoding="utf-8")
 
         store = MemoryStore(tmp_path)
 
-        entries = store.read_unprocessed_history(since_cursor=0)
-        assert len(entries) == 3
-        assert [entry["content"] for entry in entries] == [
-            "First event.",
-            "Second event.",
-            "Third event.",
-        ]
-
-    def test_raw_archive_stays_single_entry_while_following_events_split(self, tmp_path):
-        memory_dir = tmp_path / "memory"
-        memory_dir.mkdir()
-        legacy_file = memory_dir / "HISTORY.md"
-        legacy_content = (
-            "[2026-04-01 10:05] [RAW] 2 messages\n"
-            "[2026-04-01 10:04] USER: hello\n"
-            "[2026-04-01 10:04] ASSISTANT: hi\n"
-            "[2026-04-01 10:06] Normal event after raw block.\n"
-        )
-        legacy_file.write_text(legacy_content, encoding="utf-8")
-
-        store = MemoryStore(tmp_path)
-
-        entries = store.read_unprocessed_history(since_cursor=0)
-        assert len(entries) == 2
-        assert entries[0]["content"].startswith("[RAW] 2 messages")
-        assert "USER: hello" in entries[0]["content"]
-        assert entries[1]["content"] == "Normal event after raw block."
-
-    def test_nonstandard_date_headers_still_start_new_entries(self, tmp_path):
-        memory_dir = tmp_path / "memory"
-        memory_dir.mkdir()
-        legacy_file = memory_dir / "HISTORY.md"
-        legacy_content = (
-            "[2026-03-25–2026-04-02] Multi-day summary.\n[2026-03-26/27] Cross-day summary.\n"
-        )
-        legacy_file.write_text(legacy_content, encoding="utf-8")
-
-        store = MemoryStore(tmp_path)
-        fallback_timestamp = datetime.fromtimestamp(
-            (memory_dir / "HISTORY.md.bak").stat().st_mtime,
-        ).strftime("%Y-%m-%d %H:%M")
-
-        entries = store.read_unprocessed_history(since_cursor=0)
-        assert len(entries) == 2
-        assert entries[0]["timestamp"] == fallback_timestamp
-        assert entries[0]["content"] == "[2026-03-25–2026-04-02] Multi-day summary."
-        assert entries[1]["timestamp"] == fallback_timestamp
-        assert entries[1]["content"] == "[2026-03-26/27] Cross-day summary."
-
-    def test_existing_history_jsonl_skips_legacy_migration(self, tmp_path):
-        memory_dir = tmp_path / "memory"
-        memory_dir.mkdir()
-        history_file = memory_dir / "history.jsonl"
-        history_file.write_text(
-            '{"cursor": 7, "timestamp": "2026-04-01 12:00", "content": "existing"}\n',
-            encoding="utf-8",
-        )
-        legacy_file = memory_dir / "HISTORY.md"
-        legacy_file.write_text("[2026-04-01 10:00] legacy\n\n", encoding="utf-8")
-
-        store = MemoryStore(tmp_path)
-
-        entries = store.read_unprocessed_history(since_cursor=0)
-        assert len(entries) == 1
-        assert entries[0]["cursor"] == 7
-        assert entries[0]["content"] == "existing"
+        assert store.read_unprocessed_history(since_cursor=0) == []
         assert legacy_file.exists()
         assert not (memory_dir / "HISTORY.md.bak").exists()
-
-    def test_empty_history_jsonl_still_allows_legacy_migration(self, tmp_path):
-        memory_dir = tmp_path / "memory"
-        memory_dir.mkdir()
-        history_file = memory_dir / "history.jsonl"
-        history_file.write_text("", encoding="utf-8")
-        legacy_file = memory_dir / "HISTORY.md"
-        legacy_file.write_text("[2026-04-01 10:00] legacy\n\n", encoding="utf-8")
-
-        store = MemoryStore(tmp_path)
-
-        entries = store.read_unprocessed_history(since_cursor=0)
-        assert len(entries) == 1
-        assert entries[0]["cursor"] == 1
-        assert entries[0]["timestamp"] == "2026-04-01 10:00"
-        assert entries[0]["content"] == "legacy"
-        assert not legacy_file.exists()
-        assert (memory_dir / "HISTORY.md.bak").exists()
-
-    def test_migrates_legacy_history_with_invalid_utf8_bytes(self, tmp_path):
-        memory_dir = tmp_path / "memory"
-        memory_dir.mkdir()
-        legacy_file = memory_dir / "HISTORY.md"
-        legacy_file.write_bytes(b"[2026-04-01 10:00] Broken \xff data still needs migration.\n\n")
-
-        store = MemoryStore(tmp_path)
-
-        entries = store.read_unprocessed_history(since_cursor=0)
-        assert len(entries) == 1
-        assert entries[0]["timestamp"] == "2026-04-01 10:00"
-        assert "Broken" in entries[0]["content"]
-        assert "migration." in entries[0]["content"]
 
 
 # ---------------------------------------------------------------------------
@@ -449,7 +315,7 @@ class TestSingleWriterPathValidation:
         """workspace 内的路径应通过校验。"""
         store = MemoryStore(tmp_path)
         # 不应抛异常
-        store._assert_path_in_workspace(tmp_path / "memory" / "MEMORY.md")
+        store._assert_path_in_workspace(tmp_path / "memory" / "structured" / "journal.jsonl")
         store._assert_path_in_workspace(tmp_path / "notes.md")
 
     def test_assert_path_in_workspace_rejects_outside(self, tmp_path):
@@ -479,16 +345,13 @@ class TestSingleWriterPathValidation:
         MemoryStore._assert_writer_allowed("main_agent", "notes.md")
         # consolidator 写 notes.md 是允许的（清空）
         MemoryStore._assert_writer_allowed("consolidator", "notes.md")
-        # dream 写 MEMORY.md 是允许的
-        MemoryStore._assert_writer_allowed("dream", "memory/MEMORY.md")
 
     def test_assert_writer_allowed_warns_for_wrong_role(self, caplog):
         """角色不在白名单中应记录 warning（不抛异常，避免破坏现有流程）。"""
         import logging
 
         with caplog.at_level(logging.WARNING, logger="loguru"):
-            MemoryStore._assert_writer_allowed("main_agent", "memory/MEMORY.md")
-        # 应有 warning 记录（main_agent 不允许直接写 MEMORY.md）
+            MemoryStore._assert_writer_allowed("main_agent", "memory/structured/journal.jsonl")
         # 注意：loguru 的 warning 通过 intercept 才能被 caplog 捕获；
         # 这里只验证不抛异常即可
         # 真正的违规检测在工具层强制执行
@@ -497,18 +360,15 @@ class TestSingleWriterPathValidation:
         """白名单应覆盖所有结构化记忆文件。"""
         expected_files = {
             "notes.md",
-            "memory/MEMORY.md",
             "SOUL.md",
-            "USER.md",
             "memory/history.jsonl",
             "memory/.cursor",
             "memory/.dream_cursor",
             "memory/.reflections_cursor",
-            "memory/episodic.jsonl",
-            "memory/procedural.jsonl",
             "memory/reflections.jsonl",
-            "memory/shared/MEMORY_SHARED.md",
-            "memory/shared/procedural_shared.jsonl",
+            "memory/shared/POLICY.md",
+            "memory/structured/journal.jsonl",
+            "memory/structured/tags.json",
         }
         assert expected_files.issubset(set(MemoryStore._WRITER_WHITELIST.keys()))
 
@@ -535,12 +395,6 @@ class TestSingleWriterPathValidation:
         store.append_notes("to be cleared")
         store.clear_notes()
         assert store.read_notes() == ""
-
-    def test_write_memory_passes_validation(self, tmp_path):
-        """write_memory 在正常 workspace 下应通过校验。"""
-        store = MemoryStore(tmp_path)
-        store.write_memory("memory content")
-        assert store.read_memory() == "memory content"
 
     def test_append_history_passes_validation(self, tmp_path):
         """append_history 在正常 workspace 下应通过校验。"""
@@ -663,7 +517,7 @@ class TestStructuredMemoryStore:
             schema_version=SCHEMA_VERSION,
             tx_id="mtx_" + "0" * 32,
             recorded_at=datetime(2026, 8, 11, 8, 31, tzinfo=UTC),
-            actor=ActorKind.MIGRATION,
+            actor=ActorKind.SYSTEM,
             reason="seed",
             source_batch="",
             expected_revisions={record.id: 0},
@@ -687,25 +541,118 @@ class TestStructuredMemoryStore:
         assert prompt.startswith("# Recalled Memory (Deterministic)")
         assert record.id in prompt
 
+    def test_restore_memory_version_rebuilds_recall_without_restart(self, tmp_path):
+        store = MemoryStore(tmp_path, structured_config=StructuredMemoryConfig())
+        assert store.git.init() is True
+        record = MemoryRecord.model_validate(
+            {
+                "schema_version": SCHEMA_VERSION,
+                "id": f"mem_{'b' * 32}",
+                "revision": 1,
+                "status": "active",
+                "kind": "fact",
+                "scope": {"kind": "project", "key": store.project_scope_key},
+                "subject": "MiniUnicorn",
+                "slot": "restore.test",
+                "statement": "This fact must disappear after restore.",
+                "detail": "",
+                "tags": ["architecture.memory"],
+                "aliases": [],
+                "source_level": "verified",
+                "confidence": 1.0,
+                "importance": 5,
+                "evidence": [
+                    {
+                        "kind": "manual",
+                        "ref": "command:restore-test",
+                        "excerpt": "",
+                        "sha256": None,
+                        "observed_at": "2026-08-11T08:30:00Z",
+                    }
+                ],
+                "content_hash": "d" * 64,
+                "derived_from": [],
+                "supersedes": [],
+                "replacement_id": None,
+                "blocked_by": [],
+                "valid_from": "2026-08-11T08:30:00Z",
+                "expires_at": None,
+                "created_at": "2026-08-11T08:30:00Z",
+                "updated_at": "2026-08-11T08:30:00Z",
+                "status_reason": "seed",
+            }
+        )
+        transaction = MemoryTransaction(
+            schema_version=SCHEMA_VERSION,
+            tx_id="mtx_" + "1" * 32,
+            recorded_at=datetime(2026, 8, 11, 8, 31, tzinfo=UTC),
+            actor=ActorKind.SYSTEM,
+            reason="restore test",
+            source_batch="",
+            expected_revisions={record.id: 0},
+            operations=[MemoryOperation(op="put", record=record)],
+            checksum_sha256="f" * 64,
+        )
+        store.structured_repository.append_transaction(
+            transaction.model_copy(update={"checksum_sha256": transaction_checksum(transaction)})
+        )
+        dream_sha = store.git.auto_commit("dream structured: restore test")
+        assert dream_sha is not None
+        query = RecallQuery(
+            query_text="This fact must disappear after restore.",
+            allowed_scopes=(record.scope,),
+            now=datetime(2026, 8, 11, 8, 32, tzinfo=UTC),
+            explicit_ids=(record.id,),
+        )
+        assert store.recall_structured(query).hits
+
+        restore_sha, health = store.restore_memory_version(dream_sha)
+
+        assert restore_sha is not None
+        assert health.state == "healthy"
+        assert store.recall_structured(query).hits == ()
+
     def test_whitelist_allows_memory_store_for_structured_files(self):
         for path in ("memory/structured/journal.jsonl", "memory/structured/tags.json", "memory/shared/POLICY.md"):
             assert "memory_store" in MemoryStore._WRITER_WHITELIST[path], path
 
-    def test_existing_uppercase_tag_catalog_is_migrated_to_canonical_path(self, tmp_path):
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="case-insensitive FS: TAGS.json and tags.json are the same file",
+    )
+    def test_existing_uppercase_tag_catalog_is_inert(self, tmp_path):
         legacy = tmp_path / "memory" / "structured" / "TAGS.json"
         legacy.parent.mkdir(parents=True)
-        legacy.write_text(
-            (Path(__file__).parents[2] / "miniunicorn" / "templates" / "memory" / "TAGS.json").read_text(
-                encoding="utf-8"
-            ),
-            encoding="utf-8",
-        )
+        legacy.write_text('{"custom": "unused"}', encoding="utf-8")
 
         store = MemoryStore(tmp_path, structured_config=StructuredMemoryConfig())
 
         canonical = tmp_path / "memory" / "structured" / "tags.json"
         assert canonical.exists()
+        assert json.loads(canonical.read_text(encoding="utf-8")) != {"custom": "unused"}
         assert store.structured_repository.tags_path == canonical
+        assert legacy.exists()
+
+    def test_fresh_workspace_writes_canonical_tags_from_bundled_template(self, tmp_path):
+        store = MemoryStore(tmp_path, structured_config=StructuredMemoryConfig())
+
+        canonical = tmp_path / "memory" / "structured" / "tags.json"
+        policy = tmp_path / "memory" / "shared" / "POLICY.md"
+        bundled = Path(__file__).parents[2] / "miniunicorn" / "templates" / "memory" / "TAGS.json"
+
+        assert canonical.read_text(encoding="utf-8") == bundled.read_text(encoding="utf-8")
+        assert policy.exists()
+        assert store.structured_repository.tags_path == canonical
+
+    def test_bundled_files_written_before_memory_git_initialization(self, tmp_path):
+        store = MemoryStore(tmp_path, structured_config=StructuredMemoryConfig())
+
+        canonical = tmp_path / "memory" / "structured" / "tags.json"
+        policy = tmp_path / "memory" / "shared" / "POLICY.md"
+
+        assert canonical.exists()
+        assert policy.exists()
+        assert store.git.is_initialized() is False
 
     def test_read_shared_policy_empty_when_absent_or_template(self, tmp_path):
         store = MemoryStore(tmp_path, structured_config=StructuredMemoryConfig())

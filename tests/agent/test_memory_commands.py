@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
-from miniunicorn.agent.memory_models import MemoryStatus
+from miniunicorn.agent.memory_models import MemoryKind, MemoryScope, MemoryStatus, ScopeKind
 from miniunicorn.bus.events import InboundMessage
 from miniunicorn.command.router import CommandContext, CommandRouter
 from miniunicorn.config.schema import StructuredMemoryConfig
@@ -32,92 +34,187 @@ def _router() -> CommandRouter:
 
 
 async def _dispatch(
-    router: CommandRouter, store, raw: str, *, message_id: str = "msg-test"
+    router: CommandRouter,
+    store,
+    raw: str,
+    *,
+    message_id: str = "msg-test",
+    session_key: str = "k1",
+    sender_id: str = "u1",
 ) -> str:
     loop = SimpleNamespace(context=SimpleNamespace(memory=store))
     msg = InboundMessage(
         channel="test",
-        sender_id="u1",
+        sender_id=sender_id,
         chat_id="c1",
         content=raw,
         metadata={"message_id": message_id},
     )
-    ctx = CommandContext(msg=msg, session=None, key="k1", raw=raw, loop=loop)
+    ctx = CommandContext(msg=msg, session=None, key=session_key, raw=raw, loop=loop)
     result = await router.dispatch(ctx)
     assert result is not None, f"unhandled command: {raw}"
     return result.content
 
 
-def _seed(workspace) -> None:
-    (workspace / "memory").mkdir(exist_ok=True)
-    (workspace / "memory" / "MEMORY.md").write_text("## Decision\n- 用 SQLite 做存储\n", encoding="utf-8")
+def _seed_scope(
+    store,
+    scope,
+    statement,
+    *,
+    subject="Decision",
+    slot="general",
+    kind=MemoryKind.DECISION,
+    promote=False,
+    excerpt=None,
+):
+    """Ingest a record in an explicit scope; optionally promote it to active."""
+    from miniunicorn.agent.memory_lifecycle import IngestContext
+    from miniunicorn.agent.memory_models import (
+        ActorKind,
+        CandidateProposal,
+        EvidenceKind,
+        EvidenceRef,
+        SourceLevel,
+    )
+
+    now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+    evidence = EvidenceRef(
+        kind=EvidenceKind.MODEL_INFERENCE,
+        ref="seed",
+        excerpt=excerpt if excerpt is not None else statement,
+    )
+    proposal = CandidateProposal(
+        proposal_index=0,
+        kind=kind,
+        scope_hint=scope.kind,
+        subject=subject,
+        slot=slot,
+        statement=statement,
+        tags=("project.fact",),
+        confidence=0.5 if not promote else 0.9,
+        importance=3,
+        evidence_refs=("src:0",),
+        speech_act=SourceLevel.INFERRED,
+    )
+    result = store.structured_lifecycle.ingest(
+        proposal,
+        IngestContext(
+            actor=ActorKind.DREAM,
+            reason="seed",
+            source_batch="seed:test",
+            scope=scope,
+            evidence_catalog={"src:0": evidence},
+            now=now,
+        ),
+    )
+    if promote:
+        store.structured_lifecycle.promote(
+            result.candidate_id, actor=ActorKind.SYSTEM, reason="seed promote"
+        )
+    return store.structured_repository.get(result.candidate_id)
+
+
+def _real_loop(workspace):
+    """Build a production AgentLoop so the real WorkspaceScopeResolver runs."""
+    from miniunicorn.agent.loop import AgentLoop
+    from miniunicorn.bus.queue import MessageBus
+
+    provider = MagicMock()
+    provider.get_default_model.return_value = "test-model"
+    provider.generation = SimpleNamespace(max_tokens=0)
+    provider.estimate_prompt_tokens.return_value = (1_000, "test")
+    return AgentLoop(
+        bus=MessageBus(),
+        provider=provider,
+        workspace=workspace,
+        model="test-model",
+    )
+
+
+def _scoped_session(loop, workspace):
+    session = loop.sessions.get_or_create("websocket:chat-b")
+    session.metadata["workspace_scope"] = {"project_path": str(workspace), "access_mode": "full"}
+    return session
+
+
+async def _dispatch_loop(router, loop, session, raw: str) -> str:
+    msg = InboundMessage(
+        channel="websocket",
+        sender_id="u1",
+        chat_id="chat-b",
+        content=raw,
+        metadata={"message_id": "msg-test"},
+    )
+    ctx = CommandContext(msg=msg, session=session, key=session.key, raw=raw, loop=loop)
+    result = await router.dispatch(ctx)
+    assert result is not None, f"unhandled command: {raw}"
+    return result.content
+
+
+def _seed(workspace):
     store = _store(workspace)
-    store.run_migration()
+    from miniunicorn.agent.memory_lifecycle import IngestContext
+    from miniunicorn.agent.memory_models import (
+        ActorKind,
+        CandidateProposal,
+        EvidenceKind,
+        EvidenceRef,
+        MemoryKind,
+        MemoryScope,
+        ScopeKind,
+        SourceLevel,
+    )
+    now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+    evidence = EvidenceRef(
+        kind=EvidenceKind.FILE,
+        ref="config/database.toml#L2",
+        excerpt="用 SQLite 做存储",
+        sha256=hashlib.sha256("用 SQLite 做存储".encode()).hexdigest(),
+    )
+    proposal = CandidateProposal(
+        proposal_index=0,
+        kind=MemoryKind.DECISION,
+        scope_hint=ScopeKind.PROJECT,
+        subject="Decision",
+        slot="general",
+        statement="用 SQLite 做存储",
+        tags=("project.decision",),
+        confidence=0.9,
+        importance=4,
+        evidence_refs=("src:0",),
+        speech_act=SourceLevel.INFERRED,
+    )
+    result = store.structured_lifecycle.ingest(
+        proposal,
+        IngestContext(
+            actor=ActorKind.SYSTEM,
+            reason="seed",
+            source_batch="seed:test",
+            scope=MemoryScope(kind=ScopeKind.PROJECT, key=store.project_scope_key),
+            evidence_catalog={"src:0": evidence},
+            now=now,
+        ),
+    )
+    assert result.final_status is MemoryStatus.ACTIVE
     return store
 
 
 class TestStatus:
-    async def test_status_shows_mode_health_counts_and_migration(self, workspace):
+    async def test_status_shows_architecture_health_and_counts(self, workspace):
         store = _seed(workspace)
         router = _router()
         content = await _dispatch(router, store, "/memory-status")
         assert "Architecture: `governed`" in content
         assert "Health: `healthy`" in content
         assert "candidate=0 active=1" in content
-        assert "Migration: completed" in content
+        assert "Migration:" not in content
 
-    async def test_status_pending_migration(self, workspace):
-        store = _store(workspace)
-        router = _router()
-        content = await _dispatch(router, store, "/memory-status")
-        assert "Migration: pending" in content
-
-    async def test_status_always_reports_governed_architecture(self, workspace):
+    async def test_status_has_no_import_state(self, workspace):
         store = _store(workspace)
         router = _router()
         content = await _dispatch(router, store, "/memory-status")
         assert "Architecture: `governed`" in content
-
-    async def test_status_reads_completed_legacy_manifest(self, workspace):
-        from datetime import datetime, timezone
-
-        from miniunicorn.agent.memory_migration import (
-            LEGACY_MIGRATION_STATE_FILE,
-            MigrationState,
-        )
-
-        MigrationState(
-            entries={},
-            completed_at=datetime(2026, 8, 11, 9, 0, tzinfo=timezone.utc),
-        ).save(workspace / LEGACY_MIGRATION_STATE_FILE)
-        store = _store(workspace)
-        router = _router()
-
-        content = await _dispatch(router, store, "/memory-status")
-
-        assert "Migration: completed at `2026-08-11T09:00:00+00:00`" in content
-
-    @pytest.mark.parametrize(
-        "raw",
-        [
-            "[]",
-            "null",
-            '{"entries": []}',
-            '{"entries": {"a": "ok", "b": 1}}',
-        ],
-    )
-    async def test_status_fails_closed_on_malformed_manifest(self, workspace, raw):
-        from miniunicorn.agent.memory_migration import MIGRATION_STATE_FILE
-
-        canonical = workspace / MIGRATION_STATE_FILE
-        canonical.parent.mkdir(parents=True, exist_ok=True)
-        canonical.write_text(raw, encoding="utf-8")
-        store = _store(workspace)
-        router = _router()
-
-        content = await _dispatch(router, store, "/memory-status")
-
-        assert "Migration: pending" in content
+        assert "Migration:" not in content
 
 
 class TestList:
@@ -178,7 +275,7 @@ class TestList:
             lifecycle.ingest(
                 proposal,
                 IngestContext(
-                    actor=ActorKind.MIGRATION,
+                    actor=ActorKind.SYSTEM,
                     reason="test",
                     source_batch="test:seed",
                     scope=MemoryScope(kind=ScopeKind.PROJECT, key=store.project_scope_key),
@@ -202,7 +299,7 @@ class TestShow:
         assert "### rev 2 `active`" in content
         assert "kind: `decision`" in content
         assert "用 SQLite 做存储" in content
-        assert "evidence 1: kind=`file` ref=`memory/MEMORY.md#L2`" in content
+        assert "evidence 1: kind=`file` ref=`config/database.toml#L2`" in content
         assert "supersedes" not in content
 
     async def test_show_unknown_id(self, workspace):
@@ -427,36 +524,9 @@ class TestCorrect:
         assert record.evidence[0].ref == "command:om_abc123"
 
 
-class TestMigrate:
-    async def test_migrate_dry_run_zero_writes(self, workspace):
-        (workspace / "memory").mkdir(exist_ok=True)
-        (workspace / "memory" / "MEMORY.md").write_text("- 事实A\n", encoding="utf-8")
-        store = _store(workspace)
-        router = _router()
-        before = {p: "dir" if p.is_dir() else "file" for p in workspace.rglob("*")}
-        content = await _dispatch(router, store, "/memory-migrate --dry-run")
-        assert "## Migration dry-run" in content
-        assert "Scanned: 1 importable: 1" in content
-        assert "Run `/memory-migrate --apply`" in content
-        assert {p: "dir" if p.is_dir() else "file" for p in workspace.rglob("*")} == before
-        assert store.structured_repository.current_records() == ()
-
-    async def test_migrate_apply(self, workspace):
-        (workspace / "memory").mkdir(exist_ok=True)
-        (workspace / "memory" / "MEMORY.md").write_text("- 事实A\n", encoding="utf-8")
-        store = _store(workspace)
-        router = _router()
-        content = await _dispatch(router, store, "/memory-migrate --apply")
-        assert "## Migration applied" in content
-        assert "Imported: 1" in content
-        assert "completed_at" in content
-        assert len(store.structured_repository.current_records()) == 1
-
-    async def test_migrate_usage(self, workspace):
-        store = _store(workspace)
-        router = _router()
-        content = await _dispatch(router, store, "/memory-migrate --bogus")
-        assert "Usage:" in content
+async def test_memory_migrate_absent_from_router(workspace):
+    router = _router()
+    assert not router.is_dispatchable_command("/memory-migrate")
 
 
 class TestMalformedQuotes:
@@ -475,3 +545,234 @@ class TestMalformedQuotes:
 
         assert "Usage:" in content
         assert usage in content
+
+
+_NOT_FOUND_PREFIX = "No memory record with id"
+
+
+def _project_scope(store):
+    return MemoryScope(kind=ScopeKind.PROJECT, key=store.project_scope_key)
+
+
+class TestScopeAuthorization:
+    async def test_workspace_b_command_reads_and_writes_b_memory_only(self, tmp_path):
+        a = tmp_path / "A"
+        b = tmp_path / "B"
+        a.mkdir()
+        b.mkdir()
+        loop = _real_loop(a)
+        store_b = loop.memory_for(b)
+        _seed_scope(store_b, _project_scope(store_b), "FACT B ONLY")
+        _seed_scope(loop.context.memory, _project_scope(loop.context.memory), "FACT A ONLY")
+
+        router = _router()
+        session = _scoped_session(loop, b)
+
+        content = await _dispatch_loop(router, loop, session, "/memory-list")
+        assert "FACT B ONLY" in content
+        assert "FACT A ONLY" not in content
+
+        content = await _dispatch_loop(router, loop, session, "/memory-correct 用户偏好|general|英文交流")
+        assert "Corrected" in content
+        assert any(
+            "英文交流" in record.statement
+            for record in store_b.structured_repository.current_records()
+        )
+        assert not any(
+            "英文交流" in record.statement
+            for record in loop.context.memory.structured_repository.current_records()
+        )
+
+    async def test_workspace_b_command_never_uses_default_store_for_show(self, tmp_path):
+        a = tmp_path / "A"
+        b = tmp_path / "B"
+        a.mkdir()
+        b.mkdir()
+        loop = _real_loop(a)
+        store_b = loop.memory_for(b)
+        only_b = _seed_scope(store_b, _project_scope(store_b), "ONLY B RECORD", promote=True)
+
+        router = _router()
+        session = _scoped_session(loop, b)
+
+        content = await _dispatch_loop(router, loop, session, f"/memory-show {only_b.id}")
+        assert "ONLY B RECORD" in content
+        assert "### rev" in content
+
+    async def test_list_and_status_do_not_reveal_other_identity_records(self, workspace):
+        store = _store(workspace)
+        _seed_scope(store, _project_scope(store), "PROJECT FACT", promote=True)
+        _seed_scope(store, MemoryScope(kind=ScopeKind.USER, key="user:other"), "OTHER USER FACT", promote=True)
+        _seed_scope(
+            store, MemoryScope(kind=ScopeKind.SESSION, key="session:other-session"), "OTHER SESSION FACT", promote=True
+        )
+        router = _router()
+
+        content = await _dispatch(router, store, "/memory-list")
+        assert "PROJECT FACT" in content
+        assert "OTHER USER FACT" not in content
+        assert "OTHER SESSION FACT" not in content
+
+        status = await _dispatch(router, store, "/memory-status")
+        assert "active=1" in status
+
+    async def test_show_hides_unauthorized_record_and_its_evidence(self, workspace):
+        store = _store(workspace)
+        other = _seed_scope(
+            store,
+            MemoryScope(kind=ScopeKind.SESSION, key="session:other-session"),
+            "OTHER SESSION FACT",
+            promote=True,
+            excerpt="SECRET EVIDENCE",
+        )
+        router = _router()
+
+        content = await _dispatch(router, store, f"/memory-show {other.id}")
+
+        assert content == f"No memory record with id `{other.id}`."
+        assert "SECRET EVIDENCE" not in content
+        assert "OTHER SESSION FACT" not in content
+
+    async def test_show_skips_revisions_from_a_different_scope(self, workspace):
+        from miniunicorn.agent.memory_models import (
+            ActorKind,
+            EvidenceKind,
+            EvidenceRef,
+            MemoryOperation,
+            MemoryTransaction,
+            new_transaction_id,
+            transaction_checksum,
+        )
+
+        store = _store(workspace)
+        candidate = _seed_scope(
+            store,
+            MemoryScope(kind=ScopeKind.SESSION, key="session:other-session"),
+            "CANDIDATE FROM OTHER SCOPE",
+            excerpt="LEAKED SECRET",
+        )
+        now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+        corrupted = candidate.model_copy(
+            update={
+                "revision": candidate.revision + 1,
+                "status": MemoryStatus.ACTIVE,
+                "scope": _project_scope(store),
+                "evidence": (EvidenceRef(kind=EvidenceKind.HISTORY, ref="clean", excerpt="CLEAN EVIDENCE"),),
+                "blocked_by": (),
+                "updated_at": now,
+                "status_reason": "corrupt history",
+            }
+        )
+        tx = MemoryTransaction(
+            tx_id=new_transaction_id(),
+            recorded_at=now,
+            actor=ActorKind.SYSTEM,
+            reason="corrupt history",
+            source_batch="",
+            expected_revisions={candidate.id: candidate.revision},
+            operations=(MemoryOperation(record=corrupted),),
+            checksum_sha256="0" * 64,
+        )
+        tx = tx.model_copy(update={"checksum_sha256": transaction_checksum(tx)})
+        store.structured_repository.append_transaction(tx)
+        assert store.structured_repository.get(candidate.id).scope == _project_scope(store)
+
+        router = _router()
+        content = await _dispatch(router, store, f"/memory-show {candidate.id}")
+
+        assert "### rev 2 `active`" in content
+        assert "CLEAN EVIDENCE" in content
+        assert "### rev 1" not in content
+        assert "LEAKED SECRET" not in content
+
+    async def test_promote_and_revoke_cannot_mutate_other_identity_records(self, workspace):
+        store = _store(workspace)
+        other_candidate = _seed_scope(
+            store, MemoryScope(kind=ScopeKind.SESSION, key="session:other-session"), "OTHER CANDIDATE"
+        )
+        other_active = _seed_scope(
+            store, MemoryScope(kind=ScopeKind.USER, key="user:other"), "OTHER ACTIVE", promote=True
+        )
+        router = _router()
+
+        promote_content = await _dispatch(router, store, f"/memory-promote {other_candidate.id}")
+        assert promote_content == f"No memory record with id `{other_candidate.id}`."
+        assert store.structured_repository.get(other_candidate.id).status is MemoryStatus.CANDIDATE
+
+        revoke_content = await _dispatch(router, store, f"/memory-revoke {other_active.id} 过时")
+        assert revoke_content == f"No memory record with id `{other_active.id}`."
+        assert store.structured_repository.get(other_active.id).status is MemoryStatus.ACTIVE
+
+    async def test_promote_replace_cannot_reference_unauthorized_replacement(self, workspace):
+        store = _store(workspace)
+        active = _seed_scope(store, _project_scope(store), "ACTIVE A", promote=True)
+        candidate = _seed_scope(
+            store,
+            _project_scope(store),
+            "CANDIDATE C",
+            subject="Decision",
+            slot=active.slot,
+            kind=MemoryKind.DECISION,
+        )
+        unauthorized_active = _seed_scope(
+            store,
+            MemoryScope(kind=ScopeKind.SESSION, key="session:other-session"),
+            "OTHER ACTIVE X",
+            promote=True,
+        )
+        router = _router()
+
+        content = await _dispatch(
+            router, store, f"/memory-promote {candidate.id} --replace {unauthorized_active.id}"
+        )
+
+        assert content == f"No memory record with id `{unauthorized_active.id}`."
+        assert store.structured_repository.get(candidate.id).status is MemoryStatus.CANDIDATE
+        assert store.structured_repository.get(active.id).status is MemoryStatus.ACTIVE
+        assert store.structured_repository.get(unauthorized_active.id).status is MemoryStatus.ACTIVE
+
+    async def test_project_user_session_and_shared_scopes_remain_accessible(self, workspace):
+        store = _store(workspace)
+        _seed_scope(store, _project_scope(store), "PROJECT FACT", promote=True)
+        _seed_scope(store, MemoryScope(kind=ScopeKind.USER, key="user:u1"), "MY USER FACT", promote=True)
+        _seed_scope(store, MemoryScope(kind=ScopeKind.SESSION, key="session:k1"), "MY SESSION FACT", promote=True)
+        _seed_scope(store, MemoryScope(kind=ScopeKind.SHARED, key="shared:*"), "SHARED FACT", promote=True)
+        router = _router()
+
+        content = await _dispatch(router, store, "/memory-list")
+
+        for expected in ("PROJECT FACT", "MY USER FACT", "MY SESSION FACT", "SHARED FACT"):
+            assert expected in content
+
+    async def test_forked_session_key_canonicalizes_like_recall(self, workspace):
+        store = _store(workspace)
+        _seed_scope(store, MemoryScope(kind=ScopeKind.SESSION, key="session:base"), "CANONICAL SESSION FACT", promote=True)
+        _seed_scope(store, MemoryScope(kind=ScopeKind.SESSION, key="session:base#fork"), "FORKED SESSION FACT", promote=True)
+        router = _router()
+
+        content = await _dispatch(router, store, "/memory-list", session_key="base#fork")
+
+        assert "CANONICAL SESSION FACT" in content
+        assert "FORKED SESSION FACT" not in content
+
+    async def test_missing_and_unauthorized_ids_have_identical_not_found(self, workspace):
+        store = _store(workspace)
+        other = _seed_scope(
+            store, MemoryScope(kind=ScopeKind.SESSION, key="session:other-session"), "OTHER FACT", promote=True
+        )
+        router = _router()
+
+        missing = await _dispatch(router, store, "/memory-show mem_nonexistent")
+        unauthorized = await _dispatch(router, store, f"/memory-show {other.id}")
+        assert missing == f"{_NOT_FOUND_PREFIX} `mem_nonexistent`."
+        assert unauthorized == f"{_NOT_FOUND_PREFIX} `{other.id}`."
+
+        missing_promote = await _dispatch(router, store, "/memory-promote mem_nonexistent")
+        unauthorized_promote = await _dispatch(router, store, f"/memory-promote {other.id}")
+        assert missing_promote == f"{_NOT_FOUND_PREFIX} `mem_nonexistent`."
+        assert unauthorized_promote == f"{_NOT_FOUND_PREFIX} `{other.id}`."
+
+        missing_revoke = await _dispatch(router, store, "/memory-revoke mem_nonexistent 原因")
+        unauthorized_revoke = await _dispatch(router, store, f"/memory-revoke {other.id} 原因")
+        assert missing_revoke == f"{_NOT_FOUND_PREFIX} `mem_nonexistent`."
+        assert unauthorized_revoke == f"{_NOT_FOUND_PREFIX} `{other.id}`."

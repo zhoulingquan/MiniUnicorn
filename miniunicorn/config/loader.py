@@ -110,7 +110,15 @@ def load_config(config_path: Path | None = None, *, apply_ssrf: bool = True) -> 
             # 在验证前取出供未来迁移逻辑使用，避免触发 ValidationError。
             data.pop("config_version", None)
             config = Config.model_validate(data)
-        except (json.JSONDecodeError, ValueError, pydantic.ValidationError) as e:
+        except pydantic.ValidationError:
+            # 现有配置存在 schema 错误时失败响亮：绝不静默回退到默认配置，
+            # 否则会丢失用户已配置的 model/provider/workspace/credentials。
+            logger.error(
+                "Configuration validation failed for {}; refusing to fall back to defaults.",
+                path,
+            )
+            raise
+        except (json.JSONDecodeError, ValueError) as e:
             logger.warning("Failed to load config from {}: {}", path, e)
             logger.warning("Using default configuration.")
 

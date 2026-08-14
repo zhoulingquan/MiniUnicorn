@@ -1,4 +1,4 @@
-"""Structured Reflection tests: strict JSON, stable IDs, and legacy evidence fallback.
+"""Structured Reflection tests: strict JSON and stable evidence IDs.
 
 Normative source: docs/superpowers/specs/2026-08-12-c2-plan-b-hardening-design.md section 4.2
 """
@@ -16,7 +16,6 @@ from miniunicorn.agent.reflection import Reflection, new_reflection_id
 from miniunicorn.config.schema import StructuredMemoryConfig
 
 _REFLECTION_ID_RE = re.compile(r"^rfl_[0-9a-f]{32}$")
-_LEGACY_REFLECTION_ID_RE = re.compile(r"^rfl_legacy_[0-9a-f]{24}$")
 
 
 def structured_response_lessons(*lessons: str) -> str:
@@ -120,8 +119,8 @@ async def test_reflection_ids_stable_across_prune_and_append(workspace, store):
     assert first_result is not None
 
 
-def test_legacy_reflection_evidence_id_is_deterministic(workspace, store):
-    legacy = {
+def test_invalid_reflection_evidence_id_is_rejected():
+    invalid = {
         "timestamp": "2026-08-11 08:30",
         "trigger": "tool_error",
         "iteration": 3,
@@ -131,21 +130,7 @@ def test_legacy_reflection_evidence_id_is_deterministic(workspace, store):
         "session_key": "s1",
     }
 
-    first = reflection_evidence_id(legacy)
-    second = reflection_evidence_id(dict(legacy))
-
-    assert first == second
-    assert _LEGACY_REFLECTION_ID_RE.match(first), first
-
-    with open(workspace / "memory" / "reflections.jsonl", "w", encoding="utf-8") as f:
-        f.write(json.dumps(legacy, ensure_ascii=False) + "\n")
-    reloaded = store.read_unprocessed_reflections(since_cursor=0)
-    assert len(reloaded) == 1
-    assert reflection_evidence_id(reloaded[0]) == first
-
-    changed = dict(legacy)
-    changed["reflection"] = "A different lesson entirely."
-    assert reflection_evidence_id(changed) != first
+    assert reflection_evidence_id(invalid) is None
 
 
 def test_valid_reflection_id_is_used_directly():
@@ -421,3 +406,47 @@ def test_structured_parser_accepts_exact_lesson_object(payload, expected):
         provider=MagicMock(), model="m", workspace=None
     )
     assert reflection._parse_structured_response(payload) == expected
+
+
+# ---------------------------------------------------------------------------
+# Governed-memory identity: every reflection row carries stable session/user
+# identity so Dream can partition evidence by the exact identity tuple.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_structured_reflection_persists_session_and_user_key(workspace):
+    provider = make_provider('{"lesson":"Identity is stable."}')
+    reflection = Reflection(provider=provider, model="m", workspace=workspace)
+
+    returned = await reflection.reflect(
+        trigger="tool_error",
+        iteration=1,
+        context_summary="boom",
+        messages=[{"role": "user", "content": "x"}],
+        session_key="web:chat-7#sub:task-1",
+        user_key="user:alice",
+    )
+
+    assert returned == "Identity is stable."
+    entry = read_jsonl(workspace / "memory" / "reflections.jsonl")[0]
+    assert entry["session_key"] == "web:chat-7#sub:task-1"
+    assert entry["user_key"] == "user:alice"
+
+
+@pytest.mark.asyncio
+async def test_structured_reflection_omits_user_key_when_absent(workspace):
+    provider = make_provider('{"lesson":"No user identity."}')
+    reflection = Reflection(provider=provider, model="m", workspace=workspace)
+
+    await reflection.reflect(
+        trigger="tool_error",
+        iteration=1,
+        context_summary="boom",
+        messages=[{"role": "user", "content": "x"}],
+        session_key="web:chat-7",
+    )
+
+    entry = read_jsonl(workspace / "memory" / "reflections.jsonl")[0]
+    assert entry["session_key"] == "web:chat-7"
+    assert "user_key" not in entry

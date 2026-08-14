@@ -22,19 +22,15 @@ from ._common import require_auth
 # file reads/writes through this endpoint.
 BOOTSTRAP_FILE_ALLOWLIST: tuple[str, ...] = ("AGENTS.md", "SOUL.md")
 
-# Memory diagnostics exposed read-only in the WebUI. This list includes
-# active governed storage plus inert legacy import sources for inspection;
-# presence here does not mean Dream edits or prompt-injects a file.
+# Governed memory diagnostics exposed read-only in the WebUI.
 DREAM_FILE_ALLOWLIST: tuple[str, ...] = (
     "SOUL.md",
-    "USER.md",
-    "memory/MEMORY.md",
     "memory/history.jsonl",
-    "memory/episodic.jsonl",
-    "memory/procedural.jsonl",
     "memory/reflections.jsonl",
-    "memory/shared/MEMORY_SHARED.md",
-    "memory/shared/procedural_shared.jsonl",
+    "memory/shared/POLICY.md",
+    "memory/structured/journal.jsonl",
+    "memory/structured/tags.json",
+    "memory/structured/recall-audit.jsonl",
 )
 
 

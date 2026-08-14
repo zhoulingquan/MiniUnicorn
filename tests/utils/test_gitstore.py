@@ -12,8 +12,8 @@ from miniunicorn.utils.gitstore import GitStore
 
 @pytest.fixture
 def git(tmp_path):
-    """Create an initialized GitStore with tracked MEMORY.md."""
-    g = GitStore(tmp_path, tracked_files=["MEMORY.md", "SOUL.md"])
+    """Create an initialized GitStore with representative tracked files."""
+    g = GitStore(tmp_path, tracked_files=["notes.md", "SOUL.md"])
     g.init()
     return g
 
@@ -21,8 +21,8 @@ def git(tmp_path):
 class TestLineAges:
     def test_returns_empty_when_not_initialized(self, tmp_path):
         """line_ages should return [] if the git repo is not initialized."""
-        git = GitStore(tmp_path, tracked_files=["MEMORY.md"])
-        assert git.line_ages("MEMORY.md") == []
+        git = GitStore(tmp_path, tracked_files=["notes.md"])
+        assert git.line_ages("notes.md") == []
 
     def test_returns_empty_for_missing_file(self, git):
         """line_ages should return [] for a file that doesn't exist."""
@@ -37,54 +37,54 @@ class TestLineAges:
     def test_one_age_per_line(self, git, tmp_path):
         """line_ages should return one entry per line in the file."""
         content = "# Memory\n\n## Section A\n- item 1\n"
-        (tmp_path / "MEMORY.md").write_text(content, encoding="utf-8")
+        (tmp_path / "notes.md").write_text(content, encoding="utf-8")
         git.auto_commit("initial")
-        ages = git.line_ages("MEMORY.md")
+        ages = git.line_ages("notes.md")
         assert len(ages) == len(content.splitlines())
 
     def test_fresh_lines_have_age_zero(self, git, tmp_path):
         """Lines committed today should have age_days=0."""
-        (tmp_path / "MEMORY.md").write_text("## A\n- x\n", encoding="utf-8")
+        (tmp_path / "notes.md").write_text("## A\n- x\n", encoding="utf-8")
         git.auto_commit("initial")
-        ages = git.line_ages("MEMORY.md")
+        ages = git.line_ages("notes.md")
         assert all(a.age_days == 0 for a in ages)
 
     def test_age_differentiates_across_days(self, git, tmp_path):
         """Lines committed today should show correct age when 'now' is mocked forward."""
-        (tmp_path / "MEMORY.md").write_text("## A\n- x\n", encoding="utf-8")
+        (tmp_path / "notes.md").write_text("## A\n- x\n", encoding="utf-8")
         git.auto_commit("initial")
 
         future_now = datetime.now(tz=timezone.utc) + timedelta(days=30)
         with patch("miniunicorn.utils.gitstore.datetime") as mock_dt:
             mock_dt.now.return_value = future_now
             mock_dt.fromtimestamp = datetime.fromtimestamp
-            ages = git.line_ages("MEMORY.md")
+            ages = git.line_ages("notes.md")
 
         assert len(ages) == 2
         assert all(a.age_days == 30 for a in ages)
 
     def test_annotate_failure_returns_empty(self, tmp_path):
         """If annotate fails, line_ages should return [] gracefully."""
-        git = GitStore(tmp_path, tracked_files=["MEMORY.md"])
+        git = GitStore(tmp_path, tracked_files=["notes.md"])
         # Don't init — annotate will fail
-        assert git.line_ages("MEMORY.md") == []
+        assert git.line_ages("notes.md") == []
 
     def test_partial_edit_only_updates_changed_lines(self, git, tmp_path):
         """Only modified lines should reflect the new commit's timestamp."""
-        (tmp_path / "MEMORY.md").write_text(
+        (tmp_path / "notes.md").write_text(
             "# Memory\n\n## A\n- old\n\n## B\n- keep\n", encoding="utf-8"
         )
         git.auto_commit("commit1")
         time.sleep(1.1)
 
         # Only modify section A
-        (tmp_path / "MEMORY.md").write_text(
+        (tmp_path / "notes.md").write_text(
             "# Memory\n\n## A\n- new\n\n## B\n- keep\n", encoding="utf-8"
         )
         git.auto_commit("commit2")
 
-        ages = git.line_ages("MEMORY.md")
-        lines = (tmp_path / "MEMORY.md").read_text(encoding="utf-8").splitlines()
+        ages = git.line_ages("notes.md")
+        lines = (tmp_path / "notes.md").read_text(encoding="utf-8").splitlines()
         # All lines are from today, but verify line-level tracking works
         assert len(ages) == len(lines)
         # "- new" line and "- keep" line both age=0 (same day), but
@@ -104,7 +104,7 @@ class TestNestedRepoProtection:
         workspace = project / "workspace"
         workspace.mkdir()
 
-        g = GitStore(workspace, tracked_files=["MEMORY.md"])
+        g = GitStore(workspace, tracked_files=["notes.md"])
         result = g.init()
 
         assert result is False
@@ -118,14 +118,14 @@ class TestNestedRepoProtection:
         existing = "*.pyc\n__pycache__/\n"
         (workspace / ".gitignore").write_text(existing, encoding="utf-8")
 
-        g = GitStore(workspace, tracked_files=["MEMORY.md"])
+        g = GitStore(workspace, tracked_files=["notes.md"])
         result = g.init()
 
         assert result is True
         gitignore = (workspace / ".gitignore").read_text(encoding="utf-8")
         assert "*.pyc" in gitignore
         assert "__pycache__/" in gitignore
-        assert "!MEMORY.md" in gitignore
+        assert "!notes.md" in gitignore
         assert "!.gitignore" in gitignore
 
     def test_init_no_gitignore_creates_new(self, tmp_path):
@@ -133,7 +133,7 @@ class TestNestedRepoProtection:
         workspace = tmp_path / "workspace"
         workspace.mkdir()
 
-        g = GitStore(workspace, tracked_files=["MEMORY.md"])
+        g = GitStore(workspace, tracked_files=["notes.md"])
         result = g.init()
 
         assert result is True
@@ -147,10 +147,10 @@ class TestNestedRepoProtection:
         workspace.mkdir()
 
         # Pre-existing .gitignore that already has some Dream entries
-        existing = "*.pyc\n/*\n!MEMORY.md\n"
+        existing = "*.pyc\n/*\n!notes.md\n"
         (workspace / ".gitignore").write_text(existing, encoding="utf-8")
 
-        g = GitStore(workspace, tracked_files=["MEMORY.md"])
+        g = GitStore(workspace, tracked_files=["notes.md"])
         result = g.init()
 
         assert result is True
@@ -158,7 +158,7 @@ class TestNestedRepoProtection:
         # No duplicate lines
         lines = gitignore.splitlines()
         assert lines.count("/*") == 1
-        assert lines.count("!MEMORY.md") == 1
+        assert lines.count("!notes.md") == 1
         # Existing entry preserved, new Dream entries appended
         assert "*.pyc" in gitignore
         assert "!.gitignore" in gitignore
@@ -168,7 +168,7 @@ class TestNestedRepoProtection:
         workspace = tmp_path / "workspace"
         workspace.mkdir()
 
-        g = GitStore(workspace, tracked_files=["MEMORY.md"])
+        g = GitStore(workspace, tracked_files=["notes.md"])
         result = g.init()
 
         assert result is True
@@ -209,7 +209,7 @@ class TestNestedRepoProtection:
         workspace = worktree / "workspace"
         workspace.mkdir()
 
-        g = GitStore(workspace, tracked_files=["MEMORY.md"])
+        g = GitStore(workspace, tracked_files=["notes.md"])
         result = g.init()
 
         assert result is False

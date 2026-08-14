@@ -4,7 +4,7 @@ When enabled via AgentRunSpec.enable_reflection=True, the runner periodically
 asks the LLM to produce a one-sentence "lesson learned" from the current
 turn 鈥?triggered on failure (tool error, LLM error, max_iterations) or every
 N iterations (reflection_interval). Reflections are appended to
-``memory/reflections.jsonl`` for Dream to consolidate into MEMORY.md.
+``memory/reflections.jsonl`` for Dream to extract governed memory proposals.
 
 The goal is cross-turn learning: avoid repeating the same mistakes. This
 module is self-contained and does not modify the existing ReAct loop.
@@ -113,6 +113,7 @@ class Reflection:
         context_summary: str,
         messages: list[dict[str, Any]],
         session_key: str | None = None,
+        user_key: str | None = None,
     ) -> str | None:
         """Ask the LLM for a one-sentence lesson; persist to JSONL.
 
@@ -123,6 +124,9 @@ class Reflection:
             context_summary: Short description of what happened (e.g. error message).
             messages: The current message list (used as context for the LLM).
             session_key: Optional session identifier for logging.
+            user_key: Optional governed user identity (e.g. "user:alice").
+                Persisted on the reflection row only when provided, so Dream
+                can partition evidence by the exact identity tuple.
 
         Returns:
             The reflection text, or None on failure.
@@ -170,6 +174,8 @@ class Reflection:
                 "reflection": reflection_text,
                 "session_key": session_key,
             }
+            if user_key:
+                entry["user_key"] = user_key
             # The stable id is assigned here, in application code, and is only
             # reported on success once the entry is durably appended.
             entry["reflection_id"] = new_reflection_id()

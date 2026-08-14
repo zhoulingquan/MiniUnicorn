@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 import weakref
 from contextlib import suppress
 from dataclasses import replace as dataclasses_replace
@@ -16,12 +17,13 @@ from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Mapping
 
 import tiktoken
 from filelock import FileLock
+from filelock import Timeout as FileLockTimeout
 from loguru import logger
 
 from miniunicorn.agent.reflection import _atomic_rewrite_lines
 from miniunicorn.bus.events import session_key_base
 from miniunicorn.session.manager import Session
-from miniunicorn.utils.gitstore import GitStore
+from miniunicorn.utils.gitstore import GOVERNED_MEMORY_TRACKED_FILES, GitStore
 from miniunicorn.utils.helpers import (
     ensure_dir,
     estimate_message_tokens,
@@ -62,26 +64,12 @@ def _parse_datetime_loose(value: str | None) -> datetime | None:
         return None
 
 
-def reflection_evidence_id(entry: Mapping[str, Any]) -> str:
-    """Return a stable evidence id for a reflection entry.
-
-    New entries carry a program-generated ``rfl_<32 hex>`` id and are used
-    verbatim. Legacy ``R<number>`` or missing ids are not trustworthy (they
-    depend on mutable line numbers), so a deterministic legacy id is derived
-    from the canonicalized entry content. ``_line`` is cursor bookkeeping and
-    never included in the digest.
-    """
+def reflection_evidence_id(entry: Mapping[str, Any]) -> str | None:
+    """Return the governed evidence ID, or ``None`` for an invalid entry."""
     raw = str(entry.get("reflection_id") or "")
     if re.fullmatch(r"rfl_[0-9a-f]{32}", raw):
         return raw
-    canonical = json.dumps(
-        {key: value for key, value in entry.items() if key != "_line"},
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:24]
-    return f"rfl_legacy_{digest}"
+    return None
 
 
 def _dream_source_batch(evidence_refs: Iterable[str]) -> str:
@@ -95,22 +83,19 @@ def _dream_source_batch(evidence_refs: Iterable[str]) -> str:
     return f"dream:{digest}"
 
 
+def count_pending_dream_entries(store: "MemoryStore") -> int:
+    """Count cursor-visible history and reflection rows without mutating them."""
+    history = store.read_unprocessed_history(since_cursor=store.get_last_dream_cursor())
+    reflections = store.read_unprocessed_reflections(
+        since_cursor=store.get_last_reflections_cursor()
+    )
+    return len(history) + len(reflections)
+
+
 class MemoryStore:
-    """File-backed governed memory, history, reflection, and import storage."""
+    """File-backed governed memory, history, reflections, and scratch notes."""
 
     _DEFAULT_MAX_HISTORY = 1000
-    # Episodic/procedural/reflections 文件条数上限：超出时截断最旧条目。
-    # episodic 是事件流（按时间），procedural 是教训（Dream 提炼），
-    # reflections 是一句话反思（Reflection 写入，Dream 消费）。
-    # 这些文件只增不减会导致长期使用后磁盘膨胀，故设上限。
-    _MAX_EPISODIC_ENTRIES = 500
-    _MAX_PROCEDURAL_ENTRIES = 300
-    _MAX_SHARED_PROCEDURAL_ENTRIES = 200
-    _LEGACY_ENTRY_START_RE = re.compile(r"^\[(\d{4}-\d{2}-\d{2}[^\]]*)\]\s*")
-    _LEGACY_TIMESTAMP_RE = re.compile(r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\]\s*")
-    _LEGACY_RAW_MESSAGE_RE = re.compile(
-        r"^\[\d{4}-\d{2}-\d{2}[^\]]*\]\s+[A-Z][A-Z0-9_]*(?:\s+\[tools:\s*[^\]]+\])?:"
-    )
 
     # Single-Writer 路径白名单（借鉴 MiMo Code）：
     # 每个文件只有一个允许的 writer 角色，其他角色不应直接写入。
@@ -122,25 +107,18 @@ class MemoryStore:
     #   - "main_agent": 主 Agent 通过 EditFileTool 间接写入（唯一允许的文件是 notes.md）
     #   - "consolidator": Consolidator 归档时写入 history.jsonl + 清空 notes.md
     #   - "dream": Dream 提炼结构化候选并推进消费 cursor
-    #   - "memory_store": MemoryStore 内部迁移/截断逻辑（_maybe_migrate_legacy_history 等）
+    #   - "memory_store": MemoryStore internal maintenance
     _WRITER_WHITELIST: dict[str, set[str]] = {
         "notes.md": {"main_agent", "consolidator"},
-        "memory/MEMORY.md": {"dream", "memory_store"},
-        "SOUL.md": {"dream", "memory_store"},
-        "USER.md": {"dream", "memory_store"},
+        "SOUL.md": {"memory_store"},
         "memory/history.jsonl": {"consolidator", "memory_store"},
         "memory/.cursor": {"consolidator", "memory_store"},
         "memory/.dream_cursor": {"dream", "memory_store"},
         "memory/.reflections_cursor": {"dream", "memory_store"},
-        "memory/episodic.jsonl": {"dream", "memory_store"},
-        "memory/procedural.jsonl": {"dream", "memory_store"},
         "memory/reflections.jsonl": {"dream", "reflection", "memory_store"},
-        "memory/shared/MEMORY_SHARED.md": {"dream", "memory_store"},
-        "memory/shared/procedural_shared.jsonl": {"dream", "memory_store"},
         "memory/shared/POLICY.md": {"memory_store"},
         "memory/structured/journal.jsonl": {"memory_store"},
         "memory/structured/tags.json": {"memory_store"},
-        "memory/structured/migration-v1.json": {"memory_store"},
     }
 
     def __init__(
@@ -152,13 +130,10 @@ class MemoryStore:
         self.workspace = workspace
         self.max_history_entries = max_history_entries
         self.memory_dir = ensure_dir(workspace / "memory")
-        self.memory_file = self.memory_dir / "MEMORY.md"
         self.recall_audit_file = self.memory_dir / "structured" / "recall-audit.jsonl"
         self.recall_audit_lock_file = self.memory_dir / "structured" / "recall-audit.lock"
         self.history_file = self.memory_dir / "history.jsonl"
-        self.legacy_history_file = self.memory_dir / "HISTORY.md"
         self.soul_file = workspace / "SOUL.md"
-        self.user_file = workspace / "USER.md"
         # notes.md: 主 Agent 唯一被允许的持久化写入通道（借鉴 MiMo Code）。
         # 主 Agent 用 write_file/edit_file 往这里 append 零散发现，Consolidator
         # 在每次归档时读取内容路由到 summary、然后清空文件。这样主 Agent
@@ -166,44 +141,18 @@ class MemoryStore:
         self.notes_file = workspace / "notes.md"
         self._cursor_file = self.memory_dir / ".cursor"
         self._dream_cursor_file = self.memory_dir / ".dream_cursor"
-        # Layered memory stores (P1-1): episodic events and procedural lessons.
-        # semantic memory remains MEMORY.md (existing). Both new files are
-        # append-only JSONL, mirroring history.jsonl's on-disk format.
-        self._episodic_file = self.memory_dir / "episodic.jsonl"
-        self.procedural_file = self.memory_dir / "procedural.jsonl"
         self._reflections_cursor_file = self.memory_dir / ".reflections_cursor"
-        # Cross-session shared layer (P2-2): global facts and lessons that apply
-        # to every session rather than just the current one. Lives under
-        # ``memory/shared/`` so it stays separate from per-session stores.
         self.shared_dir = ensure_dir(workspace / "memory" / "shared")
-        self.shared_memory_file = self.shared_dir / "MEMORY_SHARED.md"
-        self.shared_procedural_file = self.shared_dir / "procedural_shared.jsonl"
         self._corruption_logged = False  # rate-limit non-int cursor warning
         self._oversize_logged = False  # rate-limit oversized-entry warning
         # 文件内容缓存：key=Path, value=(st_mtime_ns, st_size, content)。
-        # build_system_prompt 每次 turn 都会读取 MEMORY.md/SOUL.md/USER.md，
-        # 这些文件在单次 turn 内不会变化（只有 Dream 会改写，且 Dream 独占运行）。
+        # SOUL.md and notes.md may be read repeatedly during prompt construction.
         # 通过 mtime+size 校验避免重复磁盘 IO。写入时调用 _invalidate_cache。
         self._file_cache: dict[Path, tuple[int, int, str]] = {}
         self._git = GitStore(
             workspace,
-            tracked_files=[
-                "SOUL.md",
-                "USER.md",
-                "notes.md",
-                "memory/MEMORY.md",
-                "memory/.dream_cursor",
-                "memory/episodic.jsonl",
-                "memory/procedural.jsonl",
-                "memory/shared/MEMORY_SHARED.md",
-                "memory/shared/procedural_shared.jsonl",
-                "memory/structured/journal.jsonl",
-                "memory/structured/tags.json",
-                "memory/shared/POLICY.md",
-                "memory/structured/migration-v1.json",
-            ],
+            tracked_files=list(GOVERNED_MEMORY_TRACKED_FILES),
         )
-        self._maybe_migrate_legacy_history()
         # Governed structured memory: always on; journal-backed facts + lifecycle + recall.
         from miniunicorn.config.schema import StructuredMemoryConfig
 
@@ -228,6 +177,29 @@ class MemoryStore:
     def git(self) -> GitStore:
         return self._git
 
+    def restore_memory_version(self, commit: str):
+        """Revert a memory commit and immediately rebuild governed indexes."""
+        try:
+            with FileLock(
+                str(self.structured_repository.lock_path),
+                timeout=self.structured_config.lock_timeout_s,
+            ):
+                new_sha = self._git.revert(commit)
+                if new_sha is None:
+                    return None, self.structured_repository.health
+                health = self.structured_repository.rebuild()
+        except FileLockTimeout:
+            logger.warning("memory_restore_failed code=journal_lock_timeout")
+            return None, self.structured_repository.health
+        from miniunicorn.agent.memory_recall import StructuredMemoryRecall
+
+        self.structured_recall = StructuredMemoryRecall(
+            self.structured_repository,
+            self.structured_repository.tag_catalog,
+        )
+        self._file_cache.clear()
+        return new_sha, health
+
     # ------------------------------------------------------------------
     # Governed structured memory (C2) — repository/lifecycle/recall wiring
     # ------------------------------------------------------------------
@@ -239,10 +211,6 @@ class MemoryStore:
     def _ensure_structured_bundled_files(self) -> None:
         """Install canonical structured templates without overwriting user files."""
         canonical_tags = self.workspace / "memory" / "structured" / "tags.json"
-        legacy_tags = canonical_tags.with_name("TAGS.json")
-        if not canonical_tags.exists() and legacy_tags.exists():
-            ensure_dir(canonical_tags.parent)
-            canonical_tags.write_text(legacy_tags.read_text(encoding="utf-8"), encoding="utf-8")
         targets = {
             "TAGS.json": canonical_tags,
             "POLICY.md": self.workspace / "memory" / "shared" / "POLICY.md",
@@ -353,45 +321,6 @@ class MemoryStore:
         """Reduce a rendered Why reason to a non-content-bearing category."""
         return reason.split("=", 1)[0].split("(", 1)[0]
 
-    # ------------------------------------------------------------------
-    # Legacy migration (C2 §14): deterministic, idempotent, no-LLM.
-    # ------------------------------------------------------------------
-
-    def migration_plan(self) -> tuple[list[Any], list[Any]]:
-        """Scan legacy sources (read-only). Returns (items, issues)."""
-        from miniunicorn.agent.memory_migration import scan_legacy_memory
-
-        return scan_legacy_memory(self.workspace)
-
-    def run_migration(self, *, dry_run: bool = False) -> Any:
-        """Run the legacy -> structured migration (dry-run or apply).
-
-        dry-run performs zero writes; apply imports through the journal-backed
-        lifecycle and writes ``memory/structured/migration-v1.json`` progress, setting
-        ``completed_at`` after the full source scan finished.
-        """
-        from miniunicorn.agent.memory_migration import MemoryMigration
-
-        self._structured_stack_or_build()
-        migration = MemoryMigration(
-            self.workspace,
-            self.structured_repository,
-            self.structured_lifecycle,
-            self.project_scope_key,
-        )
-        return migration.dry_run() if dry_run else migration.apply()
-
-    def migration_completed(self) -> bool:
-        """True when migration state records a completed_at (spec §14.3).
-
-        The canonical manifest wins; a legacy manifest is honoured only when
-        no canonical manifest exists, matching the unified loader used by the
-        migrator and the status command.
-        """
-        from miniunicorn.agent.memory_migration import load_migration_state
-
-        return load_migration_state(self.workspace).completed_at is not None
-
     # -- Single-Writer 路径校验（借鉴 MiMo Code 的 path whitelist）----------
     # 防御 path traversal：所有写入方法的路径必须解析后仍在 workspace 内。
     # 这层校验是 defense-in-depth —— MemoryStore 的写入路径在 __init__ 固化，
@@ -440,192 +369,14 @@ class MemoryStore:
                 allowed_roles,
             )
 
-    # -- layered memory: episodic / procedural (P1-1) -----------------------
-
-    def append_episodic(self, session_key: str, content: str) -> int | None:
-        """Append an episodic memory entry (event with timestamp/session).
-
-        Returns the 1-based line number, or None on failure.
-        """
-        if not content:
-            return None
-        self._assert_path_in_workspace(self._episodic_file)
-        self._assert_writer_allowed("dream", "memory/episodic.jsonl")
-        try:
-            ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-            entry = {
-                "timestamp": ts,
-                "session_key": session_key,
-                "content": content,
-            }
-            with open(self._episodic_file, "a", encoding="utf-8") as f:
-                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-            return self._count_lines(self._episodic_file)
-        except Exception:
-            logger.exception("append_episodic failed")
-            return None
-
-    def read_episodic(self, since_timestamp: str | None = None) -> list[dict[str, Any]]:
-        """Read episodic entries newer than *since_timestamp*."""
-        return self._read_jsonl(self._episodic_file, since_timestamp)
-
-    def append_procedural(self, lesson: str, source_reflection: str | None = None) -> int:
-        """Append a procedural lesson (from reflections). Returns cursor.
-
-        Each entry is a JSONL line with ``cursor``, ``timestamp``, ``content``,
-        and ``source`` keys — mirroring history.jsonl's on-disk format so the
-        same read/dedup tooling applies.
-        """
-        self._assert_path_in_workspace(self.procedural_file)
-        self._assert_writer_allowed("dream", "memory/procedural.jsonl")
-        cursor = self._next_procedural_cursor()
-        entry = {
-            "cursor": cursor,
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "content": lesson,
-            "source": source_reflection,
-        }
-        try:
-            with open(self.procedural_file, "a", encoding="utf-8") as f:
-                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-            return cursor
-        except Exception:
-            logger.exception("append_procedural failed")
-            return cursor
-
-    def _next_procedural_cursor(self) -> int:
-        """Get next cursor for procedural file (1-based, monotonic)."""
-        try:
-            text = self.procedural_file.read_text(encoding="utf-8")
-            lines = [line for line in text.strip().split("\n") if line.strip()]
-            if not lines:
-                return 1
-            last = json.loads(lines[-1])
-            return last.get("cursor", 0) + 1
-        # 移除冗余的 Exception，明确列出可能的异常类型
-        except (FileNotFoundError, json.JSONDecodeError, ValueError):
-            return 1
-
-    def read_procedural(self, limit: int = 100) -> list[dict[str, Any]]:
-        """Read procedural lessons, returning the last *limit* entries."""
-        if not self.procedural_file.exists():
-            return []
-        entries: list[dict[str, Any]] = []
-        try:
-            with open(self.procedural_file, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        entries.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        continue
-        except Exception:
-            return []
-        return entries[-limit:] if limit > 0 else entries
-
-    # -- cross-session shared layer (P2-2) -----------------------------------
-
-    def read_shared_memory(self) -> str:
-        """Read global shared semantic memory (cross-session facts)."""
-        return self._cached_read(self.shared_memory_file)
-
-    def read_shared_procedural(self, limit: int = 50) -> list[dict[str, Any]]:
-        """Read global shared procedural lessons (cross-session experience).
-
-        Same JSONL on-disk format as :meth:`read_procedural`, but stored under
-        ``memory/shared/procedural_shared.jsonl`` so lessons that Dream
-        promoted as globally applicable stay separate from the per-session
-        procedural log.
-        """
-        if not self.shared_procedural_file.exists():
-            return []
-        entries: list[dict[str, Any]] = []
-        try:
-            with open(self.shared_procedural_file, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        entries.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        continue
-        except Exception:
-            return []
-        return entries[-limit:] if limit > 0 else entries
-
-    # -- JSONL 文件截断（防膨胀） -------------------------------------------
-    # episodic/procedural/shared_procedural 都是 append-only JSONL，长期使用
-    # 会无限增长。这些方法按条数上限截断最旧条目，在 Dream 末尾调用。
-
-    @staticmethod
-    def _truncate_jsonl_tail(path: Path, max_entries: int) -> int:
-        """截断 JSONL 文件，只保留最后 *max_entries* 行。
-
-        原子写入（tmp + os.replace），失败时返回 0 且不修改文件。
-        返回截断的行数。
-        """
-        if max_entries <= 0 or not path.exists():
-            return 0
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-        except Exception:
-            return 0
-        if len(lines) <= max_entries:
-            return 0
-        kept = lines[-max_entries:]
-        tmp = path.with_suffix(".tmp")
-        try:
-            with open(tmp, "w", encoding="utf-8") as f:
-                f.writelines(kept)
-            os.replace(tmp, path)
-        except Exception:
-            logger.exception("_truncate_jsonl_tail write failed for {}", path)
-            return 0
-        pruned = len(lines) - len(kept)
-        logger.info(
-            "Pruned {} old entries from {}, {} remaining",
-            pruned,
-            path.name,
-            len(kept),
-        )
-        return pruned
-
-    def prune_episodic_if_needed(self) -> int:
-        """截断 episodic.jsonl 到 _MAX_EPISODIC_ENTRIES 条。"""
-        return self._truncate_jsonl_tail(self._episodic_file, self._MAX_EPISODIC_ENTRIES)
-
-    def prune_procedural_if_needed(self) -> int:
-        """截断 procedural.jsonl 到 _MAX_PROCEDURAL_ENTRIES 条。"""
-        return self._truncate_jsonl_tail(self.procedural_file, self._MAX_PROCEDURAL_ENTRIES)
-
-    def prune_shared_procedural_if_needed(self) -> int:
-        """截断 shared/procedural_shared.jsonl 到 _MAX_SHARED_PROCEDURAL_ENTRIES 条。"""
-        return self._truncate_jsonl_tail(
-            self.shared_procedural_file, self._MAX_SHARED_PROCEDURAL_ENTRIES
-        )
-
     def run_memory_hygiene(self, now: datetime | None = None) -> dict[str, int]:
-        """执行全部文件层清理，返回各部分清理统计。
-
-        在 Dream.run() 末尾调用，也可由 Consolidator 在归档后节流调用。
-        包含：
-        - reflections.jsonl 截断已处理条目
-        - episodic/procedural/shared_procedural 按上限截断
-        """
+        """Prune consumed reflections and expire due structured records."""
         result: dict[str, int] = {
-            "episodic": self.prune_episodic_if_needed(),
-            "procedural": self.prune_procedural_if_needed(),
             "reflections": self.prune_reflections_after_cursor(),
-            "shared_procedural": self.prune_shared_procedural_if_needed(),
             "structured_expired": 0,
         }
-        if self.structured_lifecycle is not None:
-            expired = self.structured_lifecycle.expire_due(now or datetime.now(timezone.utc))
-            result["structured_expired"] = len(expired)
+        expired = self.structured_lifecycle.expire_due(now or datetime.now(timezone.utc))
+        result["structured_expired"] = len(expired)
         return result
 
     def get_last_reflections_cursor(self) -> int:
@@ -769,9 +520,9 @@ class MemoryStore:
     def _cached_read(self, path: Path) -> str:
         """带 mtime+size 校验的缓存读取。
 
-        build_system_prompt 每次 turn 都会读 MEMORY/SOUL/USER.md 等文件，
-        这些文件在 turn 内不变（Dream 独占运行时才会改写）。命中缓存时
-        避免一次磁盘 IO；未命中或 mtime/size 变化时回源读取。
+        Prompt construction may read SOUL.md and notes.md repeatedly. These
+        files remain stable within a turn. A cache hit avoids disk I/O; an
+        mtime or size change reloads the file.
         """
         try:
             st = path.stat()
@@ -797,140 +548,6 @@ class MemoryStore:
         else:
             self._file_cache.pop(path, None)
 
-    def _maybe_migrate_legacy_history(self) -> None:
-        """One-time upgrade from legacy HISTORY.md to history.jsonl.
-
-        The migration is best-effort and prioritizes preserving as much content
-        as possible over perfect parsing.
-        """
-        if not self.legacy_history_file.exists():
-            return
-        if self.history_file.exists() and self.history_file.stat().st_size > 0:
-            return
-
-        try:
-            legacy_text = self.legacy_history_file.read_text(
-                encoding="utf-8",
-                errors="replace",
-            )
-        except OSError:
-            logger.exception("Failed to read legacy HISTORY.md for migration")
-            return
-
-        entries = self._parse_legacy_history(legacy_text)
-        try:
-            if entries:
-                self._write_entries(entries)
-                last_cursor = entries[-1]["cursor"]
-                self._cursor_file.write_text(str(last_cursor), encoding="utf-8")
-                # Default to "already processed" so upgrades do not replay the
-                # user's entire historical archive into Dream on first start.
-                self._dream_cursor_file.write_text(str(last_cursor), encoding="utf-8")
-
-            backup_path = self._next_legacy_backup_path()
-            self.legacy_history_file.replace(backup_path)
-            logger.info(
-                "Migrated legacy HISTORY.md to history.jsonl ({} entries)",
-                len(entries),
-            )
-        except Exception:
-            logger.exception("Failed to migrate legacy HISTORY.md")
-
-    def _parse_legacy_history(self, text: str) -> list[dict[str, Any]]:
-        normalized = text.replace("\r\n", "\n").replace("\r", "\n").strip()
-        if not normalized:
-            return []
-
-        fallback_timestamp = self._legacy_fallback_timestamp()
-        entries: list[dict[str, Any]] = []
-        chunks = self._split_legacy_history_chunks(normalized)
-
-        for cursor, chunk in enumerate(chunks, start=1):
-            timestamp = fallback_timestamp
-            content = chunk
-            match = self._LEGACY_TIMESTAMP_RE.match(chunk)
-            if match:
-                timestamp = match.group(1)
-                remainder = chunk[match.end() :].lstrip()
-                if remainder:
-                    content = remainder
-
-            entries.append(
-                {
-                    "cursor": cursor,
-                    "timestamp": timestamp,
-                    "content": content,
-                }
-            )
-        return entries
-
-    def _split_legacy_history_chunks(self, text: str) -> list[str]:
-        lines = text.split("\n")
-        chunks: list[str] = []
-        current: list[str] = []
-        saw_blank_separator = False
-
-        for line in lines:
-            if saw_blank_separator and line.strip() and current:
-                chunks.append("\n".join(current).strip())
-                current = [line]
-                saw_blank_separator = False
-                continue
-            if self._should_start_new_legacy_chunk(line, current):
-                chunks.append("\n".join(current).strip())
-                current = [line]
-                saw_blank_separator = False
-                continue
-            current.append(line)
-            saw_blank_separator = not line.strip()
-
-        if current:
-            chunks.append("\n".join(current).strip())
-        return [chunk for chunk in chunks if chunk]
-
-    def _should_start_new_legacy_chunk(self, line: str, current: list[str]) -> bool:
-        if not current:
-            return False
-        if not self._LEGACY_ENTRY_START_RE.match(line):
-            return False
-        if self._is_raw_legacy_chunk(current) and self._LEGACY_RAW_MESSAGE_RE.match(line):
-            return False
-        return True
-
-    def _is_raw_legacy_chunk(self, lines: list[str]) -> bool:
-        first_nonempty = next((line for line in lines if line.strip()), "")
-        match = self._LEGACY_TIMESTAMP_RE.match(first_nonempty)
-        if not match:
-            return False
-        return first_nonempty[match.end() :].lstrip().startswith("[RAW]")
-
-    def _legacy_fallback_timestamp(self) -> str:
-        try:
-            return datetime.fromtimestamp(
-                self.legacy_history_file.stat().st_mtime,
-            ).strftime("%Y-%m-%d %H:%M")
-        except OSError:
-            return datetime.now().strftime("%Y-%m-%d %H:%M")
-
-    def _next_legacy_backup_path(self) -> Path:
-        candidate = self.memory_dir / "HISTORY.md.bak"
-        suffix = 2
-        while candidate.exists():
-            candidate = self.memory_dir / f"HISTORY.md.bak.{suffix}"
-            suffix += 1
-        return candidate
-
-    # -- MEMORY.md (long-term facts) -----------------------------------------
-
-    def read_memory(self) -> str:
-        return self._cached_read(self.memory_file)
-
-    def write_memory(self, content: str) -> None:
-        self._assert_path_in_workspace(self.memory_file)
-        self._assert_writer_allowed("memory_store", "memory/MEMORY.md")
-        self.memory_file.write_text(content, encoding="utf-8")
-        self._invalidate_cache(self.memory_file)
-
     # -- SOUL.md -------------------------------------------------------------
 
     def read_soul(self) -> str:
@@ -942,20 +559,9 @@ class MemoryStore:
         self.soul_file.write_text(content, encoding="utf-8")
         self._invalidate_cache(self.soul_file)
 
-    # -- USER.md -------------------------------------------------------------
-
-    def read_user(self) -> str:
-        return self._cached_read(self.user_file)
-
-    def write_user(self, content: str) -> None:
-        self._assert_path_in_workspace(self.user_file)
-        self._assert_writer_allowed("memory_store", "USER.md")
-        self.user_file.write_text(content, encoding="utf-8")
-        self._invalidate_cache(self.user_file)
-
     # -- notes.md (主 Agent scratchpad，借鉴 MiMo Code) ---------------------
-    # 主 Agent 对其他结构化文件（MEMORY/SOUL/USER）只有读权限，但 notes.md
-    # 是唯一允许的写入通道。主 Agent 用 write_file/edit_file 往这里 append
+    # notes.md is the main Agent's only direct durable scratch channel.
+    # 主 Agent 用 write_file/edit_file 往这里 append
     # 零散发现，Consolidator 在归档时读取并路由到 summary、然后清空。
     # 这避免了"让正在调 bug 的模型同时维护结构化日志"的双任务冲突。
 
@@ -1001,12 +607,6 @@ class MemoryStore:
         except OSError:
             logger.exception("clear_notes failed")
         return content
-
-    # -- context injection (used by context.py) ------------------------------
-
-    def get_memory_context(self) -> str:
-        long_term = self.read_memory()
-        return f"## Long-term Memory\n{long_term}" if long_term else ""
 
     # -- history.jsonl — append-only, JSONL format ---------------------------
 
@@ -1245,6 +845,48 @@ class MemoryStore:
         session_key = next(iter(sessions)) if len(sessions) == 1 else None
         sender_id = next(iter(senders)) if len(senders) == 1 else None
         return session_key, f"user:{sender_id}" if sender_id else None
+
+
+class WorkspaceMemoryRegistry:
+    """Deterministic per-workspace ``MemoryStore`` cache.
+
+    Resolves an effective workspace path to a single governed ``MemoryStore``
+    instance and reuses it across prompts/turns. Creation is guarded by a lock
+    so concurrent turns cannot construct duplicate stores for one resolved
+    path. The default workspace's store (passed in at construction) is always
+    reused for the default resolved path.
+    """
+
+    def __init__(
+        self,
+        default_workspace: Path,
+        default_store: MemoryStore,
+        *,
+        structured_config: StructuredMemoryConfig | None = None,
+    ) -> None:
+        self._default_root = str(Path(default_workspace).expanduser().resolve())
+        self._stores: dict[str, MemoryStore] = {self._default_root: default_store}
+        self._lock = threading.Lock()
+        self._structured_config = structured_config
+
+    def memory_for(self, workspace: Path | str) -> MemoryStore:
+        """Return the governed store for a resolved workspace path."""
+        root = str(Path(workspace).expanduser().resolve())
+        store = self._stores.get(root)
+        if store is not None:
+            return store
+        with self._lock:
+            store = self._stores.get(root)
+            if store is None:
+                store = MemoryStore(Path(root), structured_config=self._structured_config)
+                self._stores[root] = store
+        return store
+
+    def known_stores(self) -> list[MemoryStore]:
+        """Return the default store plus every lazily-created workspace store."""
+        with self._lock:
+            stores = list(self._stores.values())
+        return stores
 
 
 # ---------------------------------------------------------------------------
@@ -1496,6 +1138,7 @@ class Consolidator:
             sender_id=None,
             session_summary=summary,
             session_metadata=session.metadata,
+            workspace=self.store.workspace,
         )
         return estimate_prompt_tokens_chain(
             self.provider,
@@ -1799,9 +1442,14 @@ class Consolidator:
 class Dream:
     """Extract journal-backed memory proposals from history and reflections."""
 
-    # Cap each history entry included in the extraction prompt so a legacy
-    # oversized archive row cannot exhaust the model context window.
     _HISTORY_ENTRY_PREVIEW_MAX_CHARS = 4_000
+    _REFLECTION_ENTRY_PREVIEW_MAX_CHARS = 1_000
+    _MIN_EVIDENCE_PREVIEW_CHARS = 128
+    _EVIDENCE_EXCERPT_MAX_CHARS = 1_000
+    _SUMMARY_MAX_RECORDS = 40
+    _SUMMARY_RECORD_MAX_CHARS = 500
+    _SUMMARY_MAX_CHARS = 8_000
+    _PROMPT_SAFETY_TOKENS = 1_024
 
     def __init__(
         self,
@@ -1809,15 +1457,44 @@ class Dream:
         provider: LLMProvider,
         model: str,
         max_batch_size: int = 20,
+        context_window_tokens: int | None = None,
+        max_completion_tokens: int | None = None,
     ):
         self.store = store
         self.provider = provider
         self.model = model
         self.max_batch_size = max_batch_size
+        self.context_window_tokens = context_window_tokens
+        provider_max_tokens = getattr(getattr(provider, "generation", None), "max_tokens", None)
+        self.max_completion_tokens = (
+            max_completion_tokens
+            if max_completion_tokens is not None
+            else provider_max_tokens
+            if isinstance(provider_max_tokens, int)
+            else 4_096
+        )
 
-    def set_provider(self, provider: LLMProvider, model: str) -> None:
+    def set_provider(
+        self,
+        provider: LLMProvider,
+        model: str,
+        context_window_tokens: int | None = None,
+        max_completion_tokens: int | None = None,
+    ) -> None:
         self.provider = provider
         self.model = model
+        if context_window_tokens is not None:
+            self.context_window_tokens = context_window_tokens
+        provider_max_tokens = getattr(getattr(provider, "generation", None), "max_tokens", None)
+        resolved_max_tokens = (
+            max_completion_tokens
+            if max_completion_tokens is not None
+            else provider_max_tokens
+            if isinstance(provider_max_tokens, int)
+            else None
+        )
+        if resolved_max_tokens is not None:
+            self.max_completion_tokens = resolved_max_tokens
 
     # -- main entry ----------------------------------------------------------
 
@@ -1827,11 +1504,192 @@ class Dream:
 
     # -- strict extraction -> lifecycle candidates --------------------------
 
-    def _structured_summary(self, repository: Any, status: MemoryStatus) -> str:
-        lines = []
+    @staticmethod
+    def _partition_identity(entry: Mapping[str, Any]) -> tuple[str | None, str | None]:
+        raw_session = entry.get("session_key")
+        session_key = session_key_base(str(raw_session)) if raw_session else None
+        raw_user = entry.get("user_key")
+        user_key = str(raw_user) if raw_user else None
+        return session_key, user_key
+
+    @staticmethod
+    def _entry_timestamp(entry: Mapping[str, Any]) -> datetime:
+        return _parse_datetime_loose(entry.get("timestamp")) or datetime.max.replace(
+            tzinfo=timezone.utc
+        )
+
+    def _structured_summary(
+        self,
+        repository: Any,
+        status: MemoryStatus,
+        allowed_scopes: set[Any],
+    ) -> str:
+        lines: list[str] = []
+        used = 0
         for record in repository.current_records(status):
-            lines.append(f"- [{record.id}] {record.statement} (tags: {', '.join(record.tags)})")
+            if record.scope not in allowed_scopes or len(lines) >= self._SUMMARY_MAX_RECORDS:
+                continue
+            line = f"- [{record.id}] {record.statement} (tags: {', '.join(record.tags)})"
+            line = line[: self._SUMMARY_RECORD_MAX_CHARS]
+            if used + len(line) > self._SUMMARY_MAX_CHARS:
+                break
+            lines.append(line)
+            used += len(line) + 1
         return "\n".join(lines)
+
+    @staticmethod
+    def _history_prompt_line(entry: Mapping[str, Any], preview_chars: int) -> str:
+        content = str(entry.get("content", ""))[:preview_chars]
+        return f"[history:{entry['cursor']} | {entry.get('timestamp', '')}] {content}"
+
+    @staticmethod
+    def _reflection_prompt_line(entry: Mapping[str, Any], preview_chars: int) -> str:
+        reflection_id = reflection_evidence_id(entry)
+        if reflection_id is None:
+            raise ValueError("invalid reflection id")
+        content = str(entry.get("lesson") or entry.get("reflection", ""))[:preview_chars]
+        return (
+            f"[reflection:{reflection_id} | {entry.get('timestamp', '')}] "
+            f"({entry.get('trigger', 'unknown')}) {content}"
+        )
+
+    def _render_user_prompt(
+        self,
+        repository: Any,
+        history: list[dict[str, Any]],
+        reflections: list[dict[str, Any]],
+        allowed_scopes: set[Any],
+        *,
+        history_preview: int,
+        reflection_preview: int,
+        include_summaries: bool,
+    ) -> str:
+        from miniunicorn.agent.memory_models import MemoryStatus
+
+        history_lines = [self._history_prompt_line(entry, history_preview) for entry in history]
+        reflection_lines = [
+            self._reflection_prompt_line(entry, reflection_preview) for entry in reflections
+        ]
+        history_text = "\n".join(history_lines) if history_lines else "(no new history)"
+        reflection_text = "\n".join(reflection_lines) if reflection_lines else "(none)"
+        active = (
+            self._structured_summary(repository, MemoryStatus.ACTIVE, allowed_scopes)
+            if include_summaries
+            else ""
+        )
+        candidates = (
+            self._structured_summary(repository, MemoryStatus.CANDIDATE, allowed_scopes)
+            if include_summaries
+            else ""
+        )
+        return (
+            "## Conversation History\n"
+            f"{history_text}\n\n"
+            "## Recent Reflections (Lessons Learned)\n"
+            f"{reflection_text}\n\n"
+            "## Current Active Facts\n"
+            f"{active or '(none)'}\n\n"
+            "## Current Candidates\n"
+            f"{candidates or '(none)'}"
+        )
+
+    def _bounded_user_prompt(
+        self,
+        repository: Any,
+        history: list[dict[str, Any]],
+        reflections: list[dict[str, Any]],
+        allowed_scopes: set[Any],
+    ) -> str | None:
+        def render(history_preview: int, reflection_preview: int, summaries: bool) -> str:
+            return self._render_user_prompt(
+                repository,
+                history,
+                reflections,
+                allowed_scopes,
+                history_preview=history_preview,
+                reflection_preview=reflection_preview,
+                include_summaries=summaries,
+            )
+
+        prompt = render(
+            self._HISTORY_ENTRY_PREVIEW_MAX_CHARS,
+            self._REFLECTION_ENTRY_PREVIEW_MAX_CHARS,
+            True,
+        )
+        if self.context_window_tokens is None:
+            return prompt
+        budget = (
+            self.context_window_tokens
+            - self.max_completion_tokens
+            - self._PROMPT_SAFETY_TOKENS
+        )
+        if budget <= 0:
+            return None
+        if estimate_message_tokens({"role": "user", "content": prompt}) <= budget:
+            return prompt
+
+        prompt = render(
+            self._HISTORY_ENTRY_PREVIEW_MAX_CHARS,
+            self._REFLECTION_ENTRY_PREVIEW_MAX_CHARS,
+            False,
+        )
+        if estimate_message_tokens({"role": "user", "content": prompt}) <= budget:
+            return prompt
+
+        low, high = self._MIN_EVIDENCE_PREVIEW_CHARS, self._HISTORY_ENTRY_PREVIEW_MAX_CHARS
+        best = render(
+            self._MIN_EVIDENCE_PREVIEW_CHARS,
+            self._MIN_EVIDENCE_PREVIEW_CHARS,
+            False,
+        )
+        if estimate_message_tokens({"role": "user", "content": best}) > budget:
+            return None
+        while low <= high:
+            mid = (low + high) // 2
+            candidate = render(mid, min(mid, self._REFLECTION_ENTRY_PREVIEW_MAX_CHARS), False)
+            if estimate_message_tokens({"role": "user", "content": candidate}) <= budget:
+                best = candidate
+                low = mid + 1
+            else:
+                high = mid - 1
+        if estimate_message_tokens({"role": "user", "content": best}) <= budget:
+            return best
+        return None
+
+    def _fit_bounded_batch(
+        self,
+        repository: Any,
+        history: list[dict[str, Any]],
+        reflections: list[dict[str, Any]],
+        allowed_scopes: set[Any],
+        *,
+        primary_source: str,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str] | None:
+        """Return the largest selected prefix whose complete prompt fits."""
+        fitted_history = list(history)
+        fitted_reflections = list(reflections)
+        while fitted_history or fitted_reflections:
+            prompt = self._bounded_user_prompt(
+                repository,
+                fitted_history,
+                fitted_reflections,
+                allowed_scopes,
+            )
+            if prompt is not None:
+                return fitted_history, fitted_reflections, prompt
+
+            # Selection fills the primary source first and the secondary source
+            # second. Removing in reverse preserves the exact selected prefix.
+            if primary_source == "history":
+                if fitted_reflections:
+                    fitted_reflections.pop()
+                else:
+                    fitted_history.pop()
+            elif fitted_history:
+                fitted_history.pop()
+            else:
+                fitted_reflections.pop()
+        return None
 
     async def _run_structured_batch(self) -> bool:
         """Extract proposals and ingest them through the lifecycle,
@@ -1851,7 +1709,6 @@ class Dream:
             EvidenceKind,
             EvidenceRef,
             MemoryScope,
-            MemoryStatus,
             ScopeKind,
         )
 
@@ -1862,84 +1719,145 @@ class Dream:
             logger.warning("memory_dream_batch_failed code=structured_stack_missing")
             return False
 
-        last_cursor = store.get_last_dream_cursor()
-        entries = store.read_unprocessed_history(since_cursor=last_cursor)
-        last_refl_cursor = store.get_last_reflections_cursor()
-        reflections = store.read_unprocessed_reflections(since_cursor=last_refl_cursor)
-        if not entries and not reflections:
+        history_entries = store.read_unprocessed_history(
+            since_cursor=store.get_last_dream_cursor()
+        )
+        reflection_entries = store.read_unprocessed_reflections(
+            since_cursor=store.get_last_reflections_cursor()
+        )
+        if not history_entries and not reflection_entries:
             return False
-        batch = entries[: self.max_batch_size] if entries else []
 
-        evidence_catalog: dict[str, EvidenceRef] = {}
-        history_lines: list[str] = []
-        for entry in batch:
-            ref = f"history:{entry['cursor']}"
-            content = entry.get("content", "")
-            evidence_catalog[ref] = EvidenceRef(
-                kind=EvidenceKind.HISTORY,
-                ref=ref,
-                excerpt=content,
-                observed_at=_parse_datetime_loose(entry.get("timestamp")),
-            )
-            history_lines.append(
-                f"[{ref} | {entry.get('timestamp', '')}] "
-                f"{truncate_text(content, self._HISTORY_ENTRY_PREVIEW_MAX_CHARS)}"
-            )
-        reflection_lines: list[str] = []
-        for entry in reflections:
-            content = entry.get("lesson") or entry.get("reflection", "")
-            ref = f"reflection:{reflection_evidence_id(entry)}"
-            evidence_catalog[ref] = EvidenceRef(
-                kind=EvidenceKind.REFLECTION,
-                ref=ref,
-                excerpt=content,
-                observed_at=_parse_datetime_loose(entry.get("timestamp")),
-            )
-            reflection_lines.append(
-                f"[{ref} | {entry.get('timestamp', '')}] "
-                f"({entry.get('trigger', 'unknown')}) {content}"
-            )
+        first_history = history_entries[0] if history_entries else None
+        first_reflection = next(
+            (entry for entry in reflection_entries if reflection_evidence_id(entry) is not None),
+            None,
+        )
+        if first_history is None and first_reflection is None:
+            store.set_last_reflections_cursor(max(entry.get("_line", 0) for entry in reflection_entries))
+            store.run_memory_hygiene()
+            return True
+
+        if first_reflection is None or (
+            first_history is not None
+            and self._entry_timestamp(first_history) <= self._entry_timestamp(first_reflection)
+        ):
+            primary_source = "history"
+            primary_entry = first_history
+        else:
+            primary_source = "reflection"
+            primary_entry = first_reflection
+        assert primary_entry is not None
+        partition = self._partition_identity(primary_entry)
+
+        selected_history: list[dict[str, Any]] = []
+        selected_reflections: list[dict[str, Any]] = []
+        reflection_advance_line = 0
+
+        def take_history() -> None:
+            for entry in history_entries:
+                if len(selected_history) + len(selected_reflections) >= self.max_batch_size:
+                    break
+                if self._partition_identity(entry) != partition:
+                    break
+                selected_history.append(entry)
+
+        def take_reflections() -> None:
+            nonlocal reflection_advance_line
+            for entry in reflection_entries:
+                if len(selected_history) + len(selected_reflections) >= self.max_batch_size:
+                    break
+                if reflection_evidence_id(entry) is None:
+                    reflection_advance_line = max(
+                        reflection_advance_line, int(entry.get("_line", 0))
+                    )
+                    logger.warning("memory_reflection_skipped code=invalid_reflection_id")
+                    continue
+                if self._partition_identity(entry) != partition:
+                    break
+                selected_reflections.append(entry)
+                reflection_advance_line = max(
+                    reflection_advance_line, int(entry.get("_line", 0))
+                )
+
+        if primary_source == "history":
+            take_history()
+            take_reflections()
+        else:
+            take_reflections()
+            take_history()
+
+        if not selected_history and not selected_reflections:
+            if reflection_advance_line:
+                store.set_last_reflections_cursor(reflection_advance_line)
+                store.run_memory_hygiene()
+                return True
+            return False
 
         scope_by_hint = {
             ScopeKind.PROJECT: MemoryScope(kind=ScopeKind.PROJECT, key=store.project_scope_key),
             ScopeKind.SHARED: MemoryScope(kind=ScopeKind.SHARED, key="shared:*"),
         }
-        scope_inputs = list(batch) + reflections
-        session_keys = {
-            session_key_base(str(entry["session_key"]))
-            for entry in scope_inputs
-            if entry.get("session_key")
-        }
-        user_keys = {str(entry["user_key"]) for entry in scope_inputs if entry.get("user_key")}
-        if (
-            scope_inputs
-            and len(session_keys) == 1
-            and all(entry.get("session_key") for entry in scope_inputs)
-        ):
-            session_key = next(iter(session_keys))
+        session_key, user_key = partition
+        if session_key is not None:
             scope_by_hint[ScopeKind.SESSION] = MemoryScope(
                 kind=ScopeKind.SESSION, key=f"session:{session_key}"
             )
-        if (
-            scope_inputs
-            and len(user_keys) == 1
-            and all(entry.get("user_key") for entry in scope_inputs)
-        ):
+        if user_key is not None:
             scope_by_hint[ScopeKind.USER] = MemoryScope(
-                kind=ScopeKind.USER, key=next(iter(user_keys))
+                kind=ScopeKind.USER, key=user_key
             )
 
-        newline = "\n"
-        user_prompt = (
-            f"## Conversation History\n"
-            f"{newline.join(history_lines) if history_lines else '(no new history)'}\n\n"
-            f"## Recent Reflections (Lessons Learned)\n"
-            f"{newline.join(reflection_lines) if reflection_lines else '(none)'}\n\n"
-            f"## Current Active Facts\n"
-            f"{self._structured_summary(repository, MemoryStatus.ACTIVE) or '(none)'}\n\n"
-            f"## Current Candidates\n"
-            f"{self._structured_summary(repository, MemoryStatus.CANDIDATE) or '(none)'}"
+        fitted = self._fit_bounded_batch(
+            repository,
+            selected_history,
+            selected_reflections,
+            set(scope_by_hint.values()),
+            primary_source=primary_source,
         )
+        if fitted is None:
+            logger.warning("memory_dream_batch_deferred code=prompt_budget_too_small")
+            return False
+        selected_history, selected_reflections, user_prompt = fitted
+
+        # A pre-fit scan may have crossed reflections that were later removed
+        # from the batch. Recompute the physical cursor as a strict prefix so
+        # no valid, unsent reflection can be pruned or skipped.
+        selected_reflection_lines = {
+            int(entry.get("_line", 0)) for entry in selected_reflections
+        }
+        reflection_advance_line = 0
+        for entry in reflection_entries:
+            line = int(entry.get("_line", 0))
+            if reflection_evidence_id(entry) is None:
+                reflection_advance_line = max(reflection_advance_line, line)
+                continue
+            if line not in selected_reflection_lines:
+                break
+            reflection_advance_line = max(reflection_advance_line, line)
+
+        evidence_catalog: dict[str, EvidenceRef] = {}
+        for entry in selected_history:
+            ref = f"history:{entry['cursor']}"
+            content = str(entry.get("content", ""))
+            evidence_catalog[ref] = EvidenceRef(
+                kind=EvidenceKind.HISTORY,
+                ref=ref,
+                excerpt=content[: self._EVIDENCE_EXCERPT_MAX_CHARS],
+                observed_at=_parse_datetime_loose(entry.get("timestamp")),
+            )
+        for entry in selected_reflections:
+            reflection_id = reflection_evidence_id(entry)
+            assert reflection_id is not None
+            content = str(entry.get("lesson") or entry.get("reflection", ""))
+            ref = f"reflection:{reflection_id}"
+            evidence_catalog[ref] = EvidenceRef(
+                kind=EvidenceKind.REFLECTION,
+                ref=ref,
+                excerpt=content[: self._EVIDENCE_EXCERPT_MAX_CHARS],
+                observed_at=_parse_datetime_loose(entry.get("timestamp")),
+            )
+
         system_prompt = render_template(
             "agent/dream_phase1.md",
             strip=True,
@@ -1995,10 +1913,10 @@ class Dream:
             logger.warning("memory_dream_batch_failed code=repository_degraded")
             return False
 
-        if batch:
-            store.set_last_dream_cursor(batch[-1]["cursor"])
-        if reflections:
-            store.set_last_reflections_cursor(max(r.get("_line", 0) for r in reflections))
+        if selected_history:
+            store.set_last_dream_cursor(selected_history[-1]["cursor"])
+        if reflection_advance_line:
+            store.set_last_reflections_cursor(reflection_advance_line)
         for result in results:
             logger.info(
                 "memory_dream_candidate id={} status={} reason={}",
@@ -2008,7 +1926,12 @@ class Dream:
             )
         try:
             if store.git.is_initialized():
-                ts = batch[-1]["timestamp"] if batch else datetime.now().strftime("%Y-%m-%d %H:%M")
+                last_entry = (
+                    selected_history[-1]
+                    if selected_history
+                    else selected_reflections[-1]
+                )
+                ts = last_entry.get("timestamp") or datetime.now().strftime("%Y-%m-%d %H:%M")
                 sha = store.git.auto_commit(f"dream structured: {ts}, {len(results)} proposal(s)")
                 if sha:
                     logger.info("Dream commit: {}", sha)

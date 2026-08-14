@@ -371,7 +371,7 @@ class HeartbeatConfig(Base):
     active_hours: dict[str, str] | None = Field(
         default_factory=lambda: {"start": "08:00", "end": "24:00"}
     )
-    # 轻量上下文:心跳跳过 bootstrap 文件(AGENTS.md/SOUL.md/USER.md)注入,
+    # 轻量上下文:心跳跳过 bootstrap 文件(AGENTS.md/SOUL.md)注入,
     # 仅保留身份+工具契约+记忆,显著降低 token 消耗。默认开启。
     light_context: bool = Field(default=True)
     # 隔离会话:每次心跳用独立 session_key(heartbeat_<ts>),不累积历史,

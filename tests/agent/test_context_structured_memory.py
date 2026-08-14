@@ -88,9 +88,12 @@ def seed_active_record(
 def workspace(tmp_path):
     (tmp_path / "AGENTS.md").write_text("# Agent\n- Workflow rule\n", encoding="utf-8")
     (tmp_path / "SOUL.md").write_text("# Soul\n- Helpful\n", encoding="utf-8")
+    # Removed files may still exist in a developer directory, but runtime
+    # ignores them and never mutates them.
     (tmp_path / "USER.md").write_text("# User\n- Alice the developer\n", encoding="utf-8")
-    store = MemoryStore(tmp_path)
-    store.write_memory("# Memory\n- Legacy memory fact\n")
+    memory = tmp_path / "memory"
+    memory.mkdir()
+    (memory / "MEMORY.md").write_text("# Memory\n- Removed memory fact\n", encoding="utf-8")
     return tmp_path
 
 
@@ -108,7 +111,7 @@ class TestStructuredMemoryContext:
 
         prompt = builder.build_system_prompt()
 
-        assert "Legacy memory fact" not in prompt
+        assert "Removed memory fact" not in prompt
         assert "shared legacy fact" not in prompt
 
     def test_omits_user_bootstrap_keeps_agent_and_soul(self, workspace):

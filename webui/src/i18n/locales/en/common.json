@@ -379,7 +379,7 @@
       "files": {
         "button": "View Files",
         "title": "Memory Diagnostics",
-        "description": "Read-only governed storage, Dream inputs, and legacy import sources.",
+        "description": "Read-only governed storage, evidence inputs, policy, and recall diagnostics.",
         "listHeader": "Files",
         "loading": "Loading…",
         "empty": "No files available.",
@@ -393,14 +393,12 @@
         "refresh": "Refresh",
         "desc": {
           "SOUL.md": "Agent persona and communication style bootstrap file.",
-          "USER.md": "Inert legacy user-profile source; not injected unless explicitly imported.",
-          "memory/MEMORY.md": "Inert legacy fact source; not injected unless explicitly imported.",
           "memory/history.jsonl": "Conversation archive written by Consolidator and consumed as Dream evidence.",
-          "memory/episodic.jsonl": "Legacy episodic import source.",
-          "memory/procedural.jsonl": "Legacy procedural import source.",
           "memory/reflections.jsonl": "Reflections. Written by Reflection, consumed by Dream.",
-          "memory/shared/MEMORY_SHARED.md": "Inert legacy shared-fact import source.",
-          "memory/shared/procedural_shared.jsonl": "Legacy shared-procedure import source."
+          "memory/shared/POLICY.md": "Explicit cross-session policy injected when customized.",
+          "memory/structured/journal.jsonl": "Append-only governed memory transactions.",
+          "memory/structured/tags.json": "Controlled tag catalog for extraction and recall.",
+          "memory/structured/recall-audit.jsonl": "Optional redacted recall diagnostics."
         }
       }
     },

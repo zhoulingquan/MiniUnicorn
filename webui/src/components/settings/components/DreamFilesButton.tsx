@@ -119,7 +119,7 @@ export function DreamFilesButton() {
             <DialogDescription>
               {tx(
                 "settings.dream.files.description",
-                "Read-only governed storage, Dream inputs, and legacy import sources.",
+                "Read-only governed storage, evidence inputs, policy, and recall diagnostics.",
               )}
             </DialogDescription>
           </DialogHeader>

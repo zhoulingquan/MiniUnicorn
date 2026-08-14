@@ -379,7 +379,7 @@
       "files": {
         "button": "查看文件",
         "title": "记忆诊断文件",
-        "description": "结构化存储、Dream 输入与旧数据导入源的只读视图。",
+        "description": "结构化存储、证据输入、策略与召回诊断的只读视图。",
         "listHeader": "文件",
         "loading": "加载中…",
         "empty": "暂无文件。",
@@ -393,14 +393,12 @@
         "refresh": "刷新",
         "desc": {
           "SOUL.md": "Agent 人格与沟通风格的启动指引文件。",
-          "USER.md": "惰性的旧用户画像导入源；未显式导入时不会注入提示词。",
-          "memory/MEMORY.md": "惰性的旧事实导入源；未显式导入时不会注入提示词。",
           "memory/history.jsonl": "Consolidator 写入、供 Dream 作为证据消费的对话归档。",
-          "memory/episodic.jsonl": "旧情节记忆导入源。",
-          "memory/procedural.jsonl": "旧程序性记忆导入源。",
           "memory/reflections.jsonl": "反思记录。Reflection 写入,Dream 消费。",
-          "memory/shared/MEMORY_SHARED.md": "旧跨会话共享事实导入源。",
-          "memory/shared/procedural_shared.jsonl": "旧跨会话共享经验导入源。"
+          "memory/shared/POLICY.md": "自定义后注入的显式跨会话策略。",
+          "memory/structured/journal.jsonl": "只追加的受治理记忆事务。",
+          "memory/structured/tags.json": "供提取与召回使用的受控标签目录。",
+          "memory/structured/recall-audit.jsonl": "可选的脱敏召回诊断记录。"
         }
       }
     },

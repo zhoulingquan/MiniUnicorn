@@ -173,7 +173,8 @@ class StateMixin:
         return "dispatch"
 
     async def _state_build(self: "AgentLoop", ctx: TurnContext) -> str:
-        await self.consolidator.maybe_consolidate_by_tokens(
+        scope = self._turn_scope(ctx.msg, ctx.session)
+        await self._consolidator_for(scope.project_path).maybe_consolidate_by_tokens(
             ctx.session,
             replay_max_messages=self._max_messages,
         )
@@ -218,6 +219,12 @@ class StateMixin:
 
     async def _state_run(self: "AgentLoop", ctx: TurnContext) -> str:
         await self._webui_turns.publish_run_status(ctx.msg, "running")
+        sender_id = ctx.msg.sender_id
+        user_key = (
+            f"user:{sender_id}"
+            if sender_id and sender_id != "subagent"
+            else "user:default"
+        )
         result = await self._run_agent_loop(
             ctx.initial_messages,
             on_progress=ctx.on_progress,
@@ -230,6 +237,7 @@ class StateMixin:
             message_id=ctx.msg.metadata.get("message_id"),
             metadata=ctx.msg.metadata,
             session_key=ctx.session_key,
+            user_key=user_key,
             pending_queue=ctx.pending_queue,
             agent_override=ctx.agent_override,
             turn_hooks=ctx.turn_hooks,
@@ -257,12 +265,15 @@ class StateMixin:
         )
         if ctx.msg.channel == "websocket":
             self._pending_turn_latency_ms[ctx.session_key] = ctx.turn_latency_ms
-        ctx.session.enforce_file_cap(on_archive=self.context.memory.raw_archive)
+        scope = self._turn_scope(ctx.msg, ctx.session)
+        ctx.session.enforce_file_cap(
+            on_archive=self.memory_for(scope.project_path).raw_archive
+        )
         self._clear_pending_user_turn(ctx.session)
         self._clear_runtime_checkpoint(ctx.session)
         self.sessions.save(ctx.session)
         self._schedule_background(
-            self.consolidator.maybe_consolidate_by_tokens(
+            self._consolidator_for(scope.project_path).maybe_consolidate_by_tokens(
                 ctx.session,
                 replay_max_messages=self._max_messages,
             )

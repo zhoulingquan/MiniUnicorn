@@ -583,8 +583,9 @@ def sync_workspace_templates(workspace: Path, silent: bool = False) -> list[str]
     for item in tpl.iterdir():
         if item.name.endswith(".md") and not item.name.startswith("."):
             _write(item, workspace / item.name)
-    _write(tpl / "memory" / "MEMORY.md", workspace / "memory" / "MEMORY.md")
     _write(None, workspace / "memory" / "history.jsonl")
+    _write(tpl / "memory" / "TAGS.json", workspace / "memory" / "structured" / "tags.json")
+    _write(tpl / "memory" / "POLICY.md", workspace / "memory" / "shared" / "POLICY.md")
     (workspace / "skills").mkdir(exist_ok=True)
 
     if added and not silent:
@@ -593,17 +594,13 @@ def sync_workspace_templates(workspace: Path, silent: bool = False) -> list[str]
         for name in added:
             Console().print(f"  [dim]Created {name}[/dim]")
 
-    # Initialize git for memory version control
+    # Initialize git for memory version control (only track kept files)
     try:
-        from miniunicorn.utils.gitstore import GitStore
+        from miniunicorn.utils.gitstore import GOVERNED_MEMORY_TRACKED_FILES, GitStore
 
         gs = GitStore(
             workspace,
-            tracked_files=[
-                "SOUL.md",
-                "USER.md",
-                "memory/MEMORY.md",
-            ],
+            tracked_files=list(GOVERNED_MEMORY_TRACKED_FILES),
         )
         gs.init()
     except Exception:

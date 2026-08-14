@@ -18,10 +18,15 @@ class AutoCompact:
     _RECENT_SUFFIX_MESSAGES = 8
 
     def __init__(
-        self, sessions: SessionManager, consolidator: Consolidator, session_ttl_minutes: int = 0
+        self,
+        sessions: SessionManager,
+        consolidator: Consolidator,
+        session_ttl_minutes: int = 0,
+        consolidator_for: Callable[[str], Consolidator] | None = None,
     ):
         self.sessions = sessions
         self.consolidator = consolidator
+        self.consolidator_for = consolidator_for
         self._ttl = session_ttl_minutes
         self._archiving: set[str] = set()
         self._summaries: dict[str, tuple[str, datetime]] = {}
@@ -75,7 +80,12 @@ class AutoCompact:
 
     async def _archive(self, key: str) -> None:
         try:
-            summary = await self.consolidator.compact_idle_session(
+            consolidator = (
+                self.consolidator_for(key)
+                if self.consolidator_for is not None
+                else self.consolidator
+            )
+            summary = await consolidator.compact_idle_session(
                 key,
                 self._RECENT_SUFFIX_MESSAGES,
             )

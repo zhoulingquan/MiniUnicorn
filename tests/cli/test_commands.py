@@ -74,7 +74,9 @@ def test_onboard_fresh_install(mock_paths):
     assert "MiniUnicorn is ready" in result.stdout
     assert config_file.exists()
     assert (workspace_dir / "AGENTS.md").exists()
-    assert (workspace_dir / "memory" / "MEMORY.md").exists()
+    assert (workspace_dir / "memory" / "history.jsonl").exists()
+    assert not (workspace_dir / "USER.md").exists()
+    assert not (workspace_dir / "memory" / "MEMORY.md").exists()
     expected_workspace = Config().workspace_path
     assert mock_ws.call_args.args == (expected_workspace,)
 
@@ -575,6 +577,14 @@ def test_agent_hints_about_deprecated_memory_window(mock_agent_runtime, tmp_path
     assert result.exit_code == 0
     assert "memoryWindow" in result.stdout
     assert "no longer used" in result.stdout
+
+
+def test_memory_migrate_absent_from_cli_help():
+    """Assert /memory-migrate is not in CLI help text."""
+    result = runner.invoke(app, ["agent", "--help"])
+    assert result.exit_code == 0
+    stripped = result.stdout.replace("\x1b[[][0-9;]*m", "")
+    assert "/memory-migrate" not in stripped
 
 
 def test_heartbeat_retains_recent_messages_by_default():

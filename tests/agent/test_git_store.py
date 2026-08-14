@@ -4,7 +4,7 @@ import pytest
 
 from miniunicorn.utils.gitstore import CommitInfo, GitStore
 
-TRACKED = ["SOUL.md", "USER.md", "memory/MEMORY.md"]
+TRACKED = ["SOUL.md", "notes.md", "memory/structured/journal.jsonl"]
 
 
 @pytest.fixture
@@ -53,6 +53,8 @@ class TestBuildGitignore:
     def test_subdirectory_dirs(self, git):
         content = git._build_gitignore()
         assert "!memory/\n" in content
+        assert "!memory/structured/\n" in content
+        assert "\\" not in content
         for f in TRACKED:
             assert f"!{f}\n" in content
         assert content.startswith("/*\n")

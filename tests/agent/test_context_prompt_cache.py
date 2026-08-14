@@ -358,37 +358,17 @@ def test_always_skills_excluded_from_skills_index(tmp_path) -> None:
         assert "**memory**" not in index_text
 
 
-def test_template_memory_md_is_skipped(tmp_path) -> None:
-    """MEMORY.md matching the bundled template should not inject the Memory section."""
+def test_removed_memory_file_is_ignored_without_mutation(tmp_path) -> None:
     workspace = _make_workspace(tmp_path)
-    from miniunicorn.utils.helpers import sync_workspace_templates
-
-    sync_workspace_templates(workspace, silent=True)
-
-    builder = ContextBuilder(workspace)
-    prompt = builder.build_system_prompt()
-
-    # The "# Memory\n\n## Long-term Memory" block is produced only by
-    # build_system_prompt() when MEMORY.md is injected.  The memory skill
-    # also contains "# Memory" but is followed by "## Structure", not
-    # "## Long-term Memory".
-    assert "# Memory\n\n## Long-term Memory" not in prompt
-    assert "This file is automatically updated by MiniUnicorn" not in prompt
-
-
-def test_customized_memory_md_is_not_injected(tmp_path) -> None:
-    """Legacy MEMORY.md is an inert import source on the single path."""
-    workspace = _make_workspace(tmp_path)
-    from miniunicorn.utils.helpers import sync_workspace_templates
-
-    sync_workspace_templates(workspace, silent=True)
-
+    (workspace / "memory").mkdir()
     (workspace / "memory" / "MEMORY.md").write_text(
-        "# Long-term Memory\n\nUser prefers dark mode.\n", encoding="utf-8"
+        "# Removed Memory\n\nDeveloper data.\n", encoding="utf-8"
     )
 
     builder = ContextBuilder(workspace)
     prompt = builder.build_system_prompt()
 
-    assert "# Memory\n\n## Long-term Memory" not in prompt
-    assert "User prefers dark mode" not in prompt
+    assert "Developer data" not in prompt
+    assert (workspace / "memory" / "MEMORY.md").read_text(encoding="utf-8").endswith(
+        "Developer data.\n"
+    )

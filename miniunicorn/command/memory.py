@@ -10,8 +10,8 @@ import hashlib
 import shlex
 from datetime import datetime, timezone
 
+from miniunicorn.agent.memory import MemoryStore
 from miniunicorn.agent.memory_lifecycle import IngestContext, MemoryLifecycleError
-from miniunicorn.agent.memory_migration import load_migration_state
 from miniunicorn.agent.memory_models import (
     ActorKind,
     CandidateProposal,
@@ -19,6 +19,7 @@ from miniunicorn.agent.memory_models import (
     EvidenceRef,
     MemoryError,
     MemoryKind,
+    MemoryRecord,
     MemoryScope,
     MemoryStatus,
     ScopeKind,
@@ -31,6 +32,7 @@ from miniunicorn.command.router import CommandContext, CommandRouter
 _MAX_LIST_ITEMS = 20
 _EXCERPT_LIMIT = 200
 _STATEMENT_DISPLAY_LIMIT = 100
+_NOT_FOUND = "No memory record with id `{}`."
 
 _LIST_STATUSES = frozenset({s.value for s in MemoryStatus})
 
@@ -63,12 +65,80 @@ def _split_args_or_usage(
 
 
 def _stack(ctx: CommandContext):
-    """Return the always-active store, repository, and lifecycle."""
+    """Return the effective store, repository, and lifecycle for the command."""
     loop = ctx.loop
     if loop is None:
         raise MemoryError("memory commands require an agent loop")
-    store = loop.context.memory
+    store = _effective_store(ctx)
     return store, store.structured_repository, store.structured_lifecycle
+
+
+def _effective_store(ctx: CommandContext) -> MemoryStore:
+    """Resolve the governed store for the command's effective workspace.
+
+    Production loops resolve the scope exactly like a normal agent turn
+    (message metadata + persisted session metadata through the loop's
+    ``WorkspaceScopeResolver``) and fetch the store with
+    ``loop.memory_for(scope.project_path)``, never the default store. Loops
+    without a resolver (lightweight test doubles) fall back to their default
+    memory store.
+    """
+    loop = ctx.loop
+    if loop is None:
+        raise MemoryError("memory commands require an agent loop")
+    resolver = getattr(loop, "workspace_scopes", None)
+    if resolver is None:
+        store = getattr(getattr(loop, "context", None), "memory", None)
+        if store is None:
+            raise MemoryError("memory commands require an agent loop")
+        return store
+    session = ctx.session
+    if session is None:
+        sessions = getattr(loop, "sessions", None)
+        if sessions is not None:
+            session = sessions.get_or_create(ctx.key)
+    session_metadata = session.metadata if session is not None else {}
+    scope = resolver.for_message(ctx.msg, session_metadata)
+    return loop.memory_for(scope.project_path)
+
+
+def _allowed_scopes(ctx: CommandContext, store: MemoryStore) -> frozenset[MemoryScope]:
+    """Scopes visible to the command caller, canonicalized like recall.
+
+    The session key strips any ``#`` fork suffix before the ``session:``
+    prefix, mirroring ``ContextBuilder._build_recall_query``. Missing or
+    subagent sender identities fall back to ``user:default`` exactly like
+    recall user-key resolution.
+    """
+    sender_id = getattr(ctx.msg, "sender_id", None)
+    user_key = f"user:{sender_id}" if sender_id and sender_id != "subagent" else "user:default"
+    scopes = [
+        MemoryScope(kind=ScopeKind.PROJECT, key=store.project_scope_key),
+        MemoryScope(kind=ScopeKind.USER, key=user_key),
+        MemoryScope(kind=ScopeKind.SHARED, key="shared:*"),
+    ]
+    if ctx.key:
+        scopes.append(
+            MemoryScope(kind=ScopeKind.SESSION, key=f"session:{ctx.key.split('#', 1)[0]}")
+        )
+    return frozenset(scopes)
+
+
+def _record_visible(record: MemoryRecord, allowed: frozenset[MemoryScope]) -> bool:
+    return record.scope in allowed
+
+
+def _visible_record_by_id(
+    repository, memory_id: str, allowed: frozenset[MemoryScope]
+) -> MemoryRecord | None:
+    record = repository.get(memory_id)
+    if record is None or not _record_visible(record, allowed):
+        return None
+    return record
+
+
+def _not_found_reply(ctx: CommandContext, memory_id: str) -> OutboundMessage:
+    return _reply(ctx, _NOT_FOUND.format(memory_id))
 
 
 def _requires_stack(handler):
@@ -92,15 +162,15 @@ def _requires_stack(handler):
 
 @_requires_stack
 async def cmd_memory_status(ctx: CommandContext) -> OutboundMessage:
-    """Show architecture, health, status counts, import state and last write error."""
+    """Show architecture, health, status counts, and the last write error."""
     store, repository, _ = _stack(ctx)
-    counts = {s.value: len(repository.current_records(s)) for s in MemoryStatus}  # type: ignore[union-attr]
-    state = load_migration_state(store.workspace)
-    migration = (
-        f"completed at `{state.completed_at.isoformat()}`"
-        if state.completed_at is not None
-        else "pending (optional; run `/memory-migrate --apply` to import)"
-    )
+    allowed = _allowed_scopes(ctx, store)
+    counts = {
+        s.value: sum(
+            1 for record in repository.current_records(s) if _record_visible(record, allowed)
+        )
+        for s in MemoryStatus
+    }
     health = repository.health  # type: ignore[union-attr]
     lines = [
         "## Memory status",
@@ -110,7 +180,6 @@ async def cmd_memory_status(ctx: CommandContext) -> OutboundMessage:
             f"- Records: candidate={counts['candidate']} active={counts['active']} "
             f"superseded={counts['superseded']} revoked={counts['revoked']} expired={counts['expired']}"
         ),
-        f"- Migration: {migration}",
     ]
     if health.error_message:
         lines.append(f"- Last write error: `{health.error_message}`")
@@ -120,7 +189,8 @@ async def cmd_memory_status(ctx: CommandContext) -> OutboundMessage:
 @_requires_stack
 async def cmd_memory_list(ctx: CommandContext) -> OutboundMessage:
     """List records, newest status first, at most 20."""
-    _, repository, _ = _stack(ctx)
+    store, repository, _ = _stack(ctx)
+    allowed = _allowed_scopes(ctx, store)
     status_arg = ctx.args.strip()
     if status_arg:
         if status_arg not in _LIST_STATUSES:
@@ -128,7 +198,11 @@ async def cmd_memory_list(ctx: CommandContext) -> OutboundMessage:
         status = MemoryStatus(status_arg)
     else:
         status = None
-    records = repository.current_records(status)  # type: ignore[union-attr]
+    records = [
+        record
+        for record in repository.current_records(status)  # type: ignore[union-attr]
+        if _record_visible(record, allowed)
+    ]
     total = len(records)
     records = records[: _MAX_LIST_ITEMS]
     lines = [
@@ -149,18 +223,21 @@ async def cmd_memory_list(ctx: CommandContext) -> OutboundMessage:
 @_requires_stack
 async def cmd_memory_show(ctx: CommandContext) -> OutboundMessage:
     """Show all revisions, evidence and the replace chain for one record."""
-    _, repository, _ = _stack(ctx)
+    store, repository, _ = _stack(ctx)
+    allowed = _allowed_scopes(ctx, store)
     parts, usage = _split_args_or_usage(ctx, "/memory-show <id>")
     if usage is not None:
         return usage
     if len(parts) != 1:
         return _usage(ctx, "/memory-show <id>")
     memory_id = parts[0]
-    record = repository.get(memory_id)  # type: ignore[union-attr]
+    record = _visible_record_by_id(repository, memory_id, allowed)
     if record is None:
-        return _reply(ctx, f"No memory record with id `{memory_id}`.")
+        return _not_found_reply(ctx, memory_id)
     lines = [f"## Memory {memory_id}"]
     for revision in repository.revisions(memory_id):  # type: ignore[union-attr]
+        if not _record_visible(revision, allowed):
+            continue
         lines.extend(
             [
                 f"### rev {revision.revision} `{revision.status.value}`",
@@ -194,7 +271,8 @@ async def cmd_memory_show(ctx: CommandContext) -> OutboundMessage:
 @_requires_stack
 async def cmd_memory_promote(ctx: CommandContext) -> OutboundMessage:
     """Promote a candidate; a same-slot conflict requires --replace <active-id>."""
-    _, _, lifecycle = _stack(ctx)
+    store, repository, lifecycle = _stack(ctx)
+    allowed = _allowed_scopes(ctx, store)
     parts, usage = _split_args_or_usage(
         ctx, "/memory-promote <id> [--replace <active-id>]"
     )
@@ -210,6 +288,10 @@ async def cmd_memory_promote(ctx: CommandContext) -> OutboundMessage:
     if len(parts) != 1:
         return _usage(ctx, "/memory-promote <id> [--replace <active-id>]")
     memory_id = parts[0]
+    if _visible_record_by_id(repository, memory_id, allowed) is None:
+        return _not_found_reply(ctx, memory_id)
+    if replace_id is not None and _visible_record_by_id(repository, replace_id, allowed) is None:
+        return _not_found_reply(ctx, replace_id)
     try:
         result = lifecycle.promote(
             memory_id,
@@ -225,13 +307,16 @@ async def cmd_memory_promote(ctx: CommandContext) -> OutboundMessage:
 @_requires_stack
 async def cmd_memory_revoke(ctx: CommandContext) -> OutboundMessage:
     """Revoke a candidate/active record; the reason is required."""
-    _, _, lifecycle = _stack(ctx)
+    store, repository, lifecycle = _stack(ctx)
+    allowed = _allowed_scopes(ctx, store)
     parts, usage = _split_args_or_usage(ctx, "/memory-revoke <id> <reason>")
     if usage is not None:
         return usage
     if len(parts) < 2:
         return _usage(ctx, "/memory-revoke <id> <reason>")
     memory_id, reason = parts[0], " ".join(parts[1:])
+    if _visible_record_by_id(repository, memory_id, allowed) is None:
+        return _not_found_reply(ctx, memory_id)
     try:
         revoked = lifecycle.revoke(memory_id, reason=f"user:{reason}")
     except MemoryLifecycleError as exc:
@@ -287,45 +372,8 @@ async def cmd_memory_correct(ctx: CommandContext) -> OutboundMessage:
 
 
 # ---------------------------------------------------------------------------
-# Optional legacy import
+# Mutating commands (actor=user, reason recorded in the transaction)
 # ---------------------------------------------------------------------------
-
-
-async def cmd_memory_migrate(ctx: CommandContext) -> OutboundMessage:
-    """Run the legacy -> structured migration (dry-run by default)."""
-    store, _, _ = _stack(ctx)
-    arg = ctx.args.strip()
-    try:
-        if arg in ("", "--dry-run"):
-            report = store.run_migration(dry_run=True)
-            lines = [
-                "## Migration dry-run",
-                f"- Scanned: {report.scanned} importable: {report.imported} "
-                f"already-migrated: {report.skipped} failed: {len(report.failed)}",
-                "_Run `/memory-migrate --apply` to import._",
-            ]
-        elif arg == "--apply":
-            report = store.run_migration()
-            lines = [
-                "## Migration applied",
-                f"- Imported: {report.imported} skipped: {report.skipped} failed: {len(report.failed)}",
-                f"- completed_at: {report.completed_at.isoformat() if report.completed_at else 'not set'}",
-            ]
-        else:
-            return _usage(ctx, "/memory-migrate [--dry-run|--apply]")
-    except MemoryError as exc:
-        return _reply(ctx, str(exc))
-    for issue in report.issues[:5]:
-        lines.append(f"- issue: `{issue.relative_path}` {issue.locator}: {issue.reason}")
-    if len(report.issues) > 5:
-        lines.append(f"_... {len(report.issues) - 5} more issues_")
-    for failure in report.failed[:5]:
-        lines.append(f"- failed: `{failure.item.relative_path}` {failure.item.locator}: {failure.error}")
-    if len(report.failed) > 5:
-        lines.append(f"_... {len(report.failed) - 5} more failures_")
-    if not arg:
-        lines.append("_Run `/memory-migrate --apply` to import._")
-    return _reply(ctx, "\n".join(lines))
 
 
 def register_memory_commands(router: CommandRouter) -> None:
@@ -341,5 +389,3 @@ def register_memory_commands(router: CommandRouter) -> None:
     router.prefix("/memory-revoke ", cmd_memory_revoke)
     router.exact("/memory-correct", cmd_memory_correct)
     router.prefix("/memory-correct ", cmd_memory_correct)
-    router.exact("/memory-migrate", cmd_memory_migrate)
-    router.prefix("/memory-migrate ", cmd_memory_migrate)
