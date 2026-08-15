@@ -18,7 +18,7 @@ import re
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -478,7 +478,9 @@ class StructuredMemoryRepository:
             f"AND ({scope_clause}) "
             "AND (expires_at IS NULL OR expires_at > ?)"
         )
-        params.append(now.isoformat())
+        params.append(
+            now.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        )
         if requested_kinds:
             sql += f" AND kind IN ({','.join('?' for _ in requested_kinds)})"
             params.extend(kind.value for kind in requested_kinds)

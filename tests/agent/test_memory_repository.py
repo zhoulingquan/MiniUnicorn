@@ -1021,6 +1021,42 @@ def test_reads_recall_candidates_filters_scope_kind_expiry(repository) -> None:
     ) == (other_scope,)
 
 
+def test_reads_recall_candidates_boundary_excludes_expiring_at_now(repository) -> None:
+    expiring_now = MemoryRecord.model_validate(
+        record_data(
+            status="active",
+            statement="expires right now",
+            expires_at="2026-08-11T09:00:00Z",
+            memory_id="mem_" + "f" * 32,
+        )
+    )
+    with connect_memory_db(repository.database_path, lock_timeout_s=0.1) as connection:
+        _seed_transaction(connection, make_transaction(expiring_now))
+
+    now = dt("2026-08-11T09:00:00Z")
+    assert repository.recall_candidates(
+        allowed_scopes=(expiring_now.scope,), requested_kinds=(), now=now
+    ) == ()
+
+
+def test_reads_recall_candidates_boundary_includes_expiring_after_now(repository) -> None:
+    expiring_after = MemoryRecord.model_validate(
+        record_data(
+            status="active",
+            statement="expires one second from now",
+            expires_at="2026-08-11T09:00:01Z",
+            memory_id="mem_" + "e" * 32,
+        )
+    )
+    with connect_memory_db(repository.database_path, lock_timeout_s=0.1) as connection:
+        _seed_transaction(connection, make_transaction(expiring_after))
+
+    now = dt("2026-08-11T09:00:00Z")
+    assert repository.recall_candidates(
+        allowed_scopes=(expiring_after.scope,), requested_kinds=(), now=now
+    ) == (expiring_after,)
+
+
 def test_reads_recall_candidates_requires_scopes(repository) -> None:
     now = dt("2026-08-11T09:00:00Z")
     assert repository.recall_candidates(allowed_scopes=(), requested_kinds=(), now=now) == ()
