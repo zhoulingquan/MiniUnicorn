@@ -340,24 +340,37 @@ def _phase_concurrency(workspace: Path, transactions: int, writers: int) -> dict
 
 
 def _phase_recall(repository: StructuredMemoryRepository, iterations: int = 100) -> dict:
+    """Time scoped recall: raw candidate SQL fetch vs full candidate materialization."""
     scopes = [_scope_from_label(label) for label in _SCOPES]
     now = datetime.now(timezone.utc)
     recaller = StructuredMemoryRecall(repository, repository.tag_catalog)
+    raw_sql_latencies: list[float] = []
     sql_latencies: list[float] = []
     full_latencies: list[float] = []
+    from miniunicorn.agent.memory_sqlite_schema import SQL_RECALL_SELECT, SQL_RECALL_SUFFIX
+
     for index in range(iterations):
         scope = scopes[index % len(scopes)]
         query = RecallQuery(query_text="Seeded benchmark fact", allowed_scopes=(scope,), now=now)
+        sql = SQL_RECALL_SELECT + "(scope_kind = ? AND scope_key = ?)" + SQL_RECALL_SUFFIX
+        params = [scope.kind.value, scope.key, now.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")]
+        step = time.perf_counter()
+        with repository._open_read() as connection:
+            connection.execute(sql, params).fetchall()
+        raw_sql_latencies.append(time.perf_counter() - step)
         step = time.perf_counter()
         repository.recall_candidates(allowed_scopes=(scope,), requested_kinds=(), now=now)
         sql_latencies.append(time.perf_counter() - step)
         step = time.perf_counter()
         recaller.recall(query)
         full_latencies.append(time.perf_counter() - step)
+    raw_sql_latencies.sort()
     sql_latencies.sort()
     full_latencies.sort()
     return {
         "iterations": iterations,
+        "raw_sql_p50_ms": round(_percentile(raw_sql_latencies, 0.50) * 1000.0, 2),
+        "raw_sql_p95_ms": round(_percentile(raw_sql_latencies, 0.95) * 1000.0, 2),
         "sql_p50_ms": round(_percentile(sql_latencies, 0.50) * 1000.0, 2),
         "sql_p95_ms": round(_percentile(sql_latencies, 0.95) * 1000.0, 2),
         "full_p50_ms": round(_percentile(full_latencies, 0.50) * 1000.0, 2),
@@ -492,6 +505,8 @@ def main(argv: list[str] | None = None) -> int:
             "health_seconds": round(health_s, 3),
             "append_p50_ms": insert["p50_ms"],
             "append_p95_ms": insert["p95_ms"],
+            "recall_raw_sql_p50_ms": recall["raw_sql_p50_ms"],
+            "recall_raw_sql_p95_ms": recall["raw_sql_p95_ms"],
             "recall_sql_p50_ms": recall["sql_p50_ms"],
             "recall_sql_p95_ms": recall["sql_p95_ms"],
             "recall_full_p50_ms": recall["full_p50_ms"],
