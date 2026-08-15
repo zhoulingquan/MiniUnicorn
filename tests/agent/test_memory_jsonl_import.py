@@ -8,6 +8,7 @@ second-line failure, ``os.replace`` failure) and idempotent re-entry.
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import shutil
 from datetime import datetime, timezone
@@ -344,3 +345,78 @@ def test_replace_failure_cleans_temporary_files(workspace: Path, monkeypatch) ->
         migrate_legacy_journal(workspace, lock_timeout_s=0.1)
 
     assert_failure_no_trace(workspace, excinfo.value, original_bytes, code="replace_failed", line_number=None)
+
+
+# ---------------------------------------------------------------------------
+# Structural scale tests (task 11): streaming reader, bounded migration work
+# ---------------------------------------------------------------------------
+
+
+def test_migrate_with_existing_database_never_touches_journal_reader(
+    workspace: Path, monkeypatch
+) -> None:
+    from miniunicorn.agent import memory_jsonl_import as import_module
+
+    transactions, _ = make_history()
+    write_journal(workspace, transactions)
+    original_bytes = journal_path(workspace).read_bytes()
+
+    first = migrate_legacy_journal(workspace, lock_timeout_s=0.1)
+    assert first.migrated is True
+    assert journal_path(workspace).read_bytes() == original_bytes
+    repo_bytes = (workspace / "memory" / "structured" / "memory.db").read_bytes()
+
+    def exploding_reader(path):
+        raise AssertionError("legacy journal reader must never run when memory.db exists")
+
+    monkeypatch.setattr(import_module, "iter_legacy_transactions", exploding_reader)
+
+    second = migrate_legacy_journal(workspace, lock_timeout_s=0.1)
+
+    assert second.migrated is False
+    assert (workspace / "memory" / "structured" / "memory.db").read_bytes() == repo_bytes
+    assert journal_path(workspace).read_bytes() == original_bytes
+
+
+def test_iter_legacy_transactions_is_a_streaming_generator(workspace: Path) -> None:
+    from miniunicorn.agent import memory_jsonl_import as import_module
+
+    assert inspect.isgeneratorfunction(import_module.iter_legacy_transactions)
+    transactions, _ = make_history()
+    write_journal(workspace, transactions)
+    lines = iter(import_module.iter_legacy_transactions(journal_path(workspace)))
+    first_line, first_transaction = next(lines)
+    assert first_line == 1
+    assert first_transaction.tx_id == transactions[0].tx_id
+
+
+def test_migrate_large_journal_produces_exact_counts_at_scale(workspace: Path) -> None:
+    from miniunicorn.agent.memory_repository import StructuredMemoryRepository
+
+    count = 1000
+    transactions = [
+        make_transaction(
+            MemoryRecord.model_validate(
+                record_data(
+                    memory_id=f"mem_{index:032x}",
+                    slot=f"db.primary.{index}",
+                    statement=f"history statement {index}",
+                )
+            ),
+            source_batch=f"history:scale-{index}",
+        )
+        for index in range(count)
+    ]
+    original_bytes = write_journal(workspace, transactions)
+
+    result = migrate_legacy_journal(workspace, lock_timeout_s=0.1)
+
+    assert result.migrated is True
+    assert result.transaction_count == count
+    assert journal_path(workspace).read_bytes() == original_bytes
+    repository = StructuredMemoryRepository(workspace, lock_timeout_s=0.1)
+    assert repository.health.state == "healthy"
+    assert repository.storage_stats().transaction_count == count
+    assert repository.storage_stats().current_count == count
+    assert repository.get(f"mem_{0:032x}") is not None
+    assert repository.get(f"mem_{count - 1:032x}") is not None

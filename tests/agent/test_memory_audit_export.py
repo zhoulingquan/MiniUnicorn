@@ -697,3 +697,36 @@ def test_rebuild_watermark_commit_failure_leaves_new_audit_and_heals(
 
     assert repository.storage_stats().audit_lag == 0
     assert_audit_consistent(audit)
+
+
+# ---------------------------------------------------------------------------
+# Structural scale tests (task 11): reads are bounded by segment size
+# ---------------------------------------------------------------------------
+
+
+def test_segment_reads_are_bounded_by_segment_size(workspace, repository, monkeypatch):
+    """Every read the exporter makes covers at most one segment of rows.
+
+    Sealed segments are read as exactly ``segment_size`` rows and the open
+    tail as strictly fewer, so rebuilding the open segment never scans more
+    than one segment period even when the database holds many transactions.
+    """
+    ranges: list[tuple[int, int]] = []
+    real_read = repository.transaction_rows_in_range
+
+    def recording_read(first: int, last: int):
+        ranges.append((first, last))
+        return real_read(first, last)
+
+    monkeypatch.setattr(repository, "transaction_rows_in_range", recording_read)
+
+    for index in range(8):
+        repository.append_transaction(make_transaction(_record(index)))
+    exporter = MemoryAuditExporter(repository, segment_size=3)
+    exporter.export_pending()
+    exporter.rebuild()
+
+    assert ranges
+    assert all(last - first + 1 <= 3 for first, last in ranges)
+    assert any(last - first + 1 == 3 for first, last in ranges)
+    assert ranges[-1][1] - ranges[-1][0] + 1 < 3

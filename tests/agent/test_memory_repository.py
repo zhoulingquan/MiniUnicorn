@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import multiprocessing
 import shutil
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -23,9 +25,11 @@ from miniunicorn.agent.memory_models import (
     MemoryOperation,
     MemoryRecord,
     MemoryRevisionConflict,
+    MemoryScope,
     MemoryStatus,
     MemoryTransaction,
     MemoryWriteError,
+    ScopeKind,
     UnknownMemoryTag,
     new_memory_id,
     new_transaction_id,
@@ -36,7 +40,12 @@ from miniunicorn.agent.memory_repository import (
     RepositoryDegradedError,
     StructuredMemoryRepository,
 )
-from miniunicorn.agent.memory_sqlite_schema import connect_memory_db
+from miniunicorn.agent.memory_sqlite_schema import (
+    SQL_ORDER_BY_ID,
+    SQL_RECALL_SELECT,
+    SQL_RECALL_SUFFIX,
+    connect_memory_db,
+)
 
 UTC = timezone.utc
 
@@ -1488,3 +1497,247 @@ def test_startup_removes_importing_residue_then_migrates(workspace):
     assert not list((workspace / "memory" / "structured").glob("memory.db.importing*"))
     assert repository.health.state == "healthy"
     assert repository.get(record.id) == record
+
+
+# ---------------------------------------------------------------------------
+# Structural scale and recovery benchmarks (task 11)
+# ---------------------------------------------------------------------------
+
+
+def test_startup_existing_database_journal_reader_raises_still_succeeds(
+    workspace, monkeypatch
+):
+    first = StructuredMemoryRepository(workspace, lock_timeout_s=0.1)
+    record = MemoryRecord.model_validate(record_data(memory_id="mem_" + "a" * 32))
+    first.append_transaction(make_transaction(record))
+
+    from miniunicorn.agent import memory_jsonl_import as import_module
+
+    def exploding_journal_reader(path):
+        raise RuntimeError("legacy journal reader must never run for an existing database")
+
+    monkeypatch.setattr(import_module, "iter_legacy_transactions", exploding_journal_reader)
+
+    reopened = StructuredMemoryRepository(workspace, lock_timeout_s=0.1)
+
+    assert reopened.health.state == "healthy"
+    assert reopened.get(record.id) == record
+
+
+def _seed_repository_history(workspace: Path, count: int) -> StructuredMemoryRepository:
+    """Seed *count* committed transactions directly via SQL (fast, no per-tx fsync)."""
+    repository = StructuredMemoryRepository(workspace, lock_timeout_s=0.1)
+    with connect_memory_db(repository.database_path, lock_timeout_s=0.1) as connection:
+        connection.execute("BEGIN")
+        try:
+            for index in range(count):
+                record = MemoryRecord.model_validate(
+                    record_data(
+                        memory_id=f"mem_{index:032x}",
+                        slot=f"db.primary.{index}",
+                        statement=f"history statement {index}",
+                    )
+                )
+                _seed_transaction(
+                    connection,
+                    make_transaction(record, source_batch=f"history:seed-{index}"),
+                )
+        finally:
+            connection.commit()
+    return repository
+
+
+def test_append_sql_statement_count_bounded_across_history_scale(
+    workspace, tmp_path, monkeypatch
+):
+    from miniunicorn.agent import memory_repository as repo_module
+
+    large_workspace = tmp_path / "large-workspace"
+    structured = large_workspace / "memory" / "structured"
+    structured.mkdir(parents=True)
+    bundled = Path(__file__).parents[2] / "miniunicorn" / "templates" / "memory" / "TAGS.json"
+    shutil.copy(bundled, structured / "tags.json")
+    appended = MemoryRecord.model_validate(record_data(memory_id="mem_" + "e" * 32))
+
+    def statements_for(workspace: Path, history: int) -> list[str]:
+        repository = _seed_repository_history(workspace, history)
+        statements: list[str] = []
+        real_connect = repo_module.connect_memory_db
+
+        @contextmanager
+        def traced_connect(path, lock_timeout_s):
+            with real_connect(path, lock_timeout_s=lock_timeout_s) as connection:
+                connection.set_trace_callback(statements.append)
+                yield connection
+
+        with monkeypatch.context() as patched:
+            patched.setattr(repo_module, "connect_memory_db", traced_connect)
+            repository.append_transaction(
+                make_transaction(appended, source_batch=f"history:append-{history}")
+            )
+        return statements
+
+    at_100 = statements_for(workspace, 100)
+    at_10_000 = statements_for(large_workspace, 10_000)
+
+    assert len(at_100) == len(at_10_000)
+    assert len(at_10_000) <= 40
+    for statements in (at_100, at_10_000):
+        assert not any(
+            statement.lstrip().upper().startswith("SELECT") and "WHERE" not in statement.upper()
+            for statement in statements
+        )
+
+
+def test_repository_holds_no_full_python_record_index(repository, create_tx):
+    for index in range(20):
+        record = MemoryRecord.model_validate(
+            record_data(memory_id=f"mem_{index:032x}", slot=f"db.primary.{index}")
+        )
+        repository.append_transaction(make_transaction(record))
+    repository.rebuild()
+
+    assert not hasattr(repository, "_revision_history")
+    assert not hasattr(repository, "_records")
+    assert not hasattr(repository, "_current_records")
+    record_holders = [
+        key
+        for key, value in vars(repository).items()
+        if isinstance(value, dict)
+        and any(isinstance(entry, (MemoryRecord, MemoryTransaction)) for entry in value.values())
+    ]
+    assert record_holders == []
+
+
+def test_recall_query_plan_uses_partial_index_with_multi_scope_and_kind(repository):
+    scopes = (
+        MemoryScope(kind=ScopeKind.PROJECT, key="project:6b5ec7b29e32"),
+        MemoryScope(kind=ScopeKind.USER, key="user:someone"),
+    )
+    now = dt("2026-08-11T08:30:00Z")
+    params = [value for scope in scopes for value in (scope.kind.value, scope.key)]
+    sql = SQL_RECALL_SELECT + " OR ".join(
+        "(scope_kind = ? AND scope_key = ?)" for _ in scopes
+    ) + SQL_RECALL_SUFFIX
+    params.append(now.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"))
+    sql += " AND kind IN (?, ?)"
+    params.extend((MemoryKind.FACT.value, MemoryKind.PREFERENCE.value))
+    sql += SQL_ORDER_BY_ID
+
+    with repository._open_read() as connection:
+        rows = connection.execute("EXPLAIN QUERY PLAN " + sql, params).fetchall()
+    details = [row[3] for row in rows]
+    assert any("ix_memory_recall_scope" in detail for detail in details)
+    assert not any(detail.startswith("SCAN memory_revisions") for detail in details)
+
+
+# ---------------------------------------------------------------------------
+# Benchmark script smoke tests (scripts/benchmark_memory_sqlite.py)
+# ---------------------------------------------------------------------------
+
+
+def _load_benchmark_module():
+    path = Path(__file__).parents[2] / "scripts" / "benchmark_memory_sqlite.py"
+    spec = importlib.util.spec_from_file_location("benchmark_memory_sqlite", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_benchmark_parser_defaults():
+    module = _load_benchmark_module()
+    args = module.build_parser().parse_args([])
+    assert args.workspace is None
+    assert args.transactions == 100_000
+    assert args.active_per_scope == 10_000
+    assert args.writers == 4
+    assert args.json_output is None
+    assert args.keep is False
+
+
+def test_benchmark_target_containment(tmp_path):
+    module = _load_benchmark_module()
+    created = tmp_path / "bench"
+    assert module.workspace_contained(created, created / "memory" / "structured")
+    assert module.workspace_contained(created, created)
+    assert not module.workspace_contained(created, tmp_path / "bench-evil")
+    assert not module.workspace_contained(created, tmp_path)
+    assert not module.workspace_contained(tmp_path / "bench-evil", created)
+
+
+def test_benchmark_cleanup_only_removes_contained_directories(tmp_path):
+    module = _load_benchmark_module()
+    created = tmp_path / "bench"
+    (created / "memory" / "structured").mkdir(parents=True)
+    marker = created / "keep.txt"
+    marker.write_text("x", encoding="utf-8")
+
+    module.cleanup_workspace(created, created / "memory")
+
+    assert not (created / "memory").exists()
+    assert marker.exists()
+    sibling = tmp_path / "bench-evil"
+    sibling.mkdir()
+    with pytest.raises(RuntimeError):
+        module.cleanup_workspace(created, sibling)
+    assert sibling.exists()
+    module.cleanup_workspace(created, created)
+    assert not created.exists()
+    assert sibling.exists()
+
+
+def test_benchmark_report_structure_and_required_metrics():
+    module = _load_benchmark_module()
+    environment = module.collect_environment()
+    assert environment["python"]
+    assert environment["sqlite"]
+    assert environment["os"]
+
+    dataset = {
+        "transactions": 100_000,
+        "migrated": 20_000,
+        "appended": 80_000,
+        "active_per_scope": 10_000,
+        "writers": 4,
+    }
+    results = {
+        "database_bytes": 12_345_678,
+        "migration_seconds": 12.5,
+        "migration_throughput_tx_per_s": 1_600.0,
+        "insert_seconds": 300.0,
+        "insert_throughput_tx_per_s": 266.6,
+        "startup_seconds": 0.05,
+        "health_seconds": 0.03,
+        "append_p50_ms": 3.1,
+        "append_p95_ms": 7.2,
+        "recall_sql_p50_ms": 4.0,
+        "recall_sql_p95_ms": 11.0,
+        "recall_full_p50_ms": 900.0,
+        "recall_full_p95_ms": 1400.0,
+        "audit_export_seconds": 4.2,
+        "audit_export_throughput_tx_per_s": 23_000.0,
+        "concurrency_writers": 4,
+        "concurrency_appended": 161,
+        "concurrency_lost": 0,
+        "concurrency_elapsed_s": 3.0,
+        "peak_rss": "n/a (platform unsupported)",
+        "integrity_ok": True,
+        "foreign_keys_ok": True,
+    }
+    report = module.build_report(
+        "--workspace override --transactions 100000", dataset, results
+    )
+    assert json.loads(json.dumps(report)) == report
+    assert set(report) >= {
+        "schema_version",
+        "generated_at",
+        "command",
+        "environment",
+        "dataset",
+        "results",
+    }
+    assert report["environment"]["sqlite"]
+    assert report["results"]["append_p95_ms"] == 7.2
+    assert report["results"]["peak_rss"] == "n/a (platform unsupported)"
+    assert report["dataset"]["transactions"] == 100_000
