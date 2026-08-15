@@ -221,8 +221,8 @@ def test_restore_twice_same_minute_keeps_unique_recovery_dirs(
     monkeypatch.setattr(memory_backup, "_utc_stamp", lambda: "2026-08-15T12-00-00Z")
     monkeypatch.setattr(audit_export, "_utc_stamp", lambda: "2026-08-15T12-00-00Z")
 
-    manager.restore_backup(backup.backup_id)
-    manager.restore_backup(backup.backup_id)
+    restore = manager.restore_backup(backup.backup_id)
+    restore_twice = manager.restore_backup(backup.backup_id)
 
     assert repository.health.state == "healthy"
     assert repository.storage_stats().transaction_count == 1
@@ -234,3 +234,5 @@ def test_restore_twice_same_minute_keeps_unique_recovery_dirs(
     assert safeties[0] == "2026-08-15T12-00-00Z"
     assert safeties[1].startswith("2026-08-15T12-00-00Z-")
     assert audits[0] == "2026-08-15T12-00-00Z"
+    assert restore.safety_backup_id == f"recovery/{safeties[0]}/memory-before-restore.db"
+    assert restore_twice.safety_backup_id == f"recovery/{safeties[1]}/memory-before-restore.db"

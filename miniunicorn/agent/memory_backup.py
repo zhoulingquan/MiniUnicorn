@@ -260,7 +260,7 @@ class MemoryBackupManager:
                 "restore_failed", f"pre-restore safety backup failed: {exc}"
             ) from exc
         self._restrict_permissions(safety_path)
-        backup_id = f"{_RECOVERY_DIR}/{stamp}/{_SAFETY_BACKUP_FILE}"
+        backup_id = f"{_RECOVERY_DIR}/{recovery_dir.name}/{_SAFETY_BACKUP_FILE}"
         logger.info("memory_backup_created path={} tx_seq=pre-restore", safety_path)
         return backup_id, safety_path
 
