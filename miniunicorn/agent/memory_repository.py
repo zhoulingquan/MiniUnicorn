@@ -64,7 +64,6 @@ from miniunicorn.agent.memory_sqlite_schema import (
     SQL_COUNT_TRANSACTIONS,
     SQL_CREATION_KEY_OWNER,
     SQL_CREATION_KEY_RECORD,
-    SQL_CURRENT_ACTIVE_CONFLICT_KEYS,
     SQL_CURRENT_RECORD_JSON_BY_ID,
     SQL_CURRENT_RECORDS,
     SQL_CURRENT_REVISION,
@@ -485,12 +484,14 @@ class StructuredMemoryRepository:
         move forward after the write lock is acquired; expected revisions
         are compared against the current row per memory id and the creation
         key / active-conflict uniqueness checks mirror the schema indexes.
+        All conflict checks use parameterized point lookups restricted to
+        the records this transaction touches, so validation work never
+        grows with the number of committed active records (design 16.2).
         """
         if transaction_checksum(transaction) != transaction.checksum_sha256:
             raise MemoryWriteError("transaction checksum mismatch")
         projected_actives: dict[str, str] = {}
-        for row in connection.execute(SQL_CURRENT_ACTIVE_CONFLICT_KEYS):
-            projected_actives[row["memory_id"]] = row["conflict_key"]
+        retired_actives: set[str] = set()
         created_owners: dict[tuple[str, str], str] = {}
         for operation in transaction.operations:
             record = operation.record
@@ -533,6 +534,8 @@ class StructuredMemoryRepository:
             if record.status is MemoryStatus.ACTIVE:
                 projected_actives[record.id] = record.conflict_key
             else:
+                if previous is not None and previous.status is MemoryStatus.ACTIVE:
+                    retired_actives.add(record.id)
                 projected_actives.pop(record.id, None)
         active_by_conflict: dict[str, str] = {}
         for memory_id, conflict_key in projected_actives.items():
@@ -543,6 +546,14 @@ class StructuredMemoryRepository:
                     f"{conflict_key}: {conflicting}, {memory_id}"
                 )
             active_by_conflict[conflict_key] = memory_id
+            holder = connection.execute(
+                SQL_ACTIVE_CONFLICT_OTHER, (conflict_key, memory_id)
+            ).fetchone()
+            if holder is not None and holder["memory_id"] not in retired_actives:
+                raise InvalidMemoryTransition(
+                    "multiple active records for conflict key "
+                    f"{conflict_key}: {holder['memory_id']}, {memory_id}"
+                )
         return transaction
 
     def _map_integrity_error(

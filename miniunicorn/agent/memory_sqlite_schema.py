@@ -280,11 +280,6 @@ SQL_INSERT_CREATION_KEY = (
     "(source_batch, content_hash, memory_id, created_tx_seq) VALUES (?, ?, ?, ?)"
 )
 
-SQL_CURRENT_ACTIVE_CONFLICT_KEYS = (
-    "SELECT memory_id, conflict_key FROM memory_revisions "
-    "WHERE is_current = 1 AND status = 'active' ORDER BY memory_id ASC"
-)
-
 SQL_CURRENT_RECORD_JSON_BY_ID = (
     "SELECT record_json FROM memory_revisions "
     "WHERE memory_id = ? AND is_current = 1"
