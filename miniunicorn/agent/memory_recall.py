@@ -13,7 +13,6 @@ from datetime import datetime
 
 from miniunicorn.agent.memory_models import (
     MemoryRecord,
-    MemoryStatus,
     RecallHit,
     RecallQuery,
     RecallResult,
@@ -94,6 +93,13 @@ class StructuredMemoryRecall:
         self._aliases_by_tag = {definition.name: definition.aliases for definition in tag_catalog.tags}
 
     def recall(self, query: RecallQuery) -> RecallResult:
+        """Run deterministic recall over SQL-preauthorized candidates.
+
+        The repository pre-filters candidates by scope, status, kind, and
+        expiry inside SQLite; ``candidates`` counts only those preauthorized
+        records and ``filtered`` counts only lexical route misses, because
+        scope/kind/expiry misses are never seen by this loop.
+        """
         health = self._repository.health
         if health.state != "healthy":
             return RecallResult(
@@ -102,7 +108,6 @@ class StructuredMemoryRecall:
                 error_message=health.error_message,
             )
         query_norm = normalize_match_text(query.query_text)
-        allowed = {(scope.kind, scope.key) for scope in query.allowed_scopes}
         explicit_ids = set(query.explicit_ids)
         explicit_tags = frozenset(normalize_match_text(tag) for tag in query.explicit_tags)
         now = query.now
@@ -110,17 +115,13 @@ class StructuredMemoryRecall:
         candidates = 0
         filtered = 0
         scored = []
-        for record in self._repository.current_records(MemoryStatus.ACTIVE):
+        records = self._repository.recall_candidates(
+            allowed_scopes=query.allowed_scopes,
+            requested_kinds=query.requested_kinds,
+            now=query.now,
+        )
+        for record in records:
             candidates += 1
-            if (record.scope.kind, record.scope.key) not in allowed:
-                filtered += 1
-                continue
-            if record.expires_at is not None and record.expires_at <= now:
-                filtered += 1
-                continue
-            if query.requested_kinds and record.kind not in query.requested_kinds:
-                filtered += 1
-                continue
             if record.id in explicit_ids:
                 route_score, route_reasons = ROUTE_EXPLICIT_ID, [f"id={record.id}(+100)"]
             else:
