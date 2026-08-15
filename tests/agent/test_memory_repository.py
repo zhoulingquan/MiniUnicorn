@@ -3,18 +3,18 @@
 from __future__ import annotations
 
 import json
-import os
+import multiprocessing
 import shutil
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import Mock
 
 import pytest
-from filelock import FileLock
 
 from miniunicorn.agent.memory_models import (
     SCHEMA_VERSION,
     ActorKind,
+    DuplicateMemoryIdempotencyKey,
     EvidenceKind,
     EvidenceRef,
     InvalidMemoryTransition,
@@ -26,7 +26,6 @@ from miniunicorn.agent.memory_models import (
     MemoryStatus,
     MemoryTransaction,
     MemoryWriteError,
-    ScopeKind,
     UnknownMemoryTag,
     new_memory_id,
     new_transaction_id,
@@ -207,17 +206,12 @@ def replacement_tx(repository) -> MemoryTransaction:
     )
 
 
-@pytest.fixture
-def valid_line(repository, transaction) -> str:
-    return repository._canonical_transaction_line(transaction)
-
-
 # ---------------------------------------------------------------------------
 # Replay
 # ---------------------------------------------------------------------------
 
 
-def test_multi_record_transaction_replays_atomically(repository, replacement_tx):
+def test_multi_record_transaction_survives_rebuild(repository, replacement_tx):
     repository.append_transaction(replacement_tx)
     rebuilt = StructuredMemoryRepository(repository.workspace)
     assert rebuilt.get("mem_" + "a" * 32).status == MemoryStatus.ACTIVE
@@ -229,14 +223,14 @@ def test_empty_log_is_healthy(repository):
     assert repository.current_records() == ()
 
 
-def test_valid_empty_lines_are_ignored(repository, valid_line):
-    repository.journal_path.write_text("\n\n" + valid_line + "\n\n", encoding="utf-8")
+def test_rebuild_after_commits_keeps_health_and_records(repository, transaction):
+    repository.append_transaction(transaction)
     health = repository.rebuild()
     assert health.state == "healthy"
     assert len(repository.current_records()) == 1
 
 
-def test_single_transaction_replays(repository, transaction):
+def test_single_transaction_survives_rebuild(repository, transaction):
     repository.append_transaction(transaction)
     rebuilt = StructuredMemoryRepository(repository.workspace)
     record = rebuilt.get(transaction.operations[0].record.id)
@@ -263,90 +257,61 @@ def test_current_records_ordering_is_stable(repository):
 
 
 # ---------------------------------------------------------------------------
-# Corruption is fail-closed
+# Rejected input never reaches the log; storage failure is fail-closed
 # ---------------------------------------------------------------------------
 
 
-def test_bad_checksum_stops_at_first_bad_line_and_disables_writes(repository, valid_line):
-    marker = '"checksum_sha256":"'
-    pos = valid_line.find(marker) + len(marker)
-    corrupted = valid_line[:pos] + ("1" if valid_line[pos] != "1" else "0") + valid_line[pos + 1 :]
-    repository.journal_path.write_text(valid_line + "\n" + corrupted + "\n", encoding="utf-8")
+def test_bad_checksum_is_rejected_and_leaves_no_trace(repository, transaction):
+    bad = transaction.model_copy(update={"checksum_sha256": "0" * 64})
+    with pytest.raises(MemoryWriteError, match="checksum mismatch"):
+        repository.append_transaction(bad)
+    assert repository.health.state == "healthy"
+    assert repository.transaction_log() == ()
+    assert repository.storage_stats().revision_count == 0
+
+
+def test_corrupted_database_file_degrades_and_disables_writes(repository, transaction):
+    repository.database_path.write_bytes(b"garbage, not a sqlite database" * 4)
     health = repository.rebuild()
     assert health.state == "degraded"
-    assert health.last_valid_line == 1
-    assert health.error_code == "checksum_mismatch"
     with pytest.raises(RepositoryDegradedError):
-        repository.append_transaction(make_transaction(MemoryRecord.model_validate(record_data(statement="another"))))
+        repository.append_transaction(transaction)
 
 
-def test_invalid_json_tail_degrades(repository, valid_line):
-    repository.journal_path.write_text(valid_line + "\n{not valid json\n", encoding="utf-8")
+def test_unsupported_schema_disables_writes(repository, transaction):
+    with connect_memory_db(repository.database_path, lock_timeout_s=0.1) as connection:
+        connection.execute("PRAGMA user_version = 999")
     health = repository.rebuild()
     assert health.state == "degraded"
-    assert health.last_valid_line == 1
-    assert health.error_code == "invalid_json"
-    assert repository.current_records() == ()
+    assert health.error_code == "unsupported_schema_version"
+    with pytest.raises(RepositoryDegradedError):
+        repository.append_transaction(transaction)
 
 
-def test_unsupported_schema_degrades(repository, valid_line):
-    raw = json.loads(valid_line)
-    raw["schema_version"] = SCHEMA_VERSION + 1
-    repository.journal_path.write_text(json.dumps(raw, sort_keys=True) + "\n", encoding="utf-8")
-    health = repository.rebuild()
-    assert health.state == "degraded"
-    assert health.error_code == "unsupported_schema"
-
-
-def test_skipped_revision_degrades(repository):
+def test_skipped_revision_rejected_atomically(repository):
     tx = make_transaction(MemoryRecord.model_validate(record_data(revision=2)))
-    repository.journal_path.write_text(repository._canonical_transaction_line(tx) + "\n", encoding="utf-8")
-    health = repository.rebuild()
-    assert health.state == "degraded"
-    assert health.error_code == "revision_conflict"
+    with pytest.raises(MemoryRevisionConflict, match="expected revision 0 and revision 1"):
+        repository.append_transaction(tx)
+    assert repository.transaction_log() == ()
+    assert repository.storage_stats().revision_count == 0
 
 
-def test_illegal_status_transition_degrades(repository):
+def test_illegal_status_transition_keeps_first_transaction(repository):
     active = MemoryRecord.model_validate(record_data(status="active", revision=1))
+    repository.append_transaction(make_transaction(active))
     invalid = MemoryRecord.model_validate(record_data(status="candidate", revision=2, memory_id=active.id))
-    tx = make_transaction(invalid, expected_revisions={active.id: 1})
-    journal = (
-        repository._canonical_transaction_line(make_transaction(active))
-        + "\n"
-        + repository._canonical_transaction_line(tx)
-        + "\n"
-    )
-    repository.journal_path.write_text(journal, encoding="utf-8")
-    health = repository.rebuild()
-    assert health.state == "degraded"
-    assert health.last_valid_line == 1
-    assert health.error_code == "invalid_transition"
+    with pytest.raises(InvalidMemoryTransition):
+        repository.append_transaction(make_transaction(invalid, expected_revisions={active.id: 1}))
+    assert len(repository.transaction_log(limit=10)) == 1
+    assert repository.get(active.id).status == MemoryStatus.ACTIVE
 
 
-def test_unknown_tag_degrades(repository):
+def test_unknown_tag_never_reaches_the_log(repository):
     tx = make_transaction(MemoryRecord.model_validate(record_data(tags=("not.registered",))))
-    repository.journal_path.write_text(repository._canonical_transaction_line(tx) + "\n", encoding="utf-8")
-    health = repository.rebuild()
-    assert health.state == "degraded"
-    assert health.error_code == "unknown_tag"
-
-
-def test_duplicate_operation_id_degrades(repository, create_tx):
-    raw = json.loads(repository._canonical_transaction_line(create_tx))
-    raw["operations"] = [raw["operations"][0], raw["operations"][0]]
-    repository.journal_path.write_text(json.dumps(raw, sort_keys=True) + "\n", encoding="utf-8")
-    health = repository.rebuild()
-    assert health.state == "degraded"
-    assert health.error_code == "invalid_transaction"
-
-
-def test_truncated_tail_is_not_skipped(repository, valid_line):
-    repository.journal_path.write_text(valid_line + "\n" + valid_line[:-10] + "\n", encoding="utf-8")
-    health = repository.rebuild()
-    assert health.state == "degraded"
-    assert health.last_valid_line == 1
-    with pytest.raises(RepositoryDegradedError):
-        repository.append_transaction(make_transaction(MemoryRecord.model_validate(record_data(statement="another"))))
+    with pytest.raises(UnknownMemoryTag):
+        repository.append_transaction(tx)
+    assert repository.transaction_log() == ()
+    assert repository.current_records() == ()
 
 
 # ---------------------------------------------------------------------------
@@ -354,13 +319,38 @@ def test_truncated_tail_is_not_skipped(repository, valid_line):
 # ---------------------------------------------------------------------------
 
 
-def test_append_failure_does_not_update_index(repository, transaction, monkeypatch):
-    monkeypatch.setattr(os, "fsync", Mock(side_effect=OSError("disk full")))
-    with pytest.raises(MemoryWriteError, match="disk full"):
+def test_append_commit_failure_leaves_no_rows_and_degrades(repository, transaction, monkeypatch):
+    import contextlib
+
+    from miniunicorn.agent import memory_repository as repo_module
+
+    real_connect = repo_module.connect_memory_db
+
+    class FailingCommitConnection:
+        def __init__(self, connection):
+            self._connection = connection
+
+        def __getattr__(self, name):
+            return getattr(self._connection, name)
+
+        def commit(self):
+            raise sqlite3.OperationalError("disk I/O error")
+
+    @contextlib.contextmanager
+    def failing_commit_connect(path, lock_timeout_s):
+        with real_connect(path, lock_timeout_s=lock_timeout_s) as connection:
+            yield FailingCommitConnection(connection)
+
+    monkeypatch.setattr(repo_module, "connect_memory_db", failing_commit_connect)
+    with pytest.raises(MemoryWriteError, match="disk I/O error"):
         repository.append_transaction(transaction)
-    assert repository.get(transaction.operations[0].record.id) is None
     assert repository.health.state == "degraded"
-    assert repository.health.error_code == "write_uncertain"
+    assert repository.health.error_code == "sqlite_operational_error"
+    with real_connect(repository.database_path, lock_timeout_s=0.1) as connection:
+        transaction_count = connection.execute("SELECT COUNT(*) FROM memory_transactions").fetchone()[0]
+        revision_count = connection.execute("SELECT COUNT(*) FROM memory_revisions").fetchone()[0]
+    assert transaction_count == 0
+    assert revision_count == 0
 
 
 def test_same_status_active_revision_cannot_change_fact_fields(repository):
@@ -390,7 +380,7 @@ def test_transaction_rejects_two_active_records_for_same_conflict_key(repository
     assert repository.current_records() == ()
 
 
-def test_locked_append_synchronizes_external_writer_before_validation(workspace):
+def test_second_writer_reads_committed_state_before_validation(workspace):
     first = StructuredMemoryRepository(workspace, lock_timeout_s=0.1)
     stale = StructuredMemoryRepository(workspace, lock_timeout_s=0.1)
     record = MemoryRecord.model_validate(record_data())
@@ -402,7 +392,7 @@ def test_locked_append_synchronizes_external_writer_before_validation(workspace)
 
     assert stale.health.state == "healthy"
     assert stale.get(record.id) == record
-    assert first.journal_path.read_text(encoding="utf-8").count("\n") == 1
+    assert len(first.transaction_log()) == 1
 
 
 def test_expected_revision_conflict_rejects_second_writer(repository, create_tx):
@@ -452,13 +442,10 @@ def test_append_rejects_illegal_transition(repository):
 
 
 def test_lock_timeout_raises_memory_lock_timeout(repository, create_tx):
-    lock = FileLock(str(repository.lock_path))
-    lock.acquire()
-    try:
+    with connect_memory_db(repository.database_path, lock_timeout_s=0.1) as blocker:
+        blocker.execute("BEGIN IMMEDIATE")
         with pytest.raises(MemoryLockTimeout):
             repository.append_transaction(create_tx)
-    finally:
-        lock.release()
 
 
 def test_canonical_line_round_trips_through_models(repository, create_tx):
@@ -472,17 +459,23 @@ def test_canonical_line_round_trips_through_models(repository, create_tx):
 # ---------------------------------------------------------------------------
 
 
-def test_indexes_support_scope_subject_tag_alias_lookup(repository):
+def test_tags_and_aliases_are_written_with_each_revision(repository):
     record = MemoryRecord.model_validate(
         record_data(statement="Shared global fact", tags=("shared.fact",), aliases=("global fact",))
     )
     repository.append_transaction(make_transaction(record))
     assert repository.get(record.id).statement == "Shared global fact"
-    assert repository._by_subject[record.subject.casefold()] == {record.id}
-    assert repository._by_tag["shared.fact"] == {record.id}
-    assert repository._by_alias["global fact"] == {record.id}
-    assert repository._by_scope[(ScopeKind.PROJECT, "project:6b5ec7b29e32")] == {record.id}
-    assert repository._by_status[MemoryStatus.CANDIDATE] == {record.id}
+    with connect_memory_db(repository.database_path, lock_timeout_s=0.1) as connection:
+        tags = connection.execute(
+            "SELECT tag FROM memory_tags WHERE memory_id = ? AND revision = 1",
+            (record.id,),
+        ).fetchall()
+        aliases = connection.execute(
+            "SELECT alias_norm FROM memory_aliases WHERE memory_id = ? AND revision = 1",
+            (record.id,),
+        ).fetchall()
+    assert [row["tag"] for row in tags] == ["shared.fact"]
+    assert [row["alias_norm"] for row in aliases] == ["global fact"]
 
 
 def test_active_for_conflict_key_tracks_only_active(repository):
@@ -570,32 +563,20 @@ def test_record_source_batches_are_cumulative(repository):
     assert repository.record_ids_for_source("dream:batch-b") == frozenset({created.id})
 
 
-def test_duplicate_creation_key_degrades_replay(repository):
+def test_duplicate_creation_key_rejected_and_logged_once(repository):
     first = MemoryRecord.model_validate(record_data(memory_id="mem_" + "a" * 32))
     second = MemoryRecord.model_validate(
         record_data(memory_id="mem_" + "b" * 32, content_hash=first.content_hash)
     )
-    journal = (
-        repository._canonical_transaction_line(
-            make_transaction(first, source_batch="dream:stable-batch")
-        )
-        + "\n"
-        + repository._canonical_transaction_line(
-            make_transaction(second, source_batch="dream:stable-batch")
-        )
-        + "\n"
-    )
-    repository.journal_path.write_text(journal, encoding="utf-8")
-
-    rebuilt = StructuredMemoryRepository(repository.workspace)
-
-    assert rebuilt.health.state == "degraded"
-    assert rebuilt.health.error_code == "duplicate_idempotency_key"
-    assert rebuilt.current_records() == ()
+    repository.append_transaction(make_transaction(first, source_batch="dream:stable-batch"))
+    with pytest.raises(DuplicateMemoryIdempotencyKey, match="duplicate idempotency key"):
+        repository.append_transaction(make_transaction(second, source_batch="dream:stable-batch"))
+    assert len(repository.transaction_log(limit=10)) == 1
+    assert repository.current_records() == (first,)
 
 
 # ---------------------------------------------------------------------------
-# Atomic conditional creation (plan B: one journal lock, no external lookup)
+# Atomic conditional creation (plan B: one SQLite transaction, no external lookup)
 # ---------------------------------------------------------------------------
 
 
@@ -640,7 +621,7 @@ def test_append_create_if_absent_rejects_contract_violations(repository):
     for tx in cases:
         with pytest.raises(MemoryWriteError):
             repository.append_create_if_absent(tx)
-    assert not repository.journal_path.exists()
+    assert repository.storage_stats().transaction_count == 0
     assert repository.current_records() == ()
 
 
@@ -1072,3 +1053,309 @@ def test_reads_health_degrades_on_schema_mismatch(repository) -> None:
         repository.get("mem_" + "a" * 32)
     with pytest.raises(RepositoryDegradedError):
         repository.current_records()
+
+
+# ---------------------------------------------------------------------------
+# SQLite atomic write path (single-transaction atomicity)
+# ---------------------------------------------------------------------------
+
+
+def test_atomic_create_writes_one_transaction_and_revision(repository, create_tx):
+    repository.append_transaction(create_tx)
+    record = create_tx.operations[0].record
+    assert repository.storage_stats().transaction_count == 1
+    assert repository.storage_stats().revision_count == 1
+    assert [t.tx_id for t in repository.transaction_log()] == [create_tx.tx_id]
+    assert repository.get(record.id) == record
+
+
+def test_atomic_revision_update_preserves_history(repository, create_tx):
+    record = create_tx.operations[0].record
+    repository.append_transaction(create_tx)
+    repository.append_transaction(update_transaction(record, 1))
+    assert repository.storage_stats().transaction_count == 2
+    assert repository.storage_stats().revision_count == 2
+    assert repository.get(record.id).revision == 2
+    assert [r.revision for r in repository.revisions(record.id)] == [1, 2]
+    assert len(repository.transaction_log(limit=10)) == 2
+
+
+def test_atomic_multi_operation_replacement_in_one_transaction(repository):
+    active = MemoryRecord.model_validate(record_data(status="active", revision=1, memory_id="mem_" + "a" * 32))
+    candidate = MemoryRecord.model_validate(record_data(status="candidate", revision=1, memory_id="mem_" + "b" * 32))
+    repository.append_transaction(make_transaction(active))
+    repository.append_transaction(make_transaction(candidate))
+    active_merge = active.model_copy(
+        update={"revision": 2, "updated_at": dt("2026-08-11T08:33:00Z")}
+    )
+    candidate_superseded = candidate.model_copy(
+        update={
+            "revision": 2,
+            "status": MemoryStatus.SUPERSEDED,
+            "replacement_id": active.id,
+            "updated_at": dt("2026-08-11T08:33:00Z"),
+        }
+    )
+    repository.append_transaction(
+        make_transaction(
+            active_merge,
+            candidate_superseded,
+            expected_revisions={active.id: 1, candidate.id: 1},
+            reason="dedupe identical content",
+        )
+    )
+    assert repository.storage_stats().transaction_count == 3
+    assert repository.storage_stats().revision_count == 4
+    assert repository.get(active.id) == active_merge
+    assert repository.get(candidate.id) == candidate_superseded
+    assert len(repository.transaction_log(limit=10)) == 3
+
+
+def test_atomic_append_rejects_bad_checksum_without_rows(repository, create_tx):
+    bad = create_tx.model_copy(update={"checksum_sha256": "0" * 64})
+    with pytest.raises(MemoryWriteError, match="checksum mismatch"):
+        repository.append_transaction(bad)
+    assert repository.storage_stats().transaction_count == 0
+    assert repository.storage_stats().revision_count == 0
+
+
+def test_atomic_append_rejects_wrong_expected_revision(repository, create_tx):
+    record = create_tx.operations[0].record
+    repository.append_transaction(create_tx)
+    tx = update_transaction(record, expected_revision=7)
+    with pytest.raises(MemoryRevisionConflict):
+        repository.append_transaction(tx)
+    assert repository.storage_stats().transaction_count == 1
+    assert repository.get(record.id).revision == 1
+    assert len(repository.transaction_log(limit=10)) == 1
+
+
+def test_atomic_append_rejects_illegal_status(repository):
+    active = MemoryRecord.model_validate(record_data(status="active", revision=1))
+    repository.append_transaction(make_transaction(active))
+    invalid = MemoryRecord.model_validate(record_data(status="candidate", revision=2, memory_id=active.id))
+    with pytest.raises(InvalidMemoryTransition):
+        repository.append_transaction(make_transaction(invalid, expected_revisions={active.id: 1}))
+    assert repository.storage_stats().transaction_count == 1
+    assert repository.get(active.id).status == MemoryStatus.ACTIVE
+
+
+def test_atomic_append_rejects_unknown_tag(repository):
+    tx = make_transaction(MemoryRecord.model_validate(record_data(tags=("not.registered",))))
+    with pytest.raises(UnknownMemoryTag):
+        repository.append_transaction(tx)
+    assert repository.storage_stats().transaction_count == 0
+    assert repository.current_records() == ()
+
+
+def test_atomic_append_rejects_duplicate_transaction_id(repository, create_tx):
+    repository.append_transaction(create_tx)
+    record = create_tx.operations[0].record
+    rerun = update_transaction(record, expected_revision=1, reason="rerun")
+    rerun = rerun.model_copy(update={"tx_id": create_tx.tx_id})
+    rerun = rerun.model_copy(update={"checksum_sha256": transaction_checksum(rerun)})
+    with pytest.raises(DuplicateMemoryIdempotencyKey, match="duplicate transaction id"):
+        repository.append_transaction(rerun)
+    assert repository.storage_stats().transaction_count == 1
+    assert len(repository.transaction_log(limit=10)) == 1
+
+
+def test_atomic_multi_operation_second_failure_rolls_back_first_op(repository, monkeypatch):
+    first = MemoryRecord.model_validate(record_data(memory_id="mem_" + "a" * 32))
+    second = MemoryRecord.model_validate(record_data(status="active", memory_id="mem_" + "b" * 32))
+    tx = make_transaction(first, second)
+    real_insert = repository._insert_revision
+
+    def fail_second_op(connection, tx_seq, op_index, transaction, record):
+        if op_index == 1:
+            raise sqlite3.IntegrityError("UNIQUE constraint failed: memory_revisions.memory_id")
+        return real_insert(connection, tx_seq, op_index, transaction, record)
+
+    monkeypatch.setattr(repository, "_insert_revision", fail_second_op)
+    with pytest.raises(MemoryWriteError):
+        repository.append_transaction(tx)
+    assert repository.storage_stats().transaction_count == 0
+    assert repository.storage_stats().revision_count == 0
+    assert repository.transaction_log() == ()
+
+
+# ---------------------------------------------------------------------------
+# SQLite database constraints
+# ---------------------------------------------------------------------------
+
+
+def test_db_unique_index_rejects_second_current_active_for_same_conflict_key(repository):
+    first = MemoryRecord.model_validate(
+        record_data(status="active", statement="Use PostgreSQL", memory_id="mem_" + "a" * 32)
+    )
+    second = MemoryRecord.model_validate(
+        record_data(status="active", statement="Use SQLite", memory_id="mem_" + "b" * 32)
+    )
+    with connect_memory_db(repository.database_path, lock_timeout_s=0.1) as connection:
+        _seed_transaction(connection, make_transaction(first))
+        with pytest.raises(sqlite3.IntegrityError):
+            _seed_transaction(connection, make_transaction(second))
+    assert len(repository.current_records(MemoryStatus.ACTIVE)) == 1
+    assert repository.active_for_conflict_key(first.conflict_key) == first
+
+
+def test_db_creation_key_unique_accepts_exactly_one_mapping(repository):
+    first = MemoryRecord.model_validate(record_data(memory_id="mem_" + "a" * 32))
+    second = MemoryRecord.model_validate(
+        record_data(memory_id="mem_" + "b" * 32, content_hash=first.content_hash)
+    )
+    with connect_memory_db(repository.database_path, lock_timeout_s=0.1) as connection:
+        _seed_transaction(connection, make_transaction(first, source_batch="dream:stable-batch"))
+        with pytest.raises(sqlite3.IntegrityError):
+            _seed_transaction(connection, make_transaction(second, source_batch="dream:stable-batch"))
+    assert repository.record_created_for("dream:stable-batch", first.content_hash) == first
+
+
+def test_same_creation_key_returns_same_id(repository):
+    first = MemoryRecord.model_validate(record_data(memory_id="mem_" + "a" * 32))
+    second = MemoryRecord.model_validate(
+        record_data(memory_id="mem_" + "b" * 32, content_hash=first.content_hash)
+    )
+    first_current, first_created = repository.append_create_if_absent(
+        make_transaction(first, source_batch="dream:stable-batch")
+    )
+    second_current, second_created = repository.append_create_if_absent(
+        make_transaction(second, source_batch="dream:stable-batch")
+    )
+    assert first_created is True
+    assert second_created is False
+    assert second_current.id == first_current.id
+    assert len(repository.transaction_log(limit=10)) == 1
+
+
+# ---------------------------------------------------------------------------
+# Four-process concurrency (spawn on Windows)
+# ---------------------------------------------------------------------------
+
+
+def _worker_create_distinct(workspace: str, source_batch: str, worker_index: int, count: int, start, queue) -> None:
+    repo = StructuredMemoryRepository(Path(workspace), lock_timeout_s=15.0)
+    start.wait()
+    created_ids: list[str] = []
+    for i in range(count):
+        record = MemoryRecord.model_validate(
+            record_data(statement=f"parallel statement {worker_index}-{i}", memory_id=new_memory_id())
+        )
+        current, created = repo.append_create_if_absent(
+            make_transaction(record, source_batch=f"{source_batch}:{worker_index}-{i}")
+        )
+        assert created
+        created_ids.append(current.id)
+    queue.put({"created_ids": created_ids, "exit": 0})
+
+
+def _worker_create_same_key(workspace: str, source_batch: str, memory_id: str, count: int, start, queue) -> None:
+    repo = StructuredMemoryRepository(Path(workspace), lock_timeout_s=15.0)
+    record = MemoryRecord.model_validate(record_data(memory_id=memory_id))
+    start.wait()
+    outcomes: list[tuple[str, bool]] = []
+    for _ in range(count):
+        current, created = repo.append_create_if_absent(make_transaction(record, source_batch=source_batch))
+        outcomes.append((current.id, created))
+    queue.put({"outcomes": outcomes, "exit": 0})
+
+
+def _worker_update_expected(workspace: str, memory_id: str, start, queue) -> None:
+    repo = StructuredMemoryRepository(Path(workspace), lock_timeout_s=15.0)
+    start.wait()
+    current = repo.get(memory_id)
+    revised = current.model_copy(update={"revision": 2, "updated_at": dt("2026-08-11T08:32:00Z")})
+    try:
+        repo.append_transaction(make_transaction(revised, expected_revisions={memory_id: 1}))
+        queue.put({"outcome": "won"})
+    except MemoryRevisionConflict:
+        queue.put({"outcome": "lost"})
+
+
+def _worker_activate_conflict(workspace: str, slot: str, memory_id: str, start, queue) -> None:
+    repo = StructuredMemoryRepository(Path(workspace), lock_timeout_s=15.0)
+    record = MemoryRecord.model_validate(record_data(status="active", slot=slot, memory_id=memory_id))
+    start.wait()
+    try:
+        repo.append_transaction(make_transaction(record))
+        queue.put({"outcome": "won"})
+    except InvalidMemoryTransition:
+        queue.put({"outcome": "rejected"})
+
+
+def _run_workers(target, args_list, *, timeout: float = 120.0) -> list:
+    ctx = multiprocessing.get_context("spawn")
+    start = ctx.Event()
+    queue = ctx.Queue()
+    procs = [ctx.Process(target=target, args=args + (start, queue)) for args in args_list]
+    try:
+        for proc in procs:
+            proc.start()
+        start.set()
+        for proc in procs:
+            proc.join(timeout=timeout)
+        for proc in procs:
+            assert proc.exitcode == 0, f"worker {proc.pid} exited with {proc.exitcode}"
+        return [queue.get(timeout=30) for _ in procs]
+    finally:
+        for proc in procs:
+            if proc.is_alive():
+                proc.terminate()
+                proc.join(timeout=5)
+
+
+def test_four_processes_100_distinct_creates_all_exist(workspace):
+    StructuredMemoryRepository(workspace, lock_timeout_s=15.0)
+    results = _run_workers(_worker_create_distinct, [(str(workspace), "dream:parallel", i, 25) for i in range(4)])
+    ids = [record_id for result in results for record_id in result["created_ids"]]
+    assert len(ids) == 100
+    assert len(set(ids)) == 100
+    repo = StructuredMemoryRepository(workspace, lock_timeout_s=15.0)
+    assert len(repo.current_records()) == 100
+    assert len(repo.transaction_log(limit=200)) == 100
+
+
+def test_four_processes_20_same_key_creates_one_memory_id(workspace):
+    StructuredMemoryRepository(workspace, lock_timeout_s=15.0)
+    memory_id = "mem_" + "c" * 32
+    results = _run_workers(
+        _worker_create_same_key, [(str(workspace), "dream:contended", memory_id, 5) for _ in range(4)]
+    )
+    outcomes = [item for result in results for item in result["outcomes"]]
+    assert len(outcomes) == 20
+    assert sum(created for _, created in outcomes) == 1
+    assert {record_id for record_id, _ in outcomes} == {memory_id}
+    repo = StructuredMemoryRepository(workspace, lock_timeout_s=15.0)
+    assert len(repo.current_records()) == 1
+    assert repo.current_records()[0].id == memory_id
+
+
+def test_two_processes_racing_one_expected_revision_only_one_wins(workspace):
+    repo = StructuredMemoryRepository(workspace, lock_timeout_s=15.0)
+    record = MemoryRecord.model_validate(record_data(memory_id="mem_" + "d" * 32))
+    repo.append_transaction(make_transaction(record))
+    results = _run_workers(_worker_update_expected, [(str(workspace), record.id), (str(workspace), record.id)])
+    assert sorted(result["outcome"] for result in results) == ["lost", "won"]
+    fresh = StructuredMemoryRepository(workspace, lock_timeout_s=15.0)
+    assert fresh.get(record.id).revision == 2
+    assert len(fresh.revisions(record.id)) == 2
+    assert len(fresh.transaction_log(limit=10)) == 2
+
+
+def test_two_processes_cannot_commit_two_current_actives(workspace):
+    StructuredMemoryRepository(workspace, lock_timeout_s=15.0)
+    results = _run_workers(
+        _worker_activate_conflict,
+        [
+            (str(workspace), "db.primary", "mem_" + "e" * 32),
+            (str(workspace), "db.primary", "mem_" + "f" * 32),
+        ],
+    )
+    assert sorted(result["outcome"] for result in results) == ["rejected", "won"]
+    fresh = StructuredMemoryRepository(workspace, lock_timeout_s=15.0)
+    assert len(fresh.current_records(MemoryStatus.ACTIVE)) == 1
+    with connect_memory_db(fresh.database_path, lock_timeout_s=15.0) as connection:
+        count = connection.execute(
+            "SELECT COUNT(*) FROM memory_revisions WHERE is_current = 1 AND status = 'active'"
+        ).fetchone()[0]
+    assert count == 1

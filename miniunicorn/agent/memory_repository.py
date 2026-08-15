@@ -13,7 +13,6 @@ docs/superpowers/specs/2026-08-14-sqlite-memory-storage-design.md
 from __future__ import annotations
 
 import json
-import os
 import re
 import sqlite3
 from collections.abc import Iterator
@@ -22,8 +21,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from filelock import FileLock
-from filelock import Timeout as FileLockTimeout
 from loguru import logger
 from pydantic import ValidationError
 
@@ -42,8 +39,8 @@ from miniunicorn.agent.memory_models import (
     RepositoryDegradedError,
     RepositoryHealth,
     TagCatalog,
-    UnknownMemoryTag,
     assert_transition,
+    normalize_match_text,
     transaction_checksum,
     validate_same_status_revision,
 )
@@ -183,18 +180,42 @@ class StructuredMemoryRepository:
             yield connection
 
     # ------------------------------------------------------------------
-    # Append protocol (reimplemented on SQLite in the write migration task)
+    # Append protocol (SQLite: atomic, idempotent, concurrent)
     # ------------------------------------------------------------------
 
     def append_transaction(self, transaction: MemoryTransaction) -> None:
-        """Append one durable transaction under the journal lock (design section 12.1)."""
+        """Commit one governed transaction atomically (design section 12.1).
+
+        Validation and all writes run inside one ``BEGIN IMMEDIATE``
+        transaction, so concurrent writers serialize on the SQLite write
+        lock and every failure leaves the database untouched.
+        """
         try:
-            with FileLock(str(self.lock_path), timeout=self.lock_timeout_s):
-                self._require_healthy()
-                self._synchronize_locked()
-                self._append_validated_locked(transaction)
-        except FileLockTimeout as exc:
-            raise MemoryLockTimeout(f"journal lock timeout after {self.lock_timeout_s}s") from exc
+            self._require_healthy()
+            with connect_memory_db(
+                self.database_path, lock_timeout_s=self.lock_timeout_s
+            ) as connection:
+                try:
+                    connection.execute("BEGIN IMMEDIATE")
+                    self._append_in_connection(connection, transaction)
+                    connection.commit()
+                except sqlite3.OperationalError as exc:
+                    connection.rollback()
+                    if "locked" in str(exc).casefold() or "busy" in str(exc).casefold():
+                        raise MemoryLockTimeout(
+                            f"sqlite lock timeout after {self.lock_timeout_s}s"
+                        ) from exc
+                    self._degrade("sqlite_operational_error", str(exc))
+                    raise MemoryWriteError(str(exc)) from exc
+                except sqlite3.IntegrityError as exc:
+                    connection.rollback()
+                    raise self._map_integrity_error(connection, transaction) from exc
+                except sqlite3.DatabaseError as exc:
+                    connection.rollback()
+                    self._degrade("sqlite_database_error", str(exc))
+                    raise RepositoryDegradedError(
+                        f"memory database failed (code=sqlite_database_error): {exc}"
+                    ) from exc
         except MemoryError:
             raise
         except OSError as exc:
@@ -206,78 +227,195 @@ class StructuredMemoryRepository:
     ) -> tuple[MemoryRecord, bool]:
         """Atomically create a revision-1 record unless its source key exists.
 
-        The lookup, condition, and append all happen under the same journal
-        lock acquisition, so concurrent instances cannot double-create. The
-        source key is ``(source_batch, content_hash)`` on the transaction.
+        The creation-key lookup, validation, and append all happen inside one
+        ``BEGIN IMMEDIATE`` transaction, so concurrent instances cannot
+        double-create. The source key is ``(source_batch, content_hash)`` on
+        the transaction.
         """
         self._validate_create_transaction_shape(transaction)
         record = transaction.operations[0].record
         try:
-            with FileLock(str(self.lock_path), timeout=self.lock_timeout_s):
-                self._require_healthy()
-                self._synchronize_locked()
-                existing = self.record_created_for(transaction.source_batch, record.content_hash)
-                if existing is not None:
-                    return existing, False
-                self._append_validated_locked(transaction)
-                return record, True
-        except FileLockTimeout as exc:
-            raise MemoryLockTimeout(
-                f"journal lock timeout after {self.lock_timeout_s}s"
-            ) from exc
+            self._require_healthy()
+            with connect_memory_db(
+                self.database_path, lock_timeout_s=self.lock_timeout_s
+            ) as connection:
+                try:
+                    connection.execute("BEGIN IMMEDIATE")
+                    existing = self._creation_key_record(
+                        connection, transaction.source_batch, record.content_hash
+                    )
+                    if existing is not None:
+                        connection.commit()
+                        return existing, False
+                    self._append_in_connection(connection, transaction)
+                    connection.commit()
+                    return record, True
+                except sqlite3.OperationalError as exc:
+                    connection.rollback()
+                    if "locked" in str(exc).casefold() or "busy" in str(exc).casefold():
+                        raise MemoryLockTimeout(
+                            f"sqlite lock timeout after {self.lock_timeout_s}s"
+                        ) from exc
+                    self._degrade("sqlite_operational_error", str(exc))
+                    raise MemoryWriteError(str(exc)) from exc
+                except sqlite3.IntegrityError as exc:
+                    connection.rollback()
+                    existing = self._creation_key_record(
+                        connection, transaction.source_batch, record.content_hash
+                    )
+                    if existing is not None:
+                        return existing, False
+                    raise self._map_integrity_error(connection, transaction) from exc
+                except sqlite3.DatabaseError as exc:
+                    connection.rollback()
+                    self._degrade("sqlite_database_error", str(exc))
+                    raise RepositoryDegradedError(
+                        f"memory database failed (code=sqlite_database_error): {exc}"
+                    ) from exc
         except MemoryError:
             raise
         except OSError as exc:
             raise MemoryWriteError(str(exc)) from exc
 
-    def _append_validated_locked(self, transaction: MemoryTransaction) -> None:
-        """Validate and durably append a transaction while the writer lock is held."""
-        validated = self._validate_against_current(transaction)
-        line = self._canonical_transaction_line(validated)
-        try:
-            with self.journal_path.open("a", encoding="utf-8", newline="\n") as stream:
-                stream.write(line + "\n")
-                stream.flush()
-                os.fsync(stream.fileno())
-        except OSError as exc:
-            self._degrade(
-                "write_uncertain",
-                f"journal durability is uncertain: {exc}",
-            )
-            raise MemoryWriteError(str(exc)) from exc
-        self._publish_transaction(validated)
+    def _append_in_connection(
+        self,
+        connection: sqlite3.Connection,
+        transaction: MemoryTransaction,
+    ) -> None:
+        """Validate and write one transaction on a connection holding the write lock.
 
-    def _validate_create_transaction_shape(self, transaction: MemoryTransaction) -> None:
-        if not transaction.source_batch:
-            raise MemoryWriteError("create transaction requires a non-empty source_batch")
-        if len(transaction.operations) != 1:
-            raise MemoryWriteError("create transaction must contain exactly one operation")
-        record = transaction.operations[0].record
-        if record.revision != 1:
-            raise MemoryWriteError("create transaction must create revision 1")
-        if transaction.expected_revisions.get(record.id, 0) != 0:
-            raise MemoryWriteError("create transaction must expect creation revision 0")
-
-    def _synchronize_locked(self) -> None:
-        """Refresh repository health while the writer lock is held.
-
-        Repository instances are process-local. Refreshing under the shared
-        lock makes expected-revision checks observe commits made by other
-        instances.
+        Retiring revisions are written before activating ones so the new
+        current row for an active record never inserts while another active
+        record for the same conflict key is still current (the schema's
+        partial unique index is enforced per insert, not per transaction).
         """
-        health = self.rebuild()
-        if health.state != "healthy":
-            self._require_healthy()
+        validated = self._validate_against_database(connection, transaction)
+        tx_seq = self._insert_transaction(connection, validated)
+        for op_index, operation in sorted(
+            enumerate(validated.operations),
+            key=lambda pair: pair[1].record.status is MemoryStatus.ACTIVE,
+        ):
+            self._insert_revision(connection, tx_seq, op_index, validated, operation.record)
 
-    def _validate_against_current(self, transaction: MemoryTransaction) -> MemoryTransaction:
+    def _insert_transaction(
+        self, connection: sqlite3.Connection, transaction: MemoryTransaction
+    ) -> int:
+        payload = transaction.model_dump(mode="json")
+        cursor = connection.execute(
+            "INSERT INTO memory_transactions "
+            "(tx_id, recorded_at, actor, reason, source_batch, checksum_sha256, transaction_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                payload["tx_id"],
+                payload["recorded_at"],
+                payload["actor"],
+                payload["reason"],
+                payload["source_batch"],
+                payload["checksum_sha256"],
+                json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+            ),
+        )
+        return int(cursor.lastrowid)
+
+    def _insert_revision(
+        self,
+        connection: sqlite3.Connection,
+        tx_seq: int,
+        op_index: int,
+        transaction: MemoryTransaction,
+        record: MemoryRecord,
+    ) -> None:
+        """Write one revision row plus tags, aliases, and provenance side tables."""
+        connection.execute(
+            "UPDATE memory_revisions SET is_current = 0 WHERE memory_id = ? AND is_current = 1",
+            (record.id,),
+        )
+        payload = record.model_dump(mode="json")
+        connection.execute(
+            "INSERT INTO memory_revisions "
+            "(memory_id, revision, tx_seq, op_index, is_current, status, kind, scope_kind, "
+            "scope_key, subject_norm, conflict_key, content_hash, source_level, importance, "
+            "updated_at, expires_at, record_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                record.id,
+                record.revision,
+                tx_seq,
+                op_index,
+                1,
+                record.status.value,
+                record.kind.value,
+                record.scope.kind.value,
+                record.scope.key,
+                normalize_match_text(record.subject),
+                record.conflict_key,
+                record.content_hash,
+                record.source_level.value,
+                record.importance,
+                payload["updated_at"],
+                payload["expires_at"],
+                json.dumps(
+                    payload,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                ),
+            ),
+        )
+        for tag in record.tags:
+            connection.execute(
+                "INSERT OR IGNORE INTO memory_tags (memory_id, revision, tag) VALUES (?, ?, ?)",
+                (record.id, record.revision, tag),
+            )
+        for alias in record.aliases:
+            connection.execute(
+                "INSERT OR IGNORE INTO memory_aliases "
+                "(memory_id, revision, alias_norm) VALUES (?, ?, ?)",
+                (record.id, record.revision, normalize_match_text(alias)),
+            )
+        if transaction.source_batch:
+            connection.execute(
+                "INSERT OR IGNORE INTO memory_source_batches "
+                "(memory_id, source_batch, first_tx_seq) VALUES (?, ?, ?)",
+                (record.id, transaction.source_batch, tx_seq),
+            )
+            if record.revision == 1:
+                connection.execute(
+                    "INSERT INTO memory_creation_keys "
+                    "(source_batch, content_hash, memory_id, created_tx_seq) VALUES (?, ?, ?, ?)",
+                    (transaction.source_batch, record.content_hash, record.id, tx_seq),
+                )
+
+    def _validate_against_database(
+        self,
+        connection: sqlite3.Connection,
+        transaction: MemoryTransaction,
+    ) -> MemoryTransaction:
+        """Replicate the governed validation against committed database state.
+
+        Runs inside the write transaction, so the observed state can only
+        move forward after the write lock is acquired; expected revisions
+        are compared against the current row per memory id and the creation
+        key / active-conflict uniqueness checks mirror the schema indexes.
+        """
         if transaction_checksum(transaction) != transaction.checksum_sha256:
             raise MemoryWriteError("transaction checksum mismatch")
-        projected = dict(self._current)
-        projected_created = dict(self._created_by_source_content)
+        projected_actives: dict[str, str] = {}
+        for row in connection.execute(
+            "SELECT memory_id, conflict_key FROM memory_revisions "
+            "WHERE is_current = 1 AND status = 'active' ORDER BY memory_id ASC"
+        ):
+            projected_actives[row["memory_id"]] = row["conflict_key"]
+        created_owners: dict[tuple[str, str], str] = {}
         for operation in transaction.operations:
             record = operation.record
             self._tag_catalog.validate_record(record)
-            previous = projected.get(record.id)
+            previous = self._record_from_row(
+                connection.execute(
+                    "SELECT record_json FROM memory_revisions "
+                    "WHERE memory_id = ? AND is_current = 1",
+                    (record.id,),
+                ).fetchone()
+            )
             expected = transaction.expected_revisions[record.id]
             if previous is None:
                 if expected != 0 or record.revision != 1:
@@ -297,27 +435,124 @@ class StructuredMemoryRepository:
                 validate_same_status_revision(previous, record)
             if transaction.source_batch and record.revision == 1:
                 key = (transaction.source_batch, record.content_hash)
-                existing_id = projected_created.get(key)
+                existing_id = created_owners.get(key)
+                if existing_id is None:
+                    row = connection.execute(
+                        "SELECT memory_id FROM memory_creation_keys "
+                        "WHERE source_batch = ? AND content_hash = ?",
+                        key,
+                    ).fetchone()
+                    existing_id = row["memory_id"] if row is not None else None
                 if existing_id is not None and existing_id != record.id:
                     raise DuplicateMemoryIdempotencyKey(
                         "duplicate idempotency key "
                         f"source_batch={transaction.source_batch} content_hash={record.content_hash}: "
                         f"{existing_id}, {record.id}"
                     )
-                projected_created[key] = record.id
-            projected[record.id] = record
+                created_owners[key] = record.id
+            if record.status is MemoryStatus.ACTIVE:
+                projected_actives[record.id] = record.conflict_key
+            else:
+                projected_actives.pop(record.id, None)
         active_by_conflict: dict[str, str] = {}
-        for record in projected.values():
-            if record.status is not MemoryStatus.ACTIVE:
-                continue
-            conflicting = active_by_conflict.get(record.conflict_key)
-            if conflicting is not None and conflicting != record.id:
+        for memory_id, conflict_key in projected_actives.items():
+            conflicting = active_by_conflict.get(conflict_key)
+            if conflicting is not None and conflicting != memory_id:
                 raise InvalidMemoryTransition(
                     "multiple active records for conflict key "
-                    f"{record.conflict_key}: {conflicting}, {record.id}"
+                    f"{conflict_key}: {conflicting}, {memory_id}"
                 )
-            active_by_conflict[record.conflict_key] = record.id
+            active_by_conflict[conflict_key] = memory_id
         return transaction
+
+    def _map_integrity_error(
+        self,
+        connection: sqlite3.Connection,
+        transaction: MemoryTransaction,
+    ) -> MemoryError:
+        """Translate a rolled-back IntegrityError from committed state.
+
+        Runs after the write transaction was rolled back, so the diagnostic
+        queries observe only committed rows and never the failed attempt.
+        """
+        duplicate = connection.execute(
+            "SELECT tx_id FROM memory_transactions WHERE tx_id = ?",
+            (transaction.tx_id,),
+        ).fetchone()
+        if duplicate is not None:
+            return DuplicateMemoryIdempotencyKey(
+                f"duplicate transaction id {transaction.tx_id}"
+            )
+        if transaction.source_batch:
+            for operation in transaction.operations:
+                record = operation.record
+                if record.revision != 1:
+                    continue
+                row = connection.execute(
+                    "SELECT memory_id FROM memory_creation_keys "
+                    "WHERE source_batch = ? AND content_hash = ?",
+                    (transaction.source_batch, record.content_hash),
+                ).fetchone()
+                if row is not None:
+                    return DuplicateMemoryIdempotencyKey(
+                        "duplicate idempotency key "
+                        f"source_batch={transaction.source_batch} content_hash={record.content_hash}: "
+                        f"{row['memory_id']}, {record.id}"
+                    )
+        for operation in transaction.operations:
+            record = operation.record
+            if record.status is not MemoryStatus.ACTIVE:
+                continue
+            row = connection.execute(
+                "SELECT memory_id FROM memory_revisions "
+                "WHERE is_current = 1 AND status = 'active' AND conflict_key = ? "
+                "AND memory_id != ?",
+                (record.conflict_key, record.id),
+            ).fetchone()
+            if row is not None:
+                return InvalidMemoryTransition(
+                    "multiple active records for conflict key "
+                    f"{record.conflict_key}: {row['memory_id']}, {record.id}"
+                )
+        for operation in transaction.operations:
+            record = operation.record
+            row = connection.execute(
+                "SELECT revision FROM memory_revisions WHERE memory_id = ? AND is_current = 1",
+                (record.id,),
+            ).fetchone()
+            if row is not None:
+                return MemoryRevisionConflict(
+                    f"expected revision {row['revision']} for {record.id}, "
+                    f"got {transaction.expected_revisions[record.id]}"
+                )
+        return MemoryWriteError(
+            f"unexpected database constraint violation for transaction {transaction.tx_id}: nothing was written"
+        )
+
+    def _creation_key_record(
+        self,
+        connection: sqlite3.Connection,
+        source_batch: str,
+        content_hash: str,
+    ) -> MemoryRecord | None:
+        row = connection.execute(
+            "SELECT r.record_json FROM memory_revisions r "
+            "JOIN memory_creation_keys k ON k.memory_id = r.memory_id "
+            "WHERE k.source_batch = ? AND k.content_hash = ? AND r.is_current = 1",
+            (source_batch, content_hash),
+        ).fetchone()
+        return self._record_from_row(row)
+
+    def _validate_create_transaction_shape(self, transaction: MemoryTransaction) -> None:
+        if not transaction.source_batch:
+            raise MemoryWriteError("create transaction requires a non-empty source_batch")
+        if len(transaction.operations) != 1:
+            raise MemoryWriteError("create transaction must contain exactly one operation")
+        record = transaction.operations[0].record
+        if record.revision != 1:
+            raise MemoryWriteError("create transaction must create revision 1")
+        if transaction.expected_revisions.get(record.id, 0) != 0:
+            raise MemoryWriteError("create transaction must expect creation revision 0")
 
     def _canonical_transaction_line(self, transaction: MemoryTransaction) -> str:
         return json.dumps(
@@ -326,41 +561,6 @@ class StructuredMemoryRepository:
             separators=(",", ":"),
             ensure_ascii=False,
         )
-
-    def _replay_line(self, raw: str, line_number: int) -> bool:
-        try:
-            data = json.loads(raw)
-        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-            self._degrade("invalid_json", f"line {line_number}: {exc}")
-            return False
-        if not isinstance(data, dict):
-            self._degrade("invalid_json", f"line {line_number}: not an object")
-            return False
-        try:
-            transaction = MemoryTransaction.model_validate(data)
-        except ValidationError as exc:
-            code = "unsupported_schema" if data.get("schema_version") != 1 else "invalid_transaction"
-            self._degrade(code, f"line {line_number}: {exc}")
-            return False
-        try:
-            self._validate_against_current(transaction)
-        except DuplicateMemoryIdempotencyKey as exc:
-            self._degrade("duplicate_idempotency_key", f"line {line_number}: {exc}")
-            return False
-        except MemoryRevisionConflict as exc:
-            self._degrade("revision_conflict", f"line {line_number}: {exc}")
-            return False
-        except InvalidMemoryTransition as exc:
-            self._degrade("invalid_transition", f"line {line_number}: {exc}")
-            return False
-        except UnknownMemoryTag as exc:
-            self._degrade("unknown_tag", f"line {line_number}: {exc}")
-            return False
-        except MemoryWriteError as exc:
-            self._degrade("checksum_mismatch", f"line {line_number}: {exc}")
-            return False
-        self._publish_transaction(transaction)
-        return True
 
     # ------------------------------------------------------------------
     # Read accessors
@@ -441,13 +641,7 @@ class StructuredMemoryRepository:
         transaction and never moves, so this lookup is deterministic.
         """
         with self._open_read() as connection:
-            row = connection.execute(
-                "SELECT r.record_json FROM memory_revisions r "
-                "JOIN memory_creation_keys k ON k.memory_id = r.memory_id "
-                "WHERE k.source_batch = ? AND k.content_hash = ? AND r.is_current = 1",
-                (source_batch, content_hash),
-            ).fetchone()
-        return self._record_from_row(row)
+            return self._creation_key_record(connection, source_batch, content_hash)
 
     def record_ids_for_source(self, source_batch: str) -> frozenset[str]:
         """Return every record that ever carried a non-empty source batch."""
