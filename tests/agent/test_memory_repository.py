@@ -1359,3 +1359,132 @@ def test_two_processes_cannot_commit_two_current_actives(workspace):
             "SELECT COUNT(*) FROM memory_revisions WHERE is_current = 1 AND status = 'active'"
         ).fetchone()[0]
     assert count == 1
+
+
+# ---------------------------------------------------------------------------
+# Startup decision matrix (design section 11: memory.db / journal / manifest)
+# ---------------------------------------------------------------------------
+
+
+def _canonical_line(transaction: MemoryTransaction) -> str:
+    return json.dumps(
+        transaction.model_dump(mode="json"),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+
+
+def _write_journal(workspace: Path, line: str) -> Path:
+    journal = workspace / "memory" / "structured" / "journal.jsonl"
+    journal.write_text(line + "\n", encoding="utf-8")
+    return journal
+
+
+def test_startup_no_database_no_journal_creates_fresh_sqlite(workspace):
+    repository = StructuredMemoryRepository(workspace, lock_timeout_s=0.1)
+    assert repository.database_path.exists()
+    assert repository.health.state == "healthy"
+    assert repository.storage_stats().transaction_count == 0
+
+
+def test_startup_no_database_empty_journal_creates_fresh_sqlite(workspace):
+    (workspace / "memory" / "structured" / "journal.jsonl").write_text("", encoding="utf-8")
+    repository = StructuredMemoryRepository(workspace, lock_timeout_s=0.1)
+    assert repository.database_path.exists()
+    assert repository.health.state == "healthy"
+    assert repository.storage_stats().transaction_count == 0
+
+
+def test_startup_migrates_non_empty_journal(workspace):
+    record = MemoryRecord.model_validate(record_data(memory_id="mem_" + "a" * 32))
+    transactions = [make_transaction(record, source_batch="history:1-2")]
+    journal = _write_journal(workspace, _canonical_line(transactions[0]))
+    original_bytes = journal.read_bytes()
+
+    repository = StructuredMemoryRepository(workspace, lock_timeout_s=0.1)
+
+    assert repository.health.state == "healthy"
+    assert repository.get(record.id) == record
+    assert journal.read_bytes() == original_bytes
+    assert not list((workspace / "memory" / "structured").glob("memory.db.importing*"))
+    manifest = workspace / "memory" / "structured" / "storage-migration-v2.json"
+    assert json.loads(manifest.read_text(encoding="utf-8"))["status"] == "completed"
+
+
+def test_startup_existing_database_never_reads_journal(workspace, monkeypatch):
+    first = StructuredMemoryRepository(workspace, lock_timeout_s=0.1)
+    record = MemoryRecord.model_validate(record_data(memory_id="mem_" + "a" * 32))
+    first.append_transaction(make_transaction(record))
+    _write_journal(workspace, json.dumps("not-a-transaction"))
+
+    from miniunicorn.agent import memory_jsonl_import as import_module
+    from miniunicorn.agent import memory_repository as repo_module
+
+    class ExplodingJournalPath(Path):
+        def open(self, *args, **kwargs):
+            if self.name == "journal.jsonl":
+                raise RuntimeError("journal must never be read")
+            return super().open(*args, **kwargs)
+
+    monkeypatch.setattr(repo_module, "Path", ExplodingJournalPath)
+    monkeypatch.setattr(import_module, "Path", ExplodingJournalPath)
+
+    reopened = StructuredMemoryRepository(workspace, lock_timeout_s=0.1)
+    assert reopened.health.state == "healthy"
+    assert reopened.get(record.id) == record
+
+
+def test_startup_existing_database_ignores_completed_manifest(workspace):
+    first = StructuredMemoryRepository(workspace, lock_timeout_s=0.1)
+    record = MemoryRecord.model_validate(record_data(memory_id="mem_" + "a" * 32))
+    first.append_transaction(make_transaction(record))
+    _write_journal(workspace, json.dumps("not-a-transaction"))
+    manifest = workspace / "memory" / "structured" / "storage-migration-v2.json"
+    manifest.write_text(json.dumps({"status": "completed"}), encoding="utf-8")
+
+    reopened = StructuredMemoryRepository(workspace, lock_timeout_s=0.1)
+
+    assert reopened.health.state == "healthy"
+    assert reopened.get(record.id) == record
+    assert reopened.storage_stats().transaction_count == 1
+
+
+def test_startup_completed_manifest_without_database_degrades(workspace):
+    manifest = workspace / "memory" / "structured" / "storage-migration-v2.json"
+    manifest.write_text(json.dumps({"status": "completed"}), encoding="utf-8")
+    _write_journal(workspace, _canonical_line(make_transaction(MemoryRecord.model_validate(record_data()))))
+
+    repository = StructuredMemoryRepository(workspace, lock_timeout_s=0.1)
+
+    assert repository.health.state == "degraded"
+    assert repository.health.error_code == "migration_database_lost"
+    assert not repository.database_path.exists()
+    with pytest.raises(RepositoryDegradedError):
+        repository.current_records()
+
+
+def test_startup_failed_migration_degrades_without_creating_database(workspace):
+    _write_journal(workspace, '{"broken": [')
+
+    repository = StructuredMemoryRepository(workspace, lock_timeout_s=0.1)
+
+    assert repository.health.state == "degraded"
+    assert repository.health.error_code == "invalid_transaction"
+    assert not repository.database_path.exists()
+    with pytest.raises(RepositoryDegradedError):
+        repository.get("mem_" + "a" * 32)
+
+
+def test_startup_removes_importing_residue_then_migrates(workspace):
+    residue = workspace / "memory" / "structured" / "memory.db.importing-stale-1234"
+    residue.write_bytes(b"garbage residue")
+    record = MemoryRecord.model_validate(record_data(memory_id="mem_" + "a" * 32))
+    _write_journal(workspace, _canonical_line(make_transaction(record, source_batch="history:1-2")))
+
+    repository = StructuredMemoryRepository(workspace, lock_timeout_s=0.1)
+
+    assert not residue.exists()
+    assert not list((workspace / "memory" / "structured").glob("memory.db.importing*"))
+    assert repository.health.state == "healthy"
+    assert repository.get(record.id) == record

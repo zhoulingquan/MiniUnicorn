@@ -24,6 +24,10 @@ from typing import Any
 from loguru import logger
 from pydantic import ValidationError
 
+from miniunicorn.agent.memory_jsonl_import import (
+    LegacyJournalImportError,
+    migrate_legacy_journal,
+)
 from miniunicorn.agent.memory_models import (
     DuplicateMemoryIdempotencyKey,
     InvalidMemoryTransition,
@@ -54,6 +58,7 @@ from miniunicorn.agent.memory_sqlite_schema import (
 _SUPPORTED_TAGS_FILE = "tags.json"
 _JOURNAL_FILE = "journal.jsonl"
 _LOCK_FILE = "journal.lock"
+_MIGRATION_MANIFEST_FILE = "storage-migration-v2.json"
 
 
 class StructuredMemoryRepository:
@@ -70,7 +75,8 @@ class StructuredMemoryRepository:
         self._tag_catalog = TagCatalog()
         self._health = RepositoryHealth()
         self._initialize_database()
-        self.rebuild()
+        if self._health.state != "degraded":
+            self.rebuild()
         logger.info("memory_repository_loaded workspace={} health={}", self.workspace, self._health.state)
 
     @property
@@ -100,16 +106,63 @@ class StructuredMemoryRepository:
             self._tag_catalog = TagCatalog()
 
     def _initialize_database(self) -> None:
-        """Create the SQLite fact database and schema when missing."""
+        """Create the SQLite fact database and schema when missing (design section 11).
+
+        Startup decision matrix: an existing database is opened directly and
+        the legacy journal is never read; a missing database is migrated from
+        a non-empty journal exactly once; a completed migration manifest
+        without a database fails closed; a failed migration never creates a
+        fresh empty database that would silently drop facts.
+        """
         try:
+            if not self.database_path.exists():
+                self._prepare_missing_database()
             with connect_memory_db(
                 self.database_path, lock_timeout_s=self.lock_timeout_s
             ) as connection:
                 initialize_schema(connection)
+        except LegacyJournalImportError as exc:
+            self._degrade(exc.code, str(exc))
         except RepositoryDegradedError as exc:
             self._degrade(_degraded_error_code(exc), str(exc))
         except (OSError, sqlite3.Error) as exc:
             self._degrade("sqlite_open_error", f"cannot open memory database: {exc}")
+
+    def _prepare_missing_database(self) -> None:
+        """Bring up a missing database: migrate once or fail closed.
+
+        Raises :class:`RepositoryDegradedError` / :class:`LegacyJournalImportError`
+        when the database cannot come up, so ``_initialize_database`` never
+        creates an empty database that would hide unimported facts.
+        """
+        if self._migration_manifest_completed():
+            raise RepositoryDegradedError(
+                "memory.db is missing after a completed migration; restore it from a backup "
+                "(code=migration_database_lost)"
+            )
+        if self._journal_has_data():
+            result = migrate_legacy_journal(self.workspace, self.lock_timeout_s)
+            if not result.migrated:
+                raise RepositoryDegradedError(
+                    "legacy journal migration produced no database (code=migration_failed)"
+                )
+
+    def _migration_manifest_completed(self) -> bool:
+        try:
+            manifest = json.loads(
+                self.structured_dir.joinpath(_MIGRATION_MANIFEST_FILE).read_text(
+                    encoding="utf-8"
+                )
+            )
+        except (OSError, ValueError):
+            return False
+        return manifest.get("status") == "completed"
+
+    def _journal_has_data(self) -> bool:
+        try:
+            return self.journal_path.stat().st_size > 0
+        except OSError:
+            return False
 
     # ------------------------------------------------------------------
     # Rebuild (health refresh)
@@ -276,6 +329,35 @@ class StructuredMemoryRepository:
             raise
         except OSError as exc:
             raise MemoryWriteError(str(exc)) from exc
+
+    def append_imported_transaction(self, transaction: MemoryTransaction) -> None:
+        """Import one legacy journal transaction (migration-only, design section 11).
+
+        Runs the exact same governed validation and writes as
+        :meth:`append_transaction` (checksum, expected revisions, status
+        transitions, tag catalog, creation keys, active-conflict index) inside
+        its own ``BEGIN IMMEDIATE`` transaction against ``self.database_path``.
+
+        This entry is used solely by ``memory_jsonl_import.migrate_legacy_journal``
+        to replay a legacy journal into a temporary database. It never routes
+        to audit export (audit export will attach only to the runtime append
+        entries) and never degrades repository health: migration is
+        single-process and the temporary database is discarded on any failure,
+        so errors are raised to the caller instead.
+        """
+        with connect_memory_db(
+            self.database_path, lock_timeout_s=self.lock_timeout_s
+        ) as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                self._append_in_connection(connection, transaction)
+                connection.commit()
+            except sqlite3.IntegrityError as exc:
+                connection.rollback()
+                raise self._map_integrity_error(connection, transaction) from exc
+            except Exception:
+                connection.rollback()
+                raise
 
     def _append_in_connection(
         self,

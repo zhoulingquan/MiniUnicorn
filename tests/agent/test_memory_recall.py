@@ -460,8 +460,7 @@ def test_max_hits_limits_results(recall, repository):
 
 
 def test_degraded_health_returns_no_hits(recall, repository, project_decision):
-    with repository.journal_path.open("a", encoding="utf-8") as stream:
-        stream.write("not-a-transaction\n")
+    repository.database_path.write_bytes(b"garbage, not a sqlite database" * 4)
     health = repository.rebuild()
     assert health.state == "degraded"
     result = recall.recall(make_query())
