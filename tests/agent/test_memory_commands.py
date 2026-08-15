@@ -207,16 +207,23 @@ class TestStatus:
         router = _router()
         content = await _dispatch(router, store, "/memory-status")
         assert "Architecture: `governed`" in content
+        assert "Backend: `sqlite`" in content
+        assert "Schema: `v1`" in content
         assert "Health: `healthy`" in content
+        assert "Transactions: `2`" in content
+        assert "Revisions: `" in content
+        assert "Current: `" in content
+        assert "Database size:" in content
+        assert "Audit exported seq:" in content
         assert "candidate=0 active=1" in content
-        assert "Migration:" not in content
+        assert "Migration:" in content
 
-    async def test_status_has_no_import_state(self, workspace):
+    async def test_status_fresh_store_shows_not_needed_migration(self, workspace):
         store = _store(workspace)
         router = _router()
         content = await _dispatch(router, store, "/memory-status")
         assert "Architecture: `governed`" in content
-        assert "Migration:" not in content
+        assert "Migration: `not_needed`" in content
 
 
 class TestList:
@@ -814,3 +821,254 @@ class TestAuditExportTrigger:
 
         assert "Promoted" in content
         assert store.structured_repository.storage_stats().audit_lag == 2
+
+
+class TestMemoryLog:
+    async def test_log_default_lists_recent_transactions_without_evidence(self, workspace):
+        store = _seed(workspace)
+        router = _router()
+        content = await _dispatch(router, store, "/memory-log")
+        assert "## Memory transaction log (2)" in content
+        assert "`mtx_" in content
+        assert "actor=`system`" in content
+        assert "reason=seed" in content
+        assert "records=`mem_" in content
+        assert "excerpt" not in content
+        assert "用 SQLite 做存储" not in content
+
+    async def test_log_with_tx_id_shows_operations_and_evidence_excerpt(self, workspace):
+        store = _seed(workspace)
+        router = _router()
+        tx = store.structured_repository.transaction_log()[0]
+        content = await _dispatch(router, store, f"/memory-log {tx.tx_id}")
+        assert f"## Memory transaction {tx.tx_id}" in content
+        assert "actor: `system`" in content
+        assert "operation 1: `put`" in content
+        assert "用 SQLite 做存储" in content
+        assert "excerpt=" in content
+
+    async def test_log_evidence_excerpt_truncated_to_200_chars(self, workspace):
+        from miniunicorn.agent.memory_lifecycle import IngestContext
+        from miniunicorn.agent.memory_models import (
+            ActorKind,
+            CandidateProposal,
+            EvidenceKind,
+            EvidenceRef,
+            MemoryKind,
+            MemoryScope,
+            ScopeKind,
+            SourceLevel,
+        )
+
+        store = _store(workspace)
+        long = "x" * 500
+        evidence = EvidenceRef(kind=EvidenceKind.USER_MESSAGE, ref="test", excerpt=long)
+        proposal = CandidateProposal(
+            proposal_index=0,
+            kind=MemoryKind.FACT,
+            scope_hint=ScopeKind.PROJECT,
+            subject="s",
+            slot="general",
+            statement="短陈述",
+            tags=("project.fact",),
+            confidence=0.9,
+            importance=3,
+            evidence_refs=("src:0",),
+            speech_act=SourceLevel.INFERRED,
+        )
+        store.structured_lifecycle.ingest(
+            proposal,
+            IngestContext(
+                actor=ActorKind.USER,
+                reason="test",
+                source_batch="test",
+                scope=MemoryScope(kind=ScopeKind.PROJECT, key=store.project_scope_key),
+                evidence_catalog={"src:0": evidence},
+                now=__import__("datetime").datetime.now(__import__("datetime").timezone.utc),
+            ),
+        )
+        tx = store.structured_repository.transaction_log()[0]
+        content = await _dispatch(_router(), store, f"/memory-log {tx.tx_id}")
+        assert "excerpt=" in content
+        assert "x" * 201 not in content
+
+    async def test_log_unknown_and_unauthorized_tx_ids_respond_identically(self, workspace):
+        store = _store(workspace)
+        hidden = _seed_scope(
+            store,
+            MemoryScope(kind=ScopeKind.USER, key="user:other"),
+            "HIDDEN USER FACT",
+            promote=True,
+            excerpt="HIDDEN EVIDENCE",
+        )
+        hidden_tx = next(
+            tx
+            for tx in store.structured_repository.transaction_log()
+            if any(op.record.id == hidden.id for op in tx.operations)
+        )
+        router = _router()
+        missing_id = "mtx_" + "0" * 32
+        missing = await _dispatch(router, store, f"/memory-log {missing_id}")
+        unauthorized = await _dispatch(router, store, f"/memory-log {hidden_tx.tx_id}")
+        assert missing == f"No memory transaction with id `{missing_id}`."
+        assert unauthorized == f"No memory transaction with id `{hidden_tx.tx_id}`."
+        assert "HIDDEN" not in unauthorized
+
+    async def test_log_default_hides_transactions_of_other_identities(self, workspace):
+        store = _store(workspace)
+        _seed_scope(
+            store,
+            _project_scope(store),
+            "VISIBLE PROJECT FACT",
+            promote=True,
+            subject="Visible",
+        )
+        _seed_scope(
+            store,
+            MemoryScope(kind=ScopeKind.USER, key="user:other"),
+            "HIDDEN USER FACT",
+            promote=True,
+            subject="Hidden",
+        )
+        content = await _dispatch(_router(), store, "/memory-log")
+        assert "## Memory transaction log (2)" in content
+        assert "HIDDEN USER FACT" not in content
+        assert "VISIBLE PROJECT FACT" not in content
+
+
+class TestMemoryBackup:
+    async def test_backup_creates_verified_snapshot_and_reports_id(self, workspace):
+        import sqlite3
+
+        store = _seed(workspace)
+        content = await _dispatch(_router(), store, "/memory-backup")
+        assert "## Memory backup created" in content
+        assert "- Backup id: `memory-" in content
+        assert "- SHA-256: `" in content
+        assert "- Integrity: `ok`" in content
+        backups = Path(workspace) / "memory" / "structured" / "backups"
+        files = list(backups.glob("memory-*.db"))
+        assert len(files) == 1
+        with sqlite3.connect(files[0]) as connection:
+            assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+            assert (
+                connection.execute("SELECT COUNT(*) FROM memory_transactions").fetchone()[0]
+                == 2
+            )
+
+    async def test_backup_when_loop_missing_is_friendly(self, workspace):
+        store = _seed(workspace)
+        loop = SimpleNamespace(context=SimpleNamespace(memory=store))
+        msg = InboundMessage(
+            channel="test", sender_id="u1", chat_id="c1", content="/memory-backup"
+        )
+        ctx = CommandContext(msg=msg, session=None, key="k1", raw="/memory-backup", loop=loop)
+        result = await _router().dispatch(ctx)
+        assert result is not None
+        assert "Memory backup" in result.content
+
+
+class TestMemoryRestore:
+    async def test_restore_replaces_database_and_reports_safety_backup(self, workspace):
+        from miniunicorn.agent.memory_backup import MemoryBackupManager
+
+        store = _seed(workspace)
+        manager = MemoryBackupManager(store.structured_repository)
+        backup = manager.create_backup()
+        _seed_scope(
+            store,
+            _project_scope(store),
+            "SECOND SEED FACT",
+            promote=True,
+            subject="Second",
+        )
+        assert store.structured_repository.storage_stats().transaction_count == 4
+
+        content = await _dispatch(_router(), store, f"/memory-restore {backup.backup_id}")
+
+        assert "## Memory restored" in content
+        assert f"- Backup: `{backup.backup_id}`" in content
+        assert "- Safety backup: `recovery/" in content
+        assert f"- Transaction seq: `{backup.last_transaction_seq}`" in content
+        assert store.structured_repository.health.state == "healthy"
+        assert store.structured_repository.storage_stats().transaction_count == 2
+
+    async def test_restore_unknown_backup_id_reports_not_found(self, workspace):
+        store = _seed(workspace)
+        backup_id = "memory-2099-01-01T00-00-00Z-1.db"
+        content = await _dispatch(_router(), store, f"/memory-restore {backup_id}")
+        assert f"No memory backup with id `{backup_id}`." in content
+
+    async def test_restore_rejects_malformed_backup_id(self, workspace):
+        store = _seed(workspace)
+        content = await _dispatch(_router(), store, "/memory-restore ../outside.db")
+        assert "invalid backup id" in content
+
+    async def test_restore_usage(self, workspace):
+        store = _seed(workspace)
+        content = await _dispatch(_router(), store, "/memory-restore")
+        assert "Usage: /memory-restore <backup-id>" in content
+
+
+class TestMemoryExportAudit:
+    async def test_export_pending_flushes_lag(self, workspace):
+        store = _store(workspace)
+        _seed_scope(store, _project_scope(store), "PENDING FACT", promote=True)
+        content = await _dispatch(_router(), store, "/memory-export-audit")
+        assert "## Audit export" in content
+        assert "- Rows: `2`" in content
+        assert store.structured_repository.storage_stats().audit_lag == 0
+
+    async def test_export_audit_full_rebuild(self, workspace):
+        store = _seed(workspace)
+        content = await _dispatch(_router(), store, "/memory-export-audit --rebuild")
+        assert "## Audit export" in content
+        assert store.structured_repository.storage_stats().audit_lag == 0
+        manifest = json.loads(
+            (Path(workspace) / "memory" / "structured" / "audit" / "manifest.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert manifest["database_last_tx_seq"] == store.structured_repository.storage_stats().last_transaction_seq
+
+    async def test_export_audit_usage(self, workspace):
+        store = _seed(workspace)
+        content = await _dispatch(_router(), store, "/memory-export-audit --bogus")
+        assert "Usage: /memory-export-audit [--rebuild]" in content
+
+
+class TestDiagnosticScopeIsolation:
+    async def test_restore_cannot_target_another_workspace_backup(self, tmp_path):
+        from miniunicorn.agent.memory_backup import MemoryBackupManager
+
+        a = tmp_path / "A"
+        b = tmp_path / "B"
+        a.mkdir()
+        b.mkdir()
+        loop = _real_loop(a)
+        store_a = loop.context.memory
+        store_b = loop.memory_for(b)
+        _seed_scope(store_a, _project_scope(store_a), "FACT IN A", promote=True)
+        backup_a = MemoryBackupManager(store_a.structured_repository).create_backup()
+
+        session = _scoped_session(loop, b)
+        content = await _dispatch_loop(
+            _router(), loop, session, f"/memory-restore {backup_a.backup_id}"
+        )
+
+        assert f"No memory backup with id `{backup_a.backup_id}`." in content
+        assert store_b.structured_repository.storage_stats().transaction_count == 0
+
+    async def test_backup_lands_in_effective_workspace(self, tmp_path):
+        a = tmp_path / "A"
+        b = tmp_path / "B"
+        a.mkdir()
+        b.mkdir()
+        loop = _real_loop(a)
+        session = _scoped_session(loop, b)
+        content = await _dispatch_loop(_router(), loop, session, "/memory-backup")
+        assert "- Backup id: `memory-" in content
+        backups_b = b / "memory" / "structured" / "backups"
+        assert list(backups_b.glob("memory-*.db"))
+        backups_a = a / "memory" / "structured" / "backups"
+        assert not backups_a.exists()

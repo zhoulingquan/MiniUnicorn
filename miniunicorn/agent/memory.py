@@ -12,6 +12,7 @@ import weakref
 from contextlib import suppress
 from dataclasses import replace as dataclasses_replace
 from datetime import datetime, timezone
+from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Mapping
 
@@ -125,9 +126,14 @@ class MemoryStore:
         "memory/reflections.jsonl": {"dream", "reflection", "memory_store"},
         "memory/shared/POLICY.md": {"memory_store"},
         "memory/structured/memory.db": {"memory_store"},
+        "memory/structured/memory.db-wal": {"memory_store"},
+        "memory/structured/memory.db-shm": {"memory_store"},
         "memory/structured/storage-migration-v2.json": {"memory_store"},
         "memory/structured/audit": {"memory_store"},
         "memory/structured/backups": {"memory_store"},
+        "memory/structured/recovery": {"memory_store"},
+        "memory/structured/memory-maintenance.lock": {"memory_store"},
+        "memory/structured/*.importing-*": {"memory_store"},
         "memory/structured/tags.json": {"memory_store"},
     }
 
@@ -427,7 +433,7 @@ class MemoryStore:
         allowed_roles = cls._WRITER_WHITELIST.get(relative_path)
         if allowed_roles is None:
             for key, roles in cls._WRITER_WHITELIST.items():
-                if relative_path.startswith(f"{key}/"):
+                if relative_path.startswith(f"{key}/") or fnmatchcase(relative_path, key):
                     allowed_roles = roles
                     break
         if allowed_roles is None:

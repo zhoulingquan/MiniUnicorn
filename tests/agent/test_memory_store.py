@@ -440,9 +440,14 @@ class TestSingleWriterPathValidation:
             "memory/reflections.jsonl",
             "memory/shared/POLICY.md",
             "memory/structured/memory.db",
+            "memory/structured/memory.db-wal",
+            "memory/structured/memory.db-shm",
             "memory/structured/storage-migration-v2.json",
             "memory/structured/audit",
             "memory/structured/backups",
+            "memory/structured/recovery",
+            "memory/structured/memory-maintenance.lock",
+            "memory/structured/*.importing-*",
             "memory/structured/tags.json",
         }
         assert expected_files.issubset(set(MemoryStore._WRITER_WHITELIST.keys()))
@@ -640,9 +645,14 @@ class TestStructuredMemoryStore:
     def test_whitelist_allows_memory_store_for_structured_files(self):
         for path in (
             "memory/structured/memory.db",
+            "memory/structured/memory.db-wal",
+            "memory/structured/memory.db-shm",
             "memory/structured/storage-migration-v2.json",
             "memory/structured/audit",
             "memory/structured/backups",
+            "memory/structured/recovery",
+            "memory/structured/memory-maintenance.lock",
+            "memory/structured/*.importing-*",
             "memory/structured/tags.json",
             "memory/shared/POLICY.md",
         ):
@@ -670,7 +680,16 @@ class TestStructuredMemoryStore:
         records: list[str] = []
         handler_id = loguru_logger.add(lambda m: records.append(m), level="WARNING")
         try:
-            MemoryStore._assert_writer_allowed("main_agent", "memory/structured/audit/manifest.json")
+            for path in (
+                "memory/structured/audit/manifest.json",
+                "memory/structured/backups/memory-2026-08-15.db",
+                "memory/structured/recovery/2026-08-15/memory-before-restore.db",
+                "memory/structured/memory.db-wal",
+                "memory/structured/memory.db-shm",
+                "memory/structured/memory.db.importing-abc123",
+                "memory/structured/memory-maintenance.lock",
+            ):
+                MemoryStore._assert_writer_allowed("main_agent", path)
         finally:
             loguru_logger.remove(handler_id)
         assert any("Single-Writer invariant violation" in record for record in records)
@@ -686,7 +705,12 @@ class TestStructuredMemoryStore:
                 "memory/structured/audit/manifest.json",
                 "memory/structured/audit/journal-open.jsonl",
                 "memory/structured/backups/memory-2026-08-15.db",
+                "memory/structured/recovery/2026-08-15/memory-before-restore.db",
                 "memory/structured/memory.db",
+                "memory/structured/memory.db-wal",
+                "memory/structured/memory.db-shm",
+                "memory/structured/memory.db.importing-abc123",
+                "memory/structured/memory-maintenance.lock",
                 "memory/structured/storage-migration-v2.json",
             ):
                 MemoryStore._assert_writer_allowed("memory_store", path)
