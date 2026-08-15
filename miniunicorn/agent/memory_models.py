@@ -663,6 +663,29 @@ class RepositoryHealth(BaseModel):
     last_valid_line: int | None = None
     error_code: str | None = None
     error_message: str | None = None
+    backend: Literal["sqlite"] = "sqlite"
+    schema_version: int | None = None
+    last_transaction_seq: int = 0
+    migration_state: Literal["not_needed", "pending", "completed", "failed"] = "not_needed"
+    audit_exported_seq: int = 0
+    database_bytes: int = 0
+
+
+class MemoryStorageStats(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    backend: Literal["sqlite"] = "sqlite"
+    schema_version: int = Field(ge=1)
+    transaction_count: int = Field(ge=0)
+    revision_count: int = Field(ge=0)
+    current_count: int = Field(ge=0)
+    last_transaction_seq: int = Field(ge=0)
+    audit_exported_seq: int = Field(ge=0)
+    database_bytes: int = Field(ge=0)
+
+    @property
+    def audit_lag(self) -> int:
+        return max(0, self.last_transaction_seq - self.audit_exported_seq)
 
 
 # ---------------------------------------------------------------------------

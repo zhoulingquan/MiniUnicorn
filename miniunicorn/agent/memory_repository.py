@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
 
 from filelock import FileLock
@@ -22,10 +23,13 @@ from pydantic import ValidationError
 from miniunicorn.agent.memory_models import (
     DuplicateMemoryIdempotencyKey,
     InvalidMemoryTransition,
+    MemoryKind,
     MemoryLockTimeout,
     MemoryRecord,
     MemoryRevisionConflict,
+    MemoryScope,
     MemoryStatus,
+    MemoryStorageStats,
     MemoryTransaction,
     MemoryWriteError,
     RepositoryDegradedError,
@@ -444,3 +448,22 @@ class StructuredMemoryRepository:
             for memory_id, batches in self._source_batches_by_record.items()
             if source_batch in batches
         )
+
+    # ------------------------------------------------------------------
+    # SQLite contract stubs (implemented in the sqlite migration tasks)
+    # ------------------------------------------------------------------
+
+    def recall_candidates(
+        self,
+        *,
+        allowed_scopes: tuple[MemoryScope, ...],
+        requested_kinds: tuple[MemoryKind, ...],
+        now: datetime,
+    ) -> tuple[MemoryRecord, ...]:
+        raise NotImplementedError
+
+    def transaction_log(self, *, tx_id: str | None = None) -> tuple[MemoryTransaction, ...]:
+        raise NotImplementedError
+
+    def storage_stats(self) -> MemoryStorageStats:
+        raise NotImplementedError
