@@ -1,9 +1,11 @@
-"""SQLite memory fact database: connection policy and schema DDL.
+"""SQLite memory fact database: connection policy, schema DDL, and statements.
 
-This module owns how the structured memory client connects to ``memory.db``
-and what schema it creates (design sections 7-8). The Repository depends only
-on :func:`connect_memory_db`, :func:`initialize_schema` and
-:func:`check_schema`; it never copies PRAGMAs or DDL.
+This module owns how the structured memory client connects to ``memory.db``,
+what schema it creates, and the single home for every SQL statement the
+repository executes (design sections 7-9). The Repository depends only on
+:func:`connect_memory_db`, :func:`initialize_schema`, :func:`check_schema`,
+:func:`record_from_row` and the statement constants; it never copies PRAGMAs,
+DDL, or SQL.
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from miniunicorn.agent.memory_models import RepositoryDegradedError
+from miniunicorn.agent.memory_models import MemoryRecord, RepositoryDegradedError
 
 if TYPE_CHECKING:
     from typing import TypeAlias
@@ -227,3 +229,143 @@ def check_schema(connection: sqlite3.Connection) -> None:
             f"unsupported memory database schema version {version}: "
             f"expected {SCHEMA_VERSION} (code=unsupported_schema_version)"
         )
+
+
+# ---------------------------------------------------------------------------
+# Runtime statement constants (single SQL home; design sections 7-9)
+# ---------------------------------------------------------------------------
+
+SQL_QUICK_CHECK = "PRAGMA quick_check(1)"
+
+SQL_MAX_TX_SEQ = "SELECT COALESCE(MAX(tx_seq), 0) FROM memory_transactions"
+
+SQL_AUDIT_EXPORTED_SEQ = (
+    "SELECT value FROM storage_meta WHERE key = 'audit_exported_seq'"
+)
+
+SQL_INSERT_TRANSACTION = (
+    "INSERT INTO memory_transactions "
+    "(tx_id, recorded_at, actor, reason, source_batch, checksum_sha256, "
+    "transaction_json) VALUES (?, ?, ?, ?, ?, ?, ?)"
+)
+
+SQL_UNSET_CURRENT = (
+    "UPDATE memory_revisions SET is_current = 0 WHERE memory_id = ? AND is_current = 1"
+)
+
+SQL_INSERT_REVISION = (
+    "INSERT INTO memory_revisions "
+    "(memory_id, revision, tx_seq, op_index, is_current, status, kind, scope_kind, "
+    "scope_key, subject_norm, conflict_key, content_hash, source_level, importance, "
+    "updated_at, expires_at, record_json) "
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+)
+
+SQL_INSERT_TAG = (
+    "INSERT OR IGNORE INTO memory_tags (memory_id, revision, tag) VALUES (?, ?, ?)"
+)
+
+SQL_INSERT_ALIAS = (
+    "INSERT OR IGNORE INTO memory_aliases "
+    "(memory_id, revision, alias_norm) VALUES (?, ?, ?)"
+)
+
+SQL_INSERT_SOURCE_BATCH = (
+    "INSERT OR IGNORE INTO memory_source_batches "
+    "(memory_id, source_batch, first_tx_seq) VALUES (?, ?, ?)"
+)
+
+SQL_INSERT_CREATION_KEY = (
+    "INSERT INTO memory_creation_keys "
+    "(source_batch, content_hash, memory_id, created_tx_seq) VALUES (?, ?, ?, ?)"
+)
+
+SQL_CURRENT_ACTIVE_CONFLICT_KEYS = (
+    "SELECT memory_id, conflict_key FROM memory_revisions "
+    "WHERE is_current = 1 AND status = 'active' ORDER BY memory_id ASC"
+)
+
+SQL_CURRENT_RECORD_JSON_BY_ID = (
+    "SELECT record_json FROM memory_revisions "
+    "WHERE memory_id = ? AND is_current = 1"
+)
+
+SQL_CREATION_KEY_OWNER = (
+    "SELECT memory_id FROM memory_creation_keys "
+    "WHERE source_batch = ? AND content_hash = ?"
+)
+
+SQL_TX_BY_ID = "SELECT tx_id FROM memory_transactions WHERE tx_id = ?"
+
+SQL_ACTIVE_CONFLICT_OTHER = (
+    "SELECT memory_id FROM memory_revisions "
+    "WHERE is_current = 1 AND status = 'active' AND conflict_key = ? AND memory_id != ?"
+)
+
+SQL_CURRENT_REVISION = (
+    "SELECT revision FROM memory_revisions WHERE memory_id = ? AND is_current = 1"
+)
+
+SQL_CREATION_KEY_RECORD = (
+    "SELECT r.record_json FROM memory_revisions r "
+    "JOIN memory_creation_keys k ON k.memory_id = r.memory_id "
+    "WHERE k.source_batch = ? AND k.content_hash = ? AND r.is_current = 1"
+)
+
+SQL_REVISIONS_BY_ID = (
+    "SELECT record_json FROM memory_revisions "
+    "WHERE memory_id = ? ORDER BY revision ASC"
+)
+
+SQL_CURRENT_RECORDS = "SELECT record_json FROM memory_revisions WHERE is_current = 1"
+
+SQL_ACTIVE_BY_CONFLICT_KEY = (
+    "SELECT record_json FROM memory_revisions "
+    "WHERE is_current = 1 AND status = 'active' AND conflict_key = ? LIMIT 1"
+)
+
+SQL_CANDIDATE_IDS_FOR_SOURCE = (
+    "SELECT r.memory_id FROM memory_revisions r "
+    "JOIN memory_source_batches b ON b.memory_id = r.memory_id "
+    "WHERE r.is_current = 1 AND r.status = 'candidate' AND b.source_batch = ?"
+)
+
+SQL_IDS_FOR_SOURCE = (
+    "SELECT memory_id FROM memory_source_batches WHERE source_batch = ?"
+)
+
+SQL_RECALL_SELECT = (
+    "SELECT record_json FROM memory_revisions "
+    "WHERE is_current = 1 AND status = 'active' AND ("
+)
+
+SQL_RECALL_SUFFIX = ") AND (expires_at IS NULL OR expires_at > ?)"
+
+SQL_TX_LOG_RECENT = (
+    "SELECT transaction_json FROM memory_transactions ORDER BY tx_seq DESC LIMIT ?"
+)
+
+SQL_TX_LOG_BY_ID = (
+    "SELECT transaction_json FROM memory_transactions "
+    "WHERE tx_id = ? ORDER BY tx_seq DESC LIMIT ?"
+)
+
+SQL_TX_ROWS_IN_RANGE = (
+    "SELECT tx_seq, transaction_json FROM memory_transactions "
+    "WHERE tx_seq BETWEEN ? AND ? ORDER BY tx_seq ASC"
+)
+
+SQL_COUNT_TRANSACTIONS = "SELECT COUNT(*) FROM memory_transactions"
+
+SQL_COUNT_REVISIONS = "SELECT COUNT(*) FROM memory_revisions"
+
+SQL_COUNT_CURRENT = "SELECT COUNT(*) FROM memory_revisions WHERE is_current = 1"
+
+SQL_ORDER_BY_ID = " ORDER BY memory_id ASC"
+
+
+def record_from_row(row: sqlite3.Row | None) -> MemoryRecord | None:
+    """Convert a ``record_json`` row (or a miss) back into a memory record."""
+    if row is None:
+        return None
+    return MemoryRecord.model_validate_json(row["record_json"])

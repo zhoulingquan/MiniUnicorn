@@ -3,7 +3,7 @@
 
 ## Workspace
 Your workspace is at: {{ workspace_path }}
-- Long-term memory: governed records in {{ workspace_path }}/memory/structured/journal.jsonl (manage with `/memory-*` commands; never edit the journal directly)
+- Long-term memory: governed records in {{ workspace_path }}/memory/structured/memory.db (manage with `/memory-*` commands; never edit the database or runtime files under `memory/structured/`; `journal.jsonl` is legacy migration input only, and `audit/*.jsonl` exports are rebuildable)
 - History log: {{ workspace_path }}/memory/history.jsonl (append-only JSONL; prefer built-in `grep` for search).
 - Custom skills: {{ workspace_path }}/skills/{% raw %}{skill-name}{% endraw %}/SKILL.md
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import re
 import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -264,6 +265,181 @@ def test_declared_package_names_parses_pep508_specifiers():
 def test_unparseable_declared_dependency_fails_loudly():
     with pytest.raises(AssertionError, match="unparseable declared dependency"):
         declared_package_names(["lancedb =="])
+
+
+# ---------------------------------------------------------------------------
+# Legacy JSONL runtime residue boundaries (design 2026-08-14: single SQLite path)
+# ---------------------------------------------------------------------------
+
+_JOURNAL_MIGRATOR_SOURCES = ("miniunicorn/agent/memory_jsonl_import.py",)
+
+_JOURNAL_MIGRATION_TEST_FILES = (
+    "tests/agent/test_memory_jsonl_import.py",
+    "tests/agent/test_memory_store.py",
+    "tests/agent/test_memory_repository.py",
+)
+
+# This scanner file itself must reference the tokens it forbids.
+_JOURNAL_SCANNER_SOURCES = ("tests/agent/test_structured_memory_boundary.py",)
+
+# Lines that state the "legacy migration input" concept are the only allowed
+# journal.jsonl mentions in runtime-facing docs.
+_JOURNAL_LEGACY_LINE_HINTS = ("migration", "migrate", "legacy", "迁移", "旧版本", "旧数据")
+
+_FORBIDDEN_LEGACY_RUNTIME_TOKENS = (
+    'journal_path.open("a',
+    "open(journal_path, \"a",
+    "_synchronize_locked",
+    "_replay_line",
+    "_clear_index",
+    "_journal_has_data",
+    "_JOURNAL_FILE",
+    "journal.lock",
+)
+
+_REPOSITORY_INSTANTIATION_ALLOWED = {
+    # Runtime wiring: constructs the single SQLite-backed repository.
+    "miniunicorn/agent/memory.py",
+    # Migration-only: object.__new__ bound to a temporary SQLite database,
+    # never used for runtime writes (see module docstring).
+    "miniunicorn/agent/memory_jsonl_import.py",
+}
+
+
+def _journal_jsonl_violations(root: Path) -> list[tuple[str, int, str]]:
+    """Every ``journal.jsonl`` mention that is not a legacy-migration context."""
+    violations: list[tuple[str, int, str]] = []
+    for path in sorted((*root.joinpath("miniunicorn").rglob("*.py"), *root.joinpath("tests").rglob("*.py"))):
+        rel = path.relative_to(root).as_posix()
+        allowed_file = (
+            rel in _JOURNAL_MIGRATOR_SOURCES
+            or rel in _JOURNAL_MIGRATION_TEST_FILES
+            or rel in _JOURNAL_SCANNER_SOURCES
+        )
+        for lineno, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1
+        ):
+            if "journal.jsonl" in line and not allowed_file:
+                violations.append((rel, lineno, line.strip()))
+    for path in sorted(
+        (
+            *root.joinpath("docs").rglob("*.md"),
+            *root.joinpath("miniunicorn", "templates").rglob("*.md"),
+            *root.joinpath("miniunicorn", "skills").rglob("*.md"),
+        )
+    ):
+        rel = path.relative_to(root).as_posix()
+        if rel.startswith("docs/superpowers/"):
+            continue  # historical design/plan records documenting the migration
+        for lineno, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1
+        ):
+            if "journal.jsonl" not in line:
+                continue
+            if not any(hint in line for hint in _JOURNAL_LEGACY_LINE_HINTS):
+                violations.append((rel, lineno, line.strip()))
+    return violations
+
+
+def test_journal_jsonl_string_only_in_legacy_migration_contexts():
+    root = Path(__file__).resolve().parents[2]
+    assert _journal_jsonl_violations(root) == []
+
+
+def test_no_legacy_journal_write_protocol_residue():
+    root = Path(__file__).resolve().parents[2]
+    violations: list[tuple[str, int, str]] = []
+    for path in sorted(root.joinpath("miniunicorn").rglob("*.py")):
+        rel = path.relative_to(root).as_posix()
+        if rel in _JOURNAL_MIGRATOR_SOURCES:
+            continue
+        for lineno, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1
+        ):
+            if any(token in line for token in _FORBIDDEN_LEGACY_RUNTIME_TOKENS):
+                violations.append((rel, lineno, line.strip()))
+    assert not violations, violations
+
+
+def test_only_sqlite_backed_repository_instances_exist():
+    root = Path(__file__).resolve().parents[2]
+    violations: list[tuple[str, int, str]] = []
+    for path in sorted(root.joinpath("miniunicorn").rglob("*.py")):
+        rel = path.relative_to(root).as_posix()
+        if rel in _REPOSITORY_INSTANTIATION_ALLOWED or rel == "miniunicorn/agent/memory_repository.py":
+            continue
+        for lineno, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1
+        ):
+            if re.search(r"StructuredMemoryRepository\(", line):
+                violations.append((rel, lineno, line.strip()))
+            if re.search(r"object\.__new__\(StructuredMemoryRepository\)", line):
+                violations.append((rel, lineno, line.strip()))
+    assert not violations, violations
+
+
+def test_structured_memory_config_has_no_mode_backend_or_fallback():
+    root = Path(__file__).resolve().parents[2]
+    schema_text = (root / "miniunicorn" / "config" / "schema.py").read_text(encoding="utf-8")
+    tree = ast.parse(schema_text)
+    fields: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == "StructuredMemoryConfig":
+            for statement in node.body:
+                if isinstance(statement, ast.AnnAssign) and isinstance(
+                    statement.target, ast.Name
+                ):
+                    fields.add(statement.target.id)
+            break
+    assert {"mode", "backend", "fallback"}.isdisjoint(fields)
+    documented_keys = {
+        "recallTokenBudget",
+        "maxRecallHits",
+        "lockTimeoutS",
+        "autoPromoteVerified",
+        "minRepeatedEvidence",
+        "candidateTtlDays",
+        "recallAuditEnabled",
+    }
+    for doc_path in (root / "docs" / "memory.md", root / "docs" / "configuration.md"):
+        text = doc_path.read_text(encoding="utf-8")
+        marker = '"structuredMemory": {'
+        if marker not in text:
+            continue
+        block = text.split(marker, 1)[1].split("}", 1)[0]
+        assert set(re.findall(r'"([A-Za-z]+)":', block)) <= documented_keys, doc_path
+
+
+def test_no_vector_or_embedding_entrypoints_in_runtime_memory():
+    root = Path(__file__).resolve().parents[2]
+    forbidden = ("embedding", "vector store", "vector_store", "faiss", "chromadb")
+    for path in _runtime_memory_files(root):
+        source = path.read_text(encoding="utf-8").casefold()
+        hits = [token for token in forbidden if token in source]
+        assert not hits, f"{path.relative_to(root)} mentions {hits}"
+
+
+def test_dream_and_bootstrap_allowlists_exclude_runtime_artifacts():
+    from miniunicorn.channels.websocket.handlers.bootstrap_file import (
+        BOOTSTRAP_FILE_ALLOWLIST,
+        DREAM_FILE_ALLOWLIST,
+    )
+
+    assert BOOTSTRAP_FILE_ALLOWLIST == ("AGENTS.md", "SOUL.md")
+    sensitive = {
+        "memory/structured/memory.db",
+        "memory/structured/memory.db-wal",
+        "memory/structured/memory.db-shm",
+        "memory/structured/storage-migration-v2.json",
+        "memory/structured/backups",
+        "memory/structured/audit",
+        "memory/structured/audit/manifest.json",
+        "memory/structured/journal.jsonl",
+    }
+    exposed = set(DREAM_FILE_ALLOWLIST) | set(BOOTSTRAP_FILE_ALLOWLIST)
+    assert sensitive.isdisjoint(exposed)
+    assert "memory/shared/POLICY.md" in exposed
+    assert "memory/structured/tags.json" in exposed
 
 
 def test_governed_prompt_never_whole_injects_shared_legacy_file(tmp_path):

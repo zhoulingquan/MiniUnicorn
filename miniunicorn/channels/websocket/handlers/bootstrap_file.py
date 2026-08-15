@@ -22,13 +22,14 @@ from ._common import require_auth
 # file reads/writes through this endpoint.
 BOOTSTRAP_FILE_ALLOWLIST: tuple[str, ...] = ("AGENTS.md", "SOUL.md")
 
-# Governed memory diagnostics exposed read-only in the WebUI.
+# Governed memory diagnostics exposed read-only in the WebUI. Runtime
+# artifacts (memory.db, WAL/SHM, backups, audit exports) are never exposed;
+# the legacy journal is out of this context too.
 DREAM_FILE_ALLOWLIST: tuple[str, ...] = (
     "SOUL.md",
     "memory/history.jsonl",
     "memory/reflections.jsonl",
     "memory/shared/POLICY.md",
-    "memory/structured/journal.jsonl",
     "memory/structured/tags.json",
     "memory/structured/recall-audit.jsonl",
 )

@@ -4,7 +4,7 @@ import pytest
 
 from miniunicorn.utils.gitstore import CommitInfo, GitStore
 
-TRACKED = ["SOUL.md", "notes.md", "memory/structured/journal.jsonl"]
+TRACKED = ["SOUL.md", "notes.md", "memory/structured/tags.json", "memory/shared/POLICY.md"]
 
 
 @pytest.fixture

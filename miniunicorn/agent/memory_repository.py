@@ -3,7 +3,12 @@
 The database at ``memory/structured/memory.db`` is the single runtime fact
 store (design sections 7-8). This module owns transaction append, health
 state, and all read accessors; it makes no business decisions and never
-copies PRAGMA or DDL.
+copies PRAGMA, DDL, or SQL.
+
+The legacy journal is read-only migration input handled by
+``memory_jsonl_import``; starting the repository triggers the migrator only
+when ``memory.db`` is missing and no completed migration manifest exists
+(design section 11), never at runtime otherwise.
 
 Normative sources:
 docs/superpowers/specs/2026-08-11-c2-governed-structured-memory-design.md
@@ -50,14 +55,44 @@ from miniunicorn.agent.memory_models import (
 )
 from miniunicorn.agent.memory_sqlite_schema import (
     SCHEMA_VERSION,
+    SQL_ACTIVE_BY_CONFLICT_KEY,
+    SQL_ACTIVE_CONFLICT_OTHER,
+    SQL_AUDIT_EXPORTED_SEQ,
+    SQL_CANDIDATE_IDS_FOR_SOURCE,
+    SQL_COUNT_CURRENT,
+    SQL_COUNT_REVISIONS,
+    SQL_COUNT_TRANSACTIONS,
+    SQL_CREATION_KEY_OWNER,
+    SQL_CREATION_KEY_RECORD,
+    SQL_CURRENT_ACTIVE_CONFLICT_KEYS,
+    SQL_CURRENT_RECORD_JSON_BY_ID,
+    SQL_CURRENT_RECORDS,
+    SQL_CURRENT_REVISION,
+    SQL_IDS_FOR_SOURCE,
+    SQL_INSERT_ALIAS,
+    SQL_INSERT_CREATION_KEY,
+    SQL_INSERT_REVISION,
+    SQL_INSERT_SOURCE_BATCH,
+    SQL_INSERT_TAG,
+    SQL_INSERT_TRANSACTION,
+    SQL_MAX_TX_SEQ,
+    SQL_ORDER_BY_ID,
+    SQL_QUICK_CHECK,
+    SQL_RECALL_SELECT,
+    SQL_RECALL_SUFFIX,
+    SQL_REVISIONS_BY_ID,
+    SQL_TX_BY_ID,
+    SQL_TX_LOG_BY_ID,
+    SQL_TX_LOG_RECENT,
+    SQL_TX_ROWS_IN_RANGE,
+    SQL_UNSET_CURRENT,
     check_schema,
     connect_memory_db,
     initialize_schema,
+    record_from_row,
 )
 
 _SUPPORTED_TAGS_FILE = "tags.json"
-_JOURNAL_FILE = "journal.jsonl"
-_LOCK_FILE = "journal.lock"
 _MIGRATION_MANIFEST_FILE = "storage-migration-v2.json"
 
 
@@ -69,9 +104,7 @@ class StructuredMemoryRepository:
         self.lock_timeout_s = lock_timeout_s
         self.structured_dir = self.workspace / "memory" / "structured"
         self.database_path = self.structured_dir / "memory.db"
-        self.journal_path = self.structured_dir / _JOURNAL_FILE
         self.tags_path = self.structured_dir / _SUPPORTED_TAGS_FILE
-        self.lock_path = self.structured_dir / _LOCK_FILE
         self._tag_catalog = TagCatalog()
         self._health = RepositoryHealth()
         self._initialize_database()
@@ -129,23 +162,23 @@ class StructuredMemoryRepository:
             self._degrade("sqlite_open_error", f"cannot open memory database: {exc}")
 
     def _prepare_missing_database(self) -> None:
-        """Bring up a missing database: migrate once or fail closed.
+        """Bring up a missing database: migrate the legacy journal or fail closed.
 
-        Raises :class:`RepositoryDegradedError` / :class:`LegacyJournalImportError`
-        when the database cannot come up, so ``_initialize_database`` never
-        creates an empty database that would hide unimported facts.
+        A completed migration manifest without a database raises
+        :class:`RepositoryDegradedError` (the journal lacks post-migration
+        facts, so re-importing would silently lose them). Otherwise the
+        migrator runs and reads a non-empty legacy journal exactly once; a
+        missing or empty journal returns ``migrated=False`` and leaves the
+        fresh database creation to ``_initialize_database``, while a corrupt
+        journal raises :class:`LegacyJournalImportError` that degrades health
+        instead of creating an empty database over unimported facts.
         """
         if self._migration_manifest_completed():
             raise RepositoryDegradedError(
                 "memory.db is missing after a completed migration; restore it from a backup "
                 "(code=migration_database_lost)"
             )
-        if self._journal_has_data():
-            result = migrate_legacy_journal(self.workspace, self.lock_timeout_s)
-            if not result.migrated:
-                raise RepositoryDegradedError(
-                    "legacy journal migration produced no database (code=migration_failed)"
-                )
+        migrate_legacy_journal(self.workspace, self.lock_timeout_s)
 
     def _migration_manifest_completed(self) -> bool:
         try:
@@ -157,12 +190,6 @@ class StructuredMemoryRepository:
         except (OSError, ValueError):
             return False
         return manifest.get("status") == "completed"
-
-    def _journal_has_data(self) -> bool:
-        try:
-            return self.journal_path.stat().st_size > 0
-        except OSError:
-            return False
 
     # ------------------------------------------------------------------
     # Rebuild (health refresh)
@@ -184,17 +211,13 @@ class StructuredMemoryRepository:
 
     def _refresh_health(self, connection: sqlite3.Connection) -> None:
         check_schema(connection)
-        result = connection.execute("PRAGMA quick_check(1)").fetchone()
+        result = connection.execute(SQL_QUICK_CHECK).fetchone()
         if result is None or result[0] != "ok":
             raise RepositoryDegradedError(
                 "memory database integrity check failed (code=integrity_error)"
             )
-        last_seq = connection.execute(
-            "SELECT COALESCE(MAX(tx_seq), 0) FROM memory_transactions"
-        ).fetchone()[0]
-        meta = connection.execute(
-            "SELECT value FROM storage_meta WHERE key = 'audit_exported_seq'"
-        ).fetchone()
+        last_seq = connection.execute(SQL_MAX_TX_SEQ).fetchone()[0]
+        meta = connection.execute(SQL_AUDIT_EXPORTED_SEQ).fetchone()
         try:
             database_bytes = self.database_path.stat().st_size
         except OSError:
@@ -384,9 +407,7 @@ class StructuredMemoryRepository:
     ) -> int:
         payload = transaction.model_dump(mode="json")
         cursor = connection.execute(
-            "INSERT INTO memory_transactions "
-            "(tx_id, recorded_at, actor, reason, source_batch, checksum_sha256, transaction_json) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            SQL_INSERT_TRANSACTION,
             (
                 payload["tx_id"],
                 payload["recorded_at"],
@@ -408,16 +429,10 @@ class StructuredMemoryRepository:
         record: MemoryRecord,
     ) -> None:
         """Write one revision row plus tags, aliases, and provenance side tables."""
-        connection.execute(
-            "UPDATE memory_revisions SET is_current = 0 WHERE memory_id = ? AND is_current = 1",
-            (record.id,),
-        )
+        connection.execute(SQL_UNSET_CURRENT, (record.id,))
         payload = record.model_dump(mode="json")
         connection.execute(
-            "INSERT INTO memory_revisions "
-            "(memory_id, revision, tx_seq, op_index, is_current, status, kind, scope_kind, "
-            "scope_key, subject_norm, conflict_key, content_hash, source_level, importance, "
-            "updated_at, expires_at, record_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            SQL_INSERT_REVISION,
             (
                 record.id,
                 record.revision,
@@ -444,26 +459,18 @@ class StructuredMemoryRepository:
             ),
         )
         for tag in record.tags:
-            connection.execute(
-                "INSERT OR IGNORE INTO memory_tags (memory_id, revision, tag) VALUES (?, ?, ?)",
-                (record.id, record.revision, tag),
-            )
+            connection.execute(SQL_INSERT_TAG, (record.id, record.revision, tag))
         for alias in record.aliases:
             connection.execute(
-                "INSERT OR IGNORE INTO memory_aliases "
-                "(memory_id, revision, alias_norm) VALUES (?, ?, ?)",
-                (record.id, record.revision, normalize_match_text(alias)),
+                SQL_INSERT_ALIAS, (record.id, record.revision, normalize_match_text(alias))
             )
         if transaction.source_batch:
             connection.execute(
-                "INSERT OR IGNORE INTO memory_source_batches "
-                "(memory_id, source_batch, first_tx_seq) VALUES (?, ?, ?)",
-                (record.id, transaction.source_batch, tx_seq),
+                SQL_INSERT_SOURCE_BATCH, (record.id, transaction.source_batch, tx_seq)
             )
             if record.revision == 1:
                 connection.execute(
-                    "INSERT INTO memory_creation_keys "
-                    "(source_batch, content_hash, memory_id, created_tx_seq) VALUES (?, ?, ?, ?)",
+                    SQL_INSERT_CREATION_KEY,
                     (transaction.source_batch, record.content_hash, record.id, tx_seq),
                 )
 
@@ -482,20 +489,15 @@ class StructuredMemoryRepository:
         if transaction_checksum(transaction) != transaction.checksum_sha256:
             raise MemoryWriteError("transaction checksum mismatch")
         projected_actives: dict[str, str] = {}
-        for row in connection.execute(
-            "SELECT memory_id, conflict_key FROM memory_revisions "
-            "WHERE is_current = 1 AND status = 'active' ORDER BY memory_id ASC"
-        ):
+        for row in connection.execute(SQL_CURRENT_ACTIVE_CONFLICT_KEYS):
             projected_actives[row["memory_id"]] = row["conflict_key"]
         created_owners: dict[tuple[str, str], str] = {}
         for operation in transaction.operations:
             record = operation.record
             self._tag_catalog.validate_record(record)
-            previous = self._record_from_row(
+            previous = record_from_row(
                 connection.execute(
-                    "SELECT record_json FROM memory_revisions "
-                    "WHERE memory_id = ? AND is_current = 1",
-                    (record.id,),
+                    SQL_CURRENT_RECORD_JSON_BY_ID, (record.id,)
                 ).fetchone()
             )
             expected = transaction.expected_revisions[record.id]
@@ -519,11 +521,7 @@ class StructuredMemoryRepository:
                 key = (transaction.source_batch, record.content_hash)
                 existing_id = created_owners.get(key)
                 if existing_id is None:
-                    row = connection.execute(
-                        "SELECT memory_id FROM memory_creation_keys "
-                        "WHERE source_batch = ? AND content_hash = ?",
-                        key,
-                    ).fetchone()
+                    row = connection.execute(SQL_CREATION_KEY_OWNER, key).fetchone()
                     existing_id = row["memory_id"] if row is not None else None
                 if existing_id is not None and existing_id != record.id:
                     raise DuplicateMemoryIdempotencyKey(
@@ -558,8 +556,7 @@ class StructuredMemoryRepository:
         queries observe only committed rows and never the failed attempt.
         """
         duplicate = connection.execute(
-            "SELECT tx_id FROM memory_transactions WHERE tx_id = ?",
-            (transaction.tx_id,),
+            SQL_TX_BY_ID, (transaction.tx_id,)
         ).fetchone()
         if duplicate is not None:
             return DuplicateMemoryIdempotencyKey(
@@ -571,8 +568,7 @@ class StructuredMemoryRepository:
                 if record.revision != 1:
                     continue
                 row = connection.execute(
-                    "SELECT memory_id FROM memory_creation_keys "
-                    "WHERE source_batch = ? AND content_hash = ?",
+                    SQL_CREATION_KEY_OWNER,
                     (transaction.source_batch, record.content_hash),
                 ).fetchone()
                 if row is not None:
@@ -586,10 +582,7 @@ class StructuredMemoryRepository:
             if record.status is not MemoryStatus.ACTIVE:
                 continue
             row = connection.execute(
-                "SELECT memory_id FROM memory_revisions "
-                "WHERE is_current = 1 AND status = 'active' AND conflict_key = ? "
-                "AND memory_id != ?",
-                (record.conflict_key, record.id),
+                SQL_ACTIVE_CONFLICT_OTHER, (record.conflict_key, record.id)
             ).fetchone()
             if row is not None:
                 return InvalidMemoryTransition(
@@ -598,10 +591,7 @@ class StructuredMemoryRepository:
                 )
         for operation in transaction.operations:
             record = operation.record
-            row = connection.execute(
-                "SELECT revision FROM memory_revisions WHERE memory_id = ? AND is_current = 1",
-                (record.id,),
-            ).fetchone()
+            row = connection.execute(SQL_CURRENT_REVISION, (record.id,)).fetchone()
             if row is not None:
                 return MemoryRevisionConflict(
                     f"expected revision {row['revision']} for {record.id}, "
@@ -618,12 +608,9 @@ class StructuredMemoryRepository:
         content_hash: str,
     ) -> MemoryRecord | None:
         row = connection.execute(
-            "SELECT r.record_json FROM memory_revisions r "
-            "JOIN memory_creation_keys k ON k.memory_id = r.memory_id "
-            "WHERE k.source_batch = ? AND k.content_hash = ? AND r.is_current = 1",
-            (source_batch, content_hash),
+            SQL_CREATION_KEY_RECORD, (source_batch, content_hash)
         ).fetchone()
-        return self._record_from_row(row)
+        return record_from_row(row)
 
     def _validate_create_transaction_shape(self, transaction: MemoryTransaction) -> None:
         if not transaction.source_batch:
@@ -636,32 +623,16 @@ class StructuredMemoryRepository:
         if transaction.expected_revisions.get(record.id, 0) != 0:
             raise MemoryWriteError("create transaction must expect creation revision 0")
 
-    def _canonical_transaction_line(self, transaction: MemoryTransaction) -> str:
-        return json.dumps(
-            transaction.model_dump(mode="json"),
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-        )
-
     # ------------------------------------------------------------------
     # Read accessors
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _record_from_row(row: sqlite3.Row | None) -> MemoryRecord | None:
-        if row is None:
-            return None
-        return MemoryRecord.model_validate_json(row["record_json"])
-
     def get(self, memory_id: str) -> MemoryRecord | None:
         with self._open_read() as connection:
             row = connection.execute(
-                "SELECT record_json FROM memory_revisions "
-                "WHERE memory_id = ? AND is_current = 1",
-                (memory_id,),
+                SQL_CURRENT_RECORD_JSON_BY_ID, (memory_id,)
             ).fetchone()
-        return self._record_from_row(row)
+        return record_from_row(row)
 
     def get_current(
         self, memory_id: str, *, synchronize: bool = True
@@ -675,33 +646,24 @@ class StructuredMemoryRepository:
 
     def revisions(self, memory_id: str) -> tuple[MemoryRecord, ...]:
         with self._open_read() as connection:
-            rows = connection.execute(
-                "SELECT record_json FROM memory_revisions "
-                "WHERE memory_id = ? ORDER BY revision ASC",
-                (memory_id,),
-            ).fetchall()
-        return tuple(self._record_from_row(row) for row in rows)
+            rows = connection.execute(SQL_REVISIONS_BY_ID, (memory_id,)).fetchall()
+        return tuple(record_from_row(row) for row in rows)
 
     def current_records(self, status: MemoryStatus | None = None) -> tuple[MemoryRecord, ...]:
-        sql = "SELECT record_json FROM memory_revisions WHERE is_current = 1"
+        sql = SQL_CURRENT_RECORDS
         params: list[Any] = []
         if status is not None:
             sql += " AND status = ?"
             params.append(status.value)
-        sql += " ORDER BY memory_id ASC"
+        sql += SQL_ORDER_BY_ID
         with self._open_read() as connection:
             rows = connection.execute(sql, params).fetchall()
-        return tuple(self._record_from_row(row) for row in rows)
+        return tuple(record_from_row(row) for row in rows)
 
     def active_for_conflict_key(self, key: str) -> MemoryRecord | None:
         with self._open_read() as connection:
-            row = connection.execute(
-                "SELECT record_json FROM memory_revisions "
-                "WHERE is_current = 1 AND status = 'active' AND conflict_key = ? "
-                "LIMIT 1",
-                (key,),
-            ).fetchone()
-        return self._record_from_row(row)
+            row = connection.execute(SQL_ACTIVE_BY_CONFLICT_KEY, (key,)).fetchone()
+        return record_from_row(row)
 
     def candidate_records(self) -> tuple[MemoryRecord, ...]:
         return self.current_records(MemoryStatus.CANDIDATE)
@@ -709,10 +671,7 @@ class StructuredMemoryRepository:
     def candidate_ids_for_source(self, source_batch: str) -> frozenset[str]:
         with self._open_read() as connection:
             rows = connection.execute(
-                "SELECT r.memory_id FROM memory_revisions r "
-                "JOIN memory_source_batches b ON b.memory_id = r.memory_id "
-                "WHERE r.is_current = 1 AND r.status = 'candidate' AND b.source_batch = ?",
-                (source_batch,),
+                SQL_CANDIDATE_IDS_FOR_SOURCE, (source_batch,)
             ).fetchall()
         return frozenset(row[0] for row in rows)
 
@@ -728,10 +687,7 @@ class StructuredMemoryRepository:
     def record_ids_for_source(self, source_batch: str) -> frozenset[str]:
         """Return every record that ever carried a non-empty source batch."""
         with self._open_read() as connection:
-            rows = connection.execute(
-                "SELECT memory_id FROM memory_source_batches WHERE source_batch = ?",
-                (source_batch,),
-            ).fetchall()
+            rows = connection.execute(SQL_IDS_FOR_SOURCE, (source_batch,)).fetchall()
         return frozenset(row[0] for row in rows)
 
     def recall_candidates(
@@ -748,36 +704,26 @@ class StructuredMemoryRepository:
         params: list[Any] = [
             value for scope in allowed_scopes for value in (scope.kind.value, scope.key)
         ]
-        sql = (
-            "SELECT record_json FROM memory_revisions "
-            "WHERE is_current = 1 AND status = 'active' "
-            f"AND ({scope_clause}) "
-            "AND (expires_at IS NULL OR expires_at > ?)"
-        )
+        sql = SQL_RECALL_SELECT + scope_clause + SQL_RECALL_SUFFIX
         params.append(
             now.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
         )
         if requested_kinds:
             sql += f" AND kind IN ({','.join('?' for _ in requested_kinds)})"
             params.extend(kind.value for kind in requested_kinds)
-        sql += " ORDER BY memory_id ASC"
+        sql += SQL_ORDER_BY_ID
         with self._open_read() as connection:
             rows = connection.execute(sql, params).fetchall()
-        return tuple(self._record_from_row(row) for row in rows)
+        return tuple(record_from_row(row) for row in rows)
 
     def transaction_log(
         self, *, limit: int = 20, tx_id: str | None = None
     ) -> tuple[MemoryTransaction, ...]:
         """Return recent transactions newest first, optionally for one tx id."""
         if tx_id is None:
-            sql = "SELECT transaction_json FROM memory_transactions ORDER BY tx_seq DESC LIMIT ?"
-            params: list[Any] = [limit]
+            sql, params = SQL_TX_LOG_RECENT, [limit]
         else:
-            sql = (
-                "SELECT transaction_json FROM memory_transactions "
-                "WHERE tx_id = ? ORDER BY tx_seq DESC LIMIT ?"
-            )
-            params = [tx_id, limit]
+            sql, params = SQL_TX_LOG_BY_ID, [tx_id, limit]
         with self._open_read() as connection:
             rows = connection.execute(sql, params).fetchall()
         return tuple(
@@ -795,29 +741,17 @@ class StructuredMemoryRepository:
         """
         with self._open_read() as connection:
             rows = connection.execute(
-                "SELECT tx_seq, transaction_json FROM memory_transactions "
-                "WHERE tx_seq BETWEEN ? AND ? ORDER BY tx_seq ASC",
-                (first_tx_seq, last_tx_seq),
+                SQL_TX_ROWS_IN_RANGE, (first_tx_seq, last_tx_seq)
             ).fetchall()
         return tuple((row["tx_seq"], row["transaction_json"]) for row in rows)
 
     def storage_stats(self) -> MemoryStorageStats:
         with self._open_read() as connection:
-            transaction_count = connection.execute(
-                "SELECT COUNT(*) FROM memory_transactions"
-            ).fetchone()[0]
-            revision_count = connection.execute(
-                "SELECT COUNT(*) FROM memory_revisions"
-            ).fetchone()[0]
-            current_count = connection.execute(
-                "SELECT COUNT(*) FROM memory_revisions WHERE is_current = 1"
-            ).fetchone()[0]
-            last_seq = connection.execute(
-                "SELECT COALESCE(MAX(tx_seq), 0) FROM memory_transactions"
-            ).fetchone()[0]
-            meta = connection.execute(
-                "SELECT value FROM storage_meta WHERE key = 'audit_exported_seq'"
-            ).fetchone()
+            transaction_count = connection.execute(SQL_COUNT_TRANSACTIONS).fetchone()[0]
+            revision_count = connection.execute(SQL_COUNT_REVISIONS).fetchone()[0]
+            current_count = connection.execute(SQL_COUNT_CURRENT).fetchone()[0]
+            last_seq = connection.execute(SQL_MAX_TX_SEQ).fetchone()[0]
+            meta = connection.execute(SQL_AUDIT_EXPORTED_SEQ).fetchone()
         try:
             database_bytes = self.database_path.stat().st_size
         except OSError:

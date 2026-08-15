@@ -113,7 +113,7 @@ class MemoryStore:
     #   - "dream": Dream 提炼结构化候选并推进消费 cursor
     #   - "memory_store": MemoryStore internal maintenance
     #
-    # journal.jsonl 已不是运行时事实源（唯一事实库是 memory.db，design §1），
+    # 旧 journal 已不是运行时事实源（唯一事实库是 memory.db，design §1），
     # 因此不再授予任何写角色；audit/ 与 backups/ 是目录项，其子路径通过
     # containment/prefix 规则校验（_assert_writer_allowed）。
     _WRITER_WHITELIST: dict[str, set[str]] = {

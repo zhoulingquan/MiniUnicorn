@@ -1531,7 +1531,7 @@ Set `agents.defaults.toolHintMaxLength` to control the truncation threshold:
 
 ## Governed Structured Memory
 
-The governed journal-backed memory system is always enabled. Configure its tuning values under `agents.defaults.structuredMemory`:
+The governed SQLite-backed memory system is always enabled. Configure its tuning values under `agents.defaults.structuredMemory`:
 
 ```json
 {

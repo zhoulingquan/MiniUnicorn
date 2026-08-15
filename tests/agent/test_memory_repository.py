@@ -449,7 +449,7 @@ def test_lock_timeout_raises_memory_lock_timeout(repository, create_tx):
 
 
 def test_canonical_line_round_trips_through_models(repository, create_tx):
-    line = repository._canonical_transaction_line(create_tx)
+    line = _canonical_line(create_tx)
     parsed = MemoryTransaction.model_validate(json.loads(line))
     assert parsed == create_tx
 
