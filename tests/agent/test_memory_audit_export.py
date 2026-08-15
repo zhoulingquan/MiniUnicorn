@@ -631,6 +631,29 @@ def test_export_replace_failure_at_every_write_point_self_heals(
     )
 
 
+def test_rebuild_twice_same_minute_keeps_unique_recovery_audit(
+    workspace, repository, monkeypatch
+):
+    """Two rebuilds within the same UTC minute must not collide on the
+    ``recovery/<UTC>/audit`` target: each previous audit stays recoverable."""
+    import miniunicorn.agent.memory_audit_export as audit_export
+
+    seed_transactions(repository, 5)
+    monkeypatch.setattr(audit_export, "_utc_stamp", lambda: "2026-08-15T12-00-00Z")
+    exporter = MemoryAuditExporter(repository, segment_size=3)
+    exporter.export_pending()
+    exporter.rebuild()
+    exporter.rebuild()
+
+    recovered = (workspace / "memory" / "structured" / "recovery").glob("*/audit")
+    names = sorted(path.parent.name for path in recovered)
+    assert len(names) == 2
+    assert names[0] == "2026-08-15T12-00-00Z"
+    assert names[1].startswith("2026-08-15T12-00-00Z-")
+    assert repository.storage_stats().audit_lag == 0
+    assert_audit_consistent(audit_dir(workspace))
+
+
 def test_rebuild_watermark_commit_failure_leaves_new_audit_and_heals(
     workspace, repository, monkeypatch
 ):

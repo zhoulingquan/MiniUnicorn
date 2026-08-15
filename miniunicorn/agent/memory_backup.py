@@ -239,6 +239,10 @@ class MemoryBackupManager:
         repository = self._repository
         stamp = _utc_stamp()
         recovery_dir = self.recovery_dir / stamp
+        suffix = 2
+        while recovery_dir.exists():
+            recovery_dir = self.recovery_dir / f"{stamp}-{suffix}"
+            suffix += 1
         ensure_dir(recovery_dir)
         safety_path = recovery_dir / _SAFETY_BACKUP_FILE
         try:

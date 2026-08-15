@@ -201,3 +201,36 @@ def test_restore_failure_keeps_database_and_safety_backup(
     assert len(safety_files) == 1
     with sqlite3.connect(safety_files[0]) as connection:
         assert connection.execute("SELECT COUNT(*) FROM memory_transactions").fetchone()[0] == 2
+
+
+def test_restore_twice_same_minute_keeps_unique_recovery_dirs(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Two restores within the same UTC minute must not collide on the
+    ``recovery/<UTC>/`` targets: neither the safety database copy nor the
+    pre-restore audit swap may overwrite an existing recovery entry."""
+    import miniunicorn.agent.memory_audit_export as audit_export
+    import miniunicorn.agent.memory_backup as memory_backup
+
+    store = seeded_store(tmp_path)
+    repository = store.structured_repository
+    manager = MemoryBackupManager(repository)
+    backup = manager.create_backup()
+    _ingest_once(store, "第二次事实", "Second")
+
+    monkeypatch.setattr(memory_backup, "_utc_stamp", lambda: "2026-08-15T12-00-00Z")
+    monkeypatch.setattr(audit_export, "_utc_stamp", lambda: "2026-08-15T12-00-00Z")
+
+    manager.restore_backup(backup.backup_id)
+    manager.restore_backup(backup.backup_id)
+
+    assert repository.health.state == "healthy"
+    assert repository.storage_stats().transaction_count == 1
+    recovery = structured_dir(tmp_path) / "recovery"
+    safeties = sorted(path.parent.name for path in recovery.glob("*/memory-before-restore.db"))
+    audits = sorted(path.parent.name for path in recovery.glob("*/audit"))
+    assert len(safeties) == 2
+    assert len(audits) == 1
+    assert safeties[0] == "2026-08-15T12-00-00Z"
+    assert safeties[1].startswith("2026-08-15T12-00-00Z-")
+    assert audits[0] == "2026-08-15T12-00-00Z"

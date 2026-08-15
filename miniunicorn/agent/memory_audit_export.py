@@ -57,6 +57,10 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _utc_stamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+
+
 def _canonical_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
@@ -205,10 +209,19 @@ class MemoryAuditExporter:
         try:
             with FileLock(str(lock_path), timeout=self._repository.lock_timeout_s):
                 if audit.exists():
-                    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+                    stamp = _utc_stamp()
                     recovered = (
                         self._repository.structured_dir / _RECOVERY_DIR / stamp / "audit"
                     )
+                    suffix = 2
+                    while recovered.exists():
+                        recovered = (
+                            self._repository.structured_dir
+                            / _RECOVERY_DIR
+                            / f"{stamp}-{suffix}"
+                            / "audit"
+                        )
+                        suffix += 1
                     ensure_dir(recovered.parent)
                     os.replace(audit, recovered)
                 os.replace(temp_dir, audit)
