@@ -13,8 +13,10 @@ beyond the database rows enters the audit. Every file is written via a temp
 file -> ``flush`` -> ``os.fsync`` -> ``os.replace`` sequence, so a crash at any
 point leaves the previous audit directory readable and the committed facts
 untouched. The watermark update is atomic in one ``BEGIN IMMEDIATE``
-transaction and can never move backwards, so concurrent exporters neither
-corrupt segments nor regress ``audit_exported_seq``.
+transaction and is clamped to the coverage actually durable on disk, so
+concurrent exporters neither corrupt segments nor leave the watermark past a
+manifest that a stale pass just overwrote (the watermark regresses to the
+durable coverage and the next pass re-exports).
 
 Normative sources:
 docs/superpowers/specs/2026-08-14-sqlite-memory-storage-design.md
@@ -101,7 +103,8 @@ class MemoryAuditExporter:
 
         Rows already covered by ``audit_exported_seq`` are never re-exported.
         Sealed segments and the open tail are written before the manifest, and
-        the manifest before the atomic watermark advance. Any failure raises
+        the manifest before the atomic watermark advance, which is clamped to
+        the manifest's actual coverage. Any failure raises
         :class:`AuditExportError` while the database and the previous audit
         directory stay intact (lag grows, facts never roll back).
         """
@@ -148,7 +151,10 @@ class MemoryAuditExporter:
         if segments and watermark >= segments[0]["first_tx_seq"]:
             overlap = watermark - segments[0]["first_tx_seq"] + 1
             rows_written -= min(overlap, rows_written)
-        final_watermark, lag = self._advance_watermark(max_seq)
+        coverage_max = max(
+            (entry["last_tx_seq"] for entry in full_segments), default=0
+        )
+        final_watermark, lag = self._advance_watermark(coverage_max)
         return AuditExportResult(
             exported_rows=rows_written,
             sealed_segments=sum(
@@ -176,7 +182,10 @@ class MemoryAuditExporter:
             )
             self._write_manifest(temp_dir, generated_at, max_seq, segments)
             self._verify_directory(temp_dir)
-            final_watermark, lag = self._swap_audit_directory(temp_dir, max_seq)
+            coverage_max = max(
+                (entry["last_tx_seq"] for entry in segments), default=0
+            )
+            final_watermark, lag = self._swap_audit_directory(temp_dir, coverage_max)
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
         return AuditExportResult(
@@ -189,7 +198,7 @@ class MemoryAuditExporter:
             lag=lag,
         )
 
-    def _swap_audit_directory(self, temp_dir: Path, exported_max: int) -> tuple[int, int]:
+    def _swap_audit_directory(self, temp_dir: Path, coverage_max: int) -> tuple[int, int]:
         audit = self.audit_dir
         self._assert_contained(audit)
         lock_path = self._repository.structured_dir / _MAINTENANCE_LOCK_FILE
@@ -205,7 +214,7 @@ class MemoryAuditExporter:
                 os.replace(temp_dir, audit)
         except FileLockTimeout:
             raise AuditExportError("memory-maintenance.lock timeout during audit rebuild") from None
-        return self._advance_watermark(exported_max)
+        return self._advance_watermark(coverage_max)
 
     # -- segment building ---------------------------------------------------
 
@@ -218,7 +227,9 @@ class MemoryAuditExporter:
         a deterministic ``journal-<first:012d>-<last:012d>.jsonl`` name; the
         open tail always holds ``(max_seq // segment_size) * segment_size + 1
         .. max_seq`` and is rebuilt from SQLite, so a just-completed period is
-        retro-sealed and the stale tail is replaced (or unlinked when empty).
+        retro-sealed. The tail file is never unlinked: a stale open tail (from
+        a snapshot that saw fewer rows) is left in place and harmlessly
+        rewritten by the next pass.
         """
         size = self.segment_size
         rows_written = 0
@@ -248,8 +259,6 @@ class MemoryAuditExporter:
                 if not first_exported:
                     first_exported = open_first
                 rows_written += len(rows)
-        else:
-            (target_dir / _OPEN_SEGMENT_FILE).unlink(missing_ok=True)
         return segments, rows_written, first_exported
 
     def _segment_entry(self, path: Path, first: int, rows) -> dict[str, Any]:
@@ -292,11 +301,13 @@ class MemoryAuditExporter:
 
         A prior entry and a fresh entry with the same path always describe the
         identical immutable bytes, so the fresh entry wins and each path
-        appears exactly once, in deterministic order, even when two exporters
-        race on the same plan.
+        appears exactly once. The merged list is sorted by ``first_tx_seq`` so
+        manifest segment order is monotonic even when a stale exporter merges
+        prior entries that reach past its fresh range.
         """
         fresh_paths = {entry["path"] for entry in fresh}
-        return [*[entry for entry in prior if entry["path"] not in fresh_paths], *fresh]
+        merged = [*[entry for entry in prior if entry["path"] not in fresh_paths], *fresh]
+        return sorted(merged, key=lambda entry: entry["first_tx_seq"])
 
     def _write_manifest(
         self, target_dir: Path, generated_at: str, max_seq: int, segments: list[dict]
@@ -378,13 +389,17 @@ class MemoryAuditExporter:
         ).fetchone()
         return int(row["value"]) if row is not None else 0
 
-    def _advance_watermark(self, exported_max: int) -> tuple[int, int]:
-        """Advance the watermark atomically; it can never move backwards.
+    def _advance_watermark(self, coverage_max: int) -> tuple[int, int]:
+        """Advance the watermark to the coverage durably on disk; nothing more.
 
-        Runs in one ``BEGIN IMMEDIATE`` transaction: the stored watermark and
-        the current database maximum are re-read under the write lock, so a
-        concurrent exporter or a write that committed during the file phase
-        can never cause a regression or claim rows that were not exported.
+        Runs in one ``BEGIN IMMEDIATE`` transaction that re-reads the stored
+        watermark and the current database maximum under the write lock. The
+        target is clamped to ``coverage_max``, the highest tx_seq claimed by
+        the manifest this pass just wrote, so a stale manifest can never raise
+        the watermark past what is durable. A concurrent exporter that
+        replaced the manifest with a stale one can shrink coverage below the
+        stored watermark; regressing to it is exactly what re-opens the gap so
+        the next pass re-exports and heals.
         """
         with connect_memory_db(
             self._repository.database_path,
@@ -397,7 +412,7 @@ class MemoryAuditExporter:
                     "SELECT COALESCE(MAX(tx_seq), 0) FROM memory_transactions"
                 ).fetchone()[0]
             )
-            target = max(stored, min(exported_max, db_max))
+            target = min(coverage_max, db_max)
             if target != stored:
                 connection.execute(
                     "INSERT OR REPLACE INTO storage_meta(key, value) VALUES "

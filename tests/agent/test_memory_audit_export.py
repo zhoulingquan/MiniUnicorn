@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import shutil
+import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -145,6 +146,42 @@ def assert_audit_consistent(audit: Path) -> None:
         assert len(path.read_text(encoding="utf-8").splitlines()) == entry["rows"]
 
 
+def _audit_claims_consistent(audit: Path) -> bool:
+    """True when every manifest claim (path, sha256, rows) matches its file."""
+    try:
+        manifest = json.loads((audit / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    for entry in manifest["segments"]:
+        path = audit / entry["path"]
+        if not path.exists():
+            return False
+        if entry["first_tx_seq"] + entry["rows"] - 1 != entry["last_tx_seq"]:
+            return False
+        if hashlib.sha256(path.read_bytes()).hexdigest() != entry["sha256"]:
+            return False
+        if len(path.read_text(encoding="utf-8").splitlines()) != entry["rows"]:
+            return False
+    return True
+
+
+def clean_twin_snapshot(monkeypatch, tmp_path_factory, transactions) -> dict[str, bytes]:
+    """Byte-identical reference audit for a fresh export of ``transactions``."""
+    import miniunicorn.agent.memory_audit_export as audit_export
+
+    twin = tmp_path_factory.mktemp("twin")
+    structured = twin / "memory" / "structured"
+    structured.mkdir(parents=True)
+    bundled = Path(__file__).parents[2] / "miniunicorn" / "templates" / "memory" / "TAGS.json"
+    shutil.copy(bundled, structured / "tags.json")
+    twin_repository = StructuredMemoryRepository(twin, lock_timeout_s=5.0)
+    for transaction in transactions:
+        twin_repository.append_transaction(transaction)
+    monkeypatch.setattr(audit_export, "_utc_now", lambda: FIXED_GENERATED_AT)
+    MemoryAuditExporter(twin_repository, segment_size=3).export_pending()
+    return snapshot_dir(audit_dir(twin))
+
+
 # ---------------------------------------------------------------------------
 # Step 1: small-segment export shape
 # ---------------------------------------------------------------------------
@@ -275,7 +312,7 @@ def test_export_pending_is_idempotent(workspace, repository):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("failure", ["write", "fsync", "replace"])
+@pytest.mark.parametrize("failure", ["write", "fsync"])
 def test_export_failure_keeps_db_and_old_audit_and_rebuild_restores(
     workspace, repository, monkeypatch, tmp_path_factory, failure
 ):
@@ -300,23 +337,11 @@ def test_export_failure_keeps_db_and_old_audit_and_rebuild_restores(
             return real_open(file, *args, **kwargs)
 
         monkeypatch.setattr(builtins, "open", flaky_open)
-    elif failure == "fsync":
-
+    else:
         def flaky_fsync(fd):
             raise OSError("injected fsync failure")
 
         monkeypatch.setattr(audit_export.os, "fsync", flaky_fsync)
-    else:
-        real_replace = os.replace
-        calls = {"n": 0}
-
-        def flaky_replace(src, dst):
-            calls["n"] += 1
-            if calls["n"] == 2:
-                raise OSError("injected replace failure")
-            real_replace(src, dst)
-
-        monkeypatch.setattr(audit_export.os, "replace", flaky_replace)
 
     with pytest.raises(AuditExportError):
         exporter.export_pending()
@@ -331,17 +356,8 @@ def test_export_failure_keeps_db_and_old_audit_and_rebuild_restores(
     assert_audit_consistent(audit)
 
     monkeypatch.undo()
-    twin = tmp_path_factory.mktemp("twin")
-    structured = twin / "memory" / "structured"
-    structured.mkdir(parents=True)
-    bundled = Path(__file__).parents[2] / "miniunicorn" / "templates" / "memory" / "TAGS.json"
-    shutil.copy(bundled, structured / "tags.json")
-    twin_repository = StructuredMemoryRepository(twin, lock_timeout_s=5.0)
-    for transaction in (*transactions, *extra):
-        twin_repository.append_transaction(transaction)
     monkeypatch.setattr(audit_export, "_utc_now", lambda: FIXED_GENERATED_AT)
-    MemoryAuditExporter(twin_repository, segment_size=3).export_pending()
-    clean_reference = snapshot_dir(audit_dir(twin))
+    clean_reference = clean_twin_snapshot(monkeypatch, tmp_path_factory, (*transactions, *extra))
 
     exporter.rebuild()
 
@@ -511,3 +527,173 @@ def test_default_segment_size_is_ten_thousand():
     from miniunicorn.agent.memory_audit_export import SEGMENT_SIZE
 
     assert SEGMENT_SIZE == 10_000
+
+
+# ---------------------------------------------------------------------------
+# Review fixes: divergent-max race and per-write-point crash coverage
+# ---------------------------------------------------------------------------
+
+
+def test_divergent_max_snapshot_race_leaves_complete_audit(
+    workspace, repository, monkeypatch
+):
+    """A stale-max exporter must never shrink the durable audit.
+
+    Exporter A snapshots max_seq=16 and completes its pass; exporter B
+    snapshots the older max_seq=12 (a commit landing mid-export) and runs its
+    file phase afterwards. B must not be able to delete A's fresh open tail,
+    and the watermark must never end up covering rows that are no longer on
+    disk: a later export must still see lag and repair the audit.
+    """
+    transactions = seed_transactions(repository, 16)
+    MemoryAuditExporter(repository, segment_size=3).export_pending()
+
+    stale = MemoryAuditExporter(repository, segment_size=3)
+    monkeypatch.setattr(stale, "_watermark_state", lambda: (0, 12))
+    stale.export_pending()
+
+    MemoryAuditExporter(repository, segment_size=3).export_pending()
+
+    audit = audit_dir(workspace)
+    stats = repository.storage_stats()
+    assert stats.audit_exported_seq == 16
+    assert stats.audit_lag == 0
+    manifest = manifest_segments(audit)
+    assert [entry["first_tx_seq"] for entry in manifest] == sorted(
+        entry["first_tx_seq"] for entry in manifest
+    )
+    covered = 0
+    for entry in manifest:
+        assert entry["first_tx_seq"] == covered + 1
+        covered = entry["last_tx_seq"]
+    assert covered == 16
+    assert sum(entry["rows"] for entry in manifest) == 16
+    lines = []
+    for entry in manifest:
+        lines += (audit / entry["path"]).read_text(encoding="utf-8").splitlines()
+    assert lines == [canonical_line(tx) for tx in transactions]
+    assert_audit_consistent(audit)
+
+
+@pytest.mark.parametrize("failed_call", [1, 2, 3, 4])
+def test_export_replace_failure_at_every_write_point_self_heals(
+    workspace, repository, monkeypatch, tmp_path_factory, failed_call
+):
+    """A replace failure at any write point must leave lag > 0 and heal.
+
+    The failing pass writes sealed ``16-18`` (call 1), ``19-21`` (call 2),
+    the open tail ``22-23`` (call 3) and the manifest (call 4) above a
+    watermark of 16. Failing at the manifest leaves the new open tail
+    installed under the stale manifest (transient manifest/files mismatch);
+    every failure keeps ``audit_exported_seq`` behind, and the next clean
+    pass restores a byte-identical audit.
+    """
+    import miniunicorn.agent.memory_audit_export as audit_export
+
+    monkeypatch.setattr(audit_export, "_utc_now", lambda: FIXED_GENERATED_AT)
+    transactions = seed_transactions(repository, 16)
+    exporter = MemoryAuditExporter(repository, segment_size=3)
+    exporter.export_pending()
+    audit = audit_dir(workspace)
+    assert_audit_consistent(audit)
+    extra = seed_transactions(repository, 7)
+
+    real_replace = os.replace
+    calls = {"n": 0}
+
+    def flaky_replace(src, dst):
+        calls["n"] += 1
+        if calls["n"] == failed_call:
+            raise OSError("injected replace failure")
+        real_replace(src, dst)
+
+    monkeypatch.setattr(audit_export.os, "replace", flaky_replace)
+
+    with pytest.raises(AuditExportError):
+        exporter.export_pending()
+
+    stats = repository.storage_stats()
+    assert stats.audit_exported_seq == 16
+    assert stats.audit_lag == 7
+    if failed_call in (1, 2, 3):
+        assert _audit_claims_consistent(audit)
+    else:
+        assert not _audit_claims_consistent(audit)
+
+    monkeypatch.undo()
+    monkeypatch.setattr(audit_export, "_utc_now", lambda: FIXED_GENERATED_AT)
+    exporter.export_pending()
+
+    assert repository.storage_stats().audit_lag == 0
+    assert _audit_claims_consistent(audit)
+    assert snapshot_dir(audit) == clean_twin_snapshot(
+        monkeypatch, tmp_path_factory, (*transactions, *extra)
+    )
+
+
+def test_rebuild_watermark_commit_failure_leaves_new_audit_and_heals(
+    workspace, repository, monkeypatch
+):
+    """A failed storage_meta commit after the rebuild swap keeps lag > 0."""
+    import miniunicorn.agent.memory_audit_export as audit_export
+
+    seed_transactions(repository, 8)
+    exporter = MemoryAuditExporter(repository, segment_size=3)
+    exporter.export_pending()
+    old_manifest_bytes = (audit_dir(workspace) / "manifest.json").read_bytes()
+    seed_transactions(repository, 2)
+
+    real_connect = audit_export.connect_memory_db
+
+    class FlakyConnection:
+        def __init__(self, connection):
+            self._connection = connection
+
+        def execute(self, sql, *params):
+            if (
+                isinstance(sql, str)
+                and sql.strip().startswith("INSERT OR REPLACE")
+                and "audit_exported_seq" in sql
+            ):
+                raise sqlite3.OperationalError("injected watermark commit failure")
+            return self._connection.execute(sql, *params)
+
+        def __getattr__(self, name):
+            return getattr(self._connection, name)
+
+    class FlakyContext:
+        def __init__(self, context):
+            self._context = context
+
+        def __enter__(self):
+            return FlakyConnection(self._context.__enter__())
+
+        def __exit__(self, *exc):
+            return self._context.__exit__(*exc)
+
+    def flaky_connect(database_path, **kwargs):
+        return FlakyContext(real_connect(database_path, **kwargs))
+
+    monkeypatch.setattr(audit_export, "connect_memory_db", flaky_connect)
+
+    with pytest.raises(AuditExportError):
+        exporter.rebuild()
+
+    audit = audit_dir(workspace)
+    assert_audit_consistent(audit)
+    assert manifest_segments(audit)[-1]["path"] == "journal-open.jsonl"
+    assert manifest_segments(audit)[-1]["last_tx_seq"] == 10
+    recovered = list((workspace / "memory" / "structured" / "recovery").glob("*/audit"))
+    assert len(recovered) == 1
+    assert (recovered[0] / "manifest.json").read_bytes() == old_manifest_bytes
+
+    stats = repository.storage_stats()
+    assert stats.transaction_count == 10
+    assert stats.audit_exported_seq == 8
+    assert stats.audit_lag == 2
+
+    monkeypatch.undo()
+    exporter.export_pending()
+
+    assert repository.storage_stats().audit_lag == 0
+    assert_audit_consistent(audit)
