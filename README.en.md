@@ -84,7 +84,7 @@ Memory is not one giant file. It is layered, with a different medium for each ki
 |-------|--------|------|
 | Short-term session | `session.messages` | Full context of the live conversation |
 | Compressed archive | `memory/history.jsonl` | Append-only, cursor-based history summaries (machine-first) |
-| Long-term knowledge | `memory/structured/journal.jsonl` | Structured facts with provenance, status, and scope |
+| Long-term knowledge | `memory/structured/memory.db` | Governed structured facts (`journal.jsonl` is legacy migration input only) |
 | Lessons learned | `memory/reflections.jsonl` | One-sentence lessons from failures and periodic reflection |
 | Version history | `GitStore` (embedded Git) | Every change to long-term files is traceable and revertible |
 
