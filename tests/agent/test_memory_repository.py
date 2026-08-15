@@ -18,6 +18,7 @@ from miniunicorn.agent.memory_models import (
     EvidenceKind,
     EvidenceRef,
     InvalidMemoryTransition,
+    MemoryKind,
     MemoryLockTimeout,
     MemoryOperation,
     MemoryRecord,
@@ -29,12 +30,14 @@ from miniunicorn.agent.memory_models import (
     UnknownMemoryTag,
     new_memory_id,
     new_transaction_id,
+    normalize_match_text,
     transaction_checksum,
 )
 from miniunicorn.agent.memory_repository import (
     RepositoryDegradedError,
     StructuredMemoryRepository,
 )
+from miniunicorn.agent.memory_sqlite_schema import connect_memory_db
 
 UTC = timezone.utc
 
@@ -746,3 +749,290 @@ class TestBlockedByMonotonicity:
 
         current = repository.current_records()[0]
         assert set(current.blocked_by) == {"mem_" + "a" * 32, "mem_" + "b" * 32}
+
+
+# ---------------------------------------------------------------------------
+# SQLite read path
+# ---------------------------------------------------------------------------
+
+
+def _seed_transaction(
+    connection, transaction: MemoryTransaction, *, is_current: bool = True
+) -> int:
+    """Insert one transaction and its revisions directly via SQL (test seeding)."""
+    payload = transaction.model_dump(mode="json")
+    cursor = connection.execute(
+        "INSERT INTO memory_transactions "
+        "(tx_id, recorded_at, actor, reason, source_batch, checksum_sha256, transaction_json) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            payload["tx_id"],
+            payload["recorded_at"],
+            payload["actor"],
+            payload["reason"],
+            payload["source_batch"],
+            payload["checksum_sha256"],
+            json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+        ),
+    )
+    tx_seq = cursor.lastrowid
+    for op_index, operation in enumerate(transaction.operations):
+        record = operation.record
+        record_payload = record.model_dump(mode="json")
+        connection.execute(
+            "INSERT INTO memory_revisions "
+            "(memory_id, revision, tx_seq, op_index, is_current, status, kind, scope_kind, "
+            "scope_key, subject_norm, conflict_key, content_hash, source_level, importance, "
+            "updated_at, expires_at, record_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                record.id,
+                record.revision,
+                tx_seq,
+                op_index,
+                1 if is_current else 0,
+                record.status.value,
+                record.kind.value,
+                record.scope.kind.value,
+                record.scope.key,
+                normalize_match_text(record.subject),
+                record.conflict_key,
+                record.content_hash,
+                record.source_level.value,
+                record.importance,
+                record_payload["updated_at"],
+                record_payload["expires_at"],
+                json.dumps(
+                    record_payload,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                ),
+            ),
+        )
+        if transaction.source_batch:
+            connection.execute(
+                "INSERT OR IGNORE INTO memory_source_batches "
+                "(memory_id, source_batch, first_tx_seq) VALUES (?, ?, ?)",
+                (record.id, transaction.source_batch, tx_seq),
+            )
+            if record.revision == 1:
+                connection.execute(
+                    "INSERT INTO memory_creation_keys "
+                    "(source_batch, content_hash, memory_id, created_tx_seq) VALUES (?, ?, ?, ?)",
+                    (transaction.source_batch, record.content_hash, record.id, tx_seq),
+                )
+    return tx_seq
+
+
+def test_repository_uses_canonical_sqlite_path(repository) -> None:
+    assert repository.database_path == (
+        repository.workspace / "memory" / "structured" / "memory.db"
+    )
+    assert repository.database_path.exists()
+    assert repository.health.backend == "sqlite"
+    assert repository.health.state == "healthy"
+
+
+def test_reads_from_sqlite_return_validated_records(repository) -> None:
+    record = MemoryRecord.model_validate(
+        record_data(status="candidate", revision=1, memory_id="mem_" + "a" * 32)
+    )
+    transaction = make_transaction(record, source_batch="history:12-1")
+    with connect_memory_db(repository.database_path, lock_timeout_s=0.1) as connection:
+        _seed_transaction(connection, transaction)
+
+    assert isinstance(repository.get(record.id), MemoryRecord)
+    assert repository.get(record.id) == record
+    assert repository.get_current(record.id) == record
+    assert repository.get_current(record.id, synchronize=False) == record
+    assert repository.revisions(record.id) == (record,)
+    assert repository.current_records() == (record,)
+    assert repository.current_records(MemoryStatus.CANDIDATE) == (record,)
+    assert repository.current_records(MemoryStatus.ACTIVE) == ()
+    assert repository.active_for_conflict_key(record.conflict_key) is None
+    assert repository.active_for_conflict_key("no-such-key") is None
+    assert repository.candidate_records() == (record,)
+    assert repository.candidate_ids_for_source("history:12-1") == frozenset({record.id})
+    assert repository.candidate_ids_for_source("history:999") == frozenset()
+    assert repository.record_created_for("history:12-1", record.content_hash) == record
+    assert repository.record_ids_for_source("history:12-1") == frozenset({record.id})
+    assert repository.get("mem_" + "f" * 32) is None
+
+
+def test_reads_current_records_sorted_by_memory_id(repository) -> None:
+    first = MemoryRecord.model_validate(
+        record_data(statement="zebra", memory_id="mem_" + "a" * 32)
+    )
+    second = MemoryRecord.model_validate(
+        record_data(statement="apple", memory_id="mem_" + "b" * 32)
+    )
+    with connect_memory_db(repository.database_path, lock_timeout_s=0.1) as connection:
+        _seed_transaction(connection, make_transaction(second))
+        _seed_transaction(connection, make_transaction(first))
+    assert [r.id for r in repository.current_records()] == [first.id, second.id]
+
+
+def test_reads_revisions_ascending_by_revision(repository) -> None:
+    original = MemoryRecord.model_validate(record_data(memory_id="mem_" + "a" * 32))
+    revised = original.model_copy(
+        update={"revision": 2, "updated_at": dt("2026-08-11T08:32:00Z")}
+    )
+    with connect_memory_db(repository.database_path, lock_timeout_s=0.1) as connection:
+        _seed_transaction(connection, make_transaction(original), is_current=False)
+        _seed_transaction(connection, make_transaction(revised))
+    assert [r.revision for r in repository.revisions(original.id)] == [1, 2]
+    assert repository.get(original.id) == revised
+    assert repository.revisions("mem_" + "f" * 32) == ()
+
+
+def test_reads_candidate_source_queries(repository) -> None:
+    first = MemoryRecord.model_validate(
+        record_data(status="candidate", memory_id="mem_" + "a" * 32)
+    )
+    second = MemoryRecord.model_validate(
+        record_data(status="candidate", statement="two", memory_id="mem_" + "b" * 32)
+    )
+    active = MemoryRecord.model_validate(
+        record_data(status="active", statement="three", slot="other.slot", memory_id="mem_" + "c" * 32)
+    )
+    with connect_memory_db(repository.database_path, lock_timeout_s=0.1) as connection:
+        _seed_transaction(connection, make_transaction(first, source_batch="history:1-2"))
+        _seed_transaction(connection, make_transaction(second, source_batch="history:1-2"))
+        _seed_transaction(connection, make_transaction(active, source_batch="history:3"))
+    assert repository.candidate_records() == (first, second)
+    assert repository.candidate_ids_for_source("history:1-2") == frozenset({first.id, second.id})
+    assert repository.candidate_ids_for_source("history:3") == frozenset()
+    assert repository.active_for_conflict_key(first.conflict_key) is None
+    assert repository.record_ids_for_source("history:3") == frozenset({active.id})
+    assert repository.record_ids_for_source("history:999") == frozenset()
+
+
+def test_reads_source_batches_cumulative(repository) -> None:
+    created = MemoryRecord.model_validate(record_data(memory_id="mem_" + "a" * 32))
+    revised = created.model_copy(
+        update={"revision": 2, "updated_at": dt("2026-08-11T08:32:00Z")}
+    )
+    with connect_memory_db(repository.database_path, lock_timeout_s=0.1) as connection:
+        _seed_transaction(
+            connection, make_transaction(created, source_batch="dream:batch-a"), is_current=False
+        )
+        _seed_transaction(connection, make_transaction(revised, source_batch="dream:batch-b"))
+    assert repository.record_created_for("dream:batch-a", created.content_hash) == revised
+    assert repository.record_ids_for_source("dream:batch-a") == frozenset({created.id})
+    assert repository.record_ids_for_source("dream:batch-b") == frozenset({created.id})
+
+
+def test_reads_transaction_log_recent_first(repository) -> None:
+    first = MemoryRecord.model_validate(
+        record_data(statement="first", memory_id="mem_" + "a" * 32)
+    )
+    second = MemoryRecord.model_validate(
+        record_data(statement="second", memory_id="mem_" + "b" * 32)
+    )
+    first_tx = make_transaction(first)
+    second_tx = make_transaction(second)
+    with connect_memory_db(repository.database_path, lock_timeout_s=0.1) as connection:
+        _seed_transaction(connection, first_tx)
+        _seed_transaction(connection, second_tx)
+
+    entries = repository.transaction_log()
+    assert [t.tx_id for t in entries] == [second_tx.tx_id, first_tx.tx_id]
+    assert all(isinstance(t, MemoryTransaction) for t in entries)
+    assert [t.tx_id for t in repository.transaction_log(limit=1)] == [second_tx.tx_id]
+    assert [t.tx_id for t in repository.transaction_log(tx_id=first_tx.tx_id)] == [first_tx.tx_id]
+    assert repository.transaction_log(tx_id="mtx_" + "0" * 32) == ()
+
+
+def test_reads_storage_stats_reflects_seeded_database(repository) -> None:
+    record = MemoryRecord.model_validate(record_data(memory_id="mem_" + "a" * 32))
+    with connect_memory_db(repository.database_path, lock_timeout_s=0.1) as connection:
+        _seed_transaction(connection, make_transaction(record))
+    stats = repository.storage_stats()
+    assert stats.backend == "sqlite"
+    assert stats.schema_version == SCHEMA_VERSION
+    assert stats.transaction_count == 1
+    assert stats.revision_count == 1
+    assert stats.current_count == 1
+    assert stats.last_transaction_seq == 1
+    assert stats.audit_exported_seq == 0
+    assert stats.database_bytes > 0
+
+
+def test_reads_storage_stats_empty_database(repository) -> None:
+    stats = repository.storage_stats()
+    assert stats.transaction_count == 0
+    assert stats.revision_count == 0
+    assert stats.current_count == 0
+    assert stats.last_transaction_seq == 0
+    assert stats.audit_exported_seq == 0
+
+
+def test_reads_storage_stats_reads_audit_exported_seq(repository) -> None:
+    with connect_memory_db(repository.database_path, lock_timeout_s=0.1) as connection:
+        connection.execute(
+            "INSERT INTO storage_meta(key, value) VALUES ('audit_exported_seq', '42')"
+        )
+    assert repository.storage_stats().audit_exported_seq == 42
+
+
+def test_reads_recall_candidates_filters_scope_kind_expiry(repository) -> None:
+    active = MemoryRecord.model_validate(
+        record_data(status="active", memory_id="mem_" + "a" * 32)
+    )
+    decision = MemoryRecord.model_validate(
+        record_data(status="active", kind="decision", statement="use sqlite", memory_id="mem_" + "d" * 32)
+    )
+    candidate = MemoryRecord.model_validate(
+        record_data(status="candidate", statement="different", memory_id="mem_" + "b" * 32)
+    )
+    expired = MemoryRecord.model_validate(
+        record_data(
+            status="active",
+            statement="expired fact",
+            slot="expired.slot",
+            expires_at="2026-08-01T00:00:00Z",
+            memory_id="mem_" + "c" * 32,
+        )
+    )
+    other_scope = MemoryRecord.model_validate(
+        record_data(
+            status="active",
+            statement="session thing",
+            scope={"kind": "session", "key": "session:abc"},
+            memory_id="mem_" + "e" * 32,
+        )
+    )
+    with connect_memory_db(repository.database_path, lock_timeout_s=0.1) as connection:
+        _seed_transaction(connection, make_transaction(active))
+        _seed_transaction(connection, make_transaction(decision))
+        _seed_transaction(connection, make_transaction(candidate))
+        _seed_transaction(connection, make_transaction(expired))
+        _seed_transaction(connection, make_transaction(other_scope))
+
+    now = dt("2026-08-11T09:00:00Z")
+    scope = active.scope
+    hits = repository.recall_candidates(allowed_scopes=(scope,), requested_kinds=(), now=now)
+    assert hits == (active, decision)
+    assert repository.recall_candidates(
+        allowed_scopes=(scope,), requested_kinds=(MemoryKind.DECISION,), now=now
+    ) == (decision,)
+    assert repository.recall_candidates(
+        allowed_scopes=(other_scope.scope,), requested_kinds=(), now=now
+    ) == (other_scope,)
+
+
+def test_reads_recall_candidates_requires_scopes(repository) -> None:
+    now = dt("2026-08-11T09:00:00Z")
+    assert repository.recall_candidates(allowed_scopes=(), requested_kinds=(), now=now) == ()
+
+
+def test_reads_health_degrades_on_schema_mismatch(repository) -> None:
+    with connect_memory_db(repository.database_path, lock_timeout_s=0.1) as connection:
+        connection.execute("PRAGMA user_version = 999")
+    health = repository.rebuild()
+    assert health.state == "degraded"
+    assert health.error_code == "unsupported_schema_version"
+    with pytest.raises(RepositoryDegradedError):
+        repository.get("mem_" + "a" * 32)
+    with pytest.raises(RepositoryDegradedError):
+        repository.current_records()

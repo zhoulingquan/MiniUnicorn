@@ -1,19 +1,26 @@
-"""Atomic checksummed JSONL journal with rebuildable in-process indexes.
+"""SQLite fact database with fail-closed health and scoped reads.
 
-The journal at ``memory/structured/journal.jsonl`` is the sole source of
-structured memory truth. This module owns transaction append, replay,
-health state, and the in-process indexes; it makes no business decisions.
+The database at ``memory/structured/memory.db`` is the single runtime fact
+store (design sections 7-8). This module owns transaction append, health
+state, and all read accessors; it makes no business decisions and never
+copies PRAGMA or DDL.
 
-Normative source: docs/superpowers/specs/2026-08-11-c2-governed-structured-memory-design.md
+Normative sources:
+docs/superpowers/specs/2026-08-11-c2-governed-structured-memory-design.md
+docs/superpowers/specs/2026-08-14-sqlite-memory-storage-design.md
 """
 
 from __future__ import annotations
 
 import json
 import os
-from collections import defaultdict
+import re
+import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from filelock import FileLock
 from filelock import Timeout as FileLockTimeout
@@ -34,13 +41,17 @@ from miniunicorn.agent.memory_models import (
     MemoryWriteError,
     RepositoryDegradedError,
     RepositoryHealth,
-    ScopeKind,
     TagCatalog,
     UnknownMemoryTag,
     assert_transition,
-    normalize_match_text,
     transaction_checksum,
     validate_same_status_revision,
+)
+from miniunicorn.agent.memory_sqlite_schema import (
+    SCHEMA_VERSION,
+    check_schema,
+    connect_memory_db,
+    initialize_schema,
 )
 
 _SUPPORTED_TAGS_FILE = "tags.json"
@@ -49,18 +60,19 @@ _LOCK_FILE = "journal.lock"
 
 
 class StructuredMemoryRepository:
-    """Locked, checksummed append-only journal with rebuildable indexes."""
+    """SQLite-backed structured memory store with fail-closed health."""
 
     def __init__(self, workspace: Path, *, lock_timeout_s: float = 5.0):
         self.workspace = Path(workspace)
         self.lock_timeout_s = lock_timeout_s
         self.structured_dir = self.workspace / "memory" / "structured"
+        self.database_path = self.structured_dir / "memory.db"
         self.journal_path = self.structured_dir / _JOURNAL_FILE
         self.tags_path = self.structured_dir / _SUPPORTED_TAGS_FILE
         self.lock_path = self.structured_dir / _LOCK_FILE
         self._tag_catalog = TagCatalog()
         self._health = RepositoryHealth()
-        self._clear_index()
+        self._initialize_database()
         self.rebuild()
         logger.info("memory_repository_loaded workspace={} health={}", self.workspace, self._health.state)
 
@@ -80,22 +92,6 @@ class StructuredMemoryRepository:
     def tag_catalog(self) -> TagCatalog:
         return self._tag_catalog
 
-    def _clear_index(self) -> None:
-        self._current: dict[str, MemoryRecord] = {}
-        self._revision_history: dict[str, list[MemoryRecord]] = defaultdict(list)
-        self._by_status: dict[MemoryStatus, set[str]] = defaultdict(set)
-        self._by_scope: dict[tuple[ScopeKind, str], set[str]] = defaultdict(set)
-        self._by_subject: dict[str, set[str]] = defaultdict(set)
-        self._by_tag: dict[str, set[str]] = defaultdict(set)
-        self._by_alias: dict[str, set[str]] = defaultdict(set)
-        self._active_by_conflict: dict[str, str] = {}
-        self._candidate_by_source: dict[str, set[str]] = defaultdict(set)
-        # Immutable creation mapping: (source_batch, content_hash) -> memory id
-        # set only by the revision-1 creation and never moved afterwards.
-        self._created_by_source_content: dict[tuple[str, str], str] = {}
-        # Cumulative provenance: every non-empty source_batch ever seen per record.
-        self._source_batches_by_record: dict[str, set[str]] = defaultdict(set)
-
     def _load_tag_catalog(self) -> None:
         if self.tags_path.exists():
             try:
@@ -106,77 +102,88 @@ class StructuredMemoryRepository:
         else:
             self._tag_catalog = TagCatalog()
 
+    def _initialize_database(self) -> None:
+        """Create the SQLite fact database and schema when missing."""
+        try:
+            with connect_memory_db(
+                self.database_path, lock_timeout_s=self.lock_timeout_s
+            ) as connection:
+                initialize_schema(connection)
+        except RepositoryDegradedError as exc:
+            self._degrade(_degraded_error_code(exc), str(exc))
+        except (OSError, sqlite3.Error) as exc:
+            self._degrade("sqlite_open_error", f"cannot open memory database: {exc}")
+
     # ------------------------------------------------------------------
-    # Rebuild
+    # Rebuild (health refresh)
     # ------------------------------------------------------------------
 
     def rebuild(self) -> RepositoryHealth:
-        """Replay the journal into the in-process indexes; fail closed on corruption."""
+        """Refresh health against the SQLite fact database; fail closed on corruption."""
         self._load_tag_catalog()
-        self._clear_index()
-        self._health = RepositoryHealth()
-        if not self.journal_path.exists():
-            return self._health
         try:
-            with self.journal_path.open("r", encoding="utf-8") as stream:
-                for line_number, raw in enumerate(stream, start=1):
-                    if not raw.strip():
-                        continue
-                    if not self._replay_line(raw, line_number):
-                        # Fail closed: never trust a partially replayed journal.
-                        self._clear_index()
-                        return self._health
-        except OSError as exc:
-            self._degrade(0, "invalid_json", f"cannot read journal: {exc}")
-            self._clear_index()
+            with connect_memory_db(
+                self.database_path, lock_timeout_s=self.lock_timeout_s
+            ) as connection:
+                self._refresh_health(connection)
+        except RepositoryDegradedError as exc:
+            self._degrade(_degraded_error_code(exc), str(exc))
+        except (OSError, sqlite3.Error) as exc:
+            self._degrade("sqlite_open_error", f"cannot open memory database: {exc}")
         return self._health
 
-    def _replay_line(self, raw: str, line_number: int) -> bool:
+    def _refresh_health(self, connection: sqlite3.Connection) -> None:
+        check_schema(connection)
+        result = connection.execute("PRAGMA quick_check(1)").fetchone()
+        if result is None or result[0] != "ok":
+            raise RepositoryDegradedError(
+                "memory database integrity check failed (code=integrity_error)"
+            )
+        last_seq = connection.execute(
+            "SELECT COALESCE(MAX(tx_seq), 0) FROM memory_transactions"
+        ).fetchone()[0]
+        meta = connection.execute(
+            "SELECT value FROM storage_meta WHERE key = 'audit_exported_seq'"
+        ).fetchone()
         try:
-            data = json.loads(raw)
-        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-            self._degrade(line_number - 1, "invalid_json", f"line {line_number}: {exc}")
-            return False
-        if not isinstance(data, dict):
-            self._degrade(line_number - 1, "invalid_json", f"line {line_number}: not an object")
-            return False
-        try:
-            transaction = MemoryTransaction.model_validate(data)
-        except ValidationError as exc:
-            code = "unsupported_schema" if data.get("schema_version") != 1 else "invalid_transaction"
-            self._degrade(line_number - 1, code, f"line {line_number}: {exc}")
-            return False
-        try:
-            self._validate_against_current(transaction)
-        except DuplicateMemoryIdempotencyKey as exc:
-            self._degrade(line_number - 1, "duplicate_idempotency_key", f"line {line_number}: {exc}")
-            return False
-        except MemoryRevisionConflict as exc:
-            self._degrade(line_number - 1, "revision_conflict", f"line {line_number}: {exc}")
-            return False
-        except InvalidMemoryTransition as exc:
-            self._degrade(line_number - 1, "invalid_transition", f"line {line_number}: {exc}")
-            return False
-        except UnknownMemoryTag as exc:
-            self._degrade(line_number - 1, "unknown_tag", f"line {line_number}: {exc}")
-            return False
-        except MemoryWriteError as exc:
-            self._degrade(line_number - 1, "checksum_mismatch", f"line {line_number}: {exc}")
-            return False
-        self._publish_transaction(transaction)
-        return True
+            database_bytes = self.database_path.stat().st_size
+        except OSError:
+            database_bytes = 0
+        self._health = RepositoryHealth(
+            state="healthy",
+            backend="sqlite",
+            schema_version=SCHEMA_VERSION,
+            last_transaction_seq=int(last_seq),
+            audit_exported_seq=int(meta[0]) if meta else 0,
+            database_bytes=database_bytes,
+        )
 
-    def _degrade(self, last_valid_line: int, code: str, message: str) -> None:
+    def _degrade(self, code: str, message: str) -> None:
         self._health = RepositoryHealth(
             state="degraded",
-            last_valid_line=last_valid_line,
+            backend="sqlite",
             error_code=code,
             error_message=message,
         )
-        logger.error("memory_repository_degraded code={} last_valid_line={} error={}", code, last_valid_line, message)
+        logger.error("memory_repository_degraded code={} error={}", code, message)
+
+    def _require_healthy(self) -> None:
+        if self._health.state != "healthy":
+            raise RepositoryDegradedError(
+                f"memory database degraded (code={self._health.error_code}); reads and writes disabled"
+            )
+
+    @contextmanager
+    def _open_read(self) -> Iterator[sqlite3.Connection]:
+        """Open a short-lived read connection, failing closed when degraded."""
+        self._require_healthy()
+        with connect_memory_db(
+            self.database_path, lock_timeout_s=self.lock_timeout_s
+        ) as connection:
+            yield connection
 
     # ------------------------------------------------------------------
-    # Append protocol
+    # Append protocol (reimplemented on SQLite in the write migration task)
     # ------------------------------------------------------------------
 
     def append_transaction(self, transaction: MemoryTransaction) -> None:
@@ -234,7 +241,6 @@ class StructuredMemoryRepository:
                 os.fsync(stream.fileno())
         except OSError as exc:
             self._degrade(
-                self._health.last_valid_line or 0,
                 "write_uncertain",
                 f"journal durability is uncertain: {exc}",
             )
@@ -253,20 +259,15 @@ class StructuredMemoryRepository:
             raise MemoryWriteError("create transaction must expect creation revision 0")
 
     def _synchronize_locked(self) -> None:
-        """Replay the journal while the writer lock is held.
+        """Refresh repository health while the writer lock is held.
 
-        Repository instances are process-local. Replaying under the shared lock
-        makes expected-revision checks observe commits made by other instances.
+        Repository instances are process-local. Refreshing under the shared
+        lock makes expected-revision checks observe commits made by other
+        instances.
         """
         health = self.rebuild()
         if health.state != "healthy":
             self._require_healthy()
-
-    def _require_healthy(self) -> None:
-        if self._health.state != "healthy":
-            raise RepositoryDegradedError(
-                f"journal degraded (code={self._health.error_code}, last_valid_line={self._health.last_valid_line}); writes disabled"
-            )
 
     def _validate_against_current(self, transaction: MemoryTransaction) -> MemoryTransaction:
         if transaction_checksum(transaction) != transaction.checksum_sha256:
@@ -326,144 +327,219 @@ class StructuredMemoryRepository:
             ensure_ascii=False,
         )
 
-    # ------------------------------------------------------------------
-    # Index publication
-    # ------------------------------------------------------------------
-
-    def _publish_transaction(self, transaction: MemoryTransaction) -> None:
-        for operation in transaction.operations:
-            record = operation.record
-            previous = self._current.get(record.id)
-            self._unindex(previous)
-            self._current[record.id] = record
-            self._revision_history[record.id].append(record)
-            self._index(record, transaction.source_batch)
-            self._publish_source_provenance(record, transaction.source_batch)
-
-    def _index(self, record: MemoryRecord, source_batch: str) -> None:
-        self._by_status[record.status].add(record.id)
-        self._by_scope[(record.scope.kind, record.scope.key)].add(record.id)
-        self._by_subject[normalize_match_text(record.subject)].add(record.id)
-        for tag in record.tags:
-            self._by_tag[normalize_match_text(tag)].add(record.id)
-        for alias in record.aliases:
-            self._by_alias[normalize_match_text(alias)].add(record.id)
-        if record.status is MemoryStatus.ACTIVE:
-            self._active_by_conflict[record.conflict_key] = record.id
-        if record.status is MemoryStatus.CANDIDATE:
-            self._candidate_by_source[source_batch].add(record.id)
-
-    def _publish_source_provenance(self, record: MemoryRecord, source_batch: str) -> None:
-        if not source_batch:
-            return
-        self._source_batches_by_record[record.id].add(source_batch)
-        if record.revision != 1:
-            return
-        key = (source_batch, record.content_hash)
-        existing_id = self._created_by_source_content.get(key)
-        if existing_id is not None and existing_id != record.id:
-            raise DuplicateMemoryIdempotencyKey(
-                "duplicate idempotency key "
-                f"source_batch={source_batch} content_hash={record.content_hash}: "
-                f"{existing_id}, {record.id}"
-            )
-        self._created_by_source_content[key] = record.id
-
-    def _unindex(self, record: MemoryRecord | None) -> None:
-        if record is None:
-            return
-        self._by_status[record.status].discard(record.id)
-        self._by_scope[(record.scope.kind, record.scope.key)].discard(record.id)
-        self._by_subject[normalize_match_text(record.subject)].discard(record.id)
-        for tag in record.tags:
-            self._by_tag[normalize_match_text(tag)].discard(record.id)
-        for alias in record.aliases:
-            self._by_alias[normalize_match_text(alias)].discard(record.id)
-        if record.status is MemoryStatus.ACTIVE and self._active_by_conflict.get(record.conflict_key) == record.id:
-            del self._active_by_conflict[record.conflict_key]
-        for batches in self._candidate_by_source.values():
-            batches.discard(record.id)
+    def _replay_line(self, raw: str, line_number: int) -> bool:
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            self._degrade("invalid_json", f"line {line_number}: {exc}")
+            return False
+        if not isinstance(data, dict):
+            self._degrade("invalid_json", f"line {line_number}: not an object")
+            return False
+        try:
+            transaction = MemoryTransaction.model_validate(data)
+        except ValidationError as exc:
+            code = "unsupported_schema" if data.get("schema_version") != 1 else "invalid_transaction"
+            self._degrade(code, f"line {line_number}: {exc}")
+            return False
+        try:
+            self._validate_against_current(transaction)
+        except DuplicateMemoryIdempotencyKey as exc:
+            self._degrade("duplicate_idempotency_key", f"line {line_number}: {exc}")
+            return False
+        except MemoryRevisionConflict as exc:
+            self._degrade("revision_conflict", f"line {line_number}: {exc}")
+            return False
+        except InvalidMemoryTransition as exc:
+            self._degrade("invalid_transition", f"line {line_number}: {exc}")
+            return False
+        except UnknownMemoryTag as exc:
+            self._degrade("unknown_tag", f"line {line_number}: {exc}")
+            return False
+        except MemoryWriteError as exc:
+            self._degrade("checksum_mismatch", f"line {line_number}: {exc}")
+            return False
+        self._publish_transaction(transaction)
+        return True
 
     # ------------------------------------------------------------------
     # Read accessors
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _record_from_row(row: sqlite3.Row | None) -> MemoryRecord | None:
+        if row is None:
+            return None
+        return MemoryRecord.model_validate_json(row["record_json"])
+
     def get(self, memory_id: str) -> MemoryRecord | None:
-        return self._current.get(memory_id)
+        with self._open_read() as connection:
+            row = connection.execute(
+                "SELECT record_json FROM memory_revisions "
+                "WHERE memory_id = ? AND is_current = 1",
+                (memory_id,),
+            ).fetchone()
+        return self._record_from_row(row)
 
     def get_current(
         self, memory_id: str, *, synchronize: bool = True
     ) -> MemoryRecord | None:
         """Return the committed current record for *memory_id*.
 
-        With ``synchronize=True`` (default) the journal is replayed under the
-        shared file lock first so the read observes commits made by other
-        repository instances; this is the atomic synchronized read used by the
-        lifecycle to reconcile optimistic revision races.
+        SQLite reads already observe committed state, so ``synchronize`` is
+        kept for caller compatibility and no longer triggers a rebuild.
         """
-        if not synchronize:
-            return self._current.get(memory_id)
-        try:
-            with FileLock(str(self.lock_path), timeout=self.lock_timeout_s):
-                self.rebuild()
-                self._require_healthy()
-        except FileLockTimeout as exc:
-            raise MemoryLockTimeout(
-                f"journal lock timeout after {self.lock_timeout_s}s"
-            ) from exc
-        return self._current.get(memory_id)
+        return self.get(memory_id)
 
     def revisions(self, memory_id: str) -> tuple[MemoryRecord, ...]:
-        return tuple(self._revision_history[memory_id])
+        with self._open_read() as connection:
+            rows = connection.execute(
+                "SELECT record_json FROM memory_revisions "
+                "WHERE memory_id = ? ORDER BY revision ASC",
+                (memory_id,),
+            ).fetchall()
+        return tuple(self._record_from_row(row) for row in rows)
 
     def current_records(self, status: MemoryStatus | None = None) -> tuple[MemoryRecord, ...]:
+        sql = "SELECT record_json FROM memory_revisions WHERE is_current = 1"
+        params: list[Any] = []
         if status is not None:
-            return tuple(sorted((self._current[i] for i in self._by_status[status]), key=lambda r: r.id))
-        return tuple(sorted(self._current.values(), key=lambda r: r.id))
+            sql += " AND status = ?"
+            params.append(status.value)
+        sql += " ORDER BY memory_id ASC"
+        with self._open_read() as connection:
+            rows = connection.execute(sql, params).fetchall()
+        return tuple(self._record_from_row(row) for row in rows)
 
     def active_for_conflict_key(self, key: str) -> MemoryRecord | None:
-        memory_id = self._active_by_conflict.get(key)
-        return self._current.get(memory_id) if memory_id else None
+        with self._open_read() as connection:
+            row = connection.execute(
+                "SELECT record_json FROM memory_revisions "
+                "WHERE is_current = 1 AND status = 'active' AND conflict_key = ? "
+                "LIMIT 1",
+                (key,),
+            ).fetchone()
+        return self._record_from_row(row)
 
     def candidate_records(self) -> tuple[MemoryRecord, ...]:
         return self.current_records(MemoryStatus.CANDIDATE)
 
     def candidate_ids_for_source(self, source_batch: str) -> frozenset[str]:
-        return frozenset(self._candidate_by_source[source_batch])
+        with self._open_read() as connection:
+            rows = connection.execute(
+                "SELECT r.memory_id FROM memory_revisions r "
+                "JOIN memory_source_batches b ON b.memory_id = r.memory_id "
+                "WHERE r.is_current = 1 AND r.status = 'candidate' AND b.source_batch = ?",
+                (source_batch,),
+            ).fetchall()
+        return frozenset(row[0] for row in rows)
 
     def record_created_for(self, source_batch: str, content_hash: str) -> MemoryRecord | None:
         """Return the current record created by this source-batch/content pair.
 
         The creation mapping is written exactly once by the revision-1
-        transaction and never moves, so this lookup is deterministic and
-        survives journal rebuilds.
+        transaction and never moves, so this lookup is deterministic.
         """
-        memory_id = self._created_by_source_content.get((source_batch, content_hash))
-        return self._current.get(memory_id) if memory_id else None
+        with self._open_read() as connection:
+            row = connection.execute(
+                "SELECT r.record_json FROM memory_revisions r "
+                "JOIN memory_creation_keys k ON k.memory_id = r.memory_id "
+                "WHERE k.source_batch = ? AND k.content_hash = ? AND r.is_current = 1",
+                (source_batch, content_hash),
+            ).fetchone()
+        return self._record_from_row(row)
 
     def record_ids_for_source(self, source_batch: str) -> frozenset[str]:
         """Return every record that ever carried a non-empty source batch."""
-        return frozenset(
-            memory_id
-            for memory_id, batches in self._source_batches_by_record.items()
-            if source_batch in batches
-        )
-
-    # ------------------------------------------------------------------
-    # SQLite contract stubs (implemented in the sqlite migration tasks)
-    # ------------------------------------------------------------------
+        with self._open_read() as connection:
+            rows = connection.execute(
+                "SELECT memory_id FROM memory_source_batches WHERE source_batch = ?",
+                (source_batch,),
+            ).fetchall()
+        return frozenset(row[0] for row in rows)
 
     def recall_candidates(
         self,
         *,
         allowed_scopes: tuple[MemoryScope, ...],
-        requested_kinds: tuple[MemoryKind, ...],
+        requested_kinds: tuple[MemoryKind, ...] | frozenset[MemoryKind],
         now: datetime,
     ) -> tuple[MemoryRecord, ...]:
-        raise NotImplementedError
+        """Return current active, unexpired records whose scope and kind match."""
+        if not allowed_scopes:
+            return ()
+        scope_clause = " OR ".join("(scope_kind = ? AND scope_key = ?)" for _ in allowed_scopes)
+        params: list[Any] = [
+            value for scope in allowed_scopes for value in (scope.kind.value, scope.key)
+        ]
+        sql = (
+            "SELECT record_json FROM memory_revisions "
+            "WHERE is_current = 1 AND status = 'active' "
+            f"AND ({scope_clause}) "
+            "AND (expires_at IS NULL OR expires_at > ?)"
+        )
+        params.append(now.isoformat())
+        if requested_kinds:
+            sql += f" AND kind IN ({','.join('?' for _ in requested_kinds)})"
+            params.extend(kind.value for kind in requested_kinds)
+        sql += " ORDER BY memory_id ASC"
+        with self._open_read() as connection:
+            rows = connection.execute(sql, params).fetchall()
+        return tuple(self._record_from_row(row) for row in rows)
 
-    def transaction_log(self, *, tx_id: str | None = None) -> tuple[MemoryTransaction, ...]:
-        raise NotImplementedError
+    def transaction_log(
+        self, *, limit: int = 20, tx_id: str | None = None
+    ) -> tuple[MemoryTransaction, ...]:
+        """Return recent transactions newest first, optionally for one tx id."""
+        if tx_id is None:
+            sql = "SELECT transaction_json FROM memory_transactions ORDER BY tx_seq DESC LIMIT ?"
+            params: list[Any] = [limit]
+        else:
+            sql = (
+                "SELECT transaction_json FROM memory_transactions "
+                "WHERE tx_id = ? ORDER BY tx_seq DESC LIMIT ?"
+            )
+            params = [tx_id, limit]
+        with self._open_read() as connection:
+            rows = connection.execute(sql, params).fetchall()
+        return tuple(
+            MemoryTransaction.model_validate_json(row["transaction_json"]) for row in rows
+        )
 
     def storage_stats(self) -> MemoryStorageStats:
-        raise NotImplementedError
+        with self._open_read() as connection:
+            transaction_count = connection.execute(
+                "SELECT COUNT(*) FROM memory_transactions"
+            ).fetchone()[0]
+            revision_count = connection.execute(
+                "SELECT COUNT(*) FROM memory_revisions"
+            ).fetchone()[0]
+            current_count = connection.execute(
+                "SELECT COUNT(*) FROM memory_revisions WHERE is_current = 1"
+            ).fetchone()[0]
+            last_seq = connection.execute(
+                "SELECT COALESCE(MAX(tx_seq), 0) FROM memory_transactions"
+            ).fetchone()[0]
+            meta = connection.execute(
+                "SELECT value FROM storage_meta WHERE key = 'audit_exported_seq'"
+            ).fetchone()
+        try:
+            database_bytes = self.database_path.stat().st_size
+        except OSError:
+            database_bytes = 0
+        return MemoryStorageStats(
+            backend="sqlite",
+            schema_version=SCHEMA_VERSION,
+            transaction_count=transaction_count,
+            revision_count=revision_count,
+            current_count=current_count,
+            last_transaction_seq=int(last_seq),
+            audit_exported_seq=int(meta[0]) if meta else 0,
+            database_bytes=database_bytes,
+        )
+
+
+def _degraded_error_code(exc: RepositoryDegradedError) -> str:
+    """Extract the ``(code=...)`` marker from a degradation message when present."""
+    match = re.search(r"\(code=([a-z_]+)\)", str(exc))
+    return match.group(1) if match else "repository_degraded"
