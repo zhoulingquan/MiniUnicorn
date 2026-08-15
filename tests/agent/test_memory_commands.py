@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -776,3 +778,39 @@ class TestScopeAuthorization:
         unauthorized_revoke = await _dispatch(router, store, f"/memory-revoke {other.id} 原因")
         assert missing_revoke == f"{_NOT_FOUND_PREFIX} `mem_nonexistent`."
         assert unauthorized_revoke == f"{_NOT_FOUND_PREFIX} `{other.id}`."
+
+
+class TestAuditExportTrigger:
+    async def test_mutating_command_exports_audit_before_returning(self, workspace):
+        store = _store(workspace)
+        router = _router()
+        candidate = _seed_scope(store, _project_scope(store), "PROJECT CANDIDATE")
+        assert candidate.status is MemoryStatus.CANDIDATE
+
+        content = await _dispatch(router, store, f"/memory-promote {candidate.id}")
+
+        assert "Promoted" in content
+        stats = store.structured_repository.storage_stats()
+        assert stats.transaction_count == 2
+        assert stats.audit_lag == 0
+        manifest = json.loads(
+            (Path(workspace) / "memory" / "structured" / "audit" / "manifest.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert manifest["database_last_tx_seq"] == stats.last_transaction_seq
+
+    async def test_failed_command_does_not_fail_on_export(self, workspace, monkeypatch):
+        store = _store(workspace)
+        router = _router()
+        candidate = _seed_scope(store, _project_scope(store), "PROJECT CANDIDATE")
+
+        def boom(*args, **kwargs):
+            raise OSError("injected audit export failure")
+
+        monkeypatch.setattr(store.audit_exporter, "export_pending", boom)
+
+        content = await _dispatch(router, store, f"/memory-promote {candidate.id}")
+
+        assert "Promoted" in content
+        assert store.structured_repository.storage_stats().audit_lag == 2

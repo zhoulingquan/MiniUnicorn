@@ -163,6 +163,7 @@ class MemoryStore:
             "structured_memory_initialized health={}",
             self.structured_repository.health.state,
         )
+        self._export_audit_pending()
 
     @property
     def project_scope_key(self) -> str:
@@ -226,6 +227,7 @@ class MemoryStore:
 
     def _build_structured_stack(self) -> StructuredMemoryRepository:
         """Construct the repository -> lifecycle -> recall stack."""
+        from miniunicorn.agent.memory_audit_export import MemoryAuditExporter
         from miniunicorn.agent.memory_lifecycle import (
             LifecyclePolicy,
             StructuredMemoryLifecycle,
@@ -242,9 +244,34 @@ class MemoryStore:
             candidate_ttl_days=self.structured_config.candidate_ttl_days,
         )
         self.structured_repository = repository
+        self.audit_exporter = MemoryAuditExporter(repository)
         self.structured_lifecycle = StructuredMemoryLifecycle(repository, policy)
         self.structured_recall = StructuredMemoryRecall(repository, repository.tag_catalog)
         return repository
+
+    def _export_audit_pending(self) -> None:
+        """Best-effort export of pending audit rows after committed facts.
+
+        Fired on a successful Dream batch, on explicit memory modification
+        commands before they return, and at startup when a lag is discovered
+        (design section 12). Export failures never turn a committed memory
+        command into a failure: they only raise ``audit_lag`` (visible via
+        ``/memory-status``) and log ``memory_audit_export_failed``, because
+        the JSONL audit is a rebuildable derivation of the fact database.
+        """
+        if self.structured_repository.health.state != "healthy":
+            return
+        try:
+            result = self.audit_exporter.export_pending()
+            if result.exported_rows:
+                logger.info(
+                    "memory_audit_export_completed rows={} sealed_segments={} lag={}",
+                    result.exported_rows,
+                    result.sealed_segments,
+                    result.lag,
+                )
+        except Exception:
+            logger.exception("memory_audit_export_failed")
 
     def _structured_stack_or_build(self) -> StructuredMemoryRepository:
         """Return the always-initialized structured repository."""
@@ -1736,6 +1763,7 @@ class Dream:
         if first_history is None and first_reflection is None:
             store.set_last_reflections_cursor(max(entry.get("_line", 0) for entry in reflection_entries))
             store.run_memory_hygiene()
+            store._export_audit_pending()
             return True
 
         if first_reflection is None or (
@@ -1791,6 +1819,7 @@ class Dream:
             if reflection_advance_line:
                 store.set_last_reflections_cursor(reflection_advance_line)
                 store.run_memory_hygiene()
+                store._export_audit_pending()
                 return True
             return False
 
@@ -1942,4 +1971,5 @@ class Dream:
             store.run_memory_hygiene()
         except Exception:
             logger.debug("File hygiene failed", exc_info=True)
+        store._export_audit_pending()
         return True

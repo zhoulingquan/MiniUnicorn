@@ -784,6 +784,23 @@ class StructuredMemoryRepository:
             MemoryTransaction.model_validate_json(row["transaction_json"]) for row in rows
         )
 
+    def transaction_rows_in_range(
+        self, first_tx_seq: int, last_tx_seq: int
+    ) -> tuple[tuple[int, str], ...]:
+        """Return ordered ``(tx_seq, transaction_json)`` rows for a seq window.
+
+        Consumed by the audit exporter (design section 12): raw row JSON only,
+        never model reconstruction. A single SELECT observes one WAL snapshot,
+        so the read never blocks concurrent writers.
+        """
+        with self._open_read() as connection:
+            rows = connection.execute(
+                "SELECT tx_seq, transaction_json FROM memory_transactions "
+                "WHERE tx_seq BETWEEN ? AND ? ORDER BY tx_seq ASC",
+                (first_tx_seq, last_tx_seq),
+            ).fetchall()
+        return tuple((row["tx_seq"], row["transaction_json"]) for row in rows)
+
     def storage_stats(self) -> MemoryStorageStats:
         with self._open_read() as connection:
             transaction_count = connection.execute(

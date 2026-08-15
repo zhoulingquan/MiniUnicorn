@@ -301,6 +301,7 @@ async def cmd_memory_promote(ctx: CommandContext) -> OutboundMessage:
         )
     except MemoryLifecycleError as exc:
         return _reply(ctx, str(exc))
+    store._export_audit_pending()
     return _reply(ctx, f"Promoted `{result.candidate_id}` -> `{result.final_status.value}`.")
 
 
@@ -321,6 +322,7 @@ async def cmd_memory_revoke(ctx: CommandContext) -> OutboundMessage:
         revoked = lifecycle.revoke(memory_id, reason=f"user:{reason}")
     except MemoryLifecycleError as exc:
         return _reply(ctx, str(exc))
+    store._export_audit_pending()
     return _reply(ctx, f"Revoked `{revoked.id}` (status: `{revoked.status.value}`).")
 
 
@@ -368,6 +370,7 @@ async def cmd_memory_correct(ctx: CommandContext) -> OutboundMessage:
         result = lifecycle.ingest(proposal, context)  # type: ignore[union-attr]
     except MemoryError as exc:
         return _reply(ctx, str(exc))
+    store._export_audit_pending()
     return _reply(ctx, f"Corrected `{result.candidate_id}` -> `{result.final_status.value}`.")
 
 
