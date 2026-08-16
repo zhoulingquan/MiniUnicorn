@@ -21,6 +21,7 @@ from typing import Any
 import httpx
 
 from miniunicorn.agent.tools.image_generation.config import ImageGenerationProviderConfig
+from miniunicorn.agent.tools.image_generation.providers._http import build_async_client
 from miniunicorn.agent.tools.image_generation.providers.base import (
     GeneratedImageResponse,
     ImageGenerationAdapter,
@@ -134,7 +135,7 @@ class ImagesGenerationsAdapter(ImageGenerationAdapter):
             body["prompt"] = effective_prompt
 
         client_owned = http_client is None
-        client = http_client or httpx.AsyncClient(timeout=timeout)
+        client = http_client or build_async_client(timeout=timeout)
         try:
             try:
                 resp = await client.post(url, json=body, headers=headers, timeout=timeout)
@@ -153,7 +154,7 @@ class ImagesGenerationsAdapter(ImageGenerationAdapter):
                     f"images_generations returned non-JSON: {resp.text[:200]}"
                 ) from exc
 
-            return await self._parse_response(data, provider_config=provider_config, client=client)
+            return await self._parse_response(data, provider_config=provider_config)
         finally:
             if client_owned:
                 await client.aclose()
@@ -209,7 +210,7 @@ class ImagesGenerationsAdapter(ImageGenerationAdapter):
         headers.pop("Content-Type", None)
 
         client_owned = http_client is None
-        client = http_client or httpx.AsyncClient(timeout=timeout)
+        client = http_client or build_async_client(timeout=timeout)
         try:
             try:
                 resp = await client.post(
@@ -230,7 +231,7 @@ class ImagesGenerationsAdapter(ImageGenerationAdapter):
                     f"images_edits returned non-JSON: {resp.text[:200]}"
                 ) from exc
 
-            return await self._parse_response(data, provider_config=provider_config, client=client)
+            return await self._parse_response(data, provider_config=provider_config)
         finally:
             if client_owned:
                 await client.aclose()
@@ -240,7 +241,6 @@ class ImagesGenerationsAdapter(ImageGenerationAdapter):
         data: dict[str, Any],
         *,
         provider_config: ImageGenerationProviderConfig,
-        client: httpx.AsyncClient,
     ) -> GeneratedImageResponse:
         """解析 OpenAI 风格响应, 统一转为 data URL 列表。"""
         items = data.get("data") or []
@@ -258,7 +258,7 @@ class ImagesGenerationsAdapter(ImageGenerationAdapter):
                 if not isinstance(url_value, str):
                     continue
                 # URL 形式: 下载并转 base64 data URL
-                data_url = await download_url_to_data_url(url_value, client=client)
+                data_url = await download_url_to_data_url(url_value)
                 images.append(data_url)
             else:
                 b64 = item.get("b64_json")

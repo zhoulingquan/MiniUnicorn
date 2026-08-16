@@ -34,7 +34,9 @@ def session_extra(metadata: Mapping[str, Any] | None) -> dict[str, Any]:
     return cli_app_utils.session_extra(metadata) | mcp_tools.session_extra(metadata)
 
 
-def runtime_lines(state: Any, msg: Any, workspace: Path, *, skip: bool = False) -> list[str]:
+def runtime_lines(
+    state: mcp_tools.RuntimeState, msg: Any, workspace: Path, *, skip: bool = False
+) -> list[str]:
     """Return model-visible runtime annotations for turn-attached capabilities."""
     return [
         *cli_app_utils.runtime_lines(msg, workspace, skip=skip),
@@ -47,11 +49,13 @@ def runtime_lines(state: Any, msg: Any, workspace: Path, *, skip: bool = False) 
     ]
 
 
-async def connect_mcp(state: Any, tools: ToolRegistry) -> None:
+async def connect_mcp(state: mcp_tools.RuntimeState, tools: ToolRegistry) -> None:
     await mcp_tools.connect_missing_servers(state, tools)
 
 
-async def handle_runtime_control(state: Any, msg: InboundMessage, tools: ToolRegistry) -> bool:
+async def handle_runtime_control(
+    state: mcp_tools.RuntimeState, msg: InboundMessage, tools: ToolRegistry
+) -> bool:
     return await mcp_tools.handle_runtime_control(state, msg, tools)
 
 
@@ -546,7 +550,7 @@ class ContextBuilder:
         session_metadata: Mapping[str, Any] | None = None,
         current_runtime_lines: Sequence[str] | None = None,
         workspace: Path | None = None,
-        runtime_state: Any | None = None,
+        runtime_state: mcp_tools.RuntimeState | None = None,
         inbound_message: Any | None = None,
         skip_runtime_lines: bool = False,
         agent_override: SubagentDefinition | None = None,

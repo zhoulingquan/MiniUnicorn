@@ -181,6 +181,12 @@ def test_test_mcp_preset_connects_and_reports_tools(
 ) -> None:
     _use_config(tmp_path, monkeypatch)
     mcp_presets_action("enable", {"name": ["playwright"]})
+    # This test exercises the connect path, not the dependency probe; pretend
+    # npx is installed so machines without it still reach the connection logic.
+    monkeypatch.setattr(
+        "miniunicorn.webui.mcp_presets_api.shutil.which",
+        lambda _command: "/fake/bin/npx",
+    )
 
     class FakeStack:
         async def aclose(self) -> None:

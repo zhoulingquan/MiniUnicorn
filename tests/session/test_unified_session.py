@@ -49,6 +49,9 @@ def _make_loop(tmp_path: Path, unified_session: bool = False) -> AgentLoop:
             provider=provider,
             workspace=tmp_path,
             unified_session=unified_session,
+            # Pin the context window so construction never consults the
+            # machine-global learning table / Hugging Face.
+            context_window_tokens=128_000,
         )
     return loop
 

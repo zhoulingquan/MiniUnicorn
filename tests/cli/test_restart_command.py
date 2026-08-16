@@ -30,7 +30,15 @@ def _make_loop():
         patch("miniunicorn.agent.loop.SessionManager"),
         patch("miniunicorn.agent.loop.SubagentManager"),
     ):
-        loop = AgentLoop(bus=bus, provider=provider, workspace=workspace)
+        loop = AgentLoop(
+            bus=bus,
+            provider=provider,
+            workspace=workspace,
+            # Pin the context window (the /status assertions expect the 65k
+            # default); without it AgentLoop fail-louds on machines whose
+            # learning table lacks "test-model".
+            context_window_tokens=65_536,
+        )
     return loop, bus
 
 

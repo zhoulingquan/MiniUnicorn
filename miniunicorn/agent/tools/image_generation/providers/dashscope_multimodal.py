@@ -41,6 +41,7 @@ from typing import Any
 import httpx
 
 from miniunicorn.agent.tools.image_generation.config import ImageGenerationProviderConfig
+from miniunicorn.agent.tools.image_generation.providers._http import build_async_client
 from miniunicorn.agent.tools.image_generation.providers.base import (
     GeneratedImageResponse,
     ImageGenerationAdapter,
@@ -120,7 +121,7 @@ class DashscopeMultimodalAdapter(ImageGenerationAdapter):
         headers = build_headers(provider_config)
 
         client_owned = http_client is None
-        client = http_client or httpx.AsyncClient(timeout=timeout)
+        client = http_client or build_async_client(timeout=timeout)
         try:
             try:
                 resp = await client.post(url, json=body, headers=headers, timeout=timeout)
@@ -192,7 +193,7 @@ class DashscopeMultimodalAdapter(ImageGenerationAdapter):
                     if image_value.startswith("data:image/"):
                         images.append(image_value)
                     elif image_value.startswith(("http://", "https://")):
-                        data_url = await download_url_to_data_url(image_value, client=client)
+                        data_url = await download_url_to_data_url(image_value)
                         images.append(data_url)
 
         if not images:

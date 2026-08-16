@@ -9,6 +9,7 @@ from typing import Any, Awaitable, Callable
 from loguru import logger
 
 from miniunicorn.agent.hook import AgentHook, AgentHookContext
+from miniunicorn.utils.callback_types import ProgressCallback
 from miniunicorn.utils.helpers import IncrementalThinkExtractor, strip_think
 from miniunicorn.utils.progress_events import (
     build_tool_event_finish_payloads,
@@ -24,7 +25,7 @@ class AgentProgressHook(AgentHook):
 
     def __init__(
         self,
-        on_progress: Callable[..., Awaitable[None]] | None = None,
+        on_progress: ProgressCallback | None = None,
         on_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
         *,

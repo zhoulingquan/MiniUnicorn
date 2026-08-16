@@ -191,6 +191,9 @@ class WebSocketChannel(BaseChannel):
         self._issued_tokens: dict[str, float] = {}
         # Multi-use tokens for HTTP routes served beside WS; checked but not consumed.
         self._api_tokens: dict[str, float] = {}
+        # 后台通知任务引用集: create_task 必须持引用, 否则任务可能在完成前被
+        # 事件循环 GC 丢弃; done_callback 自动回收引用, stop 时统一取消。
+        self._notify_tasks: set[asyncio.Task] = set()
         self._stop_event: asyncio.Event | None = None
         self._server_task: asyncio.Task[None] | None = None
         self._session_manager = session_manager
@@ -510,10 +513,19 @@ class WebSocketChannel(BaseChannel):
         if secret:
             if not _issue_route_secret_matches(request.headers, secret):
                 return connection.respond(401, "Unauthorized")
+        elif not _is_localhost(connection):
+            # 无 secret 时仅允许回环连接签发 token: 绑定 LAN IP 的部署若放行
+            # 任意局域网客户端访问签发端点, 等于把 WS token 直接交给局域网内
+            # 的任何主机(与 host 校验形成纵深防御)。
+            self.logger.error(
+                "token issuance rejected: token_issue_secret is empty and the "
+                "client is not on the loopback interface"
+            )
+            return connection.respond(403, "Forbidden")
         else:
             self.logger.warning(
                 "token_issue_path is set but token_issue_secret is empty; "
-                "any client can obtain connection tokens — set token_issue_secret for production."
+                "loopback clients can obtain connection tokens — set token_issue_secret for production."
             )
         # Per-IP token issuance rate limit (5/min).
         if not self._check_rate_limit(self._token_rate_limiter, connection, "token_issue"):
@@ -645,7 +657,10 @@ class WebSocketChannel(BaseChannel):
     def _notify_session_updated_safe(self, chat_id: str) -> None:
         """fire-and-forget: 通知连接的 WS 客户端刷新会话视图。"""
         try:
-            asyncio.create_task(self.send_session_updated(chat_id))
+            task = asyncio.create_task(self.send_session_updated(chat_id))
+            # 持引用防止任务被 GC 中途丢弃 (与 ChannelManager 后台任务同模式)。
+            self._notify_tasks.add(task)
+            task.add_done_callback(self._notify_tasks.discard)
         except RuntimeError:
             # No running loop — the client will refresh on next poll/reconnect.
             pass
@@ -697,8 +712,9 @@ class WebSocketChannel(BaseChannel):
         # 向后兼容回退保留,且仅在 Authorization 头缺失时才被读取(短路求值)。
         # 注意:不要在此方法或调用方记录完整 request.path,以免 token 泄漏到日志。
         token = _bearer_token(request.headers)
-        if not token:
-            # 仅当 Authorization 头缺失时回退到 ?token= 查询参数(向后兼容)。
+        if not token and getattr(self.config, "allow_query_token", True):
+            # 仅当 Authorization 头缺失且 allow_query_token 开启时回退到 ?token=
+            # 查询参数(向后兼容); 生产环境建议配置 allow_query_token=false 彻底禁用。
             token = _query_first(_parse_query(request.path), "token")
             if token:
                 # 废弃警告:?token= 会出现在 URL 中,可能被日志/Referer/浏览器历史记录泄漏。
@@ -1462,6 +1478,13 @@ class WebSocketChannel(BaseChannel):
             except Exception as e:
                 self.logger.warning("server task error during shutdown: {}", e)
             self._server_task = None
+        # 取消仍存活的后台通知任务, 防止 shutdown 期间继续向已关闭连接发送。
+        for task in list(self._notify_tasks):
+            task.cancel()
+        if self._notify_tasks:
+            with suppress(Exception):
+                await asyncio.gather(*self._notify_tasks, return_exceptions=True)
+            self._notify_tasks.clear()
         self._subs.clear()
         self._conn_chats.clear()
         self._conn_default.clear()

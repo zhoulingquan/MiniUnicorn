@@ -23,7 +23,7 @@ import base64
 import mimetypes
 import os
 import time
-from collections import deque
+from collections import OrderedDict
 from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -152,9 +152,10 @@ class QQChannel(BaseChannel):
         # 事件循环启动前完成,无需加锁;此处保护 download 路径的懒初始化。
         self._http_lock: asyncio.Lock = asyncio.Lock()
 
-        self._processed_ids: deque[str] = deque(maxlen=1000)
         self._msg_seq: int = 1  # used to avoid QQ API dedup
-        self._chat_type_cache: dict[str, str] = {}
+        # chat_id -> chat_type 缓存。chat_type 对同一会话基本不变, 用 OrderedDict
+        # 实现 FIFO 有界缓存, 防止长生命周期网关下按 chat_id 无界累积。
+        self._chat_type_cache: OrderedDict[str, str] = OrderedDict()
 
         self._media_root: Path = self._init_media_root()
 
@@ -223,6 +224,12 @@ class QQChannel(BaseChannel):
     # ---------------------------
     # Outbound (send)
     # ---------------------------
+
+    def _remember_chat_type(self, chat_id: str, chat_type: str, *, max_size: int = 1024) -> None:
+        """记录 chat_id 的会话类型, FIFO 有界缓存防止无界累积。"""
+        self._chat_type_cache[chat_id] = chat_type
+        while len(self._chat_type_cache) > max_size:
+            self._chat_type_cache.popitem(last=False)
 
     async def send(self, msg: OutboundMessage) -> None:
         """Send attachments first, then text."""
@@ -477,10 +484,11 @@ class QQChannel(BaseChannel):
 
             content = (data.content or "").strip()
 
-            if data.id in self._processed_ids:
+            # 复用基类 _dedup_message (OrderedDict, O(1) 查重 + FIFO 淘汰);
+            # 此前对 deque 做 O(n) 线性扫描, 高峰消息量下开销放大。
+            if not self._dedup_message(data.id):
                 return
-            self._processed_ids.append(data.id)
-            self._chat_type_cache[chat_id] = chat_type
+            self._remember_chat_type(chat_id, chat_type)
 
             # Early permission check — avoid attachment downloads and ack side effects
             # for unauthorized users. C2C messages can receive pairing codes;

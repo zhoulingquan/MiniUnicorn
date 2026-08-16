@@ -31,6 +31,7 @@ from typing import Any
 import httpx
 
 from miniunicorn.agent.tools.image_generation.config import ImageGenerationProviderConfig
+from miniunicorn.agent.tools.image_generation.providers._http import build_async_client
 from miniunicorn.agent.tools.image_generation.providers.base import (
     GeneratedImageResponse,
     ImageGenerationAdapter,
@@ -109,7 +110,7 @@ class ChatCompletionsAdapter(ImageGenerationAdapter):
         headers = build_headers(provider_config)
 
         client_owned = http_client is None
-        client = http_client or httpx.AsyncClient(timeout=timeout)
+        client = http_client or build_async_client(timeout=timeout)
         try:
             try:
                 resp = await client.post(url, json=body, headers=headers, timeout=timeout)

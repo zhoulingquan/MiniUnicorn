@@ -307,11 +307,14 @@ class TestLoadConfigValidationFailurePropagates:
 
         assert config.agents.defaults.max_tokens == 8192
 
-    def test_malformed_json_still_falls_back_to_defaults(self, tmp_path) -> None:
-        """Keep the existing product fallback for malformed (non-JSON) files."""
+    def test_malformed_json_fails_loud(self, tmp_path) -> None:
+        """Corrupted JSON must raise instead of silently returning defaults.
+
+        Falling back would let a later save_config overwrite the (possibly
+        partially recoverable) file with defaults — silent data loss.
+        """
         config_path = tmp_path / "config.json"
         config_path.write_text("{ this is not valid json", encoding="utf-8")
 
-        config = load_config(config_path)
-
-        assert config.agents.defaults.max_tokens == 8192
+        with pytest.raises(json.JSONDecodeError):
+            load_config(config_path)

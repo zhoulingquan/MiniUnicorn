@@ -119,8 +119,16 @@ def load_config(config_path: Path | None = None, *, apply_ssrf: bool = True) -> 
             )
             raise
         except (json.JSONDecodeError, ValueError) as e:
-            logger.warning("Failed to load config from {}: {}", path, e)
-            logger.warning("Using default configuration.")
+            # 损坏的 JSON(如写入中途截断)同样失败响亮:若静默回退默认配置,
+            # 后续任何 save_config 都会用默认值覆盖用户原配置,造成数据丢失。
+            # 与 ValidationError 的策略保持一致。
+            logger.error(
+                "Configuration file {} is corrupted ({}); refusing to fall back to defaults. "
+                "Fix or remove the file manually.",
+                path,
+                e,
+            )
+            raise
 
     if apply_ssrf:
         _apply_ssrf_whitelist(config)
@@ -179,6 +187,18 @@ def _locked_config_write(path: Path):
         yield
 
 
+def _restrict_permissions(path: Path) -> None:
+    """Restrict *path* to owner-only (0o600).
+
+    config.json 存放 api_key/app_secret/bot_token 等敏感凭据。POSIX 下
+    chmod(0o600) 将读写权限限制为属主;Windows 下 os.chmod(0o600) 仅体现为
+    清除只读属性(无安全含义,但保证后续 os.replace 不被阻塞),真正的访问
+    控制由用户配置目录 %USERPROFILE% 的默认 ACL 负责。与 pairing/store.py
+    的策略保持一致。
+    """
+    os.chmod(path, 0o600)
+
+
 def save_config(config: Config, config_path: Path | None = None) -> None:
     """Save configuration to file atomically.
 
@@ -212,7 +232,14 @@ def save_config(config: Config, config_path: Path | None = None) -> None:
                 f.write(payload)
                 f.flush()
                 os.fsync(f.fileno())
+            # 配置内含 api_key/app_secret/bot_token 等敏感凭据,收紧为
+            # owner-only(参照 pairing/store.py 的做法)。在 os.replace 之前
+            # 对临时文件设置权限,避免替换后出现权限宽松的窗口。
+            _restrict_permissions(tmp_path)
             os.replace(tmp_path, path)
+            # 旧版本创建的 config.json 可能权限宽松;替换后再收紧一次目标文件,
+            # 同时清除 Windows 上的只读属性,确保下次写入不被阻塞。
+            _restrict_permissions(path)
             # tmp_path is now gone after successful replace; mark it so the
             # finally block does not try to remove it again.
             tmp_path = None

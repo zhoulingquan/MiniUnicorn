@@ -377,7 +377,7 @@ async def test_images_generations_adapter_b64_json():
 
 
 @pytest.mark.asyncio
-async def test_images_generations_adapter_url_response():
+async def test_images_generations_adapter_url_response(monkeypatch):
     """images_generations 协议 response_format=url: 自动下载转 data URL。"""
     from miniunicorn.agent.tools.image_generation.config import ImageGenerationProviderConfig
     from miniunicorn.agent.tools.image_generation.providers.images_generations import (
@@ -386,7 +386,7 @@ async def test_images_generations_adapter_url_response():
 
     fake_resp = _mock_response(200, {"data": [{"url": "https://example.com/img.png"}]})
 
-    # mock 下载
+    # mock 下载 (下载走独立的严格 SSRF 客户端, monkeypatch 工厂注入 mock)
     fake_download_resp = MagicMock()
     fake_download_resp.status_code = 200
     fake_download_resp.content = _PNG_BYTES
@@ -397,6 +397,10 @@ async def test_images_generations_adapter_url_response():
     fake_client.post = AsyncMock(return_value=fake_resp)
     fake_client.get = AsyncMock(return_value=fake_download_resp)
     fake_client.aclose = AsyncMock()
+    monkeypatch.setattr(
+        "miniunicorn.agent.tools.image_generation.providers.base.create_ssrf_safe_client",
+        lambda **kwargs: fake_client,
+    )
 
     adapter = ImagesGenerationsAdapter()
     cfg = ImageGenerationProviderConfig(
@@ -548,7 +552,7 @@ async def test_chat_completions_adapter_with_reference_images():
 
 
 @pytest.mark.asyncio
-async def test_dashscope_adapter_parses_url_response():
+async def test_dashscope_adapter_parses_url_response(monkeypatch):
     """dashscope_multimodal 协议: 解析 output.choices[].message.content[].image URL 并下载。"""
     from miniunicorn.agent.tools.image_generation.config import ImageGenerationProviderConfig
     from miniunicorn.agent.tools.image_generation.providers.dashscope_multimodal import (
@@ -580,6 +584,10 @@ async def test_dashscope_adapter_parses_url_response():
     fake_client.post = AsyncMock(return_value=fake_resp)
     fake_client.get = AsyncMock(return_value=fake_download_resp)
     fake_client.aclose = AsyncMock()
+    monkeypatch.setattr(
+        "miniunicorn.agent.tools.image_generation.providers.base.create_ssrf_safe_client",
+        lambda **kwargs: fake_client,
+    )
 
     adapter = DashscopeMultimodalAdapter()
     cfg = ImageGenerationProviderConfig(api_key="k", api_type="dashscope_multimodal")

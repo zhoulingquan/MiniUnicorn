@@ -684,14 +684,32 @@ async def list_provider_models(query: QueryParams) -> dict[str, Any]:
 
         if not api_key and not (spec.is_local or spec.is_direct):
             raise WebUISettingsError("api_key is required to fetch models")
-        client = AsyncOpenAI(api_key=api_key or "unused", base_url=api_base)
-        models = await client.models.list()
+        # api_base 可被 query 覆盖, 属用户可控目标: 用 SSRF 防护客户端
+        # (每次请求拨号前校验目标 IP, 含 SDK 内部重定向)。WebUI 允许测试
+        # 本地 provider(ollama 等), 因此放行私网, 仅拦截云元数据/链路本地。
+        from miniunicorn.security.network import create_ssrf_safe_client
+
+        http_client = create_ssrf_safe_client(
+            allow_private=True,
+            timeout=30.0,
+            follow_redirects=True,
+        )
+        try:
+            client = AsyncOpenAI(
+                api_key=api_key or "unused",
+                base_url=api_base,
+                http_client=http_client,
+            )
+            models = await client.models.list()
+        finally:
+            await http_client.aclose()
         model_ids = sorted(
             [m.id for m in models.data if m.id],
             key=lambda x: x.lower(),
         )
-        await client.close()
         return {"provider": provider_name, "models": model_ids}
+    except WebUISettingsError:
+        raise
     except Exception as exc:
         raise WebUISettingsError(f"Failed to fetch models: {exc}") from exc
 

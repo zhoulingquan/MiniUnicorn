@@ -7,6 +7,18 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from miniunicorn.agent.hook import AgentHookContext
+from miniunicorn.utils.callback_types import ProgressCallback
+
+__all__ = [
+    "ProgressCallback",
+    "build_tool_event_finish_payloads",
+    "build_tool_event_start_payload",
+    "invoke_file_edit_progress",
+    "invoke_on_progress",
+    "on_progress_accepts_file_edit_events",
+    "on_progress_accepts_tool_events",
+    "tool_event_result_extras",
+]
 
 
 def on_progress_accepts_tool_events(cb: Callable[..., Any]) -> bool:
@@ -28,7 +40,7 @@ def _on_progress_accepts(cb: Callable[..., Any], name: str) -> bool:
 
 
 async def invoke_on_progress(
-    on_progress: Callable[..., Awaitable[None]],
+    on_progress: ProgressCallback,
     content: str,
     *,
     tool_hint: bool = False,
@@ -41,7 +53,7 @@ async def invoke_on_progress(
 
 
 async def invoke_file_edit_progress(
-    on_progress: Callable[..., Awaitable[None]],
+    on_progress: ProgressCallback,
     file_edit_events: list[dict[str, Any]],
 ) -> None:
     if not file_edit_events or not on_progress_accepts_file_edit_events(on_progress):

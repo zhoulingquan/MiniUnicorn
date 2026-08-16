@@ -52,6 +52,9 @@ dependencies = [
     "openpyxl>=3.1.0,<4.0.0",
     "python-pptx>=1.0.0,<2.0.0",
     "filelock>=3.25.2,<4.0.0",
+    # zoneinfo 需要系统时区数据库; Windows 没有内置, 必须随包分发 tzdata,
+    # 否则 cron/heartbeat 的 ZoneInfo("UTC") 回退本身就会抛 ZoneInfoNotFoundError。
+    "tzdata>=2024.1; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
@@ -75,6 +78,9 @@ dev = [
     "ruff>=0.1.0",
     "pymupdf>=1.25.0",
     "packaging>=26.0",
+    # 飞书频道运行时懒加载 lark_oapi(可选依赖), 但 channels 测试直接调用
+    # 真实 SDK 代码路径, dev 环境必须安装。
+    "lark-oapi>=1.7.0",
 ]
 
 [project.scripts]

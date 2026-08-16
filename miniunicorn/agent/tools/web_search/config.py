@@ -48,7 +48,8 @@ class WebSearchConfig(Base):
     timeout: int = 30
     # 国外后端专用代理;None 时复用系统环境变量
     proxy: str | None = None
-    # 每个后端独立配置,Key 优先级:backends[name].api_key > 环境变量
+    # 每个后端独立配置。Key 优先级:环境变量 > backends[name].api_key
+    # (环境变量优先:凭据不落盘,便于容器/CI 注入并避免明文存 config.json)
     backends: dict[str, WebSearchBackendConfig] = Field(default_factory=dict)
 
     def get_backend_config(self, name: str) -> WebSearchBackendConfig:
@@ -56,12 +57,14 @@ class WebSearchConfig(Base):
         return self.backends.get(name) or WebSearchBackendConfig()
 
     def get_api_key(self, name: str, env_var: str = "") -> str:
-        """取后端 API Key,优先 backends[name].api_key,其次环境变量。"""
-        cfg = self.backends.get(name)
-        if cfg and cfg.api_key:
-            return cfg.api_key
+        """取后端 API Key:环境变量优先(凭据不落盘),其次 backends[name].api_key。"""
         if env_var:
             import os
 
-            return os.environ.get(env_var, "")
+            env_value = os.environ.get(env_var, "").strip()
+            if env_value:
+                return env_value
+        cfg = self.backends.get(name)
+        if cfg and cfg.api_key:
+            return cfg.api_key
         return ""

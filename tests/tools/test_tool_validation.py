@@ -233,13 +233,109 @@ def test_exec_extract_absolute_paths_ignores_urls() -> None:
     [
         'curl -s -o /dev/null -w "%{http_code}" https://www.google.com',
         "wget -q -O - http://example.com 2>&1 | head -c 100",
-        "python3 -c \"import urllib.request; print(urllib.request.urlopen('http://example.com').read()[:100])\"",
     ],
 )
 def test_exec_guard_allows_public_urls(tmp_path, command: str) -> None:
     tool = ExecTool(restrict_to_workspace=True)
     error = tool._guard_command(command, str(tmp_path))
     assert error is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'python3 -c "import os; os.chdir(\'..\'); print(open(\'secret.txt\').read())"',
+        "python -c \"print(1)\"",
+        "PYTHON -c \"print(1)\"",
+        "python.exe -c \"print(1)\"",
+        "python3.12 -c \"print(1)\"",
+        "python -uc \"print(1)\"",
+        'py -3 -c "print(1)"',
+        "py -c \"print(1)\"",
+        "perl -e 'print 1'",
+        "perl -we 'print 1'",
+        "node -e 'console.log(1)'",
+        "node -p '1+1'",
+        "node --eval 'console.log(1)'",
+        "ruby -e 'puts 1'",
+        "powershell -Command \"Get-Content ../secret.txt\"",
+        "powershell -NoProfile -Command \"ls\"",
+        "pwsh -c \"ls\"",
+        "php -r 'echo 1;'",
+    ],
+)
+def test_exec_guard_blocks_interpreter_variants(tmp_path, command: str) -> None:
+    tool = ExecTool(restrict_to_workspace=True)
+    error = tool._guard_command(command, str(tmp_path))
+    assert error is not None
+    assert "blocked by safety guard" in error
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python script.py",
+        "python -m pip install requests",
+        "python --version",
+        "node server.js",
+        "npm install",
+    ],
+)
+def test_exec_guard_allows_interpreter_file_invocation(tmp_path, command: str) -> None:
+    tool = ExecTool(restrict_to_workspace=True)
+    error = tool._guard_command(command, str(tmp_path))
+    assert error is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cd ..",
+        "cd ../..",
+        "git -C .. log",
+        "Set-Location ..",
+        "pushd ..",
+        "cd /home/user/..",
+        "cd ..; cat secret.txt",
+        "(cd ..)",
+    ],
+)
+def test_exec_guard_blocks_traversal_tokens(tmp_path, command: str) -> None:
+    tool = ExecTool(restrict_to_workspace=True)
+    error = tool._guard_command(command, str(tmp_path))
+    assert error is not None
+    assert "path traversal detected" in error
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat file..txt",
+        "cat ..gitignore",
+        "echo ...",
+        "ls folder/..hidden",
+    ],
+)
+def test_exec_guard_allows_dotdot_filenames(tmp_path, command: str) -> None:
+    tool = ExecTool(restrict_to_workspace=True)
+    error = tool._guard_command(command, str(tmp_path))
+    assert error is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "Invoke-Expression 'cat secret'",
+        "iex 'cat secret'",
+        "INVOKE-EXPRESSION 'cat secret'",
+        "powershell -EncodedCommand AGUAbwAgADEA",
+    ],
+)
+def test_exec_guard_blocks_powershell_bypass_any_mode(tmp_path, command: str) -> None:
+    tool = ExecTool(restrict_to_workspace=False)
+    error = tool._guard_command(command, str(tmp_path))
+    assert error is not None
+    assert "blocked by safety guard" in error
 
 
 def test_exec_guard_allows_whitelisted_internal_urls(tmp_path) -> None:
@@ -644,8 +740,14 @@ async def test_exec_head_tail_truncation(tmp_path) -> None:
 async def test_exec_timeout_parameter() -> None:
     """LLM-supplied timeout should override the constructor default."""
     tool = ExecTool(timeout=60)
-    # A very short timeout should cause the command to be killed
-    result = await tool.execute(command="sleep 10", timeout=1)
+    # A very short timeout should cause the command to be killed. Minimal PATH
+    # environments may lack System32 (no sleep/ping/timeout), so on Windows we
+    # force the multiline PowerShell path and sleep via the test interpreter.
+    if sys.platform == "win32":
+        command = f'& "{sys.executable}" -c "import time; time.sleep(10)"\nexit 0'
+    else:
+        command = "sleep 10"
+    result = await tool.execute(command=command, timeout=1)
     assert "timed out" in result
     assert "1 seconds" in result
 

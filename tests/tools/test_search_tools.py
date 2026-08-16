@@ -292,7 +292,13 @@ def test_agent_loop_registers_grep(tmp_path: Path) -> None:
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
 
-    loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path, model="test-model")
+    loop = AgentLoop(
+        bus=bus,
+        provider=provider,
+        workspace=tmp_path,
+        model="test-model",
+        context_window_tokens=128_000,
+    )
 
     assert "find_files" in loop.tools.tool_names
     assert "grep" in loop.tools.tool_names

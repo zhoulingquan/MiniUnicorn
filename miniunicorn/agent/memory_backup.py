@@ -34,7 +34,7 @@ import re
 import sqlite3
 import stat
 import uuid
-from contextlib import suppress
+from contextlib import closing, suppress
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
@@ -138,7 +138,7 @@ class MemoryBackupManager:
             with connect_memory_db(
                 repository.database_path, lock_timeout_s=repository.lock_timeout_s
             ) as source:
-                with sqlite3.connect(path) as destination:
+                with closing(sqlite3.connect(path)) as destination:
                     destination.execute("PRAGMA journal_mode=DELETE")
                     source.backup(destination)
             self._verify_snapshot(path)
@@ -249,7 +249,7 @@ class MemoryBackupManager:
             with connect_memory_db(
                 repository.database_path, lock_timeout_s=repository.lock_timeout_s
             ) as source:
-                with sqlite3.connect(safety_path) as destination:
+                with closing(sqlite3.connect(safety_path)) as destination:
                     destination.execute("PRAGMA journal_mode=DELETE")
                     source.backup(destination)
             self._verify_snapshot(safety_path)
@@ -267,8 +267,8 @@ class MemoryBackupManager:
     def _copy_backup_into_live(self, backup_path: Path) -> None:
         """Copy the snapshot into the live connection and checkpoint the WAL."""
         repository = self._repository
-        with sqlite3.connect(_read_only_uri(backup_path), uri=True) as source:
-            with sqlite3.connect(repository.database_path) as destination:
+        with closing(sqlite3.connect(_read_only_uri(backup_path), uri=True)) as source:
+            with closing(sqlite3.connect(repository.database_path)) as destination:
                 source.backup(destination)
                 destination.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
@@ -276,7 +276,7 @@ class MemoryBackupManager:
         """Re-verify the restored live database before health refresh."""
         repository = self._repository
         try:
-            with sqlite3.connect(repository.database_path) as connection:
+            with closing(sqlite3.connect(repository.database_path)) as connection:
                 self._assert_snapshot_valid(connection)
         except MemoryBackupError:
             raise
@@ -298,7 +298,7 @@ class MemoryBackupManager:
 
     def _verify_snapshot(self, path: Path) -> None:
         try:
-            with sqlite3.connect(_read_only_uri(path), uri=True) as connection:
+            with closing(sqlite3.connect(_read_only_uri(path), uri=True)) as connection:
                 self._assert_snapshot_valid(connection)
         except MemoryBackupError:
             raise

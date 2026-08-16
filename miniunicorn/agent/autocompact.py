@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Collection
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Callable, Coroutine
 
 from loguru import logger
@@ -16,6 +17,12 @@ if TYPE_CHECKING:
 
 class AutoCompact:
     _RECENT_SUFFIX_MESSAGES = 8
+    # list_sessions() 做全目录 glob + 逐文件扫描, 空闲网关下每秒执行一次代价
+    # 过高; 节流为每 30 秒最多扫描一次 (主循环仍每秒轮询消息, 不影响响应)。
+    _RESCAN_INTERVAL_S = 30.0
+    # 内存摘要条目保留窗口。摘要已持久化在 session.metadata["_last_summary"],
+    # 内存 dict 只是热路径缓存, 超期条目可安全清理 (重开会话走冷路径读取)。
+    _SUMMARY_RETENTION = timedelta(hours=24)
 
     def __init__(
         self,
@@ -30,6 +37,7 @@ class AutoCompact:
         self._ttl = session_ttl_minutes
         self._archiving: set[str] = set()
         self._summaries: dict[str, tuple[str, datetime]] = {}
+        self._last_scan_monotonic = 0.0
 
     def _is_expired(self, ts: datetime | str | None, now: datetime | None = None) -> bool:
         if self._ttl <= 0 or not ts:
@@ -62,7 +70,14 @@ class AutoCompact:
         active_session_keys: Collection[str] = (),
     ) -> None:
         """Schedule archival for idle sessions, skipping those with in-flight agent tasks."""
+        if self._ttl <= 0:
+            return
+        now_mono = time.monotonic()
+        if now_mono - self._last_scan_monotonic < self._RESCAN_INTERVAL_S:
+            return
+        self._last_scan_monotonic = now_mono
         now = datetime.now()
+        self._prune_summaries(now)
         for info in self.sessions.list_sessions():
             key = info.get("key", "")
             if not key or key in self._archiving:
@@ -77,6 +92,20 @@ class AutoCompact:
                 except Exception:
                     self._archiving.discard(key)
                     raise
+
+    def _prune_summaries(self, now: datetime) -> None:
+        """清理长期未重新打开的会话摘要条目, 防止 _summaries 无界增长。
+
+        摘要同时持久化在 session.metadata["_last_summary"], 删除内存条目后
+        重开会话仍可通过冷路径取回, 无信息丢失。
+        """
+        expired = [
+            key
+            for key, (_, last_active) in self._summaries.items()
+            if now - last_active > self._SUMMARY_RETENTION
+        ]
+        for key in expired:
+            del self._summaries[key]
 
     async def _archive(self, key: str) -> None:
         try:

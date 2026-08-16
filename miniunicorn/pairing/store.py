@@ -108,7 +108,11 @@ def generate_code(
             "expires_at": time.time() + ttl,
         }
         _save(data)
-        logger.info("Generated pairing code {} for {}@{}", code, sender_id, channel)
+        # L-11: 配对码属于一次性凭证(10 分钟 TTL), 降为 debug 且只记前缀,
+        # 避免完整配对码进入 INFO 级日志被集中采集后滥用。
+        logger.debug(
+            "Generated pairing code {}-**** for {}@{}", raw[:4], sender_id, channel
+        )
         return code
 
 

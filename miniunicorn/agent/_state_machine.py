@@ -26,6 +26,7 @@ from miniunicorn.agent.tools.message import MessageTool
 from miniunicorn.bus.events import InboundMessage, OutboundMessage
 from miniunicorn.command import CommandContext
 from miniunicorn.session.webui_turns import mark_webui_session
+from miniunicorn.utils.callback_types import ProgressCallback
 from miniunicorn.utils.document import extract_documents, reference_non_image_attachments
 from miniunicorn.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
 
@@ -77,7 +78,7 @@ class TurnContext:
 
     outbound: OutboundMessage | None = None
 
-    on_progress: Callable[..., Awaitable[None]] | None = None
+    on_progress: ProgressCallback | None = None
     on_stream: Callable[[str], Awaitable[None]] | None = None
     on_stream_end: Callable[..., Awaitable[None]] | None = None
     on_retry_wait: Callable[[str], Awaitable[None]] | None = None

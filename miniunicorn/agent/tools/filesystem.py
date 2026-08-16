@@ -9,7 +9,7 @@ from typing import Any
 
 from miniunicorn.agent.tools.base import Tool, tool_parameters
 from miniunicorn.agent.tools.file_state import FileStates, _hash_file, current_file_states
-from miniunicorn.agent.tools.path_utils import resolve_workspace_path
+from miniunicorn.agent.tools.path_utils import resolve_workspace_path, verify_workspace_path
 from miniunicorn.agent.tools.schema import (
     BooleanSchema,
     IntegerSchema,
@@ -79,6 +79,19 @@ class _FsTool(Tool):
         return resolve_workspace_path(
             path,
             access.project_path,
+            access.allowed_root,
+            self._extra_allowed_dirs,
+        )
+
+    def _verify_within(self, fp: Path) -> None:
+        """写后复核 containment, 收窄 _resolve 校验与写入间的 TOCTOU 窗口。"""
+        access = current_tool_workspace(
+            self._workspace,
+            restrict_to_workspace=self._restrict_to_workspace,
+            sandbox_restricts_workspace=self._sandbox_restricts_workspace,
+        )
+        verify_workspace_path(
+            fp,
             access.allowed_root,
             self._extra_allowed_dirs,
         )
@@ -365,30 +378,33 @@ class ReadFileTool(_FsTool):
         except Exception as e:
             return f"Error reading PDF: {e}"
 
-        total_pages = len(doc)
-        if pages:
-            try:
-                start, end = _parse_page_range(pages, total_pages)
-            except (ValueError, IndexError):
-                doc.close()
-                return f"Error: Invalid page range '{pages}'. Use format like '1-5'."
-            if start > end or start >= total_pages:
-                doc.close()
-                return f"Error: Page range '{pages}' is out of bounds (document has {total_pages} pages)."
-        else:
-            start = 0
-            end = min(total_pages - 1, self._MAX_PDF_PAGES - 1)
+        try:
+            total_pages = len(doc)
+            if pages:
+                try:
+                    start, end = _parse_page_range(pages, total_pages)
+                except (ValueError, IndexError):
+                    return f"Error: Invalid page range '{pages}'. Use format like '1-5'."
+                if start > end or start >= total_pages:
+                    return (
+                        f"Error: Page range '{pages}' is out of bounds "
+                        f"(document has {total_pages} pages)."
+                    )
+            else:
+                start = 0
+                end = min(total_pages - 1, self._MAX_PDF_PAGES - 1)
 
-        if end - start + 1 > self._MAX_PDF_PAGES:
-            end = start + self._MAX_PDF_PAGES - 1
+            if end - start + 1 > self._MAX_PDF_PAGES:
+                end = start + self._MAX_PDF_PAGES - 1
 
-        parts: list[str] = []
-        for i in range(start, end + 1):
-            page = doc[i]
-            text = page.get_text().strip()
-            if text:
-                parts.append(f"--- Page {i + 1} ---\n{text}")
-        doc.close()
+            parts: list[str] = []
+            for i in range(start, end + 1):
+                page = doc[i]
+                text = page.get_text().strip()
+                if text:
+                    parts.append(f"--- Page {i + 1} ---\n{text}")
+        finally:
+            doc.close()
 
         if not parts:
             return f"(PDF has no extractable text: {fp})"
@@ -465,6 +481,7 @@ class WriteFileTool(_FsTool):
             fp = self._resolve(path)
             fp.parent.mkdir(parents=True, exist_ok=True)
             fp.write_text(content, encoding="utf-8")
+            self._verify_within(fp)
             self._file_states.record_write(fp)
             return f"Successfully wrote {len(content)} characters to {fp}"
         except PermissionError as e:
@@ -842,6 +859,7 @@ class EditFileTool(_FsTool):
                 if old_text == "":
                     fp.parent.mkdir(parents=True, exist_ok=True)
                     fp.write_text(new_text, encoding="utf-8")
+                    self._verify_within(fp)
                     self._file_states.record_write(fp)
                     return f"Successfully created {fp}"
                 return self._file_not_found_msg(path, fp)
@@ -861,6 +879,7 @@ class EditFileTool(_FsTool):
                 if content.strip():
                     return f"Error: Cannot create file — {path} already exists and is not empty."
                 fp.write_text(new_text, encoding="utf-8")
+                self._verify_within(fp)
                 self._file_states.record_write(fp)
                 return f"Successfully edited {fp}"
 
@@ -951,6 +970,7 @@ class EditFileTool(_FsTool):
                 new_content = new_content.replace("\n", "\r\n")
 
             fp.write_bytes(new_content.encode("utf-8"))
+            self._verify_within(fp)
             self._file_states.record_write(fp)
             msg = f"Successfully edited {fp}"
             if warning:
