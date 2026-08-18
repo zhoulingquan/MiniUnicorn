@@ -14,9 +14,21 @@ GOVERNED_MEMORY_TRACKED_FILES: tuple[str, ...] = (
     "SOUL.md",
     "notes.md",
     "memory/.dream_cursor",
-    "memory/structured/journal.jsonl",
     "memory/structured/tags.json",
     "memory/shared/POLICY.md",
+)
+
+# SQLite runtime artifacts that must never enter GitStore (design section 6/13):
+# the fact database, WAL/SHM siblings, derived audit exports, backups,
+# recovery directories and maintenance locks are all runtime state.
+SQLITE_MEMORY_RUNTIME_IGNORE: tuple[str, ...] = (
+    "memory/structured/memory.db",
+    "memory/structured/memory.db-wal",
+    "memory/structured/memory.db-shm",
+    "memory/structured/audit/",
+    "memory/structured/backups/",
+    "memory/structured/recovery/",
+    "memory/structured/*.lock",
 )
 
 
@@ -212,6 +224,7 @@ class GitStore:
             lines.append(f"!{d}/")
         for f in self._tracked_files:
             lines.append(f"!{f.replace(chr(92), '/')}")
+        lines.extend(SQLITE_MEMORY_RUNTIME_IGNORE)
         lines.append("!.gitignore")
         return "\n".join(lines) + "\n"
 

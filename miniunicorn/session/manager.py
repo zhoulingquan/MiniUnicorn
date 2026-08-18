@@ -356,6 +356,10 @@ class SessionManager:
     # 进程内缓存上限：超出后 evict 最旧会话（磁盘已有持久化，安全）。
     # 通过 MINIUNICORN_SESSION_CACHE_SIZE 环境变量可调整；<=0 表示无上限（向后兼容）。
     _DEFAULT_CACHE_MAX = 50
+    # tombstones/generations/legacy_claims 的容量上限。这些字典按 key 记录
+    # 每个出现过的会话, 长生命周期网关下若无界保留会持续增长; 超限后按
+    # 插入序淘汰最旧条目(详见 _prune_aux_state)。
+    _AUX_STATE_MAX = 1024
 
     def __init__(self, workspace: Path, *, cache_max: int | None = None):
         self.workspace = workspace
@@ -422,6 +426,28 @@ class SessionManager:
                     self._on_evict(evicted_key)
                 except Exception:
                     logger.exception("Session on_evict callback failed for {}", evicted_key)
+        self._prune_aux_state()
+
+    def _prune_aux_state(self) -> None:
+        """清理辅助字典中不再需要的条目，防止长生命周期网关下无界增长。
+
+        - ``_save_locks``: 仅清理"已不在缓存且当前未被持有"的锁；正在保存
+          的锁保留，持有它的线程结束后由后续 prune 回收。
+        - ``_tombstones`` / ``_generations`` / ``_legacy_claims``: 按插入序
+          保留最近 ``_AUX_STATE_MAX`` 条。tombstone 用于拦截删除前的旧
+          Session 引用 late save 复活文件；只有在极古老的删除记录被挤出
+          且对应旧引用恰好仍存活并调用 save 时才会失效，现实中不可达。
+        """
+        with self._save_locks_guard:
+            for key in list(self._save_locks):
+                if key in self._cache:
+                    continue
+                lock = self._save_locks[key]
+                if not lock.locked():
+                    del self._save_locks[key]
+        for state in (self._tombstones, self._generations, self._legacy_claims):
+            while len(state) > self._AUX_STATE_MAX:
+                state.pop(next(iter(state)))
 
     @staticmethod
     def safe_key(key: str) -> str:
@@ -844,6 +870,8 @@ class SessionManager:
         new_gen = current_gen + 1
         self._generations[key] = new_gen
         self._tombstones[key] = new_gen
+        # 删除路径同样触发辅助状态清理 (LRU evict 之外的另一个入口)。
+        self._prune_aux_state()
         removed_any = False
         for candidate in (path, legacy_workspace_path, legacy_global_path):
             if not candidate.exists():

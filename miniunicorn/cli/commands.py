@@ -26,6 +26,7 @@ patch ``commands._PROMPT_SESSION`` and the helpers reach it through
 """
 
 import asyncio
+import ipaddress
 import os
 import signal
 import sys
@@ -419,17 +420,25 @@ def serve(
         console.print(
             "  [yellow]Auth[/yellow]     : disabled (set api.api_key to require Bearer token)"
         )
-    if host in {"0.0.0.0", "::"}:
+    # 整个 127.0.0.0/8 与 ::1 都是回环地址(127.0.0.2 常用于测试固定回环地址),
+    # 不能只白名单 127.0.0.1。
+    try:
+        is_loopback = ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        is_loopback = host == "localhost"
+    if not is_loopback:
         if not api_key:
+            # L-10: 非回环绑定必须启用认证。仅打印警告继续启动会让所有 /v1 路由
+            # 对局域网/公网无认证开放, 这里直接拒绝启动。
             console.print(
-                "[red]Danger:[/red] API is bound to all interfaces WITHOUT authentication. "
-                "Set api.api_key in config before exposing to a network."
+                f"[red]Error:[/red] API is bound to {host} (non-loopback) WITHOUT authentication. "
+                "Refusing to start: set api.api_key in config (or bind a loopback address)."
             )
-        else:
-            console.print(
-                "[yellow]Warning:[/yellow] API is bound to all interfaces. "
-                "Only do this behind a trusted network boundary, firewall, or reverse proxy."
-            )
+            raise typer.Exit(1)
+        console.print(
+            "[yellow]Warning:[/yellow] API is bound to a non-loopback address. "
+            "Only do this behind a trusted network boundary, firewall, or reverse proxy."
+        )
     console.print()
 
     api_app = create_app(

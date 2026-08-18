@@ -1,6 +1,6 @@
 ---
 name: memory
-description: Always-on governed, journal-backed structured memory.
+description: Always-on governed, SQLite-backed structured memory.
 always: true
 ---
 
@@ -12,8 +12,9 @@ always: true
 - `memory/history.jsonl` — append-only JSONL, not loaded into context. Prefer the built-in `grep` tool to search it.
 - `memory/reflections.jsonl` — strict lessons used as Dream evidence.
 - `memory/shared/POLICY.md` — explicitly authored cross-session policy.
-- `memory/structured/journal.jsonl` — append-only governed record revisions. **Never edit directly.**
+- `memory/structured/memory.db` — SQLite governed fact database (transactions, revisions, tags); the only runtime fact store. **Never edit directly.**
 - `memory/structured/tags.json` — controlled tag catalog. **Never edit during a turn.**
+- `journal.jsonl` — legacy migration input only; `audit/*.jsonl` — rebuildable audit exports.
 
 Only active records returned by deterministic exact-scope recall enter context. Candidates never enter context. Refer to records by their stable `mem_...` IDs and use `/memory-show`, `/memory-promote`, `/memory-revoke`, or `/memory-correct` for management. `/memory-correct` requires non-empty subject, slot and statement fields.
 
@@ -37,4 +38,4 @@ Examples (replace `keyword`):
 
 - **Do NOT edit any file under `memory/structured/`.** Use the memory commands for governed records.
 - Correct outdated facts explicitly with `/memory-correct`; Dream only proposes facts from history and reflections.
-- If `/memory-status` is degraded, do not infer missing facts or edit the journal. Report the diagnostic and use backup/memory Git history for recovery.
+- If `/memory-status` is degraded, do not infer missing facts or edit the database. Report the diagnostic and use backup/memory Git history for recovery.

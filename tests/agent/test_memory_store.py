@@ -30,6 +30,78 @@ def store(tmp_path):
     return MemoryStore(tmp_path)
 
 
+def _record(seed: str, *, statement: str = "Wired memory fact.", slot: str = "wiring.test"):
+    return MemoryRecord.model_validate(
+        {
+            "schema_version": SCHEMA_VERSION,
+            "id": f"mem_{seed * 32}",
+            "revision": 1,
+            "status": "active",
+            "kind": "fact",
+            "scope": {"kind": "project", "key": "project:seed"},
+            "subject": "MiniUnicorn",
+            "slot": slot,
+            "statement": statement,
+            "detail": "",
+            "tags": ["architecture.memory"],
+            "aliases": [],
+            "source_level": "verified",
+            "confidence": 0.9,
+            "importance": 4,
+            "evidence": [
+                {
+                    "kind": "manual",
+                    "ref": "command:seed-1",
+                    "excerpt": "",
+                    "sha256": None,
+                    "observed_at": "2026-08-11T08:30:00Z",
+                }
+            ],
+            "content_hash": "c" * 64,
+            "derived_from": [],
+            "supersedes": [],
+            "replacement_id": None,
+            "blocked_by": [],
+            "valid_from": "2026-08-11T08:30:00Z",
+            "expires_at": None,
+            "created_at": "2026-08-11T08:30:00Z",
+            "updated_at": "2026-08-11T08:30:00Z",
+            "status_reason": "seed",
+        }
+    )
+
+
+def _transaction_for(record, *, tx_digit: str = "0", reason: str = "seed"):
+    transaction = MemoryTransaction(
+        schema_version=SCHEMA_VERSION,
+        tx_id="mtx_" + tx_digit * 32,
+        recorded_at=datetime(2026, 8, 11, 8, 31, tzinfo=UTC),
+        actor=ActorKind.SYSTEM,
+        reason=reason,
+        source_batch="",
+        expected_revisions={record.id: 0},
+        operations=[MemoryOperation(op="put", record=record)],
+        checksum_sha256="f" * 64,
+    )
+    return transaction.model_copy(update={"checksum_sha256": transaction_checksum(transaction)})
+
+
+def _write_legacy_journal(workspace: Path, records) -> Path:
+    journal = workspace / "memory" / "structured" / "journal.jsonl"
+    journal.parent.mkdir(parents=True, exist_ok=True)
+    lines = [
+        json.dumps(
+            _transaction_for(record, tx_digit=hex(index + 2)[2:]).model_dump(mode="json"),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        for index, record in enumerate(records)
+    ]
+    journal.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return journal
+
+
 class TestMemoryStoreBasicIO:
     def test_read_soul_returns_empty_when_missing(self, store):
         assert store.read_soul() == ""
@@ -351,7 +423,7 @@ class TestSingleWriterPathValidation:
         import logging
 
         with caplog.at_level(logging.WARNING, logger="loguru"):
-            MemoryStore._assert_writer_allowed("main_agent", "memory/structured/journal.jsonl")
+            MemoryStore._assert_writer_allowed("main_agent", "memory/structured/memory.db")
         # 注意：loguru 的 warning 通过 intercept 才能被 caplog 捕获；
         # 这里只验证不抛异常即可
         # 真正的违规检测在工具层强制执行
@@ -367,7 +439,15 @@ class TestSingleWriterPathValidation:
             "memory/.reflections_cursor",
             "memory/reflections.jsonl",
             "memory/shared/POLICY.md",
-            "memory/structured/journal.jsonl",
+            "memory/structured/memory.db",
+            "memory/structured/memory.db-wal",
+            "memory/structured/memory.db-shm",
+            "memory/structured/storage-migration-v2.json",
+            "memory/structured/audit",
+            "memory/structured/backups",
+            "memory/structured/recovery",
+            "memory/structured/memory-maintenance.lock",
+            "memory/structured/*.importing-*",
             "memory/structured/tags.json",
         }
         assert expected_files.issubset(set(MemoryStore._WRITER_WHITELIST.keys()))
@@ -452,11 +532,25 @@ class TestStructuredMemoryStore:
         store = MemoryStore(tmp_path, structured_config=StructuredMemoryConfig())
 
         tracked = store.git._tracked_files
-        assert "memory/structured/journal.jsonl" in tracked
         assert "memory/structured/tags.json" in tracked
         assert "memory/shared/POLICY.md" in tracked
-        assert "memory/structured/journal.lock" not in tracked
-        assert "memory/structured/recall-audit.jsonl" not in tracked
+        assert "SOUL.md" in tracked
+        assert "memory/structured/journal.jsonl" not in tracked
+        for runtime_path in (
+            "memory/structured/memory.db",
+            "memory/structured/memory.db-wal",
+            "memory/structured/memory.db-shm",
+            "memory/structured/audit/",
+            "memory/structured/backups/",
+            "memory/structured/recovery/",
+            "memory/structured/memory-maintenance.lock",
+        ):
+            assert runtime_path not in tracked
+
+        assert store.git.init() is True
+        gitignore = (tmp_path / ".gitignore").read_text(encoding="utf-8")
+        assert "memory/structured/memory.db" in gitignore
+        assert "memory/structured/*.lock" in gitignore
 
     def test_default_store_recall_uses_existing_stack(self, tmp_path):
         store = MemoryStore(tmp_path)
@@ -541,80 +635,88 @@ class TestStructuredMemoryStore:
         assert prompt.startswith("# Recalled Memory (Deterministic)")
         assert record.id in prompt
 
-    def test_restore_memory_version_rebuilds_recall_without_restart(self, tmp_path):
+    def test_restore_memory_version_raises_not_implemented(self, tmp_path):
+        """Git journal restore is removed; use the database backup API (design §13)."""
         store = MemoryStore(tmp_path, structured_config=StructuredMemoryConfig())
-        assert store.git.init() is True
-        record = MemoryRecord.model_validate(
-            {
-                "schema_version": SCHEMA_VERSION,
-                "id": f"mem_{'b' * 32}",
-                "revision": 1,
-                "status": "active",
-                "kind": "fact",
-                "scope": {"kind": "project", "key": store.project_scope_key},
-                "subject": "MiniUnicorn",
-                "slot": "restore.test",
-                "statement": "This fact must disappear after restore.",
-                "detail": "",
-                "tags": ["architecture.memory"],
-                "aliases": [],
-                "source_level": "verified",
-                "confidence": 1.0,
-                "importance": 5,
-                "evidence": [
-                    {
-                        "kind": "manual",
-                        "ref": "command:restore-test",
-                        "excerpt": "",
-                        "sha256": None,
-                        "observed_at": "2026-08-11T08:30:00Z",
-                    }
-                ],
-                "content_hash": "d" * 64,
-                "derived_from": [],
-                "supersedes": [],
-                "replacement_id": None,
-                "blocked_by": [],
-                "valid_from": "2026-08-11T08:30:00Z",
-                "expires_at": None,
-                "created_at": "2026-08-11T08:30:00Z",
-                "updated_at": "2026-08-11T08:30:00Z",
-                "status_reason": "seed",
-            }
-        )
-        transaction = MemoryTransaction(
-            schema_version=SCHEMA_VERSION,
-            tx_id="mtx_" + "1" * 32,
-            recorded_at=datetime(2026, 8, 11, 8, 31, tzinfo=UTC),
-            actor=ActorKind.SYSTEM,
-            reason="restore test",
-            source_batch="",
-            expected_revisions={record.id: 0},
-            operations=[MemoryOperation(op="put", record=record)],
-            checksum_sha256="f" * 64,
-        )
-        store.structured_repository.append_transaction(
-            transaction.model_copy(update={"checksum_sha256": transaction_checksum(transaction)})
-        )
-        dream_sha = store.git.auto_commit("dream structured: restore test")
-        assert dream_sha is not None
-        query = RecallQuery(
-            query_text="This fact must disappear after restore.",
-            allowed_scopes=(record.scope,),
-            now=datetime(2026, 8, 11, 8, 32, tzinfo=UTC),
-            explicit_ids=(record.id,),
-        )
-        assert store.recall_structured(query).hits
 
-        restore_sha, health = store.restore_memory_version(dream_sha)
-
-        assert restore_sha is not None
-        assert health.state == "healthy"
-        assert store.recall_structured(query).hits == ()
+        with pytest.raises(NotImplementedError, match="use memory backup restore"):
+            store.restore_memory_version("abcdef12")
 
     def test_whitelist_allows_memory_store_for_structured_files(self):
-        for path in ("memory/structured/journal.jsonl", "memory/structured/tags.json", "memory/shared/POLICY.md"):
+        for path in (
+            "memory/structured/memory.db",
+            "memory/structured/memory.db-wal",
+            "memory/structured/memory.db-shm",
+            "memory/structured/storage-migration-v2.json",
+            "memory/structured/audit",
+            "memory/structured/backups",
+            "memory/structured/recovery",
+            "memory/structured/memory-maintenance.lock",
+            "memory/structured/*.importing-*",
+            "memory/structured/tags.json",
+            "memory/shared/POLICY.md",
+        ):
             assert "memory_store" in MemoryStore._WRITER_WHITELIST[path], path
+
+    def test_main_agent_only_allowed_to_write_notes(self, tmp_path):
+        """主 Agent 只能写 notes.md，不能写其他结构化文件（含 audit/ 下子路径）。"""
+        for path in MemoryStore._WRITER_WHITELIST:
+            allowed = MemoryStore._WRITER_WHITELIST[path]
+            if path == "notes.md":
+                assert "main_agent" in allowed
+            else:
+                assert "main_agent" not in allowed, (
+                    f"主 Agent 不应被允许写 {path}（single-writer 不变量）"
+                )
+
+    def test_main_agent_forbidden_everywhere_under_structured(self):
+        """主 Agent 禁止写 structured 下任何文件（目录前缀规则覆盖 audit/backups 子路径）。"""
+        for path, roles in MemoryStore._WRITER_WHITELIST.items():
+            if path.startswith("memory/structured/"):
+                assert "main_agent" not in roles, path
+
+        from loguru import logger as loguru_logger
+
+        records: list[str] = []
+        handler_id = loguru_logger.add(lambda m: records.append(m), level="WARNING")
+        try:
+            for path in (
+                "memory/structured/audit/manifest.json",
+                "memory/structured/backups/memory-2026-08-15.db",
+                "memory/structured/recovery/2026-08-15/memory-before-restore.db",
+                "memory/structured/memory.db-wal",
+                "memory/structured/memory.db-shm",
+                "memory/structured/memory.db.importing-abc123",
+                "memory/structured/memory-maintenance.lock",
+            ):
+                MemoryStore._assert_writer_allowed("main_agent", path)
+        finally:
+            loguru_logger.remove(handler_id)
+        assert any("Single-Writer invariant violation" in record for record in records)
+
+    def test_directory_whitelist_entries_cover_children_without_warning(self):
+        """audit/ 与 backups/ 是目录项：子路径用 containment/prefix 规则校验，不告警。"""
+        from loguru import logger as loguru_logger
+
+        records: list[str] = []
+        handler_id = loguru_logger.add(lambda m: records.append(m), level="WARNING")
+        try:
+            for path in (
+                "memory/structured/audit/manifest.json",
+                "memory/structured/audit/journal-open.jsonl",
+                "memory/structured/backups/memory-2026-08-15.db",
+                "memory/structured/recovery/2026-08-15/memory-before-restore.db",
+                "memory/structured/memory.db",
+                "memory/structured/memory.db-wal",
+                "memory/structured/memory.db-shm",
+                "memory/structured/memory.db.importing-abc123",
+                "memory/structured/memory-maintenance.lock",
+                "memory/structured/storage-migration-v2.json",
+            ):
+                MemoryStore._assert_writer_allowed("memory_store", path)
+        finally:
+            loguru_logger.remove(handler_id)
+        assert not any("Single-Writer" in record for record in records)
 
     @pytest.mark.skipif(
         sys.platform == "win32",
@@ -660,4 +762,153 @@ class TestStructuredMemoryStore:
         policy_path = store.workspace / "memory" / "shared" / "POLICY.md"
         policy_path.write_text("Always reply in Chinese.", encoding="utf-8")
         assert store.read_shared_policy() == "Always reply in Chinese."
+
+
+class TestSQLiteStartupWiring:
+    """Task 8: MemoryStore startup decision matrix, SQLite-only single path."""
+
+    def test_fresh_workspace_creates_memory_db(self, tmp_path):
+        store = MemoryStore(tmp_path)
+
+        database_path = tmp_path / "memory" / "structured" / "memory.db"
+        assert database_path.exists()
+        assert store.structured_repository.database_path == database_path
+        assert store.structured_repository.health.state == "healthy"
+
+    def test_legacy_journal_workspace_auto_migrates(self, tmp_path):
+        record = _record("a", statement="fact that must survive migration")
+        journal = _write_legacy_journal(tmp_path, [record])
+        original = journal.read_bytes()
+
+        store = MemoryStore(tmp_path)
+
+        assert (tmp_path / "memory" / "structured" / "memory.db").exists()
+        manifest = json.loads(
+            (tmp_path / "memory" / "structured" / "storage-migration-v2.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert manifest["status"] == "completed"
+        assert journal.read_bytes() == original
+        assert store.structured_repository.health.state == "healthy"
+        assert [r.id for r in store.structured_repository.current_records()] == [record.id]
+
+    def test_startup_migration_invokes_migrator_with_correct_args(self, tmp_path, monkeypatch):
+        """The startup decision runs BEFORE repository construction with the
+        exact workspace and lock timeout."""
+        import miniunicorn.agent.memory as memory_module
+
+        _write_legacy_journal(tmp_path, [_record("a")])
+        captured: dict[str, object] = {}
+
+        def spy_migrate(workspace, lock_timeout_s):
+            captured["workspace"] = workspace
+            captured["lock_timeout_s"] = lock_timeout_s
+            from miniunicorn.agent.memory_jsonl_import import migrate_legacy_journal
+
+            return migrate_legacy_journal(workspace, lock_timeout_s)
+
+        monkeypatch.setattr(memory_module, "migrate_legacy_journal", spy_migrate, raising=False)
+
+        store = MemoryStore(
+            tmp_path, structured_config=StructuredMemoryConfig(lock_timeout_s=2.5)
+        )
+
+        assert captured == {"workspace": tmp_path, "lock_timeout_s": 2.5}
+        assert store.structured_repository.health.state == "healthy"
+
+    def test_migrated_workspace_second_open_never_reads_journal(self, tmp_path, monkeypatch):
+        """Second boot of a migrated workspace must not read journal.jsonl at all."""
+        _write_legacy_journal(tmp_path, [_record("a")])
+        MemoryStore(tmp_path)
+        journal = tmp_path / "memory" / "structured" / "journal.jsonl"
+
+        original_open = Path.open
+        original_read_bytes = Path.read_bytes
+
+        def exploding_open(self, *args, **kwargs):
+            if Path(self) == journal:
+                raise AssertionError("second open read the legacy journal")
+            return original_open(self, *args, **kwargs)
+
+        def exploding_read_bytes(self):
+            if Path(self) == journal:
+                raise AssertionError("second open read the legacy journal")
+            return original_read_bytes(self)
+
+        monkeypatch.setattr(Path, "open", exploding_open)
+        monkeypatch.setattr(Path, "read_bytes", exploding_read_bytes)
+
+        store = MemoryStore(tmp_path)
+
+        assert store.structured_repository.health.state == "healthy"
+        assert len(store.structured_repository.current_records()) == 1
+
+    def test_different_workspaces_have_fully_isolated_databases(self, tmp_path):
+        ws_a, ws_b = tmp_path / "A", tmp_path / "B"
+        store_a = MemoryStore(ws_a)
+        store_b = MemoryStore(ws_b)
+
+        assert (
+            store_a.structured_repository.database_path
+            != store_b.structured_repository.database_path
+        )
+        store_a.structured_repository.append_transaction(
+            _transaction_for(_record("a", statement="fact only in A", slot="isolation.test"))
+        )
+
+        assert len(store_a.structured_repository.current_records()) == 1
+        assert store_b.structured_repository.current_records() == ()
+        assert store_a.structured_repository.database_path.exists()
+        assert store_b.structured_repository.database_path.exists()
+
+    def test_manifest_completed_without_db_degrades_fail_closed(self, tmp_path):
+        """A completed manifest without memory.db must fail closed: no
+        re-migration of a journal that lacks post-migration facts."""
+        _write_legacy_journal(tmp_path, [_record("a")])
+        manifest_path = tmp_path / "memory" / "structured" / "storage-migration-v2.json"
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "status": "completed",
+                    "source_sha256": "x" * 64,
+                    "transaction_count": 1,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        store = MemoryStore(tmp_path)
+
+        health = store.structured_repository.health
+        assert health.state == "degraded"
+        assert health.error_code == "migration_database_lost"
+        assert not (tmp_path / "memory" / "structured" / "memory.db").exists()
+        assert manifest_path.exists()
+        assert (tmp_path / "memory" / "structured" / "journal.jsonl").exists()
+
+    def test_structured_stack_always_initialized_without_backend_or_mode(self, tmp_path):
+        store = MemoryStore(tmp_path)
+
+        assert store.structured_repository is not None
+        assert store.structured_lifecycle is not None
+        assert store.structured_recall is not None
+        assert store.audit_exporter is not None
+        assert not hasattr(store, "backend")
+        assert not hasattr(store, "mode")
+
+    def test_startup_lag_exports_audit_after_migration(self, tmp_path):
+        """First boot after migration exports the first audit (design §11 step 13)."""
+        _write_legacy_journal(tmp_path, [_record("a")])
+
+        store = MemoryStore(tmp_path)
+        audit_dir = tmp_path / "memory" / "structured" / "audit"
+
+        manifest = json.loads((audit_dir / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["segments"]
+        open_segment = audit_dir / "journal-open.jsonl"
+        assert open_segment.exists()
+        assert open_segment.read_text(encoding="utf-8").strip()
+        assert store.structured_repository.health.state == "healthy"
 

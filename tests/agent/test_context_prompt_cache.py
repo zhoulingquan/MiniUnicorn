@@ -55,8 +55,8 @@ def test_system_prompt_reflects_current_dream_memory_contract(tmp_path) -> None:
     prompt = builder.build_system_prompt()
 
     assert "memory/history.jsonl" in prompt
-    assert "memory/structured/journal.jsonl" in prompt
-    assert "never edit the journal directly" in prompt
+    assert "memory/structured/memory.db" in prompt
+    assert "never edit the database" in prompt
     assert "automatically managed by Dream" not in prompt
     assert "memory/HISTORY.md" not in prompt
     assert "write important facts here" not in prompt

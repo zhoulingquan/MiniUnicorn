@@ -721,6 +721,8 @@ class TestProactiveAutoCompact:
     @staticmethod
     async def _run_check_expired(loop, active_session_keys=()):
         """Helper: run check_expired via callback and wait for background tasks."""
+        # check_expired 对全目录扫描有 30s 节流, 每次调用前重置以模拟新的扫描窗口。
+        loop.auto_compact._last_scan_monotonic = float("-inf")
         loop.auto_compact.check_expired(
             loop._schedule_background,
             active_session_keys=active_session_keys,
@@ -810,6 +812,7 @@ class TestProactiveAutoCompact:
         assert archive_count == 1
 
         # Second call should skip (key is in _archiving)
+        loop.auto_compact._last_scan_monotonic = float("-inf")
         loop.auto_compact.check_expired(loop._schedule_background)
         await asyncio.sleep(0.05)
         assert archive_count == 1

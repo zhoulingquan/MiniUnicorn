@@ -23,9 +23,10 @@ ImageGenerationProviderConfig 保留为运行时内部数据结构 (tool.py 用�
 
 from __future__ import annotations
 
+from pathlib import PurePosixPath
 from typing import Any, Literal
 
-from pydantic import AliasChoices, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, ConfigDict, Field, field_validator, model_validator
 from pydantic.alias_generators import to_camel
 
 from miniunicorn.config.schema import Base
@@ -166,6 +167,29 @@ class ImageGenerationConfig(Base):
     max_images_per_turn: int = Field(default=4, ge=1, le=8)
     # 相对 media 根目录的子目录, 用于存放生成的图片 artifact
     save_dir: str = "generated"
+
+    @field_validator("save_dir")
+    @classmethod
+    def _validate_save_dir(cls, value: str) -> str:
+        """save_dir 必须是 media 根目录下的安全相对子目录。
+
+        拒绝绝对路径、盘符、``..`` 穿越与空段 (与 utils/artifacts 的
+        ``_safe_relative_dir`` 规则一致); 在配置写入时即拦截, 避免 WebUI
+        设置非法值后图片落盘到 media 之外或泄漏越界路径。
+        """
+        normalized = value.replace("\\", "/").strip("/")
+        parts = PurePosixPath(normalized).parts
+        if (
+            not normalized
+            or ":" in normalized  # 盘符 (C:/x) 或 URL scheme (http://...) 均非法
+            or PurePosixPath(normalized).is_absolute()
+            or any(part in {"", ".", ".."} for part in parts)
+        ):
+            raise ValueError(
+                f"image_generation.saveDir '{value}' must be a safe relative "
+                f"subdirectory under the media root (no absolute paths or '..')"
+            )
+        return normalized
 
     @model_validator(mode="after")
     def _validate_preset(self) -> "ImageGenerationConfig":

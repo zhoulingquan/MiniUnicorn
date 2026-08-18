@@ -904,11 +904,6 @@ def _concurrent_ingest(
     return results["a"], results["b"]
 
 
-def _journal_lines(workspace: Path) -> list[str]:
-    journal = workspace / "memory" / "structured" / "journal.jsonl"
-    return journal.read_text(encoding="utf-8").splitlines()
-
-
 def test_concurrent_auto_promotion_reconciles_to_single_lineage(
     workspace, policy, file_context
 ):
@@ -932,7 +927,7 @@ def test_concurrent_auto_promotion_reconciles_to_single_lineage(
         MemoryStatus.ACTIVE,
     ]
     assert len(repo.current_records()) == 1
-    assert len(_journal_lines(workspace)) == 2  # create + promote; no duplicate
+    assert len(repo.transaction_log(limit=10)) == 2  # create + promote; no duplicate
 
 
 def test_concurrent_identical_merge_reconciles_to_superseded(workspace, policy, context):
@@ -967,7 +962,7 @@ def test_concurrent_identical_merge_reconciles_to_superseded(workspace, policy, 
         MemoryStatus.ACTIVE,
         MemoryStatus.ACTIVE,
     ]
-    assert len(_journal_lines(workspace)) == 3  # seed + create + merge
+    assert len(repo.transaction_log(limit=10)) == 3  # seed + create + merge
 
 
 def test_concurrent_lower_rank_block_reconciles_to_candidate(workspace, policy, context):
@@ -998,7 +993,7 @@ def test_concurrent_lower_rank_block_reconciles_to_candidate(workspace, policy, 
         MemoryStatus.CANDIDATE,
     ]
     assert revisions[1].blocked_by == (active.id,)
-    assert len(_journal_lines(workspace)) == 3  # seed + create + block
+    assert len(repo.transaction_log(limit=10)) == 3  # seed + create + block
 
 
 def test_reconcile_conflict_after_promotion_returns_committed_active(
@@ -1029,7 +1024,7 @@ def test_reconcile_conflict_after_promotion_returns_committed_active(
     assert result.active_id == result.candidate_id
     assert len(result.transaction_ids) == 1
     assert len(repo.revisions(result.candidate_id)) == 2
-    assert len(_journal_lines(workspace)) == 2  # create + promote; no retry duplicate
+    assert len(repo.transaction_log(limit=10)) == 2  # create + promote; no retry duplicate
 
 
 def test_reconcile_conflict_after_merge_returns_committed_superseded(
@@ -1065,7 +1060,7 @@ def test_reconcile_conflict_after_merge_returns_committed_superseded(
     assert result.final_status is MemoryStatus.SUPERSEDED
     assert result.active_id == active.id
     assert repo.get(result.candidate_id).replacement_id == active.id
-    assert len(_journal_lines(workspace)) == 3  # seed + create + merge
+    assert len(repo.transaction_log(limit=10)) == 3  # seed + create + merge
 
 
 def test_reconcile_conflict_after_block_returns_committed_candidate(
@@ -1104,7 +1099,7 @@ def test_reconcile_conflict_after_block_returns_committed_candidate(
     record = repo.get(result.candidate_id)
     assert record.revision == 2
     assert record.blocked_by == (active.id,)
-    assert len(_journal_lines(workspace)) == 3  # seed + create + block
+    assert len(repo.transaction_log(limit=10)) == 3  # seed + create + block
 
 
 # ---------------------------------------------------------------------------
@@ -1151,7 +1146,7 @@ def test_candidate_blocked_by_accumulates_new_active_conflict(lifecycle, active_
 
 
 def test_reingest_against_existing_blocker_is_zero_write(
-    lifecycle, active_decision, context, workspace
+    lifecycle, active_decision, context
 ):
     weak = proposal(
         statement="A weaker claim",
@@ -1179,7 +1174,7 @@ def test_reingest_against_existing_blocker_is_zero_write(
     lifecycle.ingest(weak, context)
     record = lifecycle.repository.get(first.candidate_id)
     assert record.blocked_by == tuple(sorted({active_decision.id, replacement.id}))
-    journal_before = len(_journal_lines(workspace))
+    journal_before = len(lifecycle.repository.transaction_log(limit=100))
 
     retry = lifecycle.ingest(weak, context)
 
@@ -1188,4 +1183,4 @@ def test_reingest_against_existing_blocker_is_zero_write(
     record_after = lifecycle.repository.get(first.candidate_id)
     assert record_after.revision == record.revision
     assert record_after.blocked_by == record.blocked_by
-    assert len(_journal_lines(workspace)) == journal_before
+    assert len(lifecycle.repository.transaction_log(limit=100)) == journal_before

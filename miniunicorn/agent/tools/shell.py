@@ -67,6 +67,13 @@ _WORKSPACE_BOUNDARY_NOTE = (
     "restrict_to_workspace policy and ask how to proceed."
 )
 
+# 独立的 ".." 遍历 token:前界为行首/空白/引号/等号/shell 操作符/路径
+# 分隔符且前一字符不是 `.`,后界不允许紧跟 word/`$`/`.`/`-` 字符——
+# 要求点号运行恰好为两个,排除 `..gitignore`、`...`、`file..txt` 等
+# 文件名形态。覆盖 `cd ..`、`git -C .. log`、`Set-Location ..`、
+# `pushd ..`、`cd /home/user/..` 等形式(`../`/`..\` 由字面子串检查覆盖)。
+_TRAVERSAL_TOKEN_RE = re.compile(r"(?:^|(?<=[\s\"'=;|&()/\\]))\.\.(?![\w$.-])")
+
 
 class ExecToolConfig(Base):
     """Shell exec tool configuration."""
@@ -77,6 +84,9 @@ class ExecToolConfig(Base):
     )  # Hard timeout (s); 0 = no limit. Not capped by the per-call max.
     path_append: str = ""
     sandbox: str = ""
+    # 沙箱不可用时(如 Windows 平台)拒绝执行命令,而非静默降级为无沙箱
+    # 运行。默认 False 保持向后兼容(仅记录告警);生产环境建议开启。
+    sandbox_required: bool = False
     # 沙箱是否启用网络隔离(--unshare-net)。默认 False,因为多数命令需要联网;
     # 仅在确需网络隔离的工作流中显式开启。
     unshare_net: bool = False
@@ -179,6 +189,7 @@ class ExecTool(Tool):
             allow_patterns=cfg.allow_patterns,
             deny_patterns=cfg.deny_patterns,
             unshare_net=cfg.unshare_net,
+            sandbox_required=cfg.sandbox_required,
         )
 
     def __init__(
@@ -195,11 +206,13 @@ class ExecTool(Tool):
         allowed_env_keys: list[str] | None = None,
         session_manager: Any | None = None,
         unshare_net: bool = False,
+        sandbox_required: bool = False,
     ):
         self.timeout = timeout
         self.working_dir = working_dir
         self.sandbox = sandbox
         self.unshare_net = unshare_net
+        self.sandbox_required = sandbox_required
         self.deny_patterns = (
             (deny_patterns or [])
             + [
@@ -452,6 +465,13 @@ class ExecTool(Tool):
 
         if self.sandbox:
             if _IS_WINDOWS:
+                if self.sandbox_required:
+                    return (
+                        f"Error: Command blocked: sandbox '{self.sandbox}' is not "
+                        "available on Windows and sandbox_required is enabled. "
+                        "Either disable the sandbox, run on a supported platform, "
+                        "or turn off sandbox_required."
+                    )
                 logger.warning(
                     "Sandbox '{}' is not supported on Windows; running unsandboxed",
                     self.sandbox,
@@ -695,19 +715,59 @@ class ExecTool(Tool):
         (r"printf\s+.*\\x[0-9a-fA-F]", "printf hex escape"),
         (r"eval\s+", "eval command"),
         (r"exec\s+", "exec command"),
+        (r"\binvoke-expression\b|\biex\b", "PowerShell Invoke-Expression"),
+        (r"-encodedcommand\b", "PowerShell encoded command"),
     ]
 
-    # 解释器内联执行入口(python -c / perl -e / node -e / ruby -e 等):
-    # 在工作区受限模式下拒绝,因为这些入口可绕过文件路径校验直接执行
-    # 任意代码,与受限模式的目标(限制可触达范围)冲突。
-    # 注意:仅匹配 ``python -c``(不含版本号),``python3 -c`` 等带版本号形式
-    # 不在拦截范围,以保持与现有测试/工作流向后兼容(test_exec_guard_allows_public_urls
-    # 使用 python3 -c 拉取公开 URL,属合理用法)。
-    _RESTRICTED_INTERPRETER_PATTERNS: ClassVar[list[tuple[str, str]]] = [
-        (r"\bpython\s+-c\b", "python -c inline execution"),
-        (r"\bperl\s+-e\b", "perl -e inline execution"),
-        (r"\bnode\s+-e\b", "node -e inline execution"),
-        (r"\bruby\s+-e\b", "ruby -e inline execution"),
+    # 解释器内联执行入口(python -c / perl -e / node -e / ruby -e /
+    # powershell -Command / php -r 等):在工作区受限模式下拒绝,因为这些
+    # 入口可绕过文件路径校验直接执行任意代码,与受限模式的目标(限制可触达
+    # 范围)冲突。
+    # 匹配规则(修复历史绕过:版本号/大小写/.exe/py launcher 变体):
+    # - 忽略大小写(PYTHON -C / Python3 -c 等均拦截);
+    # - 覆盖带版本号(python3 / python3.12)与 .exe 后缀变体;
+    # - 覆盖 Windows py launcher(-3 -c 组合标志)与 pwsh/powershell/php;
+    # - 允许组合短标志(python -uc、perl -we、node -ep 等)。
+    _RESTRICTED_INTERPRETER_PATTERNS: ClassVar[list[tuple[re.Pattern[str], str]]] = [
+        (
+            re.compile(
+                r"\b(?:python(?:\d+(?:\.\d+)?)?|py)(?:\.exe)?\s+(?:-[\w.]*\s+)*-\w*c\b",
+                re.IGNORECASE,
+            ),
+            "python -c inline execution",
+        ),
+        (
+            re.compile(
+                r"\bperl(?:\d+(?:\.\d+)?)?(?:\.exe)?\s+(?:-[\w.]*\s+)*-\w*e\b",
+                re.IGNORECASE,
+            ),
+            "perl -e inline execution",
+        ),
+        (
+            re.compile(
+                r"\bnode(?:\.exe)?\s+(?:-[\w.]*\s+)*(?:-\w*[ep]\b|--eval\b|--print\b)",
+                re.IGNORECASE,
+            ),
+            "node -e inline execution",
+        ),
+        (
+            re.compile(
+                r"\bruby(?:\d+(?:\.\d+)?)?(?:\.exe)?\s+(?:-[\w.]*\s+)*-\w*e\b",
+                re.IGNORECASE,
+            ),
+            "ruby -e inline execution",
+        ),
+        (
+            re.compile(
+                r"\b(?:powershell|pwsh)(?:\.exe)?\s+(?:-[\w.]*\s+)*-(?:command|c)\b",
+                re.IGNORECASE,
+            ),
+            "powershell -Command inline execution",
+        ),
+        (
+            re.compile(r"\bphp(?:\.exe)?\s+(?:-[\w.]*\s+)*-\w*r\b", re.IGNORECASE),
+            "php -r inline execution",
+        ),
     ]
 
     def _guard_command(
@@ -745,8 +805,10 @@ class ExecTool(Tool):
         # 这防止用户配置宽泛的 allow 模式(如 ".*")绕过所有安全检查:
         # $(...)、backtick、base64 decode、eval、exec 等构造可能用于
         # 逃避 guard 本身,属于不可豁免的硬编码 deny。
+        # 匹配统一使用小写形式,与 deny_patterns 一致,防止大小写变体
+        # (Windows 上 Eval/EVAL/INVOKE-EXPRESSION 等)绕过。
         for bypass_pat, desc in self._BYPASS_PATTERNS:
-            if re.search(bypass_pat, cmd):
+            if re.search(bypass_pat, lower):
                 return f"Error: Command blocked by safety guard (potential bypass via {desc})"
 
         from miniunicorn.security.network import contains_internal_url
@@ -765,15 +827,19 @@ class ExecTool(Tool):
         )
         if should_restrict:
             # 工作区受限模式下,拒绝解释器内联执行入口(python -c / perl -e /
-            # node -e / ruby -e 等),它们可绕过文件路径校验直接执行任意代码。
+            # node -e / powershell -Command 等),它们可绕过文件路径校验直接执行任意代码。
             for interp_pat, interp_desc in self._RESTRICTED_INTERPRETER_PATTERNS:
-                if re.search(interp_pat, cmd):
+                if interp_pat.search(cmd):
                     return (
                         f"Error: Command blocked by safety guard (potential bypass via {interp_desc})"
                         + _WORKSPACE_BOUNDARY_NOTE
                     )
 
-            if "..\\" in cmd or "../" in cmd:
+            # 字面子串(../ 或 ..\)与独立 token 级检测双重覆盖:token 检测
+            # 拦截 `cd ..`、`git -C .. log`、`Set-Location ..` 等不含分隔符
+            # 前缀的形式。前界要求空白/引号/等号/shell 操作符/路径分隔符,
+            # 后界要求非路径字符,避免误伤 `file..txt`、`..gitignore` 等。
+            if "..\\" in cmd or "../" in cmd or _TRAVERSAL_TOKEN_RE.search(cmd):
                 return (
                     "Error: Command blocked by safety guard (path traversal detected)"
                     + _WORKSPACE_BOUNDARY_NOTE

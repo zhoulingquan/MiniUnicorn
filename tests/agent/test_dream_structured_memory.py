@@ -1247,3 +1247,26 @@ class TestDreamBounds:
         prompt = mock_provider.chat_with_retry.await_args_list[0].kwargs["messages"][1]["content"]
         assert "PROJECT FACT" in prompt
         assert "ALICE USER FACT" not in prompt
+
+
+class TestAuditExportTrigger:
+    async def test_successful_dream_batch_exports_audit(self, store, dream, mock_provider):
+        store.append_history("Main uses deterministic structured recall.")
+        set_provider_response(mock_provider, raw_batch(proposal()))
+
+        assert await dream.run() is True
+
+        stats = store.structured_repository.storage_stats()
+        assert stats.transaction_count >= 1
+        assert stats.audit_lag == 0
+        audit = store.workspace / "memory" / "structured" / "audit"
+        manifest = json.loads((audit / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["database_last_tx_seq"] == stats.last_transaction_seq
+
+    async def test_failed_dream_batch_does_not_export(self, store, dream, mock_provider):
+        store.append_history("A fact to ingest.")
+        set_provider_response(mock_provider, '{"schema_version":1,"proposals":[{"bad"]}')
+
+        assert await dream.run() is False
+        assert store.structured_repository.storage_stats().transaction_count == 0
+        assert not (store.workspace / "memory" / "structured" / "audit").exists()

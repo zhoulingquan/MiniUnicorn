@@ -85,11 +85,14 @@ def _extract_pdf(path: Path) -> str:
     except ImportError:
         return "[error: pypdf not installed]"
     try:
-        reader = PdfReader(path)
-        pages: list[str] = []
-        for i, page in enumerate(reader.pages, 1):
-            text = page.extract_text() or ""
-            pages.append(f"--- Page {i} ---\n{text}")
+        # 用显式打开的文件句柄构造 PdfReader: 持路径构造时句柄滞留到 GC,
+        # Windows 上会阻塞后续对该文件的替换/删除。
+        with open(path, "rb") as fh:
+            reader = PdfReader(fh)
+            pages: list[str] = []
+            for i, page in enumerate(reader.pages, 1):
+                text = page.extract_text() or ""
+                pages.append(f"--- Page {i} ---\n{text}")
         return _truncate("\n\n".join(pages), _MAX_TEXT_LENGTH)
     except Exception as e:
         logger.exception("Failed to extract PDF {}", path)

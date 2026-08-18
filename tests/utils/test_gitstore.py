@@ -1,5 +1,6 @@
 """Tests for GitStore — line_ages() and core git operations."""
 
+import shutil
 import subprocess
 import time
 from datetime import datetime, timedelta, timezone
@@ -174,6 +175,7 @@ class TestNestedRepoProtection:
         assert result is True
         assert (workspace / ".git").is_dir()
 
+    @pytest.mark.skipif(shutil.which("git") is None, reason="git executable not on PATH")
     def test_init_refuses_inside_git_worktree(self, tmp_path):
         """init() should refuse when the parent checkout is a git worktree."""
         repo = tmp_path / "repo"

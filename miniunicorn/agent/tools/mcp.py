@@ -6,7 +6,7 @@ import re
 import shutil
 import urllib.parse
 from contextlib import AsyncExitStack, suppress
-from typing import Any, Awaitable, Callable, Mapping
+from typing import Any, Awaitable, Callable, Mapping, Protocol
 from weakref import WeakKeyDictionary
 
 import httpx
@@ -42,7 +42,6 @@ _WINDOWS_SHELL_LAUNCHERS: frozenset[str] = frozenset(("npx", "npm", "pnpm", "yar
 # Characters allowed in tool names by model providers (Anthropic, OpenAI, etc.).
 # Replace anything outside [a-zA-Z0-9_-] with underscore and collapse runs.
 _SANITIZE_RE = re.compile(r"_+")
-_RELOAD_LOCKS: WeakKeyDictionary[Any, asyncio.Lock] = WeakKeyDictionary()
 
 
 def _sanitize_name(name: str) -> str:
@@ -59,6 +58,24 @@ def _is_transient(exc: BaseException) -> bool:
 _McpInvoker = Callable[[], Awaitable[Any]]
 _McpResultExtractor = Callable[[Any], str]
 _McpSpecializedErrorHandler = Callable[[BaseException, str, str], str | None]
+
+
+class RuntimeState(Protocol):
+    """AgentLoop 暴露给 MCP 生命周期管理的运行时状态表面。
+
+    AgentLoop 按结构化子类型满足此协议。此前这些入口的 ``state`` 参数标为
+    ``Any``, 属性访问完全绕过类型检查; 收窄为协议后拼写错误/类型不匹配
+    可被静态检查捕获。
+    """
+
+    _mcp_servers: dict[str, Any]
+    _mcp_stacks: dict[str, AsyncExitStack]
+    _mcp_connecting: bool
+    _mcp_connected: bool
+
+
+# reload 互斥锁按 runtime state 实例(通常是 AgentLoop)弱引用持有。
+_RELOAD_LOCKS: WeakKeyDictionary[RuntimeState, asyncio.Lock] = WeakKeyDictionary()
 
 
 async def _call_mcp_with_retry(
@@ -147,6 +164,62 @@ async def _call_mcp_with_retry(
     return f"(MCP {kind} failed)"  # Unreachable, but satisfies type checkers
 
 
+def _redact_url_for_log(url: str) -> str:
+    """Strip credentials from a URL before writing it to logs.
+
+    MCP URLs frequently embed credentials in userinfo (``https://user:pass@host``)
+    or query parameters (``https://host/mcp?key=...``). Keep scheme/host/path
+    and query key names; hide values and drop the fragment entirely.
+    """
+    try:
+        p = urllib.parse.urlparse(url)
+        netloc = p.hostname or ""
+        if p.port:
+            netloc = f"{netloc}:{p.port}"
+        query = "&".join(
+            f"{key}=***" if value else key
+            for key, value in urllib.parse.parse_qsl(p.query, keep_blank_values=True)
+        )
+        return urllib.parse.urlunparse((p.scheme, netloc, p.path, p.params, query, ""))
+    except Exception:
+        return "<invalid-url>"
+
+
+def _validate_mcp_url(url: str) -> str:
+    """Pre-flight validation for an MCP HTTP(S) server URL. Returns error or ''.
+
+    Blocks cloud metadata endpoints (169.254.0.0/16 etc.) which are never
+    legitimate MCP targets, even when a hostname resolves to them. Loopback
+    and RFC1918 stay allowed — local MCP servers are a common deployment.
+    """
+    import ipaddress
+    import socket
+
+    from miniunicorn.security.network import _is_metadata_blocked
+
+    try:
+        p = urllib.parse.urlparse(url)
+    except ValueError as e:
+        return f"invalid URL: {e}"
+    if p.scheme not in ("http", "https"):
+        return f"unsupported scheme '{p.scheme or 'none'}' (only http/https)"
+    hostname = p.hostname
+    if not hostname:
+        return "missing hostname"
+    try:
+        infos = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+    except socket.gaierror:
+        return f"cannot resolve hostname: {hostname}"
+    for info in infos:
+        try:
+            addr = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            continue
+        if _is_metadata_blocked(addr):
+            return f"host {hostname} resolves to blocked address {addr}"
+    return ""
+
+
 async def _probe_http_url(url: str, timeout: float = 3.0) -> bool:
     """Quick TCP probe to check if an HTTP MCP server is reachable.
 
@@ -154,9 +227,14 @@ async def _probe_http_url(url: str, timeout: float = 3.0) -> bool:
     closed — those transports use anyio task groups whose cleanup can raise
     ``RuntimeError`` / ``ExceptionGroup`` that escape the caller's try/except
     and crash the event loop.
+
+    Fail-closed on unparsable URLs: a missing hostname returns False instead
+    of falling back to 127.0.0.1.
     """
     parsed = urllib.parse.urlparse(url)
-    host = parsed.hostname or "127.0.0.1"
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return False
+    host = parsed.hostname
     port = parsed.port
     if not port:
         port = 443 if parsed.scheme == "https" else 80
@@ -540,8 +618,19 @@ async def connect_mcp_servers(
                 )
                 read, write = await server_stack.enter_async_context(stdio_client(params))
             elif transport_type == "sse":
+                url_error = _validate_mcp_url(cfg.url)
+                if url_error:
+                    logger.warning(
+                        "MCP server '{}': URL rejected ({}), skipping", name, url_error
+                    )
+                    await server_stack.aclose()
+                    return name, None
                 if not await _probe_http_url(cfg.url):
-                    logger.warning("MCP server '{}': {} unreachable, skipping", name, cfg.url)
+                    logger.warning(
+                        "MCP server '{}': {} unreachable, skipping",
+                        name,
+                        _redact_url_for_log(cfg.url),
+                    )
                     await server_stack.aclose()
                     return name, None
 
@@ -550,29 +639,50 @@ async def connect_mcp_servers(
                     timeout: httpx.Timeout | None = None,
                     auth: httpx.Auth | None = None,
                 ) -> httpx.AsyncClient:
+                    from miniunicorn.security.network import create_ssrf_safe_client
+
                     merged_headers = {
                         "Accept": "application/json, text/event-stream",
                         **(cfg.headers or {}),
                         **(headers or {}),
                     }
-                    return httpx.AsyncClient(
+                    # allow_private: MCP server URLs are operator-configured;
+                    # local/LAN servers are legitimate. The SSRF hook still
+                    # blocks cloud metadata endpoints on every dial, including
+                    # redirects followed by httpx internally.
+                    return create_ssrf_safe_client(
+                        allow_private=True,
                         headers=merged_headers or None,
-                        follow_redirects=True,
-                        timeout=timeout,
+                        timeout=timeout if timeout is not None else httpx.Timeout(10.0),
                         auth=auth,
+                        follow_redirects=True,
                     )
 
                 read, write = await server_stack.enter_async_context(
                     sse_client(cfg.url, httpx_client_factory=httpx_client_factory)
                 )
             elif transport_type == "streamableHttp":
+                url_error = _validate_mcp_url(cfg.url)
+                if url_error:
+                    logger.warning(
+                        "MCP server '{}': URL rejected ({}), skipping", name, url_error
+                    )
+                    await server_stack.aclose()
+                    return name, None
                 if not await _probe_http_url(cfg.url):
-                    logger.warning("MCP server '{}': {} unreachable, skipping", name, cfg.url)
+                    logger.warning(
+                        "MCP server '{}': {} unreachable, skipping",
+                        name,
+                        _redact_url_for_log(cfg.url),
+                    )
                     await server_stack.aclose()
                     return name, None
 
+                from miniunicorn.security.network import create_ssrf_safe_client
+
                 http_client = await server_stack.enter_async_context(
-                    httpx.AsyncClient(
+                    create_ssrf_safe_client(
+                        allow_private=True,
                         headers=cfg.headers or None,
                         follow_redirects=True,
                         timeout=None,
@@ -763,7 +873,7 @@ def runtime_lines(
     return lines
 
 
-async def connect_missing_servers(state: Any, registry: ToolRegistry) -> None:
+async def connect_missing_servers(state: RuntimeState, registry: ToolRegistry) -> None:
     """Connect configured MCP servers that are not currently live."""
     missing_servers = {
         name: cfg for name, cfg in state._mcp_servers.items() if name not in state._mcp_stacks
@@ -789,7 +899,7 @@ async def connect_missing_servers(state: Any, registry: ToolRegistry) -> None:
         state._mcp_connecting = False
 
 
-async def reload_servers(state: Any, registry: ToolRegistry) -> dict[str, Any]:
+async def reload_servers(state: RuntimeState, registry: ToolRegistry) -> dict[str, Any]:
     """Reconcile live MCP connections with the current config file."""
     async with _reload_lock(state):
         try:
@@ -908,7 +1018,7 @@ async def request_mcp_reload(bus: Any, *, timeout: float = 15.0) -> dict[str, An
     )
 
 
-async def handle_runtime_control(state: Any, msg: InboundMessage, registry: ToolRegistry) -> bool:
+async def handle_runtime_control(state: RuntimeState, msg: InboundMessage, registry: ToolRegistry) -> bool:
     metadata = msg.metadata if isinstance(msg.metadata, dict) else {}
     control = metadata.get(INBOUND_META_RUNTIME_CONTROL)
     if control != RUNTIME_CONTROL_MCP_RELOAD:
@@ -930,7 +1040,7 @@ async def handle_runtime_control(state: Any, msg: InboundMessage, registry: Tool
     return True
 
 
-def _reload_lock(state: Any) -> asyncio.Lock:
+def _reload_lock(state: RuntimeState) -> asyncio.Lock:
     try:
         return _RELOAD_LOCKS[state]
     except KeyError:
@@ -952,7 +1062,7 @@ def _tool_prefix(server_name: str) -> str:
     return f"mcp_{safe_name}_"
 
 
-def _unregister_server_tools(state: Any, registry: ToolRegistry, server_name: str) -> int:
+def _unregister_server_tools(state: RuntimeState, registry: ToolRegistry, server_name: str) -> int:
     prefix = _tool_prefix(server_name)
     removed = 0
     for tool_name in list(registry.tool_names):
@@ -962,7 +1072,7 @@ def _unregister_server_tools(state: Any, registry: ToolRegistry, server_name: st
     return removed
 
 
-async def _close_server(state: Any, server_name: str) -> None:
+async def _close_server(state: RuntimeState, server_name: str) -> None:
     stack = state._mcp_stacks.pop(server_name, None)
     if stack is None:
         return

@@ -95,11 +95,13 @@ def pdf_to_text(path: Path) -> str:
     """提取 PDF 全部文本。"""
     from pypdf import PdfReader
 
-    reader = PdfReader(path)
     parts: list[str] = []
-    for i, page in enumerate(reader.pages, 1):
-        text = page.extract_text() or ""
-        parts.append(f"--- Page {i} ---\n{text}")
+    # 用显式句柄构造并随 with 关闭, 避免句柄滞留到 GC (Windows 上会锁住文件)。
+    with open(path, "rb") as fh:
+        reader = PdfReader(fh)
+        for i, page in enumerate(reader.pages, 1):
+            text = page.extract_text() or ""
+            parts.append(f"--- Page {i} ---\n{text}")
     return "\n\n".join(parts)
 
 

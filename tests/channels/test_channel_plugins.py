@@ -275,8 +275,12 @@ async def test_manager_propagates_groq_transcription_api_base_to_channels():
 
 
 @pytest.mark.asyncio
-async def test_manager_propagates_openai_transcription_api_base_to_channels():
+async def test_manager_propagates_openai_transcription_api_base_to_channels(monkeypatch):
     from miniunicorn.channels.manager import ChannelManager
+
+    # openai 已从 ProvidersConfig 移除: transcription 的 key/base 一律取自环境变量。
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
+    monkeypatch.setenv("OPENAI_API_BASE", "http://proxy.local/v1/audio/transcriptions")
 
     fake_config = SimpleNamespace(
         channels=ChannelsConfig.model_validate(
@@ -286,10 +290,6 @@ async def test_manager_propagates_openai_transcription_api_base_to_channels():
             }
         ),
         providers=SimpleNamespace(
-            openai=SimpleNamespace(
-                api_key="openai-key",
-                api_base="http://proxy.local/v1/audio/transcriptions",
-            ),
             groq=SimpleNamespace(api_key="groq-key", api_base=""),
         ),
     )
@@ -1167,6 +1167,8 @@ async def test_stop_all_cancels_dispatcher_and_stops_channels():
 
     dispatch_task = asyncio.create_task(dummy_task())
     mgr._dispatch_task = dispatch_task
+    # __new__ 绕过 __init__, 手工补齐后台任务引用集(stop_all 会取消其中的任务)。
+    mgr._background_tasks = set()
 
     await mgr.stop_all()
 
@@ -1237,6 +1239,7 @@ async def test_stop_all_handles_channel_exception():
     mgr.bus = MessageBus()
     mgr.channels = {"stopfailing": _StopFailingChannel(fake_config, mgr.bus)}
     mgr._dispatch_task = None
+    mgr._background_tasks = set()
 
     # Should not raise even if channel.stop() raises
     await mgr.stop_all()
@@ -1315,6 +1318,8 @@ async def test_notify_restart_done_enqueues_outbound_message():
     mgr.channels = {"feishu": _StartableChannel(fake_config, mgr.bus)}
     mgr._dispatch_task = None
     mgr._send_with_retry = AsyncMock()
+    # _notify_restart_done_if_needed 把 fire-and-forget 任务登记到该集合。
+    mgr._background_tasks = set()
 
     notice = RestartNotice(channel="feishu", chat_id="oc_123", started_at_raw="100.0")
     with patch("miniunicorn.channels.manager.consume_restart_notice_from_env", return_value=notice):

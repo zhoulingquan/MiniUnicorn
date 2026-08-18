@@ -84,7 +84,7 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 |----|------|------|
 | 短期会话 | `session.messages` | 活跃对话的完整上下文 |
 | 压缩归档 | `memory/history.jsonl` | 追加式、带游标的历史摘要（机器优先） |
-| 长期知识 | `memory/structured/journal.jsonl` | 有来源、状态与作用域的结构化事实 |
+| 长期知识 | `memory/structured/memory.db` | 受治理记录的结构化事实（`journal.jsonl` 仅为旧版迁移输入） |
 | 教训沉淀 | `memory/reflections.jsonl` | 失败与周期性反思的一句话教训 |
 | 版本历史 | `GitStore`（内嵌 Git） | 长期文件每次变更可追溯、可回滚 |
 

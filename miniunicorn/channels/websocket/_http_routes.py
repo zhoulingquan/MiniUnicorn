@@ -22,11 +22,19 @@ from websockets.datastructures import Headers
 from websockets.http11 import Request as WsRequest
 from websockets.http11 import Response
 
+from loguru import logger
+
 from miniunicorn.channels.websocket._chunked_header import (  # noqa: F401 — re-exported for channel.py
     _collect_chunked_header,
     collect_chunked_header,
 )
 from miniunicorn.webui.settings_api import WebUISettingsError
+
+# URL query 中出现的敏感参数名模式(用于废弃告警, 不记录参数值本身)。
+_SENSITIVE_QUERY_KEY_RE = re.compile(
+    r"(?:api[_-]?key|app[_-]?secret|bot[_-]?token|token|secret|password|credential|authorization)",
+    re.IGNORECASE,
+)
 
 # Path → action mapping for the MCP presets HTTP surface. Used by both
 # the dispatcher and the per-action handler in ``channel.py``.
@@ -98,6 +106,25 @@ def collect_chunked_header_limited(
     return "".join(parts[i] for i in sorted(parts))
 
 
+def _warn_sensitive_query_params(query: dict[str, list[str]]) -> None:
+    """敏感参数经 URL query 传递时记录废弃告警(只记参数名,不记值)。"""
+    leaked = sorted(
+        {
+            key
+            for key, values in query.items()
+            if _SENSITIVE_QUERY_KEY_RE.search(key) and any(v for v in values)
+        }
+    )
+    if leaked:
+        logger.warning(
+            "Sensitive parameters {} sent via URL query (deprecated channel: "
+            "values leak into logs/Referer/browser history). Migrate the client "
+            "to the '{}' chunked header.",
+            leaked,
+            _SENSITIVE_VALUES_HEADER,
+        )
+
+
 def _merge_sensitive_values_header(
     request: WsRequest, query: dict[str, list[str]]
 ) -> dict[str, list[str]]:
@@ -107,7 +134,12 @@ def _merge_sensitive_values_header(
     - header 存在 → JSON 解码为对象,字符串值覆盖 query 中同名 key,非字符串值
       JSON 序列化后写入。超限或格式错误时忽略(不阻断请求,handler 仍可从 query
       读取非敏感字段)。
+
+    附带废弃告警:敏感参数仍经 URL query 传递时记录 warning(只记参数名,不记
+    值),推动前端迁移到 header 通道;websockets HTTP 层只有 GET,query 是唯一
+    的 URL 传参通道,秘密会进入日志/Referer/浏览器历史。
     """
+    _warn_sensitive_query_params(query)
     raw = collect_chunked_header_limited(
         request.headers,
         _SENSITIVE_VALUES_HEADER,

@@ -141,8 +141,10 @@ async def provider_models(ctx: RouteContext) -> Response:
     except WebUISettingsError as e:
         return _http_error(e.status, e.message)
     except Exception as exc:
+        # 详细原因(可能含内部 api_base)只进服务端日志; 对外返回通用错误,
+        # 避免向客户端泄漏内部端点信息。
         ctx.deps.logger.warning("provider models fetch failed: {}", exc)
-        return _http_error(500, f"Failed to fetch models: {exc}")
+        return _http_error(500, "Failed to fetch models (provider request failed; see server logs)")
     return _http_json_response(payload)
 
 

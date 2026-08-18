@@ -62,6 +62,7 @@ from miniunicorn.session.webui_turns import (
     WebuiTurnCoordinator,
     build_bus_progress_callback,
 )
+from miniunicorn.utils.callback_types import ProgressCallback
 from miniunicorn.utils.document import extract_documents  # re-export for tests/extensions
 from miniunicorn.utils.helpers import image_placeholder_text
 from miniunicorn.utils.helpers import truncate_text as truncate_text_fn
@@ -79,6 +80,12 @@ if TYPE_CHECKING:
 
 
 UNIFIED_SESSION_KEY = "unified:default"
+
+# 主循环/任务管理相关超时 (集中定义, 避免魔法数字散落):
+_IDLE_POLL_INTERVAL_S = 1.0  # 空闲时轮询入站消息的间隔 (auto-compact/dream 空闲触发节拍)
+_TASK_CANCEL_WAIT_S = 10.0  # /stop 等待单个被取消任务收尾的上限
+_SUBAGENT_CANCEL_WAIT_S = 10.0  # /stop 等待全部子代理取消完成的上限
+_SUBAGENT_DRAIN_WAIT_S = 300.0  # 等待子代理产出注入队列的上限 (阻塞保持注入顺序)
 
 
 class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
@@ -203,8 +210,9 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         # permanent learning table → Hugging Face API → fail-loud.
         # ``raise_on_unknown=True`` enforces the user's preference: when the
         # model is not in the learning table AND HF lookup fails, surface a
-        # clear error instead of silently defaulting to 65_536. Use the
-        # ``MINIUNICORN_NO_AUTO_LOOKUP`` env var to opt out (returns default).
+        # clear error instead of silently defaulting to 65_536. Setting
+        # ``MINIUNICORN_NO_AUTO_LOOKUP=1`` also fails loud here (the error
+        # message tells the user to set context_window_tokens explicitly).
         if self.context_window_tokens is None:
             from miniunicorn.cli.models import get_model_context_limit
 
@@ -544,7 +552,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
 
     async def _build_bus_progress_callback(
         self, msg: InboundMessage
-    ) -> Callable[..., Awaitable[None]]:
+    ) -> ProgressCallback:
         """Build a progress callback that publishes to the message bus."""
         return build_bus_progress_callback(self.bus, msg)
 
@@ -642,14 +650,20 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         """
         tasks = self._active_tasks.pop(key, [])
         cancelled = sum(1 for t in tasks if not t.done() and t.cancel())
-        # 为每个任务等待设置超时，避免 /stop 因单个任务卡死而长时间阻塞
+        # 为每个任务等待设置超时，避免 /stop 因单个任务卡死而长时间阻塞。
+        # 只吞掉取消信号与等待超时; 取消过程中暴露的真实异常记日志,
+        # 不再静默 suppress(此前会掩盖所有错误)。
         for t in tasks:
-            with suppress(asyncio.CancelledError, Exception):
-                await asyncio.wait_for(t, timeout=10.0)
+            try:
+                await asyncio.wait_for(t, timeout=_TASK_CANCEL_WAIT_S)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
+            except Exception:
+                logger.exception("Error surfaced while cancelling task in session {}", key)
         # subagents 取消也加超时保护，超时则返回已取消的部分
         try:
             sub_cancelled = await asyncio.wait_for(
-                self.subagents.cancel_by_session(key), timeout=10.0
+                self.subagents.cancel_by_session(key), timeout=_SUBAGENT_CANCEL_WAIT_S
             )
         except asyncio.TimeoutError:
             sub_cancelled = 0
@@ -712,7 +726,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
     async def _run_agent_loop(
         self,
         initial_messages: list[dict],
-        on_progress: Callable[..., Awaitable[None]] | None = None,
+        on_progress: ProgressCallback | None = None,
         on_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
         on_retry_wait: Callable[[str], Awaitable[None]] | None = None,
@@ -804,7 +818,9 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                 and self.subagents.get_running_count_by_session(session.key) > 0
             ):
                 try:
-                    msg = await asyncio.wait_for(pending_queue.get(), timeout=300)
+                    msg = await asyncio.wait_for(
+                        pending_queue.get(), timeout=_SUBAGENT_DRAIN_WAIT_S
+                    )
                 except asyncio.TimeoutError:
                     logger.warning(
                         "Timeout waiting for sub-agent completion in session {}",
@@ -1188,7 +1204,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         self,
         msg: InboundMessage,
         session_key: str | None = None,
-        on_progress: Callable[..., Awaitable[None]] | None = None,
+        on_progress: ProgressCallback | None = None,
         on_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
         pending_queue: asyncio.Queue | None = None,
@@ -1309,7 +1325,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         self,
         msg: InboundMessage,
         session_key: str | None = None,
-        on_progress: Callable[..., Awaitable[None]] | None = None,
+        on_progress: ProgressCallback | None = None,
         on_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
         pending_queue: asyncio.Queue | None = None,
@@ -1648,7 +1664,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         channel: str = "cli",
         chat_id: str = "direct",
         media: list[str] | None = None,
-        on_progress: Callable[..., Awaitable[None]] | None = None,
+        on_progress: ProgressCallback | None = None,
         on_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
         hooks: list[AgentHook] | None = None,

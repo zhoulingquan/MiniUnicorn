@@ -11,24 +11,24 @@ These commands work inside chat channels and interactive agent sessions:
 | `/model` | Show the current model and available model presets |
 | `/model <preset>` | Switch the runtime model preset for future turns |
 | `/dream` | Run Dream memory consolidation now |
-| `/dream-log` | Show the latest Dream memory change |
-| `/dream-log <sha>` | Show a specific Dream memory change |
-| `/dream-restore` | List recent Dream memory versions |
-| `/dream-restore <sha>` | Restore memory to the state before a specific change |
 | `/pairing` | List pending pairing requests |
 | `/pairing approve <code>` | Approve a pairing code |
 | `/pairing deny <code>` | Deny a pending pairing request |
 | `/pairing revoke <user_id>` | Revoke a previously approved user on the current channel |
 | `/pairing revoke <channel> <user_id>` | Revoke a previously approved user on a specific channel |
-| `/memory-status` | Show governed memory architecture, journal health and record counts |
+| `/memory-status` | Show governed memory architecture, database health and record counts |
 | `/memory-list [status]` | List structured memory records (candidate/active/superseded/revoked/expired) |
 | `/memory-show <id>` | Show one record: all revisions, evidence and the replace chain |
 | `/memory-promote <id> [--replace <active-id>]` | Promote a candidate to active; conflicts require `--replace` |
 | `/memory-revoke <id> <reason>` | Revoke a candidate or active record with a reason |
 | `/memory-correct <subject>\|<slot>\|<statement>` | Create an explicit user correction; all three fields must be non-empty |
+| `/memory-log [<tx-id>]` | Show recent transactions (or the operations of one transaction) |
+| `/memory-backup` | Create an integrity-verified snapshot of the SQLite memory database |
+| `/memory-restore <backup-id>` | Restore the database from one of its own backups (with a safety copy) |
+| `/memory-export-audit [--rebuild]` | Export pending transactions to the JSONL audit, or rebuild it fully |
 | `/help` | Show available in-chat commands |
 
-Structured memory mutations are append-only journal revisions. Use `/memory-show <id>` to inspect evidence and the replacement chain; do not edit `memory/structured/journal.jsonl` by hand. If `/memory-status` reports degraded health, governed recall injects a diagnostic but no memory facts until the journal is recovered.
+Structured memory mutations are governed transactions in `memory/structured/memory.db` (the legacy `journal.jsonl` is migration input only). Use `/memory-show <id>` to inspect evidence and the replacement chain; never edit the database or runtime files under `memory/structured/` by hand. If `/memory-status` reports degraded health, governed recall injects a diagnostic but no memory facts until the database is recovered from a backup.
 
 ## Pairing
 

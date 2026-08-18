@@ -6,7 +6,7 @@ import hashlib
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -17,13 +17,23 @@ from miniunicorn.agent.memory_models import (
     MemoryOperation,
     MemoryRecord,
     MemoryScope,
+    MemoryStatus,
     MemoryTransaction,
+    RecallHit,
     RecallQuery,
+    RecallResult,
     ScopeKind,
     new_transaction_id,
+    normalize_match_text,
     transaction_checksum,
 )
-from miniunicorn.agent.memory_recall import StructuredMemoryRecall, _tokenizer
+from miniunicorn.agent.memory_recall import (
+    PROMPT_HEADER,
+    ROUTE_EXPLICIT_ID,
+    SOURCE_SCORE,
+    StructuredMemoryRecall,
+    _tokenizer,
+)
 from miniunicorn.agent.memory_repository import StructuredMemoryRepository
 
 UTC = timezone.utc
@@ -460,8 +470,7 @@ def test_max_hits_limits_results(recall, repository):
 
 
 def test_degraded_health_returns_no_hits(recall, repository, project_decision):
-    with repository.journal_path.open("a", encoding="utf-8") as stream:
-        stream.write("not-a-transaction\n")
+    repository.database_path.write_bytes(b"garbage, not a sqlite database" * 4)
     health = repository.rebuild()
     assert health.state == "degraded"
     result = recall.recall(make_query())
@@ -525,3 +534,295 @@ def test_recall_result_counts(recall, repository):
     assert result.filtered == 0
     assert result.excluded_by_budget == 0
     assert len(result.hits) == 3
+
+
+# ---------------------------------------------------------------------------
+# Task 7: recall candidate prefiltering pushed down into SQLite
+# ---------------------------------------------------------------------------
+
+
+def test_recall_delegates_candidate_selection_to_sql(repository, project_decision):
+    spy = MagicMock(spec=StructuredMemoryRepository, wraps=repository)
+    spy.health = repository.health
+    spy_recall = StructuredMemoryRecall(spy, repository.tag_catalog)
+    query = make_query()
+
+    spy_recall.recall(query)
+
+    spy.recall_candidates.assert_called_once_with(
+        allowed_scopes=query.allowed_scopes,
+        requested_kinds=query.requested_kinds,
+        now=query.now,
+    )
+    spy.current_records.assert_not_called()
+
+
+def _prefilter_candidates(records, query):
+    """Pure-python prefilter of the old pipeline: status, scope, expiry, kind."""
+    allowed = {(scope.kind, scope.key) for scope in query.allowed_scopes}
+    for record in records:
+        if record.status is not MemoryStatus.ACTIVE:
+            continue
+        if (record.scope.kind, record.scope.key) not in allowed:
+            continue
+        if record.expires_at is not None and record.expires_at <= query.now:
+            continue
+        if query.requested_kinds and record.kind not in query.requested_kinds:
+            continue
+        yield record
+
+
+def _baseline_recall(recall, repository, query):
+    """Old recall pipeline over the full current record set, with the new
+    counting semantics: ``candidates`` = authorized prefilter hits and
+    ``filtered`` = lexical route misses only."""
+    candidates = 0
+    filtered = 0
+    scored = []
+    explicit_ids = set(query.explicit_ids)
+    explicit_tags = frozenset(normalize_match_text(tag) for tag in query.explicit_tags)
+    query_norm = normalize_match_text(query.query_text)
+    for record in _prefilter_candidates(repository.current_records(), query):
+        candidates += 1
+        if record.id in explicit_ids:
+            route = (ROUTE_EXPLICIT_ID, [f"id={record.id}(+100)"])
+        else:
+            route = recall._route_from_query(record, query_norm, explicit_tags)
+            if route is None:
+                filtered += 1
+                continue
+        total, reasons = recall._score_total(record, query, route[0], route[1], query.now)
+        scored.append((total, record, reasons))
+    scored.sort(
+        key=lambda item: (
+            -item[0],
+            -SOURCE_SCORE[item[1].source_level],
+            -item[1].importance,
+            -item[1].updated_at.timestamp(),
+            item[1].id,
+        )
+    )
+    hits = []
+    used = 0
+    excluded = 0
+    rendered_hits: list[str] = []
+    for total, record, reasons in scored:
+        if len(hits) >= query.max_hits:
+            break
+        rendered = recall._render_hit(record, reasons, total)
+        prospective = f"{PROMPT_HEADER}\n\n" + "\n".join([*rendered_hits, rendered])
+        prospective_tokens = len(_tokenizer().encode(prospective))
+        if prospective_tokens > query.token_budget:
+            excluded += 1
+            continue
+        tokens = prospective_tokens - used
+        hits.append(RecallHit(record=record, score=total, reasons=tuple(reasons), tokens=tokens))
+        rendered_hits.append(rendered)
+        used = prospective_tokens
+    return RecallResult(
+        hits=tuple(hits),
+        candidates=candidates,
+        filtered=filtered,
+        excluded_by_budget=excluded,
+        tokens_used=used,
+    )
+
+
+def _assert_same_recall(actual, baseline, recall):
+    assert [hit.record.id for hit in actual.hits] == [hit.record.id for hit in baseline.hits]
+    assert [(hit.score, hit.reasons) for hit in actual.hits] == [
+        (hit.score, hit.reasons) for hit in baseline.hits
+    ]
+    assert (actual.candidates, actual.filtered, actual.excluded_by_budget) == (
+        baseline.candidates,
+        baseline.filtered,
+        baseline.excluded_by_budget,
+    )
+    assert actual.tokens_used == baseline.tokens_used
+    assert actual.degraded == baseline.degraded
+    assert recall.render_prompt(actual) == recall.render_prompt(baseline)
+
+
+_BASELINE_CASES = (
+    (
+        "cjk_catalog_alias",
+        [active_record(statement="Use deterministic recall.", kind="fact", slot="db.primary", tags=("architecture.memory",))],
+        make_query(text="请分析全局记忆设计"),
+    ),
+    (
+        "ascii_word_boundary_miss",
+        [active_record(statement="Use deterministic recall.", kind="fact", slot="db.primary", tags=("architecture.memory",))],
+        make_query(text="use architecture memory today", explicit_tags=()),
+    ),
+    (
+        "ascii_word_boundary_hit",
+        [active_record(statement="Use deterministic recall.", kind="fact", slot="db.primary", tags=("architecture.memory",))],
+        make_query(text="review architecture.memory design", explicit_tags=()),
+    ),
+    (
+        "explicit_id",
+        [
+            active_record(
+                statement="Explicit.",
+                kind="fact",
+                slot="db.explicit",
+                tags=("architecture.memory",),
+                memory_id=f"mem_{'a' * 32}",
+            )
+        ],
+        make_query(text="unrelated nothing", explicit_ids=(f"mem_{'a' * 32}",)),
+    ),
+    (
+        "canonical_tag",
+        [active_record(statement="A.", kind="fact", slot="db.a", tags=("architecture.memory",))],
+        make_query(text="architecture.memory"),
+    ),
+    (
+        "record_alias",
+        [active_record(statement="C.", kind="fact", slot="db.c", tags=("architecture.memory",), aliases=("记忆库",))],
+        make_query(text="记忆库"),
+    ),
+    (
+        "expired_excluded",
+        [
+            active_record(statement="Live.", kind="fact", slot="db.live", tags=("architecture.memory",)),
+            active_record(
+                statement="Expired.",
+                kind="fact",
+                slot="db.expired",
+                tags=("architecture.memory",),
+                expires_at="2026-08-11T08:00:00Z",
+            ),
+        ],
+        make_query(),
+    ),
+    (
+        "candidate_status_excluded",
+        [
+            active_record(statement="Live.", kind="fact", slot="db.live", tags=("architecture.memory",)),
+            active_record(
+                statement="Candidate.",
+                kind="fact",
+                slot="db.candidate",
+                tags=("architecture.memory",),
+                status="candidate",
+            ),
+        ],
+        make_query(),
+    ),
+    (
+        "terminal_status_excluded",
+        [
+            active_record(statement="Live.", kind="fact", slot="db.live", tags=("architecture.memory",)),
+            active_record(
+                statement="Revoked.",
+                kind="fact",
+                slot="db.revoked",
+                tags=("architecture.memory",),
+                status="revoked",
+            ),
+        ],
+        make_query(),
+    ),
+    (
+        "unauthorized_scope_excluded",
+        [active_record(statement="Other user.", kind="fact", slot="db.other", tags=("architecture.memory",))],
+        make_query(
+            allowed_scopes=(MemoryScope(kind=ScopeKind.USER, key="user:someone-else"),)
+        ),
+    ),
+    (
+        "requested_kinds",
+        [
+            active_record(statement="Fact.", kind="fact", slot="db.fact", tags=("architecture.memory",)),
+            active_record(statement="Decision.", kind="decision", slot="db.decision", tags=("architecture.memory",)),
+        ],
+        make_query(requested_kinds=(MemoryKind.FACT,)),
+    ),
+    (
+        "budget_tight",
+        [
+            active_record(
+                statement="中文设计" * 120,
+                kind="fact",
+                slot="db.big",
+                tags=("architecture.memory",),
+                source_level="confirmed_decision",
+                importance=5,
+            ),
+            active_record(
+                statement="Short fact.",
+                kind="fact",
+                slot="db.small",
+                tags=("architecture.memory",),
+                source_level="inferred",
+                importance=1,
+            ),
+        ],
+        make_query(token_budget=256),
+    ),
+)
+
+
+@pytest.mark.parametrize("case", _BASELINE_CASES, ids=[case[0] for case in _BASELINE_CASES])
+def test_recall_matches_python_baseline(repository, recall, case):
+    _, records, query = case
+    seed(repository, records)
+    _assert_same_recall(recall.recall(query), _baseline_recall(recall, repository, query), recall)
+
+
+def test_recall_result_counts_count_only_db_authorized_candidates(recall, repository):
+    live = active_record(statement="Live.", kind="fact", slot="db.live", tags=("architecture.memory",))
+    decision = active_record(
+        statement="Decision.", kind="decision", slot="db.decision", tags=("architecture.memory",)
+    )
+    expired = active_record(
+        statement="Expired.",
+        kind="fact",
+        slot="db.expired",
+        tags=("architecture.memory",),
+        expires_at="2026-08-11T08:00:00Z",
+    )
+    candidate = active_record(
+        statement="Candidate.",
+        kind="fact",
+        slot="db.candidate",
+        tags=("architecture.memory",),
+        status="candidate",
+    )
+    other_scope = active_record(
+        statement="Other.",
+        kind="fact",
+        slot="db.other",
+        tags=("architecture.memory",),
+        scope={"kind": "user", "key": "user:someone-else"},
+    )
+    seed(repository, [live, decision, expired, candidate, other_scope])
+
+    result = recall.recall(make_query(requested_kinds=(MemoryKind.FACT,)))
+
+    assert result.candidates == 1
+    assert result.filtered == 0
+    assert [hit.record.id for hit in result.hits] == [live.id]
+
+
+def test_recall_candidates_query_plan_uses_partial_index(repository):
+    scope = MemoryScope(kind=ScopeKind.PROJECT, key="project:6b5ec7b29e32")
+    now = dt("2026-08-11T08:30:00Z")
+    params = [
+        scope.kind.value,
+        scope.key,
+        now.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+    ]
+    sql = (
+        "SELECT record_json FROM memory_revisions "
+        "WHERE is_current = 1 AND status = 'active' "
+        "AND (scope_kind = ? AND scope_key = ?) "
+        "AND (expires_at IS NULL OR expires_at > ?) "
+        "ORDER BY memory_id ASC"
+    )
+    with repository._open_read() as connection:
+        rows = connection.execute("EXPLAIN QUERY PLAN " + sql, params).fetchall()
+    details = [row[3] for row in rows]
+    assert any("ix_memory_recall_scope" in detail for detail in details)
+    assert not any(detail.startswith("SCAN memory_revisions") for detail in details)

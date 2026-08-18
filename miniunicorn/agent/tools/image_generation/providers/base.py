@@ -24,6 +24,7 @@ from typing import Any
 import httpx
 
 from miniunicorn.agent.tools.image_generation.config import ImageGenerationProviderConfig
+from miniunicorn.security.network import create_ssrf_safe_client
 from miniunicorn.utils.helpers import detect_image_mime
 
 
@@ -112,19 +113,26 @@ def file_to_data_url(path: Path) -> str:
 async def download_url_to_data_url(
     url: str,
     *,
-    client: httpx.AsyncClient,
     timeout: float | None = None,
 ) -> str:
     """下载 HTTP(S) 图片 URL 并转为 data URL (用于 url 响应格式适配器)。
 
+    URL 来自 provider 响应 (不可信输入), 因此使用严格模式的 SSRF 防护
+    客户端: 拒绝私网/回环/云元数据目标, 且不复用 api_base 的宽松客户端
+    (后者允许本地端点, 会把内网内容以 base64 形式带回 LLM)。
+
     Raises:
         ImageGenerationError: 下载失败或响应不是有效图片
     """
+    client = create_ssrf_safe_client(timeout=timeout or 60.0)
     try:
-        resp = await client.get(url, timeout=timeout or 60.0)
-        resp.raise_for_status()
-    except httpx.HTTPError as exc:
-        raise ImageGenerationError(f"failed to download image from {url}: {exc}") from exc
+        try:
+            resp = await client.get(url)
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise ImageGenerationError(f"failed to download image from {url}: {exc}") from exc
+    finally:
+        await client.aclose()
 
     raw = resp.content
     mime = detect_image_mime(raw[:16])

@@ -2,7 +2,7 @@
 
 ## 工作区说明
 
-本文件用于记录项目专属偏好、常用工作流约定，以及希望 agent 始终遵守的项目指令。人格/风格指引放在 `SOUL.md`；长期事实由结构化记忆命令管理，不要直接编辑 `memory/structured/journal.jsonl`。
+本文件用于记录项目专属偏好、常用工作流约定，以及希望 agent 始终遵守的项目指令。人格/风格指引放在 `SOUL.md`；长期事实由 `memory/structured/memory.db` 中的受治理记录保存。不要直接编辑数据库或 `memory/structured/` 下的运行文件；使用 `/memory-*` 命令。`journal.jsonl` 仅是旧版本迁移输入，`audit/*.jsonl` 是可重建审计导出。
 
 ## 定时提醒
 

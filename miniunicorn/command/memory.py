@@ -11,6 +11,7 @@ import shlex
 from datetime import datetime, timezone
 
 from miniunicorn.agent.memory import MemoryStore
+from miniunicorn.agent.memory_backup import MemoryBackupManager
 from miniunicorn.agent.memory_lifecycle import IngestContext, MemoryLifecycleError
 from miniunicorn.agent.memory_models import (
     ActorKind,
@@ -33,6 +34,7 @@ _MAX_LIST_ITEMS = 20
 _EXCERPT_LIMIT = 200
 _STATEMENT_DISPLAY_LIMIT = 100
 _NOT_FOUND = "No memory record with id `{}`."
+_NOT_FOUND_TX = "No memory transaction with id `{}`."
 
 _LIST_STATUSES = frozenset({s.value for s in MemoryStatus})
 
@@ -128,6 +130,18 @@ def _record_visible(record: MemoryRecord, allowed: frozenset[MemoryScope]) -> bo
     return record.scope in allowed
 
 
+def _transaction_visible(tx, allowed: frozenset[MemoryScope]) -> bool:
+    return all(record.scope in allowed for record in (op.record for op in tx.operations))
+
+
+def _visible_transactions(repository, allowed: frozenset[MemoryScope], limit: int):
+    return [
+        tx
+        for tx in repository.transaction_log(limit=limit)
+        if _transaction_visible(tx, allowed)
+    ]
+
+
 def _visible_record_by_id(
     repository, memory_id: str, allowed: frozenset[MemoryScope]
 ) -> MemoryRecord | None:
@@ -172,18 +186,159 @@ async def cmd_memory_status(ctx: CommandContext) -> OutboundMessage:
         for s in MemoryStatus
     }
     health = repository.health  # type: ignore[union-attr]
+    stats = repository.storage_stats()  # type: ignore[union-attr]
     lines = [
         "## Memory status",
         "- Architecture: `governed`",
+        f"- Backend: `{stats.backend}`",
+        f"- Schema: `v{stats.schema_version}`",
         f"- Health: `{health.state}` (last valid journal line: `{health.last_valid_line}`)",
         (
             f"- Records: candidate={counts['candidate']} active={counts['active']} "
             f"superseded={counts['superseded']} revoked={counts['revoked']} expired={counts['expired']}"
         ),
+        f"- Transactions: `{stats.transaction_count}`",
+        f"- Revisions: `{stats.revision_count}`",
+        f"- Current: `{stats.current_count}`",
+        f"- Database size: `{stats.database_bytes:,} bytes`",
+        f"- Audit exported seq: `{stats.audit_exported_seq}`",
+        f"- Audit lag: `{stats.audit_lag}`",
     ]
+    migration = health.migration_state or "not_needed"
+    lines.append(f"- Migration: `{migration}`")
     if health.error_message:
         lines.append(f"- Last write error: `{health.error_message}`")
     return _reply(ctx, "\n".join(lines))
+
+
+@_requires_stack
+async def cmd_memory_log(ctx: CommandContext) -> OutboundMessage:
+    """Show transaction log entries, newest first, at most 20.
+
+    Without a transaction id this lists recent transactions as one line each
+    (timestamps, actors, reasons, touched record ids, no evidence). With a
+    transaction id it shows the operations and the evidence excerpts of that
+    transaction. Transactions whose records belong to other identities are
+    withheld exactly like records in list/show.
+    """
+    store, repository, _ = _stack(ctx)
+    allowed = _allowed_scopes(ctx, store)
+    parts, usage = _split_args_or_usage(ctx, "/memory-log [<tx-id>]")
+    if usage is not None:
+        return usage
+    if len(parts) > 1:
+        return _usage(ctx, "/memory-log [<tx-id>]")
+    if not parts:
+        transactions = _visible_transactions(repository, allowed, limit=_MAX_LIST_ITEMS)
+        lines = [f"## Memory transaction log ({len(transactions)})"]
+        for tx in transactions:
+            record_ids = ", ".join(f"`{op.record.id}`" for op in tx.operations)
+            lines.append(
+                f"- `{tx.tx_id}` {tx.recorded_at} actor=`{tx.actor.value}` "
+                f"reason={tx.reason} (records={record_ids})"
+            )
+        return _reply(ctx, "\n".join(lines))
+    tx = repository.transaction_log(limit=1, tx_id=parts[0])  # type: ignore[union-attr]
+    if not tx or not _transaction_visible(tx[0], allowed):
+        return _reply(ctx, _NOT_FOUND_TX.format(parts[0]))
+    lines = [
+        f"## Memory transaction {tx[0].tx_id}",
+        f"- actor: `{tx[0].actor.value}`",
+        f"- reason: {tx[0].reason}",
+        f"- timestamp: {tx[0].recorded_at}",
+    ]
+    for index, operation in enumerate(tx[0].operations, start=1):
+        lines.append(
+            f"operation {index}: `{operation.op}` record "
+            f"`{operation.record.id}` status `{operation.record.status.value}` "
+            f"scope `{operation.record.scope.kind.value}:{operation.record.scope.key}`"
+        )
+        for evidence_index, evidence in enumerate(operation.record.evidence, start=1):
+            excerpt = normalize_text(evidence.excerpt)[:_EXCERPT_LIMIT]
+            lines.append(
+                f"  evidence {evidence_index}: kind=`{evidence.kind.value}` "
+                f"ref=`{evidence.ref}` excerpt={excerpt or '_(none)_'}"
+            )
+        lines.append(f"  statement: {operation.record.statement}")
+    return _reply(ctx, "\n".join(lines))
+
+
+@_requires_stack
+async def cmd_memory_backup(ctx: CommandContext) -> OutboundMessage:
+    """Create an integrity-verified snapshot of the SQLite memory database."""
+    store, repository, _ = _stack(ctx)
+    try:
+        result = MemoryBackupManager(repository).create_backup()  # type: ignore[union-attr]
+    except MemoryError as exc:
+        return _reply(ctx, str(exc))
+    return _reply(
+        ctx,
+        "\n".join(
+            [
+                "## Memory backup created",
+                f"- Backup id: `{result.backup_id}`",
+                f"- SHA-256: `{result.sha256}`",
+                "- Integrity: `ok`",
+                f"- Transaction seq: `{result.last_transaction_seq}`",
+                f"- Size: `{result.path.stat().st_size:,} bytes`",
+            ]
+        ),
+    )
+
+
+@_requires_stack
+async def cmd_memory_restore(ctx: CommandContext) -> OutboundMessage:
+    """Restore the database from one of its own backups (with a safety copy)."""
+    store, repository, _ = _stack(ctx)
+    parts, usage = _split_args_or_usage(ctx, "/memory-restore <backup-id>")
+    if usage is not None:
+        return usage
+    if len(parts) != 1:
+        return _usage(ctx, "/memory-restore <backup-id>")
+    backup_id = parts[0]
+    try:
+        result = MemoryBackupManager(repository).restore_backup(backup_id)  # type: ignore[union-attr]
+    except MemoryError as exc:
+        if getattr(exc, "code", None) == "backup_not_found":
+            return _reply(ctx, f"No memory backup with id `{backup_id}`.")
+        return _reply(ctx, str(exc))
+    return _reply(
+        ctx,
+        "\n".join(
+            [
+                "## Memory restored",
+                f"- Backup: `{backup_id}`",
+                f"- Safety backup: `{result.safety_backup_id}`",
+                f"- Transaction seq: `{result.restored_tx_seq}`",
+            ]
+        ),
+    )
+
+
+@_requires_stack
+async def cmd_memory_export_audit(ctx: CommandContext) -> OutboundMessage:
+    """Export pending transactions to the segmented JSONL audit (or rebuild it)."""
+    store, _, _ = _stack(ctx)
+    args = ctx.args.strip()
+    if args and args != "--rebuild":
+        return _usage(ctx, "/memory-export-audit [--rebuild]")
+    try:
+        if args == "--rebuild":
+            result = store.audit_exporter.rebuild()  # type: ignore[union-attr]
+        else:
+            result = store.audit_exporter.export_pending()  # type: ignore[union-attr]
+    except MemoryError as exc:
+        return _reply(ctx, str(exc))
+    return _reply(
+        ctx,
+        "\n".join(
+            [
+                "## Audit export",
+                f"- Rows: `{result.exported_rows}`",
+                f"- Rebuild: `{'yes' if args == '--rebuild' else 'no'}`",
+            ]
+        ),
+    )
 
 
 @_requires_stack
@@ -301,6 +456,7 @@ async def cmd_memory_promote(ctx: CommandContext) -> OutboundMessage:
         )
     except MemoryLifecycleError as exc:
         return _reply(ctx, str(exc))
+    store._export_audit_pending()
     return _reply(ctx, f"Promoted `{result.candidate_id}` -> `{result.final_status.value}`.")
 
 
@@ -321,6 +477,7 @@ async def cmd_memory_revoke(ctx: CommandContext) -> OutboundMessage:
         revoked = lifecycle.revoke(memory_id, reason=f"user:{reason}")
     except MemoryLifecycleError as exc:
         return _reply(ctx, str(exc))
+    store._export_audit_pending()
     return _reply(ctx, f"Revoked `{revoked.id}` (status: `{revoked.status.value}`).")
 
 
@@ -368,6 +525,7 @@ async def cmd_memory_correct(ctx: CommandContext) -> OutboundMessage:
         result = lifecycle.ingest(proposal, context)  # type: ignore[union-attr]
     except MemoryError as exc:
         return _reply(ctx, str(exc))
+    store._export_audit_pending()
     return _reply(ctx, f"Corrected `{result.candidate_id}` -> `{result.final_status.value}`.")
 
 
@@ -379,6 +537,8 @@ async def cmd_memory_correct(ctx: CommandContext) -> OutboundMessage:
 def register_memory_commands(router: CommandRouter) -> None:
     """Register the governed structured memory command set."""
     router.exact("/memory-status", cmd_memory_status)
+    router.exact("/memory-log", cmd_memory_log)
+    router.prefix("/memory-log ", cmd_memory_log)
     router.exact("/memory-list", cmd_memory_list)
     router.prefix("/memory-list ", cmd_memory_list)
     router.exact("/memory-show", cmd_memory_show)
@@ -389,3 +549,8 @@ def register_memory_commands(router: CommandRouter) -> None:
     router.prefix("/memory-revoke ", cmd_memory_revoke)
     router.exact("/memory-correct", cmd_memory_correct)
     router.prefix("/memory-correct ", cmd_memory_correct)
+    router.exact("/memory-backup", cmd_memory_backup)
+    router.exact("/memory-restore", cmd_memory_restore)
+    router.prefix("/memory-restore ", cmd_memory_restore)
+    router.exact("/memory-export-audit", cmd_memory_export_audit)
+    router.prefix("/memory-export-audit ", cmd_memory_export_audit)

@@ -4,7 +4,7 @@ import pytest
 
 from miniunicorn.utils.gitstore import CommitInfo, GitStore
 
-TRACKED = ["SOUL.md", "notes.md", "memory/structured/journal.jsonl"]
+TRACKED = ["SOUL.md", "notes.md", "memory/structured/tags.json", "memory/shared/POLICY.md"]
 
 
 @pytest.fixture
@@ -68,6 +68,25 @@ class TestBuildGitignore:
             line for line in content.split("\n") if line.startswith("!") and line.endswith("/")
         ]
         assert dir_lines == []
+
+    def test_gitignore_ignores_sqlite_runtime_files(self, tmp_path):
+        """The workspace gitignore must never track the sqlite fact database,
+        WAL/SHM siblings, audit exports, backups, recovery dir or locks."""
+        gs = GitStore(
+            tmp_path,
+            tracked_files=["SOUL.md", "memory/structured/tags.json", "memory/shared/POLICY.md"],
+        )
+        content = gs._build_gitignore()
+        for line in (
+            "memory/structured/memory.db",
+            "memory/structured/memory.db-wal",
+            "memory/structured/memory.db-shm",
+            "memory/structured/audit/",
+            "memory/structured/backups/",
+            "memory/structured/recovery/",
+            "memory/structured/*.lock",
+        ):
+            assert line in content
 
 
 class TestAutoCommit:

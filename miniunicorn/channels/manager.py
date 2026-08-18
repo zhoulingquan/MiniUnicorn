@@ -89,6 +89,9 @@ class ChannelManager:
         self._webui_tool_registry = webui_tool_registry
         self.channels: dict[str, BaseChannel] = {}
         self._dispatch_task: asyncio.Task | None = None
+        # 后台发送任务引用集: create_task 必须持引用, 否则任务可能在完成前被
+        # 事件循环 GC 丢弃; done_callback 自动回收引用, stop_all 时统一取消。
+        self._background_tasks: set[asyncio.Task] = set()
         # 去重指纹缓存:使用 OrderedDict 实现 LRU,访问/写入时 move_to_end,
         # 超过 _MAX_ORIGIN_REPLY_FINGERPRINTS 时淘汰最旧条目。
         self._origin_reply_fingerprints: OrderedDict[tuple[str, str, str], str] = OrderedDict()
@@ -279,7 +282,7 @@ class ChannelManager:
         target = self.channels.get(notice.channel)
         if not target:
             return
-        asyncio.create_task(
+        task = asyncio.create_task(
             self._send_with_retry(
                 target,
                 OutboundMessage(
@@ -290,6 +293,8 @@ class ChannelManager:
                 ),
             )
         )
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     async def stop_all(self) -> None:
         """Stop all channels and the dispatcher.
@@ -306,6 +311,14 @@ class ChannelManager:
             self._dispatch_task.cancel()
             with suppress(asyncio.CancelledError):
                 await self._dispatch_task
+
+        # 取消仍存活的后台发送任务 (restart 通知等 fire-and-forget 任务)。
+        for task in list(self._background_tasks):
+            task.cancel()
+        if self._background_tasks:
+            with suppress(asyncio.CancelledError):
+                await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            self._background_tasks.clear()
 
         # Stop all channels. Catch BaseException (not just Exception) so that
         # CancelledError observed during shutdown does not skip remaining

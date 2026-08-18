@@ -19,6 +19,7 @@ from miniunicorn.agent.memory_models import (
     MemoryOperation,
     MemoryRecord,
     MemoryScope,
+    MemoryStorageStats,
     MemoryTransaction,
     RecallQuery,
     RecallResult,
@@ -560,3 +561,18 @@ def test_recall_result_hits_have_score_and_reasons(record_data):
     )
     assert result.hits[0].score == 105
     assert result.hits[0].reasons == ("tag=x(+45)",)
+
+
+def test_memory_storage_stats_is_sqlite_and_non_negative() -> None:
+    stats = MemoryStorageStats(
+        backend="sqlite",
+        schema_version=1,
+        transaction_count=3,
+        revision_count=5,
+        current_count=2,
+        last_transaction_seq=3,
+        audit_exported_seq=2,
+        database_bytes=4096,
+    )
+    assert stats.audit_lag == 1
+    assert stats.backend == "sqlite"

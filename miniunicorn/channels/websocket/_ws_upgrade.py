@@ -121,6 +121,12 @@ class WebSocketConfig(Base):
     - ``allow_origin``: 可选,允许通过 Origin 校验的额外来源列表(例如 ``https://app.example.com``)。
       默认放行 ``http(s)://127.0.0.1:<port>`` 与 ``http(s)://localhost:<port>``(本地 WebUI 同源场景)。
       非浏览器客户端(无 Origin 头,如 curl)始终放行以保持向后兼容。配置后会与默认列表合并生效。
+      **公网/局域网部署警告**:默认白名单只覆盖本地回环,且无 Origin 的非浏览器客户端一律放行——
+      暴露到非回环地址时必须同时配置 ``token_issue_secret``(或静态 ``token``),仅靠 Origin 校验
+      不足以防护非浏览器客户端。
+    - ``allow_query_token``: 是否接受 ``?token=`` 查询参数鉴权(向后兼容,默认开)。
+      token 出现在 URL 中会被访问日志/Referer/浏览器历史泄漏,生产环境建议设为 ``False``,
+      强制客户端改用 ``Authorization: Bearer <token>`` 头。
     - Each connection has its own session: a unique ``chat_id`` maps to the agent session internally.
     - ``media`` field in outbound messages contains local filesystem paths; remote clients need a
       shared filesystem or an HTTP file server to access these files.
@@ -140,6 +146,9 @@ class WebSocketConfig(Base):
     trusted_proxies: list[str] = Field(default_factory=list)
     # 允许的浏览器 Origin 列表(扩展默认的 localhost 同源放行)。
     allow_origin: list[str] = Field(default_factory=list)
+    # 是否接受 ?token= 查询参数鉴权(向后兼容)。False 时强制 Authorization 头,
+    # 避免 token 进入 URL 被日志/Referer/浏览器历史泄漏。
+    allow_query_token: bool = True
     streaming: bool = True
     # Default 36 MB, upper 40 MB: supports up to 4 images at ~6 MB each after
     # client-side Worker normalization (see webui Composer). 4 × 6 MB × 1.37
@@ -190,13 +199,17 @@ class WebSocketConfig(Base):
         return self
 
     @model_validator(mode="after")
-    def wildcard_host_requires_auth(self) -> Self:
-        if self.host not in ("0.0.0.0", "::"):
+    def non_loopback_host_requires_auth(self) -> Self:
+        host = self.host.strip().lower()
+        if self.unix_socket_path:
+            # Unix socket 由文件系统权限保护, 不经 TCP 暴露, host 不参与监听。
+            return self
+        if host in ("127.0.0.1", "::1", "localhost"):
             return self
         if self.token.strip() or self.token_issue_secret.strip():
             return self
         raise ValueError(
-            "host is 0.0.0.0 (all interfaces) but neither token nor "
+            f"host is {self.host} (non-loopback bind) but neither token nor "
             "token_issue_secret is set — set one to prevent unauthenticated access"
         )
 

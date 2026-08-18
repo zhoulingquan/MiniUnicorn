@@ -12,14 +12,18 @@ import weakref
 from contextlib import suppress
 from dataclasses import replace as dataclasses_replace
 from datetime import datetime, timezone
+from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Mapping
 
 import tiktoken
 from filelock import FileLock
-from filelock import Timeout as FileLockTimeout
 from loguru import logger
 
+from miniunicorn.agent.memory_jsonl_import import (
+    LegacyJournalImportError,
+    migrate_legacy_journal,
+)
 from miniunicorn.agent.reflection import _atomic_rewrite_lines
 from miniunicorn.bus.events import session_key_base
 from miniunicorn.session.manager import Session
@@ -108,6 +112,10 @@ class MemoryStore:
     #   - "consolidator": Consolidator 归档时写入 history.jsonl + 清空 notes.md
     #   - "dream": Dream 提炼结构化候选并推进消费 cursor
     #   - "memory_store": MemoryStore internal maintenance
+    #
+    # 旧 journal 已不是运行时事实源（唯一事实库是 memory.db，design §1），
+    # 因此不再授予任何写角色；audit/ 与 backups/ 是目录项，其子路径通过
+    # containment/prefix 规则校验（_assert_writer_allowed）。
     _WRITER_WHITELIST: dict[str, set[str]] = {
         "notes.md": {"main_agent", "consolidator"},
         "SOUL.md": {"memory_store"},
@@ -117,7 +125,15 @@ class MemoryStore:
         "memory/.reflections_cursor": {"dream", "memory_store"},
         "memory/reflections.jsonl": {"dream", "reflection", "memory_store"},
         "memory/shared/POLICY.md": {"memory_store"},
-        "memory/structured/journal.jsonl": {"memory_store"},
+        "memory/structured/memory.db": {"memory_store"},
+        "memory/structured/memory.db-wal": {"memory_store"},
+        "memory/structured/memory.db-shm": {"memory_store"},
+        "memory/structured/storage-migration-v2.json": {"memory_store"},
+        "memory/structured/audit": {"memory_store"},
+        "memory/structured/backups": {"memory_store"},
+        "memory/structured/recovery": {"memory_store"},
+        "memory/structured/memory-maintenance.lock": {"memory_store"},
+        "memory/structured/*.importing-*": {"memory_store"},
         "memory/structured/tags.json": {"memory_store"},
     }
 
@@ -163,6 +179,7 @@ class MemoryStore:
             "structured_memory_initialized health={}",
             self.structured_repository.health.state,
         )
+        self._export_audit_pending()
 
     @property
     def project_scope_key(self) -> str:
@@ -178,27 +195,15 @@ class MemoryStore:
         return self._git
 
     def restore_memory_version(self, commit: str):
-        """Revert a memory commit and immediately rebuild governed indexes."""
-        try:
-            with FileLock(
-                str(self.structured_repository.lock_path),
-                timeout=self.structured_config.lock_timeout_s,
-            ):
-                new_sha = self._git.revert(commit)
-                if new_sha is None:
-                    return None, self.structured_repository.health
-                health = self.structured_repository.rebuild()
-        except FileLockTimeout:
-            logger.warning("memory_restore_failed code=journal_lock_timeout")
-            return None, self.structured_repository.health
-        from miniunicorn.agent.memory_recall import StructuredMemoryRecall
+        """Git journal restore is removed (design section 13).
 
-        self.structured_recall = StructuredMemoryRecall(
-            self.structured_repository,
-            self.structured_repository.tag_catalog,
-        )
-        self._file_cache.clear()
-        return new_sha, health
+        Structured facts live only in ``memory.db``; restoring them through
+        Git would silently leave post-migration transactions behind while a
+        journal-restore looks successful. Use the database backup API instead
+        (``/memory-restore``). Kept as a deletion point until the caller
+        replacement lands.
+        """
+        raise NotImplementedError("use memory backup restore")
 
     # ------------------------------------------------------------------
     # Governed structured memory (C2) — repository/lifecycle/recall wiring
@@ -225,7 +230,14 @@ class MemoryStore:
                 dest.write(source.read())
 
     def _build_structured_stack(self) -> StructuredMemoryRepository:
-        """Construct the repository -> lifecycle -> recall stack."""
+        """Construct the repository -> lifecycle -> recall stack.
+
+        The startup decision (open the existing database, migrate a legacy
+        journal once, or fail closed on a lost migrated database) runs before
+        repository construction, so the stack never replays the legacy
+        journal at runtime (design section 11).
+        """
+        from miniunicorn.agent.memory_audit_export import MemoryAuditExporter
         from miniunicorn.agent.memory_lifecycle import (
             LifecyclePolicy,
             StructuredMemoryLifecycle,
@@ -233,6 +245,7 @@ class MemoryStore:
         from miniunicorn.agent.memory_recall import StructuredMemoryRecall
         from miniunicorn.agent.memory_repository import StructuredMemoryRepository
 
+        self._run_startup_decision()
         repository = StructuredMemoryRepository(
             self.workspace, lock_timeout_s=self.structured_config.lock_timeout_s
         )
@@ -242,9 +255,68 @@ class MemoryStore:
             candidate_ttl_days=self.structured_config.candidate_ttl_days,
         )
         self.structured_repository = repository
+        self.audit_exporter = MemoryAuditExporter(repository)
         self.structured_lifecycle = StructuredMemoryLifecycle(repository, policy)
         self.structured_recall = StructuredMemoryRecall(repository, repository.tag_catalog)
         return repository
+
+    def _run_startup_decision(self) -> None:
+        """Bring the SQLite fact database up before repository construction.
+
+        Startup matrix (design section 11): an existing database is opened
+        directly and the legacy journal is never read; a missing database is
+        migrated from a non-empty legacy journal exactly once; a completed
+        migration manifest without a database is left untouched so the
+        repository fails closed with ``migration_database_lost`` instead of
+        re-importing a journal that lacks post-migration facts.
+        """
+        structured_dir = self.workspace / "memory" / "structured"
+        database_path = structured_dir / "memory.db"
+        if database_path.exists():
+            return
+        if self._migration_manifest_completed(structured_dir):
+            return
+        try:
+            migrate_legacy_journal(self.workspace, self.structured_config.lock_timeout_s)
+        except (LegacyJournalImportError, OSError):
+            # Fail closed: leave the failed migration to the repository, which
+            # degrades health instead of raising through startup or creating
+            # an empty database over the untouched journal.
+            logger.exception("memory_storage_migration_failed")
+
+    @staticmethod
+    def _migration_manifest_completed(structured_dir: Path) -> bool:
+        """True when the migration manifest records a completed migration."""
+        manifest_path = structured_dir / "storage-migration-v2.json"
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        return manifest.get("status") == "completed"
+
+    def _export_audit_pending(self) -> None:
+        """Best-effort export of pending audit rows after committed facts.
+
+        Fired on a successful Dream batch, on explicit memory modification
+        commands before they return, and at startup when a lag is discovered
+        (design section 12). Export failures never turn a committed memory
+        command into a failure: they only raise ``audit_lag`` (visible via
+        ``/memory-status``) and log ``memory_audit_export_failed``, because
+        the JSONL audit is a rebuildable derivation of the fact database.
+        """
+        if self.structured_repository.health.state != "healthy":
+            return
+        try:
+            result = self.audit_exporter.export_pending()
+            if result.exported_rows:
+                logger.info(
+                    "memory_audit_export_completed rows={} sealed_segments={} lag={}",
+                    result.exported_rows,
+                    result.sealed_segments,
+                    result.lag,
+                )
+        except Exception:
+            logger.exception("memory_audit_export_failed")
 
     def _structured_stack_or_build(self) -> StructuredMemoryRepository:
         """Return the always-initialized structured repository."""
@@ -352,10 +424,18 @@ class MemoryStore:
 
         借鉴 MiMo Code：每个文件只有一个允许的 writer 角色。这里只做
         文档化校验（不抛异常），用于审计和未来在工具层强制执行。
+        目录项（如 ``memory/structured/audit``）按 containment/prefix 规则
+        覆盖其全部子路径：*relative_path* 以目录项 + ``/`` 开头时，按该
+        目录项的 allowed roles 校验，从而拒绝主 Agent 写 audit/ 下任何文件。
         若 *relative_path* 不在白名单中，则视为 unrestricted（兼容新文件）。
         若 *role* 不在白名单中，记录 warning 但不阻塞（避免破坏现有流程）。
         """
         allowed_roles = cls._WRITER_WHITELIST.get(relative_path)
+        if allowed_roles is None:
+            for key, roles in cls._WRITER_WHITELIST.items():
+                if relative_path.startswith(f"{key}/") or fnmatchcase(relative_path, key):
+                    allowed_roles = roles
+                    break
         if allowed_roles is None:
             # 不在白名单中的文件视为 unrestricted
             return
@@ -1736,6 +1816,7 @@ class Dream:
         if first_history is None and first_reflection is None:
             store.set_last_reflections_cursor(max(entry.get("_line", 0) for entry in reflection_entries))
             store.run_memory_hygiene()
+            store._export_audit_pending()
             return True
 
         if first_reflection is None or (
@@ -1791,6 +1872,7 @@ class Dream:
             if reflection_advance_line:
                 store.set_last_reflections_cursor(reflection_advance_line)
                 store.run_memory_hygiene()
+                store._export_audit_pending()
                 return True
             return False
 
@@ -1942,4 +2024,5 @@ class Dream:
             store.run_memory_hygiene()
         except Exception:
             logger.debug("File hygiene failed", exc_info=True)
+        store._export_audit_pending()
         return True

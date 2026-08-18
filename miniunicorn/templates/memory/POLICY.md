@@ -7,7 +7,7 @@ injected into the model context.
 
 Rules for editing:
 - Add only normative policy statements, never facts or preferences.
-- Facts belong in structured memory records (memory/structured/journal.jsonl).
+- Facts belong in governed structured memory records (memory/structured/memory.db); journal.jsonl is legacy migration input only.
 - This file is edited by the user or an explicit management command; Dream
   never promotes facts into policy automatically.
 -->

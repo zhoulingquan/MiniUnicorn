@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 import time
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -35,7 +36,10 @@ TITLE_GENERATION_REASONING_EFFORT = "none"
 
 # Wall-clock turn start per ``chat_id`` (websocket only). Survives browser refresh while the
 # gateway process stays up; cleared on idle/stop and implicitly dropped on restart.
-_WEBSOCKET_TURN_WALL_STARTED_AT: dict[str, float] = {}
+# OrderedDict FIFO 有界缓存: 长生命周期网关下 chat_id 可能反复出现(每用户一个),
+# 无界保留会缓慢泄漏; 超限淘汰最旧条目只会让对应会话丢失计时条, 下个 turn 重建。
+_WEBSOCKET_TURN_WALL_STARTED_AT: OrderedDict[str, float] = OrderedDict()
+_WEBSOCKET_TURN_MAX_ENTRIES = 1024
 
 
 def mark_webui_session(session: Session, metadata: dict[str, Any]) -> bool:
@@ -185,6 +189,8 @@ async def publish_turn_run_status(bus: MessageBus, msg: InboundMessage, status: 
         t0 = time.time()
         meta["started_at"] = t0
         _WEBSOCKET_TURN_WALL_STARTED_AT[cid] = t0
+        while len(_WEBSOCKET_TURN_WALL_STARTED_AT) > _WEBSOCKET_TURN_MAX_ENTRIES:
+            _WEBSOCKET_TURN_WALL_STARTED_AT.popitem(last=False)
     else:
         _WEBSOCKET_TURN_WALL_STARTED_AT.pop(cid, None)
     await bus.publish_outbound(

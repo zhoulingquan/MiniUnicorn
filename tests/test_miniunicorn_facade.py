@@ -15,7 +15,15 @@ from miniunicorn.miniunicorn import Miniunicorn, RunResult
 def _write_config(tmp_path: Path, overrides: dict | None = None) -> Path:
     data = {
         "providers": {"openrouter": {"apiKey": "sk-test-key"}},
-        "agents": {"defaults": {"model": "openai/gpt-4.1"}},
+        "agents": {
+            "defaults": {
+                "model": "openai/gpt-4.1",
+                # Explicit context window keeps the test hermetic: without it
+                # AgentLoop would consult the machine-global learning table /
+                # Hugging Face and fail loud on offline machines.
+                "contextWindowTokens": 128000,
+            }
+        },
     }
     if overrides:
         data.update(overrides)

@@ -53,6 +53,14 @@ _HARD_BLOCKED_NETWORKS = [
     ipaddress.ip_network("::1/128"),
 ]
 
+# Networks blocked even in ``allow_private`` mode: cloud metadata endpoints
+# (link-local) are never legitimate targets for outbound clients such as
+# user-configured local MCP servers, while loopback/RFC1918 stay reachable.
+_METADATA_NETWORKS = [
+    ipaddress.ip_network("169.254.0.0/16"),  # link-local / cloud metadata
+    ipaddress.ip_network("fe80::/10"),  # link-local v6
+]
+
 _URL_RE = re.compile(r"https?://[^\s\"'`;|<>]+", re.IGNORECASE)
 
 # 已知 HTTP 客户端命令名(小写,含 .exe 后缀)。这些工具对无 scheme 的
@@ -175,12 +183,33 @@ def _normalize_addr(
     return addr
 
 
+def _is_hard_blocked(
+    addr: ipaddress.IPv4Address | ipaddress.IPv6Address,
+) -> bool:
+    """Return True for networks that must never be reachable regardless of
+    operator whitelists (cloud metadata, loopback)."""
+    normalized = _normalize_addr(addr)
+    return any(normalized in net for net in _HARD_BLOCKED_NETWORKS)
+
+
+def _is_metadata_blocked(
+    addr: ipaddress.IPv4Address | ipaddress.IPv6Address,
+) -> bool:
+    """Return True for cloud metadata / link-local networks only.
+
+    Used by ``allow_private`` out-bound clients (e.g. local MCP servers):
+    loopback and RFC1918 stay reachable, IMDS endpoints never do.
+    """
+    normalized = _normalize_addr(addr)
+    return any(normalized in net for net in _METADATA_NETWORKS)
+
+
 def _is_private(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     normalized = _normalize_addr(addr)
     # Hard-blocked networks (cloud metadata, loopback) can never be bypassed
     # by the SSRF whitelist — this prevents an operator mistake from exposing
     # IMDS endpoints to server-side fetches.
-    if any(normalized in net for net in _HARD_BLOCKED_NETWORKS):
+    if _is_hard_blocked(normalized):
         return True
     # 从当前 context 读取白名单(避免多实例共享进程时互相覆盖)
     allowed = _allowed_networks_var.get()
@@ -292,15 +321,23 @@ async def validate_url_target_async(url: str, *, allow_loopback: bool = False) -
 
 
 def validate_resolved_url(url: str) -> tuple[bool, str]:
-    """Validate an already-fetched URL (e.g. after redirect). Only checks the IP, skips DNS."""
+    """Validate an already-fetched URL (e.g. after redirect). Only checks the IP, skips DNS.
+
+    Fail-closed: unparsable URLs, non-http(s) schemes, missing hostnames and
+    DNS resolution failures are all rejected — a security validator must not
+    silently allow a target it could not inspect.
+    """
     try:
         p = urlparse(url)
-    except Exception:
-        return True, ""
+    except Exception as e:
+        return False, f"invalid URL: {e}"
+
+    if p.scheme not in ("http", "https"):
+        return False, f"Only http/https allowed, got '{p.scheme or 'none'}'"
 
     hostname = p.hostname
     if not hostname:
-        return True, ""
+        return False, "Missing hostname"
 
     try:
         addr = ipaddress.ip_address(hostname)
@@ -311,7 +348,7 @@ def validate_resolved_url(url: str) -> tuple[bool, str]:
         try:
             infos = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
         except socket.gaierror:
-            return True, ""
+            return False, f"Cannot resolve hostname: {hostname}"
         for info in infos:
             try:
                 addr = ipaddress.ip_address(info[4][0])
@@ -401,7 +438,7 @@ def _is_allowed_loopback_target(
     return False
 
 
-def _ssrf_request_hook(proxy: str | None) -> Any:
+def _ssrf_request_hook(proxy: str | None, *, allow_private: bool = False) -> Any:
     """Build an httpx request event hook that blocks SSRF at dial time.
 
     Defence-in-depth complement to the pre-flight ``validate_url_target``
@@ -421,6 +458,11 @@ def _ssrf_request_hook(proxy: str | None) -> Any:
     - DNS rebinding 防护:无论是否有代理,只要 hostname 在 pin 表中
       (即之前被 validate_url_target 校验过),dial 前会重新解析并比对
       IP 集合。如果出现新 IP,拒绝请求。
+
+    ``allow_private=True`` 放宽为仅封锁云元数据网段(169.254.0.0/16、
+    fe80::/10),允许回环/RFC1918 私网地址 —— 供用户显式配置了本地/局域网
+    服务端点的出站客户端使用(如本地 MCP server);重定向到云元数据端点
+    依然被拦。
     """
 
     async def _hook(request: httpx.Request) -> None:
@@ -433,8 +475,11 @@ def _ssrf_request_hook(proxy: str | None) -> Any:
         except ValueError:
             # hostname host
             if not proxy:
-                # 使用异步版本,避免同步 getaddrinfo 阻塞事件循环
-                ok, err = await validate_url_target_async(str(request.url))
+                if allow_private:
+                    ok, err = await _validate_not_metadata_async(str(request.url))
+                else:
+                    # 使用异步版本,避免同步 getaddrinfo 阻塞事件循环
+                    ok, err = await validate_url_target_async(str(request.url))
                 if not ok:
                     raise httpx.ConnectError(
                         f"SSRF blocked: {err}",
@@ -451,13 +496,44 @@ def _ssrf_request_hook(proxy: str | None) -> Any:
                     request=request,
                 )
             return
-        if _is_private(addr):
+        blocked = _is_metadata_blocked(addr) if allow_private else _is_private(addr)
+        if blocked:
             raise httpx.ConnectError(
                 f"SSRF blocked: target {host} is a private/internal address",
                 request=request,
             )
 
     return _hook
+
+
+async def _validate_not_metadata_async(url: str) -> tuple[bool, str]:
+    """``allow_private`` 模式下的拨号前校验:仅拒绝云元数据/链路本地网段。
+
+    与 ``validate_url_target_async`` 的区别:允许回环/RFC1918 等私网地址
+    (用户显式配置的本地服务端点),但云元数据(169.254.0.0/16、fe80::/10)
+    目标在任何模式下都不可达。
+    """
+    try:
+        p = urlparse(url)
+    except Exception as e:
+        return False, str(e)
+    hostname = p.hostname
+    if not hostname:
+        return False, "Missing hostname"
+    try:
+        infos = await asyncio.to_thread(
+            socket.getaddrinfo, hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM
+        )
+    except socket.gaierror:
+        return False, f"Cannot resolve hostname: {hostname}"
+    for info in infos:
+        try:
+            addr = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            continue
+        if _is_metadata_blocked(addr):
+            return False, f"Blocked: {hostname} resolves to blocked address {addr}"
+    return True, ""
 
 
 async def _check_dns_pin_async(hostname: str) -> tuple[bool, str]:
@@ -474,8 +550,9 @@ async def _check_dns_pin_async(hostname: str) -> tuple[bool, str]:
             socket.getaddrinfo, hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM
         )
     except socket.gaierror:
-        # 解析失败时不阻止请求(让 httpx 自己报错),pin 检查只是防御层
-        return True, ""
+        # pin 检查 fail-closed:hostname 已被 pin(先前校验过可解析),dial 前
+        # 却无法解析 —— DNS 被改写或链路异常,拒绝请求而非放行
+        return False, f"DNS pin check failed: cannot resolve {hostname}"
     current_ips: list[str] = []
     for info in infos:
         try:
@@ -489,6 +566,7 @@ def create_ssrf_safe_client(
     *,
     proxy: str | None = None,
     timeout: float | httpx.Timeout = 10.0,
+    allow_private: bool = False,
     **kwargs: Any,
 ) -> httpx.AsyncClient:
     """Create an httpx.AsyncClient that blocks SSRF attacks on every request.
@@ -502,12 +580,18 @@ def create_ssrf_safe_client(
     resolution (no local lookup, GFW-friendly) but IP-literal hosts are
     still blocked client-side — matching Reasonix's IP-literal check path.
 
+    When ``allow_private`` is True, only cloud metadata / link-local targets
+    (169.254.0.0/16, fe80::/10) are blocked; loopback and RFC1918 stay
+    reachable. Use this ONLY for clients whose targets are explicitly
+    configured by the operator (e.g. local MCP servers) — never for
+    fetching model-controlled URLs.
+
     SSRF 白名单通过 ``configure_ssrf_whitelist`` 设置到当前 context 的
     ContextVar(``_allowed_networks_var``);本工厂创建的 client 在每次请求
     时通过 ``_is_private`` 读取当前 async 上下文的白名单。同一进程内不同
     实例可拥有各自独立的白名单,互不覆盖。
     """
-    hook = _ssrf_request_hook(proxy)
+    hook = _ssrf_request_hook(proxy, allow_private=allow_private)
     return httpx.AsyncClient(
         proxy=proxy,
         timeout=timeout,
