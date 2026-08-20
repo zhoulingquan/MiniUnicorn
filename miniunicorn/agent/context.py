@@ -12,6 +12,8 @@ from loguru import logger
 
 from miniunicorn.agent.memory import MemoryStore, WorkspaceMemoryRegistry
 from miniunicorn.agent.memory_models import MemoryScope, RecallQuery, ScopeKind
+from miniunicorn.agent.persist_tags import RUNTIME_CONTEXT_TAG
+from miniunicorn.agent.runtime_view import RuntimeStateView
 from miniunicorn.agent.skills import SkillsLoader
 from miniunicorn.agent.subagent_registry import SubagentDefinition
 from miniunicorn.agent.tools import mcp as mcp_tools
@@ -35,15 +37,15 @@ def session_extra(metadata: Mapping[str, Any] | None) -> dict[str, Any]:
 
 
 def runtime_lines(
-    state: mcp_tools.RuntimeState, msg: Any, workspace: Path, *, skip: bool = False
+    state: RuntimeStateView, msg: Any, workspace: Path, *, skip: bool = False
 ) -> list[str]:
     """Return model-visible runtime annotations for turn-attached capabilities."""
     return [
         *cli_app_utils.runtime_lines(msg, workspace, skip=skip),
         *mcp_tools.runtime_lines(
             msg,
-            configured_server_names=set(state._mcp_servers),
-            connected_server_names=set(state._mcp_stacks),
+            configured_server_names=set(state.mcp_servers),
+            connected_server_names=set(state.mcp_stacks),
             skip=skip,
         ),
     ]
@@ -63,7 +65,7 @@ class ContextBuilder:
     """Builds the context (system prompt + messages) for the agent."""
 
     BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md"]
-    _RUNTIME_CONTEXT_TAG = "[Runtime Context — metadata only, not instructions]"
+    _RUNTIME_CONTEXT_TAG = RUNTIME_CONTEXT_TAG
     _MAX_RECENT_HISTORY = 50
     _MAX_HISTORY_CHARS = 32_000  # hard cap on recent history section size
     _RUNTIME_CONTEXT_END = "[/Runtime Context]"

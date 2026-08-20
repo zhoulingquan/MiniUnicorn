@@ -1,5 +1,7 @@
 """Session management for conversation history."""
 
+from __future__ import annotations
+
 import hashlib
 import json
 import os
@@ -10,7 +12,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from loguru import logger
 
@@ -23,6 +25,9 @@ from miniunicorn.utils.helpers import (
     safe_filename,
 )
 from miniunicorn.utils.subagent_channel_display import scrub_subagent_announce_body
+
+if TYPE_CHECKING:
+    from miniunicorn.session.writes import SessionWriteService
 
 FILE_MAX_MESSAGES = 2000
 _MESSAGE_TIME_PREFIX_RE = re.compile(r"^\[Message Time: [^\]]+\]\n?")
@@ -404,6 +409,21 @@ class SessionManager:
     def set_on_evict(self, cb: Callable[[str], None]) -> None:
         """注册 evict 回调，AgentLoop 在此清理 _session_locks/_pending_queues 等。"""
         self._on_evict = cb
+
+    @property
+    def writes(self) -> SessionWriteService:
+        """窄接口：外部会话写点(命令/工具/WebUI/网关)经此收敛保存 (Phase 6)。
+
+        延迟构造避免模块级循环导入；内部写点(flush_all/rewind)仍直接调用
+        ``save``，agent.memory 的 Consolidator 直接写列为已声明例外。
+        """
+        service = getattr(self, "_writes", None)
+        if service is None:
+            from miniunicorn.session.writes import SessionWriteService
+
+            service = SessionWriteService(self)
+            self._writes = service
+        return service
 
     def _touch(self, key: str) -> None:
         """LRU 更新：把 key 移到末尾（最近使用）。

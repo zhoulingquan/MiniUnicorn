@@ -152,3 +152,18 @@ class DreamIdleTrigger:
     def is_running(self) -> bool:
         """Dream 是否正在执行（用于避免并发触发）。"""
         return self._running
+
+    async def shutdown(self) -> None:
+        """禁用触发器并取消正在进行的后台 dream 任务。
+
+        gateway 关闭时由组合根调用，保证不会在关闭过程中再触发 Dream，
+        并回收后台任务（``_safe_run`` 的 ``finally`` 会清空任务引用）。
+        """
+        self.enabled = False
+        task = self._dream_task
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass

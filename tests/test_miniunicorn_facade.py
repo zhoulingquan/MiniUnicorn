@@ -421,9 +421,14 @@ def test_from_config_default_path_does_not_override_active_config(tmp_path, monk
 
     monkeypatch.setattr(loader_mod, "set_config_path", spy_set_config_path)
     # Short-circuit the heavy AgentLoop.from_config to keep the test fast and
-    # isolated from provider/registry concerns.
+    # isolated from provider/registry concerns.  from_config is reached through
+    # the composition root (build_agent_application), so the stub must accept
+    # the composed bus / cron_service arguments.
     fake_loop = MagicMock()
-    monkeypatch.setattr("miniunicorn.miniunicorn.AgentLoop.from_config", lambda config: fake_loop)
+    monkeypatch.setattr(
+        "miniunicorn.miniunicorn.AgentLoop.from_config",
+        lambda config, *args, **kwargs: fake_loop,
+    )
     # load_config must return something with .agents.defaults.workspace attr.
     fake_config = MagicMock()
     monkeypatch.setattr(loader_mod, "load_config", lambda *a, **k: fake_config)

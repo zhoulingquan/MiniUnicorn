@@ -1,8 +1,9 @@
 """Builder pattern for AgentLoop construction.
 
 提供链式 API 分步构建 AgentLoop,减少直接调用 ``AgentLoop.__init__`` 时
-30+ 位置参数带来的可读性问题。``AgentLoop.from_config`` 内部使用此 builder,
-``AgentLoop.__init__`` 保持不变以兼容现有调用方(主要是测试)。
+大量位置参数带来的可读性问题。``AgentLoop.from_config`` 内部使用此 builder。
+Phase 4 起 ``AgentLoop`` 退化为兼容 Facade:builder 把 ``with_*`` 收集的参数
+折叠进 ``AgentLoopConfig`` 配置束并注入,五个服务对象缺省时由 Facade 构造。
 
 典型用法::
 
@@ -21,6 +22,7 @@
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -35,6 +37,16 @@ if TYPE_CHECKING:
     from miniunicorn.config.schema import ModelPresetConfig, ToolsConfig
     from miniunicorn.cron.service import CronService
     from miniunicorn.session.manager import SessionManager
+
+
+# Facade 注入的服务对象参数名(AgentLoop.__init__ 关键字参数)。
+_SERVICE_PARAMS = (
+    "dispatcher",
+    "session_turn",
+    "resources",
+    "turn_orchestrator",
+    "response",
+)
 
 
 class AgentLoopBuilder:
@@ -203,16 +215,38 @@ class AgentLoopBuilder:
     # --- 便捷方法 ---
 
     def with_extra(self, **kwargs: Any) -> AgentLoopBuilder:
-        """追加任意关键字参数(用于新增的 __init__ 参数)。"""
+        """追加任意关键字参数(用于注入服务对象或新增参数)。
+
+        过渡期接口：优先使用显式 ``with_*`` 方法，避免依赖关键字名。
+        """
+        if kwargs:
+            warnings.warn(
+                "AgentLoopBuilder.with_extra(**kwargs) is deprecated; "
+                "use explicit with_* methods instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         self._kwargs.update(kwargs)
         return self
 
     def build(self) -> AgentLoop:
-        """构建并返回 AgentLoop 实例。"""
-        # 延迟导入避免循环依赖(builder 在 loop.py 中被导入)
-        from miniunicorn.agent.loop import AgentLoop
+        """构建服务束并注入 AgentLoop 实例。
 
-        return AgentLoop(**self._kwargs)
+        Phase 4 起 ``AgentLoop`` 退化为兼容 Facade:构造参数收窄为
+        ``bus`` + ``workspace`` + 配置束 + 五个服务对象。这里把所有
+        ``with_*`` 收集的参数折叠进 ``AgentLoopConfig`` 配置束,并把
+        通过 ``with_extra`` 注入的五个服务对象(dispatcher/session_turn/
+        resources/turn_orchestrator/response)单独透传;未注入的服务由
+        Facade 依据配置束默认构造。
+        """
+        # 延迟导入避免循环依赖(builder 在 loop.py 中被导入)
+        from miniunicorn.agent.loop import AgentLoop, AgentLoopConfig
+
+        kwargs = dict(self._kwargs)
+        bus = kwargs.pop("bus")
+        workspace = kwargs.pop("workspace")
+        services = {key: kwargs.pop(key) for key in _SERVICE_PARAMS if key in kwargs}
+        return AgentLoop(bus, workspace, config=AgentLoopConfig(**kwargs), **services)
 
     # --- 从 config 构建 ---
 

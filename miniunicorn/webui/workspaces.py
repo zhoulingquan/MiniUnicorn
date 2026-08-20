@@ -280,6 +280,10 @@ class WebUIWorkspaceController:
     def persist_scope(self, chat_id: str, scope: WorkspaceScope) -> None:
         if self._sessions is not None:
             session = self._sessions.get_or_create(f"websocket:{chat_id}")
-            session.metadata["webui"] = True
-            session.metadata[WORKSPACE_SCOPE_METADATA_KEY] = scope.metadata()
-            self._sessions.save(session)
+            self._sessions.writes.update_metadata(
+                session,
+                {
+                    "webui": True,
+                    WORKSPACE_SCOPE_METADATA_KEY: scope.metadata(),
+                },
+            )

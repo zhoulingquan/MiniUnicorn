@@ -146,8 +146,7 @@ async def maybe_generate_webui_title(
             response.finish_reason,
         )
         return False
-    session.metadata[WEBUI_TITLE_METADATA_KEY] = title
-    sessions.save(session)
+    sessions.writes.update_metadata(session, {WEBUI_TITLE_METADATA_KEY: title})
     return True
 
 

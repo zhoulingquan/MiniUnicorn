@@ -73,6 +73,10 @@ class RuntimeState(Protocol):
     _mcp_connecting: bool
     _mcp_connected: bool
 
+    def _set_mcp_servers(self, servers: dict[str, Any]) -> None:
+        """Replace the configured MCP server table (hot-reload write-back)."""
+        ...
+
 
 # reload 互斥锁按 runtime state 实例(通常是 AgentLoop)弱引用持有。
 _RELOAD_LOCKS: WeakKeyDictionary[RuntimeState, asyncio.Lock] = WeakKeyDictionary()
@@ -932,7 +936,7 @@ async def reload_servers(state: RuntimeState, registry: ToolRegistry) -> dict[st
             tools_removed += _unregister_server_tools(state, registry, name)
             await _close_server(state, name)
 
-        state._mcp_servers = next_servers
+        state._set_mcp_servers(next_servers)
         retry_missing = sorted(
             name
             for name in next_names

@@ -153,7 +153,8 @@ async def test_runner_keeps_going_when_tool_result_persistence_fails():
 
     runner = AgentRunner(provider)
     with patch(
-        "miniunicorn.agent.runner.maybe_persist_tool_result", side_effect=RuntimeError("disk full")
+        "miniunicorn.agent.execution.tool_execution.maybe_persist_tool_result",
+        side_effect=RuntimeError("disk full"),
     ):
         result = await runner.run(
             AgentRunSpec(

@@ -223,9 +223,7 @@ async def cmd_new(ctx: CommandContext) -> OutboundMessage:
     await loop._cancel_active_tasks(ctx.key)
     session = ctx.session or loop.sessions.get_or_create(ctx.key)
     snapshot = session.messages[session.last_consolidated :]
-    session.clear()
-    loop.sessions.save(session)
-    loop.sessions.invalidate(session.key)
+    loop.sessions.writes.reset(session)
     if snapshot:
         loop._schedule_background(loop.consolidator.archive(snapshot))
     return OutboundMessage(

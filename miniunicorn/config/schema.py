@@ -467,7 +467,27 @@ def _lazy_default(module_path: str, class_name: str) -> Any:
     return getattr(module, class_name)()
 
 
-class ToolsConfig(Base):
+def _lazy_rebuild_meta(metaclass: type) -> type:
+    """Build a pydantic metaclass that resolves tool-config refs before first use.
+
+    The eager ``_resolve_tool_config_refs()`` at the bottom of this module can
+    fail on the *first* import when a circular chain is entered from another
+    package (e.g. ``miniunicorn.session.goal_state`` first).  When that happens
+    ``ToolsConfig`` / ``Config`` are left with ``__pydantic_complete__ == False``
+    and every subsequent instantiation raises ``PydanticUserError``.  This
+    metaclass re-runs the resolver lazily right before the first construction.
+    """
+
+    class _LazyRebuildMeta(metaclass):
+        def __call__(cls, *args: Any, **kwargs: Any) -> Any:
+            if not cls.__pydantic_complete__:
+                _resolve_tool_config_refs()
+            return super().__call__(*args, **kwargs)
+
+    return _LazyRebuildMeta
+
+
+class ToolsConfig(Base, metaclass=_lazy_rebuild_meta(type(Base))):
     """Tools configuration.
 
     Field types for tool-specific sub-configs are resolved via model_rebuild()
@@ -524,7 +544,7 @@ class ToolsConfig(Base):
     )  # CIDR ranges to exempt from SSRF blocking (e.g. ["100.64.0.0/10"] for Tailscale)
 
 
-class Config(BaseSettings):
+class Config(BaseSettings, metaclass=_lazy_rebuild_meta(type(BaseSettings))):
     """Root configuration for MiniUnicorn."""
 
     agents: AgentsConfig = Field(default_factory=AgentsConfig)

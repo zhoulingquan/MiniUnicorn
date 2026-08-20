@@ -41,7 +41,7 @@ async def test_state_restore_extracts_documents_by_default(
         return f"{content}\n\n[File: report.txt]\nQuarterly revenue is $5M", []
 
     monkeypatch.setattr(
-        "miniunicorn.agent._state_machine.extract_documents", fake_extract_documents
+        "miniunicorn.agent.turn_orchestrator.extract_documents", fake_extract_documents
     )
 
     ctx = TurnContext(
@@ -77,7 +77,7 @@ async def test_state_restore_references_documents_when_extraction_disabled(
         raise AssertionError("document extraction should be disabled")
 
     monkeypatch.setattr(
-        "miniunicorn.agent._state_machine.extract_documents", fail_extract_documents
+        "miniunicorn.agent.turn_orchestrator.extract_documents", fail_extract_documents
     )
 
     ctx = TurnContext(
@@ -123,7 +123,7 @@ async def test_pending_followup_references_documents_when_extraction_disabled(
         raise AssertionError("document extraction should be disabled")
 
     monkeypatch.setattr(
-        "miniunicorn.agent._state_machine.extract_documents", fail_extract_documents
+        "miniunicorn.agent.turn_orchestrator.extract_documents", fail_extract_documents
     )
 
     pending_queue: asyncio.Queue[InboundMessage] = asyncio.Queue()

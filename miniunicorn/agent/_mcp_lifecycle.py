@@ -10,7 +10,7 @@ through multiple inheritance (see :class:`McpLifecycleMixin`).
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
@@ -59,6 +59,16 @@ class McpLifecycleMixin:
             registered.append("my")
 
         logger.info("Registered {} tools: {}", len(registered), registered)
+
+    def _set_mcp_servers(self: "AgentLoop", servers: dict[str, Any]) -> None:
+        """Replace the configured MCP server table (hot-reload write-back).
+
+        MCP hot reload reconciles the live connections against the config
+        file; the resulting server table is written back here so the write
+        stays inside the MCP lifecycle module instead of reaching into the
+        loop's private attribute from ``tools/mcp``.
+        """
+        self._mcp_servers = servers
 
     async def _connect_mcp(self: "AgentLoop") -> None:
         """Connect configured MCP servers."""

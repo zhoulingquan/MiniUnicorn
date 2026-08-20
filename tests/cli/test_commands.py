@@ -824,6 +824,18 @@ def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
         def save(self, session: _FakeSession) -> None:
             seen["saved_session"] = session
 
+        @property
+        def writes(self):
+            return _FakeSessionWrites(self)
+
+    class _FakeSessionWrites:
+        def __init__(self, manager: _FakeSessionManager) -> None:
+            self._manager = manager
+
+        def record_message(self, session: _FakeSession, role: str, content: str, **extra: object) -> None:
+            session.add_message(role, content, **extra)
+            self._manager.save(session)
+
     monkeypatch.setattr("miniunicorn.session.manager.SessionManager", _FakeSessionManager)
 
     class _FakeCron:

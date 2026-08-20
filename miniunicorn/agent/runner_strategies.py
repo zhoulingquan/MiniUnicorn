@@ -4,9 +4,12 @@ This module hosts both the strategy classes used by ContextGovernor and the
 pure-function governance implementations (``drop_orphan_tool_results``,
 ``backfill_missing_tool_results``, ``microcompact``) that those strategies
 delegate to. The runner-bound strategies (``ApplyToolResultBudgetStrategy``
-and ``SnipHistoryStrategy``) still delegate to AgentRunner instance methods
-via ``GovernanceContext._runner`` to avoid a circular import with
-``runner.py``.
+and ``SnipHistoryStrategy``) delegate to the public methods of the
+``ContextGovernanceService`` service via ``GovernanceContext._runner``'s
+``_context_governance`` attribute, so they no longer reach into AgentRunner
+private methods (circular-stitch fix, PR-5b). The ``ContextStrategy``
+Protocol and the ``miniunicorn.context_strategies`` entry-point contract
+are unchanged.
 """
 
 from __future__ import annotations
@@ -202,11 +205,13 @@ class ApplyToolResultBudgetStrategy(_RunnerBoundStrategy):
     name = "apply_tool_result_budget"
 
     def apply(self, messages, ctx):
-        return self._runner(ctx)._apply_tool_result_budget(ctx.spec, messages)
+        return self._runner(ctx)._context_governance.apply_tool_result_budget(
+            ctx.spec, messages
+        )
 
 
 class SnipHistoryStrategy(_RunnerBoundStrategy):
     name = "snip_history"
 
     def apply(self, messages, ctx):
-        return self._runner(ctx)._snip_history(ctx.spec, messages)
+        return self._runner(ctx)._context_governance.snip_history(ctx.spec, messages)

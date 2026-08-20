@@ -65,7 +65,7 @@ from prompt_toolkit import PromptSession
 from rich.table import Table
 
 from miniunicorn import __logo__, __version__
-from miniunicorn.agent.loop import AgentLoop
+from miniunicorn.agent.loop import AgentLoop  # noqa: F401 — re-exported for late binding
 from miniunicorn.cli._gateway_runner import _run_gateway
 from miniunicorn.cli._terminal_render import (
     _flush_cli_reasoning,
@@ -84,6 +84,7 @@ from miniunicorn.cli._terminal_render import (
     console,
 )
 from miniunicorn.cli.stream import StreamRenderer, ThinkingSpinner
+from miniunicorn.composition.agent_app import build_agent_application
 from miniunicorn.config.paths import get_workspace_path, is_default_workspace
 from miniunicorn.config.schema import Config
 from miniunicorn.utils.helpers import sync_workspace_templates
@@ -381,7 +382,6 @@ def serve(
     from loguru import logger
 
     from miniunicorn.api.server import create_app
-    from miniunicorn.bus.queue import MessageBus
     from miniunicorn.session.manager import SessionManager
 
     if verbose:
@@ -395,12 +395,10 @@ def serve(
     port = port if port is not None else api_cfg.port
     timeout = timeout if timeout is not None else api_cfg.timeout
     sync_workspace_templates(runtime_config.workspace_path)
-    bus = MessageBus()
     session_manager = SessionManager(runtime_config.workspace_path)
     try:
-        agent_loop = AgentLoop.from_config(
+        agent_loop = build_agent_application(
             runtime_config,
-            bus,
             session_manager=session_manager,
         )
     except ValueError as exc:
@@ -664,7 +662,6 @@ def agent(
     from loguru import logger
 
     from miniunicorn.bus.queue import MessageBus
-    from miniunicorn.cron.service import CronService
 
     config = _load_runtime_config(config, workspace)
     sync_workspace_templates(config.workspace_path)
@@ -675,21 +672,13 @@ def agent(
     if is_default_workspace(config.workspace_path):
         _migrate_cron_store(config)
 
-    # Create cron service with workspace-scoped store
-    cron_store_path = config.workspace_path / "cron" / "jobs.json"
-    cron = CronService(cron_store_path)
-
     if logs:
         logger.enable("miniunicorn")
     else:
         logger.disable("miniunicorn")
 
     try:
-        agent_loop = AgentLoop.from_config(
-            config,
-            bus,
-            cron_service=cron,
-        )
+        agent_loop = build_agent_application(config, bus=bus)
     except ValueError as exc:
         console.print(f"[red]Error: {exc}[/red]")
         raise typer.Exit(1) from exc

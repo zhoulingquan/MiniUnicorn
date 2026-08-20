@@ -57,7 +57,10 @@ class ProviderSwitchingMixin:
         self.provider = provider
         self.model = model
         self.context_window_tokens = context_window_tokens
-        self.runner.provider = provider
+        # The loop's provider/model/context_window_tokens properties write
+        # through to the shared ProviderRegistry, and the runner holds the same
+        # registry reference at construction time, so a swap here is visible to
+        # ``self.runner`` without reaching across the module boundary.
         self.subagents.set_provider(provider, model)
         self.consolidator.set_provider(provider, model, context_window_tokens)
         self.dream.set_provider(provider, model, context_window_tokens)

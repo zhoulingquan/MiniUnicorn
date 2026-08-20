@@ -157,7 +157,7 @@ class LongTaskTool(Tool, _GoalToolsMixin):
         }
         sess.metadata[GOAL_STATE_KEY] = blob
         discard_legacy_goal_state_key(sess.metadata)
-        self._sessions.save(sess)
+        self._sessions.writes.persist(sess)
         await self._publish_goal_state_ws(sess.metadata)
         extra = f"\nSummary line: {summary}" if summary else ""
         return (
@@ -224,7 +224,7 @@ class CompleteGoalTool(Tool, _GoalToolsMixin):
             "recap": (recap or "").strip(),
         }
         discard_legacy_goal_state_key(sess.metadata)
-        self._sessions.save(sess)
+        self._sessions.writes.persist(sess)
         await self._publish_goal_state_ws(sess.metadata)
         tail = (recap or "").strip()
         if tail:

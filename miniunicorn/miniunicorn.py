@@ -8,6 +8,7 @@ from typing import Any
 
 from miniunicorn.agent.hook import AgentHook, SDKCaptureHook
 from miniunicorn.agent.loop import AgentLoop
+from miniunicorn.composition.agent_app import build_agent_application
 
 
 @dataclass(slots=True)
@@ -70,7 +71,7 @@ class Miniunicorn:
         if workspace is not None:
             config.agents.defaults.workspace = str(Path(workspace).expanduser().resolve())
 
-        loop = AgentLoop.from_config(config)
+        loop = build_agent_application(config)
         return cls(loop)
 
     async def run(
