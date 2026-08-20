@@ -343,4 +343,3 @@ Expected: only files listed by this plan are modified or created.
 - [ ] **Step 6: Record evidence**
 
 Append the exact test counts, Ruff result, and any documented limitation under `## Verification Evidence` in this plan. Do not claim completion if any command is stale or failed.
-

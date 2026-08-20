@@ -117,4 +117,3 @@ Every behavior change follows red-green-refactor:
 ## Deferred P1/P2 Contract
 
 P1 will introduce `PlanningPolicy`, `ProgressPolicy`, durable `PlanSnapshot`, and `StepAcceptancePolicy` as separate modules. It may consume P0 ledger telemetry but must not add classification LLM calls. `execute_plan` will be deprecated in favor of a delegation-oriented name only after compatibility usage is measured. These are explicitly out of the P0 patch so the first deployment changes correctness, not product behavior.
-
