@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+from miniunicorn.agent.call_ledger import CallPurpose, call_purpose
 from miniunicorn.agent.tools.base import Tool, tool_parameters
 from miniunicorn.agent.tools.deep_research.config import DeepResearchConfig
 from miniunicorn.agent.tools.deep_research.prompts import (
@@ -478,16 +479,17 @@ class DeepResearchTool(Tool):
             raise LLMCallError("LLM provider not available")
         try:
             model = self._model or self._provider.get_default_model()
-            response = await self._provider.chat(
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                tools=None,
-                model=model,
-                max_tokens=max_tokens,
-                temperature=self.config.temperature,
-            )
+            async with call_purpose(CallPurpose.TOOL):
+                response = await self._provider.chat_with_retry(
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                    tools=None,
+                    model=model,
+                    max_tokens=max_tokens,
+                    temperature=self.config.temperature,
+                )
             return (response.content or "").strip()
         except Exception as e:
             logger.exception("deep_research LLM call failed")

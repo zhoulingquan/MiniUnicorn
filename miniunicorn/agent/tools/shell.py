@@ -17,6 +17,7 @@ from typing import Any, ClassVar, Mapping
 from loguru import logger
 from pydantic import Field
 
+from miniunicorn.agent.safety_policy import RiskLevel
 from miniunicorn.agent.tools.base import Tool, tool_parameters
 from miniunicorn.agent.tools.context import current_request_session_key
 from miniunicorn.agent.tools.exec_session import (
@@ -296,6 +297,10 @@ class ExecTool(Tool):
     @property
     def exclusive(self) -> bool:
         return True
+
+    @property
+    def risk_level(self) -> RiskLevel:
+        return RiskLevel.HIGH
 
     async def execute(
         self,

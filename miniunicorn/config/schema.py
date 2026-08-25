@@ -196,6 +196,8 @@ class AgentDefaults(Base):
     temperature: float = 0.1
     fallback_models: list[FallbackCandidate] = Field(default_factory=list)
     max_tool_iterations: int = 200
+    fast_max_tool_iterations: int = Field(default=50, ge=1, validation_alias=AliasChoices("fastMaxToolIterations"), serialization_alias="fastMaxToolIterations")
+    managed_max_tool_iterations: int = Field(default=200, ge=1, validation_alias=AliasChoices("managedMaxToolIterations"), serialization_alias="managedMaxToolIterations")
     # None = 自适应：根据 provider.is_local 选择默认值（本地 1，云端 4）。
     # 显式指定 int 时，按用户配置生效（向下兼容旧配置）。
     max_concurrent_subagents: int | None = Field(default=None, ge=1)
@@ -204,7 +206,13 @@ class AgentDefaults(Base):
     # 1 = 允许一层递归（子代理可再 delegate 一次，孙代理不可）— 默认值
     # 2+ = 允许更多层递归
     max_subagent_recursion_depth: int = Field(default=1, ge=0)
-    max_tool_result_chars: int = 16_000
+    max_tool_result_tokens: int = Field(
+        default=4000,
+        ge=1,
+        validation_alias=AliasChoices("maxToolResultTokens"),
+        serialization_alias="maxToolResultTokens",
+    )
+    max_tool_result_chars: int = 16_000  # deprecated: use max_tool_result_tokens instead
     provider_retry_mode: Literal["standard", "persistent"] = "standard"
     tool_hint_max_length: int = Field(
         default=40,
@@ -283,13 +291,43 @@ class AgentDefaults(Base):
         ge=1000,
         validation_alias=AliasChoices("maxInputTokensPerTurn"),
         serialization_alias="maxInputTokensPerTurn",
-    )  # Per-turn input token budget (None = unlimited)
+    )  # Per-turn input token budget (None = unlimited; overrides tiered defaults)
     max_cost_per_turn_usd: float | None = Field(
         default=None,
         ge=0.0,
         validation_alias=AliasChoices("maxCostPerTurnUsd"),
         serialization_alias="maxCostPerTurnUsd",
-    )  # Per-turn cost budget in USD (None = unlimited)
+    )  # Per-turn cost budget in USD (None = unlimited; overrides tiered defaults)
+    managed_max_input_tokens_per_turn: int | None = Field(
+        default=None,
+        ge=1000,
+        validation_alias=AliasChoices("managedMaxInputTokensPerTurn"),
+        serialization_alias="managedMaxInputTokensPerTurn",
+    )  # MANAGED-mode input ceiling (None = P0 default 200k)
+    managed_max_cost_per_turn_usd: float | None = Field(
+        default=None,
+        ge=0.0,
+        validation_alias=AliasChoices("managedMaxCostPerTurnUsd"),
+        serialization_alias="managedMaxCostPerTurnUsd",
+    )  # MANAGED-mode cost ceiling (None = P0 default $5)
+    fast_max_input_tokens_per_turn: int | None = Field(
+        default=80_000,
+        ge=1000,
+        validation_alias=AliasChoices("fastMaxInputTokensPerTurn"),
+        serialization_alias="fastMaxInputTokensPerTurn",
+    )  # FAST-mode input ceiling (lower ordinary-turn ceiling)
+    fast_max_cost_per_turn_usd: float | None = Field(
+        default=2.0,
+        ge=0.0,
+        validation_alias=AliasChoices("fastMaxCostPerTurnUsd"),
+        serialization_alias="fastMaxCostPerTurnUsd",
+    )  # FAST-mode cost ceiling (lower ordinary-turn ceiling)
+    max_turn_wall_time_s: float | None = Field(
+        default=None,
+        ge=10.0,
+        validation_alias=AliasChoices("maxTurnWallTimeS"),
+        serialization_alias="maxTurnWallTimeS",
+    )  # Per-turn wall-clock limit in seconds (None = unlimited)
     dream: DreamConfig = Field(default_factory=DreamConfig)
     structured_memory: StructuredMemoryConfig = Field(default_factory=StructuredMemoryConfig)
 

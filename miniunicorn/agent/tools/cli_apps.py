@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import Field
 
+from miniunicorn.agent.safety_policy import RiskLevel
 from miniunicorn.agent.tools.base import Tool, tool_parameters
 from miniunicorn.agent.tools.schema import (
     ArraySchema,
@@ -114,6 +115,10 @@ class CliAppsTool(Tool):
             "Do not use this for ordinary system CLIs such as git, gh, python, npm, or brew; "
             "unknown names are rejected. Execution uses argv, not shell." + installed_note
         )
+
+    @property
+    def risk_level(self) -> RiskLevel:
+        return RiskLevel.HIGH
 
     async def execute(
         self,

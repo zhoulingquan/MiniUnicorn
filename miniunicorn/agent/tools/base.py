@@ -11,6 +11,7 @@ from typing import Any, TypeVar
 if typing.TYPE_CHECKING:
     from pydantic import BaseModel
 
+    from miniunicorn.agent.safety_policy import RiskLevel
     from miniunicorn.agent.tools.context import ToolContext
 
 _ToolT = TypeVar("_ToolT", bound="Tool")
@@ -189,6 +190,16 @@ class Tool(ABC):
     def cacheable(self) -> bool:
         """Whether repeated calls with same args can reuse a cached result."""
         return False
+
+    @property
+    def aliases(self) -> tuple[str, ...]:
+        """Alternate names resolvable to this tool (legacy renames, etc.)."""
+        return ()
+
+    @property
+    def risk_level(self) -> RiskLevel | None:
+        """Explicit risk classification override; None → policy infers."""
+        return None
 
     # --- Plugin metadata ---
 

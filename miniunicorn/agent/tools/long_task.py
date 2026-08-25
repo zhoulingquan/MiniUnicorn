@@ -20,6 +20,7 @@ from contextvars import ContextVar
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from miniunicorn.agent.safety_policy import RiskLevel
 from miniunicorn.agent.tools.base import Tool, tool_parameters
 from miniunicorn.agent.tools.context import ContextAware, RequestContext
 from miniunicorn.agent.tools.schema import StringSchema, tool_parameters_schema
@@ -137,6 +138,10 @@ class LongTaskTool(Tool, _GoalToolsMixin):
             "If a goal is already active, finish it or call complete_goal before registering another."
         )
 
+    @property
+    def risk_level(self) -> RiskLevel:
+        return RiskLevel.HIGH
+
     async def execute(self, goal: str, ui_summary: str | None = None, **kwargs: Any) -> str:
         sess = self._session()
         if sess is None:
@@ -207,6 +212,10 @@ class CompleteGoalTool(Tool, _GoalToolsMixin):
             "what actually happened (not necessarily success). "
             "If no goal is active, the tool reports that and leaves metadata unchanged."
         )
+
+    @property
+    def risk_level(self) -> RiskLevel:
+        return RiskLevel.HIGH
 
     async def execute(self, recap: str | None = None, **kwargs: Any) -> str:
         sess = self._session()

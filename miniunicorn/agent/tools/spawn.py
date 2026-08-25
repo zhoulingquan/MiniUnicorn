@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 
+from miniunicorn.agent.safety_policy import RiskLevel
 from miniunicorn.agent.tools.base import Tool, tool_parameters
 from miniunicorn.agent.tools.context import ContextAware, RequestContext
 from miniunicorn.agent.tools.schema import NumberSchema, StringSchema, tool_parameters_schema
@@ -67,6 +68,10 @@ class SpawnTool(Tool, ContextAware):
             "For deliverables or existing projects, inspect the workspace first "
             "and use a dedicated subdirectory when helpful."
         )
+
+    @property
+    def risk_level(self) -> RiskLevel:
+        return RiskLevel.HIGH
 
     async def execute(
         self,

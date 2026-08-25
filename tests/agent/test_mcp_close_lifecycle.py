@@ -12,7 +12,6 @@ clears ``_mcp_stacks`` but does not reset ``_mcp_connected``, so the flag stays
 
 from __future__ import annotations
 
-import asyncio
 from contextlib import AsyncExitStack
 from unittest.mock import MagicMock
 

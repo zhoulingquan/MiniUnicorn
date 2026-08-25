@@ -7,7 +7,6 @@ must carry the *current turn's* usage, an integer latency, a goal-state blob,
 and be emitted after the final content message.
 """
 
-import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 

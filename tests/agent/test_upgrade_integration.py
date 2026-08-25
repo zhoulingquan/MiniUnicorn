@@ -2,7 +2,7 @@
 
 Covers the upgraded components and their wiring:
   * Planner (planner.py) -> Plan/PlanStep, create_plan
-  * execute_plan tool (tools/execute_plan.py) -> batch spawn subagents
+  * delegate_plan tool (tools/execute_plan.py) -> batch spawn subagents
   * delegate tool (tools/delegate.py) -> name-based dispatch via SubagentRegistry
   * SubagentRegistry (subagent_registry.py) -> scans agents/*.md
   * spawn_and_wait (subagent.py) -> await subagent + override passthrough
@@ -30,6 +30,7 @@ from miniunicorn.agent.subagent_registry import SubagentRegistry
 from miniunicorn.agent.tools.context import RequestContext
 from miniunicorn.agent.tools.delegate import DelegateTool
 from miniunicorn.agent.tools.execute_plan import ExecutePlanTool
+from miniunicorn.agent.tools.registry import ToolRegistry
 from miniunicorn.agent.turn_budget import TurnBudget
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.config.schema import AgentDefaults
@@ -74,13 +75,13 @@ def _make_mock_manager() -> MagicMock:
 
 
 # ---------------------------------------------------------------------------
-# 1. Planner -> execute_plan chain
+# 1. Planner -> delegate_plan chain
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_planner_to_execute_plan_chain(tmp_path):
-    """Planner produces a Plan; execute_plan consumes it and spawns per step."""
+async def test_planner_to_delegate_plan_chain(tmp_path):
+    """Planner produces a Plan; delegate_plan consumes it and spawns per step."""
     # --- Planner side: mock provider returns a plan JSON ---
     plan_json = json.dumps(
         {
@@ -101,9 +102,10 @@ async def test_planner_to_execute_plan_chain(tmp_path):
     )
 
     planner = Planner(provider=provider, model="test-model")
-    plan = await planner.create_plan(
+    result = await planner.create_plan(
         task="refactor module X", tools_summary="read_file, write_file"
     )
+    plan = result.plan
 
     assert plan.goal == "refactor module X"
     assert len(plan.steps) == 2
@@ -111,7 +113,7 @@ async def test_planner_to_execute_plan_chain(tmp_path):
     assert plan.steps[1].action == "write tests"
     assert all(s.status == StepStatus.PENDING for s in plan.steps)
 
-    # --- execute_plan side: mock manager records spawn calls ---
+    # --- delegate_plan side: mock manager records spawn calls ---
     mock_manager = _make_mock_manager()
     spawn_calls = []
     original_spawn = mock_manager.spawn_and_wait
@@ -484,12 +486,12 @@ def test_registry_loads_multiple_agents(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 8. execute_plan serial mode chains results
+# 8. delegate_plan serial mode chains results
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_execute_plan_serial_chains_results(tmp_path):
+async def test_delegate_plan_serial_chains_results(tmp_path):
     """serial mode feeds each step's result into the next step's task text."""
     mock_manager = _make_mock_manager()
     spawn_calls: list[dict] = []
@@ -535,7 +537,7 @@ async def test_execute_plan_serial_chains_results(tmp_path):
 
 @pytest.mark.asyncio
 async def test_full_chain_mock(tmp_path):
-    """Lightweight end-to-end: Planner -> execute_plan -> spawn_and_wait -> summary.
+    """Lightweight end-to-end: Planner -> delegate_plan -> spawn_and_wait -> summary.
 
     Everything mocked: no real LLM, no real subagent execution.
     """
@@ -559,11 +561,14 @@ async def test_full_chain_mock(tmp_path):
         )
     )
     planner = Planner(provider=planner_provider, model="test-model")
-    plan = await planner.create_plan(task="ship feature", tools_summary="read_file, write_file")
+    result = await planner.create_plan(
+        task="ship feature", tools_summary="read_file, write_file"
+    )
+    plan = result.plan
     assert plan.all_done is False
     assert len(plan.steps) == 3
 
-    # --- Stage 2: execute_plan consumes the plan via mock subagent manager ---
+    # --- Stage 2: delegate_plan consumes the plan via mock subagent manager ---
     mock_manager = MagicMock()
     mock_manager.get_running_count.return_value = 0
     mock_manager.max_concurrent_subagents = 8
@@ -607,3 +612,31 @@ async def test_full_chain_mock(tmp_path):
     assert isinstance(plan, Plan)
     assert all(isinstance(s, PlanStep) for s in plan.steps)
     assert plan.can_replan is True
+
+
+# ---------------------------------------------------------------------------
+# 10. delegate_plan alias compatibility
+# ---------------------------------------------------------------------------
+
+
+def test_delegate_plan_alias_resolution():
+    """Registry resolves execute_plan alias to delegate_plan tool."""
+    registry = ToolRegistry()
+    tool = ExecutePlanTool()
+    registry.register(tool)
+
+    # Primary name works
+    delegate_tool = registry.get("delegate_plan")
+    assert delegate_tool is not None
+    assert delegate_tool.name == "delegate_plan"
+
+    # Legacy alias resolves to same instance
+    alias_tool = registry.get("execute_plan")
+    assert alias_tool is delegate_tool
+
+    # get_definitions only includes primary name
+    definitions = registry.get_definitions()
+    names = [d["function"]["name"] for d in definitions]
+    assert "delegate_plan" in names
+    assert "execute_plan" not in names
+    assert names.count("delegate_plan") == 1

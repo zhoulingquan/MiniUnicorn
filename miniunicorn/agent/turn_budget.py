@@ -9,6 +9,11 @@ This prevents runaway agent loops that burn tokens without producing useful
 output, and gives callers a hard cost ceiling per turn.
 
 All limits are optional: set a limit to None to disable that dimension.
+
+P2-T3 tiered defaults: AgentLoop resolves per-turn ceilings from the
+planning mode — MANAGED turns keep the P0 headroom below, FAST ReAct turns
+get the lower ordinary-turn ceilings. Explicit ``maxInputTokensPerTurn`` /
+``maxCostPerTurnUsd`` config always outranks the tiered defaults.
 """
 
 from __future__ import annotations
@@ -19,6 +24,12 @@ from typing import Any
 _DEFAULT_MAX_INPUT_TOKENS = 200_000  # ~5-10 turns of dense context
 _DEFAULT_MAX_OUTPUT_TOKENS = 50_000  # generous cap for multi-step reasoning
 _DEFAULT_MAX_COST_USD = 5.0  # hard cost ceiling per turn
+
+# P2-T3 tiered turn-budget defaults (resolved by AgentLoop._build_turn_budget).
+DEFAULT_MANAGED_MAX_INPUT_TOKENS = _DEFAULT_MAX_INPUT_TOKENS  # MANAGED keeps P0 headroom
+DEFAULT_MANAGED_MAX_COST_USD = _DEFAULT_MAX_COST_USD
+DEFAULT_FAST_MAX_INPUT_TOKENS = 80_000  # lower ordinary-turn ceiling
+DEFAULT_FAST_MAX_COST_USD = 2.0
 
 
 @dataclass(slots=True)
@@ -44,7 +55,9 @@ class TurnBudget:
     used_output: int = 0
     used_cost: float = 0.0
     pricing: dict[str, tuple[float, float]] | None = None
+    require_cost_tracking: bool = False
     exceeded_reason: str | None = None  # set when check() first fails
+    cost_unavailable_model: str | None = None
 
     def accumulate(self, usage: dict[str, Any], model: str) -> None:
         """Add one LLM call's usage to the running totals.
@@ -66,12 +79,14 @@ class TurnBudget:
 
         # Cost tracking: prefer explicit cost_usd if provider reports it
         cost = usage.get("cost_usd")
-        if isinstance(cost, (int, float)) and cost > 0:
+        if isinstance(cost, (int, float)) and cost >= 0:
             self.used_cost += float(cost)
         elif self.pricing is not None and model in self.pricing:
             in_per_1k, out_per_1k = self.pricing[model]
             self.used_cost += (prompt / 1000.0) * in_per_1k
             self.used_cost += (completion / 1000.0) * out_per_1k
+        elif self.require_cost_tracking and self.max_cost_usd is not None:
+            self.cost_unavailable_model = model
 
     def check(self) -> str | None:
         """Return a stop reason if budget is exceeded, None to continue.
@@ -88,6 +103,11 @@ class TurnBudget:
         if self.max_output_tokens is not None and self.used_output > self.max_output_tokens:
             self.exceeded_reason = (
                 f"output_tokens_exceeded ({self.used_output} > {self.max_output_tokens})"
+            )
+            return self.exceeded_reason
+        if self.cost_unavailable_model is not None:
+            self.exceeded_reason = (
+                f"cost_tracking_unavailable (model={self.cost_unavailable_model})"
             )
             return self.exceeded_reason
         if self.max_cost_usd is not None and self.used_cost > self.max_cost_usd:

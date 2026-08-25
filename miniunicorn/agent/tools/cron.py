@@ -6,6 +6,7 @@ from contextvars import ContextVar
 from datetime import datetime
 from typing import Any
 
+from miniunicorn.agent.safety_policy import RiskLevel
 from miniunicorn.agent.tools.base import Tool, tool_parameters
 from miniunicorn.agent.tools.context import ContextAware, RequestContext
 from miniunicorn.agent.tools.schema import (
@@ -132,6 +133,10 @@ class CronTool(Tool, ContextAware):
             "Schedule reminders and recurring tasks. Actions: add, list, remove. "
             f"If tz is omitted, cron expressions and naive ISO times default to {self._default_timezone}."
         )
+
+    @property
+    def risk_level(self) -> RiskLevel:
+        return RiskLevel.HIGH
 
     def validate_params(self, params: dict[str, Any]) -> list[str]:
         errors = super().validate_params(params)

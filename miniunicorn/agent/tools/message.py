@@ -4,6 +4,7 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
+from miniunicorn.agent.safety_policy import RiskLevel
 from miniunicorn.agent.tools.base import Tool, tool_parameters
 from miniunicorn.agent.tools.context import ContextAware, RequestContext
 from miniunicorn.agent.tools.path_utils import resolve_workspace_path
@@ -146,6 +147,10 @@ class MessageTool(Tool, ContextAware):
             "For proactive attachment delivery, use the 'media' parameter with file paths. "
             "Do NOT use read_file to send files — that only reads content for your own analysis."
         )
+
+    @property
+    def risk_level(self) -> RiskLevel:
+        return RiskLevel.MEDIUM
 
     def _resolve_media(self, media: list[str]) -> list[str]:
         """Resolve local media attachments and enforce workspace restriction when enabled."""

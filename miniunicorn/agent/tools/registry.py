@@ -14,21 +14,32 @@ class ToolRegistry:
 
     def __init__(self):
         self._tools: dict[str, Tool] = {}
+        self._aliases: dict[str, str] = {}
         self._cached_definitions: list[dict[str, Any]] | None = None
 
     def register(self, tool: Tool) -> None:
-        """Register a tool."""
+        """Register a tool and its aliases."""
         self._tools[tool.name] = tool
+        for alias in tool.aliases:
+            self._aliases[alias] = tool.name
         self._cached_definitions = None
 
     def unregister(self, name: str) -> None:
-        """Unregister a tool by name."""
-        self._tools.pop(name, None)
+        """Unregister a tool by name (also removes its aliases)."""
+        tool = self._tools.pop(name, None)
+        if tool:
+            for alias in tool.aliases:
+                self._aliases.pop(alias, None)
         self._cached_definitions = None
 
     def get(self, name: str) -> Tool | None:
-        """Get a tool by name."""
-        return self._tools.get(name)
+        """Get a tool by name or alias."""
+        if name in self._tools:
+            return self._tools[name]
+        primary = self._aliases.get(name)
+        if primary:
+            return self._tools.get(primary)
+        return None
 
     def has(self, name: str) -> bool:
         """Check if a tool is registered."""
@@ -87,7 +98,7 @@ class ToolRegistry:
                 ),
             )
 
-        tool = self._tools.get(name)
+        tool = self.get(name)
         if not tool:
             return (
                 None,

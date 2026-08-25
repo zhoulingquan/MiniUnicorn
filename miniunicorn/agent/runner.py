@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import inspect
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
+from uuid import uuid4
 
 from loguru import logger
 
+from miniunicorn.agent.call_ledger import (
+    CallLedger,
+    bind_call_ledger,
+    current_call_ledger,
+)
 from miniunicorn.agent.execution.context_governance import ContextGovernanceService
 from miniunicorn.agent.execution.model_request import ModelRequestExecutor
 from miniunicorn.agent.execution.planning import PlanningReflectionService
@@ -20,6 +27,7 @@ from miniunicorn.agent.execution.recovery import (
 )
 from miniunicorn.agent.execution.tool_execution import ToolExecutionCoordinator
 from miniunicorn.agent.hook import AgentHook, AgentHookContext
+from miniunicorn.agent.planning_policy import PlanningMode, PlanningPolicy
 from miniunicorn.agent.provider_registry import ProviderRegistry
 from miniunicorn.agent.tools.registry import ToolRegistry
 from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
@@ -37,6 +45,10 @@ from miniunicorn.utils.runtime import (
     repeated_workspace_violation_error,
 )
 
+if TYPE_CHECKING:
+    from miniunicorn.agent.plan_snapshot import PlanSnapshot
+    from miniunicorn.agent.progress_policy import ProgressTracker
+
 _DEFAULT_ERROR_MESSAGE = "Sorry, I encountered an error calling the AI model."
 _ARREARAGE_ERROR_MESSAGE = (
     "The AI provider rejected the request because the API key is out of quota or the "
@@ -45,6 +57,9 @@ _ARREARAGE_ERROR_MESSAGE = (
 _PERSISTED_MODEL_ERROR_PLACEHOLDER = "[Assistant reply unavailable due to model error.]"
 _MAX_INJECTIONS_PER_TURN = 3
 _MAX_INJECTION_CYCLES = 5
+_NO_PROGRESS_FINAL_MESSAGE = (
+    "Stopped: no detectable progress across consecutive plan step evaluations."
+)
 
 # Backward-compatible module attribute for tests/extensions that monkeypatch
 # the former single-file tracker hook. Runtime uses prepare_file_edit_trackers.
@@ -85,6 +100,10 @@ class AgentRunSpec:
     # governor that reproduces the legacy hardcoded pipeline. Typed as Any to
     # avoid a circular import with miniunicorn.agent.context_governor.
     context_governor: Any | None = None
+    # P2-T4: schema-cropped tool definitions produced by governance under RED
+    # pressure. When set, the model request path prefers these over the raw
+    # registry definitions. Not serialized; request-local.
+    effective_tool_definitions: list[dict[str, Any]] | None = None
     # Optional per-turn budget; when exceeded, run() stops with
     # stop_reason="budget_exceeded". None = no budget tracking (legacy behavior).
     # Typed as Any to avoid a circular import with miniunicorn.agent.turn_budget.
@@ -96,6 +115,9 @@ class AgentRunSpec:
     use_planner: bool = False
     planner_model: str | None = None  # model for planning LLM calls; None = use spec.model
     planner_max_replans: int = 3
+    # Explicit PlanningPolicy (P1). When set, it takes priority over the
+    # use_planner/planner_model/planner_max_replans legacy fields above.
+    planning_policy: PlanningPolicy | None = None
     # Reflection: when enabled, produce a "lesson learned" on failure or every
     # reflection_interval iterations, appended to memory/reflections.jsonl for
     # Dream to consolidate. Default False = no reflection overhead.
@@ -104,6 +126,10 @@ class AgentRunSpec:
     # Governed user identity for this run (e.g. "user:alice"). Forwarded to
     # reflections so Dream can partition evidence by the exact identity tuple.
     user_key: str | None = None
+    # P1-T7: Per-turn wall-clock limit in seconds. When set, the runner stops
+    # with stop_reason="turn_timeout" once the deadline is reached.
+    # None = unlimited (P0 behavior).
+    max_turn_wall_time_s: float | None = None
 
 
 @dataclass(slots=True)
@@ -148,6 +174,15 @@ class _TurnState:
     # Per-turn throttle for repeated attempts against the same outside target.
     external_lookup_counts: dict[str, int] = field(default_factory=dict)
     workspace_violation_counts: dict[str, int] = field(default_factory=dict)
+    # P1-T2: per-turn identifier and the latest durable plan snapshot.
+    turn_id: str | None = None
+    plan_snapshot: PlanSnapshot | None = None
+    # P1-T4: per-turn no-progress detector (MANAGED mode only).
+    progress_tracker: ProgressTracker | None = None
+    # T5: per-turn escalation guard.
+    escalated_this_turn: bool = False
+    # T5: FAST mode stall detection - consecutive iterations without tool calls.
+    consecutive_nontool_iterations: int = 0
 
 
 class AgentRunner:
@@ -166,17 +201,22 @@ class AgentRunner:
         self._default_governor: Any | None = None
         # PR-5a: LLM request and tool-execution services own the migrated
         # logic; AgentRunner keeps thin delegation methods of the same name.
-        self._model_request = ModelRequestExecutor(self)
-        self._tool_execution = ToolExecutionCoordinator(self)
+        self.model_request = ModelRequestExecutor(self)
+        self._model_request = self.model_request  # compat alias
+        self.tool_execution = ToolExecutionCoordinator(self)
+        self._tool_execution = self.tool_execution  # compat alias
         # PR-5b: context governance and turn-recovery services own the
         # migrated logic; AgentRunner keeps thin delegation methods of the
         # same name.
-        self._context_governance = ContextGovernanceService(self)
-        self._recovery = TurnRecoveryPolicy(self)
+        self.context_governance = ContextGovernanceService(self)
+        self._context_governance = self.context_governance  # compat alias
+        self.recovery = TurnRecoveryPolicy(self)
+        self._recovery = self.recovery  # compat alias
         # PR-5c: planning and reflection service owns the plan-and-execute /
         # reflection logic (and its _reflection_tasks tracking set);
         # AgentRunner keeps thin delegation methods of the same name.
-        self._planning = PlanningReflectionService(self)
+        self.planning = PlanningReflectionService(self)
+        self._planning = self.planning  # compat alias
 
     @property
     def provider(self) -> LLMProvider:
@@ -194,7 +234,7 @@ class AgentRunner:
         else:
             self._provider = value
 
-    def _get_governor(self, spec: AgentRunSpec) -> Any:
+    def get_governor(self, spec: AgentRunSpec) -> Any:
         """Resolve the context governor: spec-provided override or default.
 
         Returns the spec-level ``context_governor`` when set, otherwise a
@@ -210,7 +250,9 @@ class AgentRunner:
             self._default_governor = ContextGovernor()
         return self._default_governor
 
-    def _build_tools_summary(self, tools: ToolRegistry) -> str:
+    _get_governor = get_governor  # compat alias
+
+    def build_tools_summary(self, tools: ToolRegistry) -> str:
         """Build a compact summary of available tools for the planner."""
         lines: list[str] = []
         for schema in tools.get_definitions():
@@ -225,22 +267,26 @@ class AgentRunner:
             lines.append(f"- {name}: {desc}".rstrip())
         return "\n".join(lines) if lines else "(no tools)"
 
+    _build_tools_summary = build_tools_summary  # compat alias
+
     @staticmethod
-    def _extract_task_from_messages(messages: list[dict[str, Any]]) -> str:
+    def extract_task_from_messages(messages: list[dict[str, Any]]) -> str:
         """Extract the user's task from the initial messages (last user msg)."""
         for msg in reversed(messages):
             if msg.get("role") == "user":
                 content = msg.get("content")
                 if isinstance(content, str):
-                    return content[:500]
+                    return content
                 if isinstance(content, list):
                     for block in reversed(content):
                         if isinstance(block, dict) and block.get("type") == "text":
-                            return str(block.get("text", ""))[:500]
+                            return str(block.get("text", ""))
         return "(task)"
 
+    _extract_task_from_messages = extract_task_from_messages  # compat alias
+
     @staticmethod
-    def _inject_step_guidance(
+    def inject_step_guidance(
         messages: list[dict[str, Any]],
         guidance: str,
     ) -> list[dict[str, Any]]:
@@ -264,6 +310,8 @@ class AgentRunner:
                     updated[i] = {**updated[i], "content": new_content}
                 break
         return updated
+
+    _inject_step_guidance = inject_step_guidance  # compat alias
 
     @staticmethod
     def _merge_message_content(left: Any, right: Any) -> str | list[dict[str, Any]]:
@@ -300,7 +348,7 @@ class AgentRunner:
                 continue
             messages.append(injection)
 
-    async def _try_drain_injections(
+    async def try_drain_injections(
         self,
         spec: AgentRunSpec,
         messages: list[dict[str, Any]],
@@ -321,7 +369,7 @@ class AgentRunner:
         injections: list[dict[str, Any]] = []
         real_injection = False
         if injection_cycles < _MAX_INJECTION_CYCLES:
-            injections = await self._drain_injections(spec)
+            injections = await self.drain_injections(spec)
             real_injection = bool(injections)
         if not injections and allow_goal_continue and assistant_message is not None:
             predicate = spec.goal_active_predicate
@@ -334,7 +382,7 @@ class AgentRunner:
         if assistant_message is not None:
             messages.append(assistant_message)
             if iteration is not None:
-                await self._emit_checkpoint(
+                await self.emit_checkpoint(
                     spec,
                     {
                         "phase": "final_response",
@@ -358,7 +406,9 @@ class AgentRunner:
             logger.info("Injected sustained-goal continuation {}", phase)
         return True, injection_cycles
 
-    async def _drain_injections(self, spec: AgentRunSpec) -> list[dict[str, Any]]:
+    _try_drain_injections = try_drain_injections  # compat alias
+
+    async def drain_injections(self, spec: AgentRunSpec) -> list[dict[str, Any]]:
         """Drain pending user messages via the injection callback.
 
         Returns normalized user messages (capped by
@@ -402,44 +452,144 @@ class AgentRunner:
             injected_messages = injected_messages[:_MAX_INJECTIONS_PER_TURN]
         return injected_messages
 
+    _drain_injections = drain_injections  # compat alias
+
     async def run(self, spec: AgentRunSpec) -> AgentRunResult:
+        """Public entry point: bind a CallLedger if none is active, then delegate."""
+        ledger = current_call_ledger()
+        if ledger is not None:
+            return await self._run_with_ledger(spec, ledger)
+        ledger = CallLedger(budget=getattr(spec, "turn_budget", None))
+        async with bind_call_ledger(ledger):
+            return await self._run_with_ledger(spec, ledger)
+
+    async def _run_with_ledger(self, spec: AgentRunSpec, ledger: CallLedger) -> AgentRunResult:
         hook = spec.hook or AgentHook()
         messages = list(spec.initial_messages)
         state = _TurnState()
-        # Optional per-turn budget tracking. Only enforced when the caller
-        # explicitly passes a TurnBudget via spec.turn_budget; when None,
-        # behavior is identical to the legacy unbounded loop.
-        budget = getattr(spec, "turn_budget", None)
-        # Plan-and-Execute / Reflection 由独立 helper 初始化;
-        # plan 在 fatal 工具错误触发 replan 时会被重绑定。
+        # Budget from ledger if attached, else from spec (legacy fallback)
+        budget = ledger.budget if ledger.budget is not None else getattr(spec, "turn_budget", None)
+        state.turn_id = uuid4().hex[:12]
+        # P1-T7: Per-turn wall-clock deadline.
+        turn_deadline = (
+            time.monotonic() + spec.max_turn_wall_time_s
+            if spec.max_turn_wall_time_s
+            else None
+        )
         planner, plan, planner_task_text, planner_tools_summary = await self._init_planner(spec)
+        if plan is not None:
+            state.plan_snapshot = await self._emit_plan_snapshot(spec, plan, state.turn_id)
+            from miniunicorn.agent.progress_policy import ProgressPolicy, ProgressTracker
+            state.progress_tracker = ProgressTracker(ProgressPolicy())
         reflection = self._init_reflection(spec)
 
         for iteration in range(spec.max_iterations):
+            # P1-T7: Check wall-clock deadline before each iteration.
+            if turn_deadline is not None and time.monotonic() >= turn_deadline:
+                state.stop_reason = "turn_timeout"
+                state.final_content = "Turn timed out (wall-clock limit reached)."
+                context = AgentHookContext(iteration=iteration, messages=messages)
+                context.stop_reason = state.stop_reason
+                context.final_content = state.final_content
+                await hook.after_iteration(context)
+                break
+
+            # T5: FAST -> MANAGED escalation check (before model request).
+            # Only in FAST mode (plan is None), not already escalated this turn,
+            # and after at least 2 consecutive non-tool iterations (stall).
+            if (
+                plan is None
+                and not state.escalated_this_turn
+                and spec.planning_policy is not None
+                and state.consecutive_nontool_iterations >= 2
+            ):
+                new_mode = spec.planning_policy.escalate(
+                    PlanningMode.FAST,
+                    stall_detected=True,
+                    already_escalated=state.escalated_this_turn,
+                )
+                if new_mode is PlanningMode.MANAGED:
+                    try:
+                        # Create a plan using the existing planner infrastructure
+                        planner, new_plan, planner_task_text, planner_tools_summary = (
+                            await self._init_planner(spec)
+                        )
+                        if new_plan is not None:
+                            plan = new_plan
+                            state.plan_snapshot = await self._emit_plan_snapshot(
+                                spec, plan, state.turn_id, stop_reason=None
+                            )
+                            # Update snapshot origin to "escalated"
+                            if state.plan_snapshot is not None:
+                                from miniunicorn.agent.plan_snapshot import PlanSnapshot
+                                state.plan_snapshot = PlanSnapshot(
+                                    goal=state.plan_snapshot.goal,
+                                    steps=state.plan_snapshot.steps,
+                                    replan_count=state.plan_snapshot.replan_count,
+                                    max_replans=state.plan_snapshot.max_replans,
+                                    current_step_id=state.plan_snapshot.current_step_id,
+                                    turn_id=state.plan_snapshot.turn_id,
+                                    created_at=state.plan_snapshot.created_at,
+                                    stop_reason=state.plan_snapshot.stop_reason,
+                                    origin="escalated",
+                                )
+                            from miniunicorn.agent.progress_policy import (
+                                ProgressPolicy,
+                                ProgressTracker,
+                            )
+                            state.progress_tracker = ProgressTracker(ProgressPolicy())
+                            state.escalated_this_turn = True
+                            state.consecutive_nontool_iterations = 0
+                            logger.info(
+                                "Escalated FAST -> MANAGED for turn {}",
+                                state.turn_id,
+                            )
+                    except Exception:
+                        logger.warning(
+                            "Escalation FAST->MANAGED failed; staying FAST",
+                            exc_info=True,
+                        )
+                        # Fall through to original FAST behavior
+
             messages_for_model = await self._govern_messages(spec, messages, iteration)
-            # Plan-and-Execute: inject current step as guidance before LLM call.
-            # We do this AFTER governance so the governor's prior edits to
-            # historical messages are preserved; only the last user message is
-            # appended with step context (non-destructively) to focus the model
-            # on the current step. Each step still flows through the full ReAct
-            # loop (_request_model + _execute_tools), so context governor and
-            # turn budget remain in effect per step.
+            # Inject managed-plan guidance only after governance has repaired
+            # historical messages. The returned copy is request-local and does
+            # not pollute persisted conversation history.
             if plan is not None and plan.current_step is not None:
-                messages_for_model = self._apply_plan_step_guidance(messages_for_model, plan)
+                messages_for_model = await self._apply_plan_step_guidance(
+                    messages_for_model, plan, spec=spec, turn_id=state.turn_id
+                )
             context = AgentHookContext(iteration=iteration, messages=messages)
             await hook.before_iteration(context)
-            response = await self._request_model(spec, messages_for_model, hook, context)
-            raw_usage = self._usage_dict(response.usage)
+            # Planner, compaction, or another pre-executor call may already
+            # have exhausted the turn-wide budget.
+            _fc, _sr, _err = self.handle_budget_exceeded(
+                budget,
+                {},
+                spec.model,
+                spec,
+                messages,
+                iteration,
+                context,
+                hook,
+            )
+            if _fc is not None:
+                state.final_content, state.stop_reason, state.error = _fc, _sr, _err
+                await hook.after_iteration(context)
+                break
+            response = await self.request_model(spec, messages_for_model, hook, context)
+            raw_usage = self.usage_dict(response.usage)
             context.response = response
             context.usage = dict(raw_usage)
             context.tool_calls = list(response.tool_calls)
-            self._accumulate_usage(state.usage, raw_usage)
+            self.accumulate_usage(state.usage, raw_usage)
             if raw_usage:
                 state.last_call_usage = dict(raw_usage)
-            # Budget check: stop early if cumulative usage exceeds limits.
-            _fc, _sr, _err = self._handle_budget_exceeded(
+            # The provider boundary has already recorded this response. Check
+            # the ledger without accumulating the response a second time.
+            _fc, _sr, _err = self.handle_budget_exceeded(
                 budget,
-                raw_usage,
+                {},
                 spec.model,
                 spec,
                 messages,
@@ -476,7 +626,7 @@ class AgentRunner:
                 )
                 messages.append(assistant_message)
                 state.tools_used.extend(tc.name for tc in response.tool_calls)
-                await self._emit_checkpoint(
+                await self.emit_checkpoint(
                     spec,
                     {
                         "phase": "awaiting_tools",
@@ -492,20 +642,26 @@ class AgentRunner:
 
                 await hook.before_execute_tools(context)
 
-                results, new_events, fatal_error = await self._execute_tools(
+                results, new_events, fatal_error = await self.execute_tools(
                     spec,
                     response.tool_calls,
                     state.external_lookup_counts,
                     state.workspace_violation_counts,
+                    step_id=(
+                        plan.current_step.id
+                        if plan is not None and plan.current_step is not None
+                        else None
+                    ),
                 )
                 state.tool_events.extend(new_events)
                 context.tool_results = list(results)
                 context.tool_events = list(new_events)
-                completed_tool_results = self._build_tool_result_messages(
+                completed_tool_results = self.build_tool_result_messages(
                     spec, response.tool_calls, results
                 )
                 messages.extend(completed_tool_results)
                 if fatal_error is not None:
+                    plan_before_error = plan
                     action, plan = await self._handle_fatal_tool_error(
                         spec,
                         state,
@@ -520,10 +676,24 @@ class AgentRunner:
                         iteration=iteration,
                         reflection=reflection,
                     )
+                    if plan is not None and plan is not plan_before_error:
+                        # Successful replan returned a replacement plan.
+                        state.plan_snapshot = await self._emit_plan_snapshot(
+                            spec, plan, state.turn_id
+                        )
+                    elif (
+                        plan is not None
+                        and plan_before_error is not None
+                        and state.stop_reason == "plan_failed"
+                    ):
+                        # Replans exhausted; the plan failed terminally.
+                        state.plan_snapshot = await self._emit_plan_snapshot(
+                            spec, plan, state.turn_id, stop_reason="plan_failed"
+                        )
                     if action == "continue":
                         continue
                     break
-                await self._emit_checkpoint(
+                await self.emit_checkpoint(
                     spec,
                     {
                         "phase": "tools_completed",
@@ -536,8 +706,8 @@ class AgentRunner:
                 )
                 state.empty_content_retries = 0
                 state.length_recovery_count = 0
-                # Checkpoint 1: drain injections after tools, before next LLM call
-                _drained, state.injection_cycles = await self._try_drain_injections(
+                # Checkpoint 1: drain injections after tools, before the next model call.
+                _drained, state.injection_cycles = await self.try_drain_injections(
                     spec,
                     messages,
                     None,
@@ -547,7 +717,8 @@ class AgentRunner:
                 if _drained:
                     state.had_injections = True
                 await hook.after_iteration(context)
-                self._fire_periodic_reflection(reflection, spec, messages, iteration)
+                # T5: Reset FAST stall counter on tool execution.
+                state.consecutive_nontool_iterations = 0
                 continue
 
             if response.has_tool_calls:
@@ -556,6 +727,10 @@ class AgentRunner:
                     response.finish_reason,
                     spec.session_key or "default",
                 )
+
+            # T5: Track consecutive non-tool iterations in FAST mode for stall detection.
+            if plan is None:
+                state.consecutive_nontool_iterations += 1
 
             clean = hook.finalize_content(context, response.content)
             action, response, raw_usage, clean = await self._retry_empty_response(
@@ -590,10 +765,9 @@ class AgentRunner:
                     thinking_blocks=response.thinking_blocks,
                 )
 
-            # Check for mid-turn injections BEFORE signaling stream end.
-            # If injections are found we keep the stream alive (resuming=True)
-            # so streaming channels don't prematurely finalize the card.
-            should_continue, state.injection_cycles = await self._try_drain_injections(
+            # Drain mid-turn injections before stream-end notification so a
+            # resumed stream is not finalized prematurely by channel clients.
+            should_continue, state.injection_cycles = await self.try_drain_injections(
                 spec,
                 messages,
                 assistant_message,
@@ -623,7 +797,7 @@ class AgentRunner:
                 context.final_content = state.final_content
                 context.error = state.error
                 context.stop_reason = state.stop_reason
-                # Reflection: capture lesson learned on LLM error.
+                # Capture a failure lesson only when reflection is enabled.
                 if reflection is not None:
                     await reflection.reflect(
                         trigger="llm_error",
@@ -666,7 +840,7 @@ class AgentRunner:
                     thinking_blocks=response.thinking_blocks,
                 )
             )
-            await self._emit_checkpoint(
+            await self.emit_checkpoint(
                 spec,
                 {
                     "phase": "final_response",
@@ -677,14 +851,63 @@ class AgentRunner:
                     "pending_tool_calls": [],
                 },
             )
-            # Plan-and-Execute: the LLM produced a non-tool response, which
-            # we interpret as "current step done". Mark it COMPLETED. If more
-            # pending steps remain, continue to the next step (the response
-            # stays in messages as a step result). Only when all steps are
-            # done (or no plan) do we set final_content and break — the last
-            # step's response becomes the turn's final_content.
+            # A non-tool response completes the current managed step. Continue
+            # through the ordinary ReAct loop until no pending plan step remains.
             if plan is not None and plan.current_step is not None:
-                if await self._complete_plan_step(plan, context, hook, clean, state.stop_reason):
+                if await self._complete_plan_step(
+                    plan,
+                    context,
+                    hook,
+                    clean,
+                    state.stop_reason,
+                    spec=spec,
+                    turn_id=state.turn_id,
+                ):
+                    # P1-T4: Check no-progress after step evidence evaluation.
+                    if state.progress_tracker is not None:
+                        verdict = self._planning.evaluate_step_progress(
+                            plan, state.progress_tracker
+                        )
+                        if verdict is not None:
+                            from miniunicorn.agent.progress_policy import (
+                                ProgressAction,
+                            )
+                            if verdict.action is ProgressAction.ABORT:
+                                state.stop_reason = "no_progress"
+                                state.final_content = _NO_PROGRESS_FINAL_MESSAGE
+                                context.stop_reason = state.stop_reason
+                                context.final_content = state.final_content
+                                await hook.after_iteration(context)
+                                break
+                            if verdict.action is ProgressAction.REPLAN:
+                                if plan.can_replan:
+                                    replan_result = await planner.replan(
+                                        plan,
+                                        plan.current_step,
+                                        f"ProgressPolicy: {verdict.reason}",
+                                        planner_task_text or "",
+                                        planner_tools_summary or "",
+                                    )
+                                    from miniunicorn.agent.planner import (
+                                        PlannerStatus as _PlannerStatus,
+                                    )
+                                    if replan_result.status is _PlannerStatus.VALID:
+                                        plan = replan_result.plan
+                                        state.plan_snapshot = (
+                                            await self._emit_plan_snapshot(
+                                                spec, plan, state.turn_id
+                                            )
+                                        )
+                                else:
+                                    state.stop_reason = "plan_failed"
+                                    state.final_content = (
+                                        "Plan failed: replans exhausted "
+                                        "with no progress."
+                                    )
+                                    context.stop_reason = state.stop_reason
+                                    context.final_content = state.final_content
+                                    await hook.after_iteration(context)
+                                    break
                     continue
             state.final_content = clean
             context.final_content = state.final_content
@@ -694,23 +917,36 @@ class AgentRunner:
         else:
             await self._finalize_max_iterations(spec, state, messages, reflection)
 
+        # P1-T6: Terminal-only reflection — fires once after the loop exits.
+        await self._fire_terminal_reflection(
+            reflection, spec, state, messages, iteration
+        )
+
+        # Compatibility for injected test/dummy providers that override the
+        # retry boundary itself and therefore cannot populate the ledger.
+        result_usage = dict(ledger.total_usage) if ledger.records else dict(state.usage)
+        result_last_usage = (
+            dict(ledger.last_call_usage)
+            if ledger.records
+            else dict(state.last_call_usage)
+        )
         return AgentRunResult(
             final_content=state.final_content,
             messages=messages,
             tools_used=state.tools_used,
-            usage=state.usage,
+            usage=result_usage,
             stop_reason=state.stop_reason,
             error=state.error,
             tool_events=state.tool_events,
             had_injections=state.had_injections,
             budget_exceeded=(state.stop_reason == "budget_exceeded"),
             plan=plan,
-            last_call_usage=state.last_call_usage,
+            last_call_usage=result_last_usage,
         )
 
     # -- run() 阶段 helper (自 run 拆出, 语义与原内联实现逐句对应) ------------
 
-    async def _init_planner(
+    async def init_planner(
         self, spec: AgentRunSpec
     ) -> tuple[Any, Any, str | None, str | None]:
         """Plan-and-Execute 初始化, 返回 (planner, plan, task_text, tools_summary)。
@@ -722,9 +958,11 @@ class AgentRunner:
         Migrated to :class:`PlanningReflectionService` (PR-5c); this method
         is a thin delegation keeping the AgentRunner surface unchanged.
         """
-        return await self._planning.init_planner(spec)
+        return await self.planning.init_planner(spec)
 
-    def _init_reflection(self, spec: AgentRunSpec) -> Any | None:
+    _init_planner = init_planner  # compat alias
+
+    def init_reflection(self, spec: AgentRunSpec) -> Any | None:
         """Optional reflection: produces "lesson learned" entries on failure or
         every reflection_interval iterations. Default False keeps the legacy
         behavior with zero reflection overhead.
@@ -732,9 +970,11 @@ class AgentRunner:
         Migrated to :class:`PlanningReflectionService` (PR-5c); this method
         is a thin delegation keeping the AgentRunner surface unchanged.
         """
-        return self._planning.init_reflection(spec)
+        return self.planning.init_reflection(spec)
 
-    async def _govern_messages(
+    _init_reflection = init_reflection  # compat alias
+
+    async def govern_messages(
         self,
         spec: AgentRunSpec,
         messages: list[dict[str, Any]],
@@ -745,28 +985,41 @@ class AgentRunner:
         Migrated to :class:`ContextGovernanceService` (PR-5b); this method
         is a thin delegation keeping the AgentRunner surface unchanged.
         """
-        return await self._context_governance.govern_messages(spec, messages, iteration)
+        return await self.context_governance.govern_messages(spec, messages, iteration)
 
-    def _apply_plan_step_guidance(
-        self, messages_for_model: list[dict[str, Any]], plan: Any
+    _govern_messages = govern_messages  # compat alias
+
+    async def apply_plan_step_guidance(
+        self,
+        messages_for_model: list[dict[str, Any]],
+        plan: Any,
+        *,
+        spec: AgentRunSpec | None = None,
+        turn_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """Mark the current plan step IN_PROGRESS and append step guidance.
 
         Migrated to :class:`PlanningReflectionService` (PR-5c); this method
         is a thin delegation keeping the AgentRunner surface unchanged.
         """
-        return self._planning.apply_plan_step_guidance(messages_for_model, plan)
+        return await self.planning.apply_plan_step_guidance(
+            messages_for_model, plan, spec=spec, turn_id=turn_id
+        )
 
-    def _build_tool_result_messages(
+    _apply_plan_step_guidance = apply_plan_step_guidance  # compat alias
+
+    def build_tool_result_messages(
         self,
         spec: AgentRunSpec,
         tool_calls: list[Any],
         results: list[Any],
     ) -> list[dict[str, Any]]:
         """Normalize tool execution results into tool-role messages (ordered)."""
-        return self._tool_execution.build_tool_result_messages(spec, tool_calls, results)
+        return self.tool_execution.build_tool_result_messages(spec, tool_calls, results)
 
-    async def _handle_fatal_tool_error(
+    _build_tool_result_messages = build_tool_result_messages  # compat alias
+
+    async def handle_fatal_tool_error(
         self,
         spec: AgentRunSpec,
         state: _TurnState,
@@ -787,7 +1040,7 @@ class AgentRunner:
         Migrated to :class:`TurnRecoveryPolicy` (PR-5b); this method is a
         thin delegation keeping the AgentRunner surface unchanged.
         """
-        return await self._recovery.handle_fatal_tool_error(
+        return await self.recovery.handle_fatal_tool_error(
             spec,
             state,
             context,
@@ -802,7 +1055,9 @@ class AgentRunner:
             reflection=reflection,
         )
 
-    async def _end_turn_with_drain(
+    _handle_fatal_tool_error = handle_fatal_tool_error  # compat alias
+
+    async def end_turn_with_drain(
         self,
         spec: AgentRunSpec,
         state: _TurnState,
@@ -817,11 +1072,13 @@ class AgentRunner:
         Migrated to :class:`TurnRecoveryPolicy` (PR-5b); this method is a
         thin delegation keeping the AgentRunner surface unchanged.
         """
-        return await self._recovery.end_turn_with_drain(
+        return await self.recovery.end_turn_with_drain(
             spec, state, context, hook, messages, phase=phase
         )
 
-    def _fire_periodic_reflection(
+    _end_turn_with_drain = end_turn_with_drain  # compat alias
+
+    def fire_periodic_reflection(
         self,
         reflection: Any | None,
         spec: AgentRunSpec,
@@ -835,11 +1092,31 @@ class AgentRunner:
         Migrated to :class:`PlanningReflectionService` (PR-5c); this method
         is a thin delegation keeping the AgentRunner surface unchanged.
         """
-        self._planning.fire_periodic_reflection(
+        self.planning.fire_periodic_reflection(
             reflection, spec, messages, iteration
         )
 
-    async def _retry_empty_response(
+    _fire_periodic_reflection = fire_periodic_reflection  # compat alias
+
+    async def fire_terminal_reflection(
+        self,
+        reflection: Any | None,
+        spec: AgentRunSpec,
+        state: _TurnState,
+        messages: list[dict[str, Any]],
+        iteration: int,
+    ) -> None:
+        """Terminal reflection — fires once after the loop exits (P1-T6).
+
+        Thin delegation to ``PlanningReflectionService``.
+        """
+        await self.planning.fire_terminal_reflection(
+            reflection, spec, state, messages, iteration
+        )
+
+    _fire_terminal_reflection = fire_terminal_reflection  # compat alias
+
+    async def retry_empty_response(
         self,
         spec: AgentRunSpec,
         state: _TurnState,
@@ -858,7 +1135,7 @@ class AgentRunner:
         Migrated to :class:`TurnRecoveryPolicy` (PR-5b); this method is a
         thin delegation keeping the AgentRunner surface unchanged.
         """
-        return await self._recovery.retry_empty_response(
+        return await self.recovery.retry_empty_response(
             spec,
             state,
             context,
@@ -872,7 +1149,9 @@ class AgentRunner:
             iteration,
         )
 
-    async def _handle_length_recovery(
+    _retry_empty_response = retry_empty_response  # compat alias
+
+    async def handle_length_recovery(
         self,
         spec: AgentRunSpec,
         state: _TurnState,
@@ -888,7 +1167,7 @@ class AgentRunner:
         Migrated to :class:`TurnRecoveryPolicy` (PR-5b); this method is a
         thin delegation keeping the AgentRunner surface unchanged.
         """
-        return await self._recovery.handle_length_recovery(
+        return await self.recovery.handle_length_recovery(
             spec,
             state,
             context,
@@ -899,13 +1178,18 @@ class AgentRunner:
             iteration,
         )
 
-    async def _complete_plan_step(
+    _handle_length_recovery = handle_length_recovery  # compat alias
+
+    async def complete_plan_step(
         self,
         plan: Any,
         context: AgentHookContext,
         hook: AgentHook,
         clean: str | None,
         stop_reason: str,
+        *,
+        spec: AgentRunSpec | None = None,
+        turn_id: str | None = None,
     ) -> bool:
         """Mark the current plan step COMPLETED.
 
@@ -915,11 +1199,31 @@ class AgentRunner:
         Migrated to :class:`PlanningReflectionService` (PR-5c); this method
         is a thin delegation keeping the AgentRunner surface unchanged.
         """
-        return await self._planning.complete_plan_step(
-            plan, context, hook, clean, stop_reason
+        return await self.planning.complete_plan_step(
+            plan, context, hook, clean, stop_reason, spec=spec, turn_id=turn_id
         )
 
-    async def _finalize_max_iterations(
+    _complete_plan_step = complete_plan_step  # compat alias
+
+    async def emit_plan_snapshot(
+        self,
+        spec: AgentRunSpec,
+        plan: Any,
+        turn_id: str,
+        stop_reason: str | None = None,
+    ) -> Any:
+        """Serialize *plan* and emit a ``plan_snapshot`` checkpoint payload.
+
+        Owned by :class:`PlanningReflectionService` (P1-T2); thin delegation
+        keeping the AgentRunner surface unchanged.
+        """
+        return await self.planning.emit_plan_snapshot(
+            spec, plan, turn_id, stop_reason=stop_reason
+        )
+
+    _emit_plan_snapshot = emit_plan_snapshot  # compat alias
+
+    async def finalize_max_iterations(
         self,
         spec: AgentRunSpec,
         state: _TurnState,
@@ -931,48 +1235,62 @@ class AgentRunner:
         Migrated to :class:`TurnRecoveryPolicy` (PR-5b); this method is a
         thin delegation keeping the AgentRunner surface unchanged.
         """
-        return await self._recovery.finalize_max_iterations(
+        return await self.recovery.finalize_max_iterations(
             spec, state, messages, reflection
         )
 
-    def _build_request_kwargs(
+    _finalize_max_iterations = finalize_max_iterations  # compat alias
+
+    def build_request_kwargs(
         self,
         spec: AgentRunSpec,
         messages: list[dict[str, Any]],
         *,
         tools: list[dict[str, Any]] | None,
     ) -> dict[str, Any]:
-        return self._model_request.build_request_kwargs(spec, messages, tools=tools)
+        return self.model_request.build_request_kwargs(spec, messages, tools=tools)
 
-    async def _request_model(
+    _build_request_kwargs = build_request_kwargs  # compat alias
+
+    async def request_model(
         self,
         spec: AgentRunSpec,
         messages: list[dict[str, Any]],
         hook: AgentHook,
         context: AgentHookContext,
     ):
-        return await self._model_request.request_model(spec, messages, hook, context)
+        return await self.model_request.request_model(spec, messages, hook, context)
 
-    async def _request_finalization_retry(
+    _request_model = request_model  # compat alias
+
+    async def request_finalization_retry(
         self,
         spec: AgentRunSpec,
         messages: list[dict[str, Any]],
     ):
-        return await self._model_request.request_finalization_retry(spec, messages)
+        return await self.model_request.request_finalization_retry(spec, messages)
+
+    _request_finalization_retry = request_finalization_retry  # compat alias
 
     @staticmethod
-    def _usage_dict(usage: dict[str, Any] | None) -> dict[str, int]:
+    def usage_dict(usage: dict[str, Any] | None) -> dict[str, int]:
         return ModelRequestExecutor.usage_dict(usage)
 
+    _usage_dict = usage_dict  # compat alias
+
     @staticmethod
-    def _accumulate_usage(target: dict[str, int], addition: dict[str, int]) -> None:
+    def accumulate_usage(target: dict[str, int], addition: dict[str, int]) -> None:
         ModelRequestExecutor.accumulate_usage(target, addition)
 
+    _accumulate_usage = accumulate_usage  # compat alias
+
     @staticmethod
-    def _merge_usage(left: dict[str, int], right: dict[str, int]) -> dict[str, int]:
+    def merge_usage(left: dict[str, int], right: dict[str, int]) -> dict[str, int]:
         return ModelRequestExecutor.merge_usage(left, right)
 
-    def _handle_budget_exceeded(
+    _merge_usage = merge_usage  # compat alias
+
+    def handle_budget_exceeded(
         self,
         budget: Any,
         usage: dict[str, int],
@@ -989,7 +1307,36 @@ class AgentRunner:
         continue. Caller is responsible for breaking out of the loop if
         non-None. When *budget* is None (legacy callers), returns all-None
         without any work, preserving the original unbounded behavior.
+
+        When a CallLedger is active, this method delegates to
+        ledger.check_budget() which handles accumulation and checking
+        idempotently. The *usage* and *model* args are ignored in that path
+        to avoid double-counting (ledger already recorded the call).
         """
+        ledger = current_call_ledger()
+        if ledger is not None:
+            # Ledger path: check_budget accumulates any pending records and checks.
+            # Do NOT call budget.accumulate again — ledger already recorded.
+            exceeded = ledger.check_budget(budget)
+            if exceeded is None:
+                return None, None, None
+            logger.warning(
+                "Turn budget exceeded on iter {} for {}: {}",
+                iteration,
+                spec.session_key or "default",
+                budget.summary() if budget is not None else exceeded,
+            )
+            fc = (
+                f"I've reached the turn's token budget ({exceeded}). "
+                "Please narrow the task or raise the budget to continue."
+            )
+            self.append_final_message(messages, fc)
+            context.final_content = fc
+            context.error = fc
+            context.stop_reason = "budget_exceeded"
+            return fc, "budget_exceeded", fc
+
+        # No-ledger compatibility fallback (legacy callers)
         if budget is None:
             return None, None, None
         budget.accumulate(usage, model)
@@ -1006,39 +1353,51 @@ class AgentRunner:
             f"I've reached the turn's token budget ({exceeded}). "
             "Please narrow the task or raise the budget to continue."
         )
-        self._append_final_message(messages, fc)
+        self.append_final_message(messages, fc)
         context.final_content = fc
         context.error = fc
         context.stop_reason = "budget_exceeded"
         return fc, "budget_exceeded", fc
 
-    async def _execute_tools(
+    _handle_budget_exceeded = handle_budget_exceeded  # compat alias
+
+    async def execute_tools(
         self,
         spec: AgentRunSpec,
         tool_calls: list[ToolCallRequest],
         external_lookup_counts: dict[str, int],
         workspace_violation_counts: dict[str, int],
+        *,
+        step_id: int | None = None,
     ) -> tuple[list[Any], list[dict[str, str]], BaseException | None]:
-        return await self._tool_execution.execute_tools(
+        return await self.tool_execution.execute_tools(
             spec,
             tool_calls,
             external_lookup_counts,
             workspace_violation_counts,
+            step_id=step_id,
         )
 
-    async def _run_tool(
+    _execute_tools = execute_tools  # compat alias
+
+    async def run_tool(
         self,
         spec: AgentRunSpec,
         tool_call: ToolCallRequest,
         external_lookup_counts: dict[str, int],
         workspace_violation_counts: dict[str, int],
+        *,
+        step_id: int | None = None,
     ) -> tuple[Any, dict[str, str], BaseException | None]:
-        return await self._tool_execution.run_tool(
+        return await self.tool_execution.run_tool(
             spec,
             tool_call,
             external_lookup_counts,
             workspace_violation_counts,
+            step_id=step_id,
         )
+
+    _run_tool = run_tool  # compat alias
 
     # SSRF is a hard security block at the tool boundary, but the agent turn
     # should recover conversationally instead of aborting the runtime.
@@ -1083,7 +1442,7 @@ class AgentRunner:
             return True
         return any(marker in lowered for marker in cls._WORKSPACE_VIOLATION_MARKERS)
 
-    def _classify_violation(
+    def classify_violation(
         self,
         *,
         raw_text: str,
@@ -1123,6 +1482,8 @@ class AgentRunner:
 
         return None
 
+    _classify_violation = classify_violation  # compat alias
+
     @classmethod
     def _ssrf_soft_payload(cls, raw_text: str) -> str:
         text = raw_text.strip() or "Error: request blocked by SSRF guard"
@@ -1132,7 +1493,7 @@ class AgentRunner:
     def _event_detail(prefix: str, text: str, limit: int = 160) -> str:
         return (prefix + text.replace("\n", " ").strip())[:limit]
 
-    async def _emit_checkpoint(
+    async def emit_checkpoint(
         self,
         spec: AgentRunSpec,
         payload: dict[str, Any],
@@ -1141,8 +1502,10 @@ class AgentRunner:
         if callback is not None:
             await callback(payload)
 
+    _emit_checkpoint = emit_checkpoint  # compat alias
+
     @staticmethod
-    def _append_final_message(messages: list[dict[str, Any]], content: str | None) -> None:
+    def append_final_message(messages: list[dict[str, Any]], content: str | None) -> None:
         if not content:
             return
         if (
@@ -1156,6 +1519,8 @@ class AgentRunner:
             return
         messages.append(build_assistant_message(content))
 
+    _append_final_message = append_final_message  # compat alias
+
     @staticmethod
     def _append_model_error_placeholder(messages: list[dict[str, Any]]) -> None:
         if (
@@ -1166,36 +1531,44 @@ class AgentRunner:
             return
         messages.append(build_assistant_message(_PERSISTED_MODEL_ERROR_PLACEHOLDER))
 
-    def _normalize_tool_result(
+    def normalize_tool_result(
         self,
         spec: AgentRunSpec,
         tool_call_id: str,
         tool_name: str,
         result: Any,
     ) -> Any:
-        return self._tool_execution.normalize_tool_result(
+        return self.tool_execution.normalize_tool_result(
             spec, tool_call_id, tool_name, result
         )
 
-    def _apply_tool_result_budget(
+    _normalize_tool_result = normalize_tool_result  # compat alias
+
+    def apply_tool_result_budget(
         self,
         spec: AgentRunSpec,
         messages: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         """Migrated to :class:`ContextGovernanceService` (PR-5b); thin delegation."""
-        return self._context_governance.apply_tool_result_budget(spec, messages)
+        return self.context_governance.apply_tool_result_budget(spec, messages)
 
-    def _snip_history(
+    _apply_tool_result_budget = apply_tool_result_budget  # compat alias
+
+    def snip_history(
         self,
         spec: AgentRunSpec,
         messages: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         """Migrated to :class:`ContextGovernanceService` (PR-5b); thin delegation."""
-        return self._context_governance.snip_history(spec, messages)
+        return self.context_governance.snip_history(spec, messages)
 
-    def _partition_tool_batches(
+    _snip_history = snip_history  # compat alias
+
+    def partition_tool_batches(
         self,
         spec: AgentRunSpec,
         tool_calls: list[ToolCallRequest],
     ) -> list[list[ToolCallRequest]]:
-        return self._tool_execution.partition_tool_batches(spec, tool_calls)
+        return self.tool_execution.partition_tool_batches(spec, tool_calls)
+
+    _partition_tool_batches = partition_tool_batches  # compat alias

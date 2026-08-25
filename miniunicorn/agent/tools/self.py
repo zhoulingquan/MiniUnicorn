@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+from miniunicorn.agent.safety_policy import RiskLevel
 from miniunicorn.agent.tools.base import Tool
 from miniunicorn.agent.tools.context import ContextAware, RequestContext
 from miniunicorn.agent.tools.runtime_state import RuntimeState
@@ -207,6 +208,10 @@ class MyTool(Tool, ContextAware):
                 "(e.g. changing model), warn the user first."
             )
         return base
+
+    @property
+    def risk_level(self) -> RiskLevel:
+        return RiskLevel.HIGH
 
     @property
     def parameters(self) -> dict[str, Any]:

@@ -34,6 +34,7 @@ from typing import Any
 
 from loguru import logger
 
+from miniunicorn.agent.safety_policy import RiskLevel
 from miniunicorn.agent.tools.base import Tool, tool_parameters
 from miniunicorn.agent.tools.image_generation.config import (
     ImageGenerationConfig,
@@ -251,6 +252,10 @@ class ImageGenerationTool(Tool):
     def exclusive(self) -> bool:
         # 图片生成涉及外部 API + 落盘, 不与其他 side-effect 工具并发
         return True
+
+    @property
+    def risk_level(self) -> RiskLevel:
+        return RiskLevel.MEDIUM
 
     @property
     def importance(self) -> float:

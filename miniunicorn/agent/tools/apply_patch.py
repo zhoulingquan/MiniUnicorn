@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from miniunicorn.agent.safety_policy import RiskLevel
 from miniunicorn.agent.tools.base import tool_parameters
 from miniunicorn.agent.tools.filesystem import _FsTool
 from miniunicorn.agent.tools.schema import (
@@ -137,6 +138,10 @@ class ApplyPatchTool(_FsTool):
     @property
     def importance(self) -> float:
         return 1.0
+
+    @property
+    def risk_level(self) -> RiskLevel:
+        return RiskLevel.HIGH
 
     async def execute(
         self,

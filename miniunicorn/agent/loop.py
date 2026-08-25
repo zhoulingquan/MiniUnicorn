@@ -21,6 +21,7 @@ from miniunicorn.agent.context import ContextBuilder
 from miniunicorn.agent.dispatch import UNIFIED_SESSION_KEY, MessageDispatcher
 from miniunicorn.agent.hook import AgentHook, CompositeHook
 from miniunicorn.agent.memory import Consolidator, Dream, MemoryStore
+from miniunicorn.agent.planning_policy import PlanningMode, PlanningPolicy
 from miniunicorn.agent.progress_hook import AgentProgressHook
 from miniunicorn.agent.provider_registry import ProviderRegistry
 from miniunicorn.agent.response import ResponseAssembler
@@ -104,7 +105,7 @@ def _get_session_turn(host: Any) -> SessionTurnService:
             sessions=getattr(host, "sessions", None),
             workspace=getattr(host, "workspace", None),
             webui_turns=getattr(host, "_webui_turns", None),
-            max_tool_result_chars=getattr(host, "max_tool_result_chars", None),
+            max_tool_result_chars=host.max_tool_result_chars,
         )
         try:
             host.__dict__["_session_turn"] = service
@@ -131,6 +132,7 @@ class AgentLoopConfig:
     context_window_tokens: int | None = None
     context_block_limit: int | None = None
     max_tool_result_chars: int | None = None
+    max_tool_result_tokens: int | None = None
     provider_retry_mode: str = "standard"
     tool_hint_max_length: int | None = None
     cron_service: "CronService | None" = None
@@ -153,6 +155,26 @@ class AgentLoopConfig:
     preset_snapshot_loader: "preset_helpers.PresetSnapshotLoader | None" = None
     runtime_model_publisher: "Callable[[str, str | None], None] | None" = None
     structured_memory_config: StructuredMemoryConfig | None = None
+    use_planner: bool = False
+    planner_model: str | None = None
+    planner_max_replans: int = 3
+    # Explicit PlanningPolicy (P1). When set, AgentLoop derives
+    # use_planner/planner_model/planner_max_replans from it instead.
+    planning_policy: PlanningPolicy | None = None
+    enable_reflection: bool = False
+    reflection_interval: int = 5
+    max_input_tokens_per_turn: int | None = None
+    max_cost_per_turn_usd: float | None = None
+    # P2-T3 tiered per-turn ceilings; resolved by planning mode when the
+    # explicit fields above are unset.
+    managed_max_input_tokens_per_turn: int | None = None
+    managed_max_cost_per_turn_usd: float | None = None
+    fast_max_input_tokens_per_turn: int | None = None
+    fast_max_cost_per_turn_usd: float | None = None
+    max_turn_wall_time_s: float | None = None
+    # T1: Tiered max tool iterations per planning mode
+    fast_max_tool_iterations: int | None = None
+    managed_max_tool_iterations: int | None = None
 
 
 class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
@@ -256,21 +278,50 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         return LLMRuntime(self.provider, self.model)
 
     def _build_turn_budget(self):
-        """Construct a fresh TurnBudget for one turn, or None to disable.
+        """Construct a fresh TurnBudget for one turn (P2-T3 tiered resolution).
 
-        Returns None (legacy unbounded behavior) unless either
-        max_input_tokens_per_turn or max_cost_per_turn_usd is set in config.
-        When set, only the configured dimensions are capped; unset dimensions
-        default to None (unlimited) inside TurnBudget.
+        Priority: explicit ``max_input_tokens_per_turn`` /
+        ``max_cost_per_turn_usd`` wins; otherwise the planning-mode tier
+        supplies the ceiling (MANAGED keeps P0 headroom 200k/$5; FAST lowers
+        ordinary-turn ceilings to 80k/$2). Cost tracking is only *required*
+        when the legacy cost field is set explicitly — tiered cost caps stay
+        advisory when the provider does not report cost, so default
+        deployments never hard-fail on missing pricing.
         """
-        if self._max_input_tokens_per_turn is None and self._max_cost_per_turn_usd is None:
-            return None
-        from miniunicorn.agent.turn_budget import TurnBudget
+        from miniunicorn.agent.turn_budget import (
+            DEFAULT_FAST_MAX_COST_USD,
+            DEFAULT_FAST_MAX_INPUT_TOKENS,
+            DEFAULT_MANAGED_MAX_COST_USD,
+            DEFAULT_MANAGED_MAX_INPUT_TOKENS,
+            TurnBudget,
+        )
 
+        managed = self.planning_policy.mode == PlanningMode.MANAGED
+        if self._max_input_tokens_per_turn is not None:
+            max_input = self._max_input_tokens_per_turn
+        elif managed:
+            max_input = self._managed_max_input_tokens_per_turn
+            if max_input is None:
+                max_input = DEFAULT_MANAGED_MAX_INPUT_TOKENS
+        else:
+            max_input = self._fast_max_input_tokens_per_turn
+            if max_input is None:
+                max_input = DEFAULT_FAST_MAX_INPUT_TOKENS
+        if self._max_cost_per_turn_usd is not None:
+            max_cost = self._max_cost_per_turn_usd
+        elif managed:
+            max_cost = self._managed_max_cost_per_turn_usd
+            if max_cost is None:
+                max_cost = DEFAULT_MANAGED_MAX_COST_USD
+        else:
+            max_cost = self._fast_max_cost_per_turn_usd
+            if max_cost is None:
+                max_cost = DEFAULT_FAST_MAX_COST_USD
         return TurnBudget(
-            max_input_tokens=self._max_input_tokens_per_turn,
+            max_input_tokens=max_input,
             max_output_tokens=None,
-            max_cost_usd=self._max_cost_per_turn_usd,
+            max_cost_usd=max_cost,
+            require_cost_tracking=self._max_cost_per_turn_usd is not None,
         )
 
     _RUNTIME_CHECKPOINT_KEY = SessionTurnService._RUNTIME_CHECKPOINT_KEY
@@ -327,9 +378,15 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         )
         self.workspace = workspace
         self.model = cfg.model or self.provider.get_default_model()
-        self.max_iterations = (
-            cfg.max_iterations if cfg.max_iterations is not None else defaults.max_tool_iterations
-        )
+        # T1: Explicit max_iterations wins; otherwise select tier by planning mode
+        if cfg.max_iterations is not None:
+            self.max_iterations = cfg.max_iterations
+        else:
+            managed = cfg.planning_policy.mode == PlanningMode.MANAGED if cfg.planning_policy else cfg.use_planner
+            if managed:
+                self.max_iterations = cfg.managed_max_tool_iterations if cfg.managed_max_tool_iterations is not None else defaults.managed_max_tool_iterations
+            else:
+                self.max_iterations = cfg.fast_max_tool_iterations if cfg.fast_max_tool_iterations is not None else defaults.fast_max_tool_iterations
         self.context_window_tokens = (
             cfg.context_window_tokens
             if cfg.context_window_tokens is not None
@@ -357,27 +414,44 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             else defaults.context_window_tokens
         ) or DEFAULT_CONTEXT_LIMIT
         self.context_block_limit = cfg.context_block_limit
-        self.max_tool_result_chars = (
-            cfg.max_tool_result_chars
-            if cfg.max_tool_result_chars is not None
-            else defaults.max_tool_result_chars
-        )
+        # T4: Token budget primary; chars derived from tokens (chars = tokens * 4).
+        # Builder already applied priority: explicit chars > explicit tokens > default 4000.
+        if cfg.max_tool_result_tokens is not None:
+            self.max_tool_result_tokens = cfg.max_tool_result_tokens
+            self.max_tool_result_chars = cfg.max_tool_result_tokens * 4
+        elif cfg.max_tool_result_chars is not None:
+            self.max_tool_result_chars = cfg.max_tool_result_chars
+            self.max_tool_result_tokens = cfg.max_tool_result_chars // 4
+        else:
+            self.max_tool_result_tokens = 4000
+            self.max_tool_result_chars = 16_000
         self.provider_retry_mode = cfg.provider_retry_mode
         self.tool_hint_max_length = (
             cfg.tool_hint_max_length
             if cfg.tool_hint_max_length is not None
             else defaults.tool_hint_max_length
         )
-        # Plan-and-Execute / Reflection / TurnBudget defaults (all opt-in).
-        # Read from AgentDefaults so users can enable these via YAML config;
-        # all default to False/None, preserving legacy behavior.
-        self.use_planner = getattr(defaults, "use_planner", False)
-        self.planner_model = getattr(defaults, "planner_model", None)
-        self.planner_max_replans = getattr(defaults, "planner_max_replans", 3)
-        self.enable_reflection = getattr(defaults, "enable_reflection", False)
-        self.reflection_interval = getattr(defaults, "reflection_interval", 5)
-        self._max_input_tokens_per_turn = getattr(defaults, "max_input_tokens_per_turn", None)
-        self._max_cost_per_turn_usd = getattr(defaults, "max_cost_per_turn_usd", None)
+        # Execution policies are propagated through the bundle for both
+        # from_config() and legacy direct AgentLoop(...) construction.
+        # PlanningPolicy (P1): an explicitly provided policy wins; otherwise
+        # resolve from the legacy use_planner fields for backward compat.
+        if cfg.planning_policy is not None:
+            self.planning_policy = cfg.planning_policy
+        else:
+            self.planning_policy = PlanningPolicy.from_use_planner(
+                cfg.use_planner, cfg.planner_model, cfg.planner_max_replans
+            )
+        self.use_planner = self.planning_policy.mode == PlanningMode.MANAGED
+        self.planner_model = self.planning_policy.planner_model
+        self.planner_max_replans = self.planning_policy.planner_max_replans
+        self.enable_reflection = cfg.enable_reflection
+        self.reflection_interval = cfg.reflection_interval
+        self._max_input_tokens_per_turn = cfg.max_input_tokens_per_turn
+        self._max_cost_per_turn_usd = cfg.max_cost_per_turn_usd
+        self._managed_max_input_tokens_per_turn = cfg.managed_max_input_tokens_per_turn
+        self._managed_max_cost_per_turn_usd = cfg.managed_max_cost_per_turn_usd
+        self._fast_max_input_tokens_per_turn = cfg.fast_max_input_tokens_per_turn
+        self._fast_max_cost_per_turn_usd = cfg.fast_max_cost_per_turn_usd
         self.tools_config = _tc
         self.web_config = _tc.web
         self.exec_config = _tc.exec
@@ -498,6 +572,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                 refresh_provider_snapshot=self._refresh_provider_snapshot,
                 resolve_agent_override=self._resolve_agent_override,
                 process_system_message=self._process_system_message,
+                build_turn_budget=self._build_turn_budget,
             )
         )
 
@@ -1083,6 +1158,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                     use_planner=self.use_planner,
                     planner_model=self.planner_model,
                     planner_max_replans=self.planner_max_replans,
+                    planning_policy=self.planning_policy,
                     enable_reflection=self.enable_reflection,
                     reflection_interval=self.reflection_interval,
                     turn_budget=self._build_turn_budget(),

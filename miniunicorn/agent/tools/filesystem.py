@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from miniunicorn.agent.safety_policy import RiskLevel
 from miniunicorn.agent.tools.base import Tool, tool_parameters
 from miniunicorn.agent.tools.file_state import FileStates, _hash_file, current_file_states
 from miniunicorn.agent.tools.path_utils import resolve_workspace_path, verify_workspace_path
@@ -470,6 +471,10 @@ class WriteFileTool(_FsTool):
     def importance(self) -> float:
         return 1.0
 
+    @property
+    def risk_level(self) -> RiskLevel:
+        return RiskLevel.HIGH
+
     async def execute(
         self, path: str | None = None, content: str | None = None, **kwargs: Any
     ) -> str:
@@ -821,6 +826,10 @@ class EditFileTool(_FsTool):
     @property
     def importance(self) -> float:
         return 1.0
+
+    @property
+    def risk_level(self) -> RiskLevel:
+        return RiskLevel.HIGH
 
     @staticmethod
     def _strip_trailing_ws(text: str) -> str:

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from miniunicorn.agent.agent_generator import AgentGenerator, extract_name
+from miniunicorn.agent.safety_policy import RiskLevel
 from miniunicorn.agent.tools.base import Tool, tool_parameters
 from miniunicorn.agent.tools.schema import ObjectSchema, StringSchema
 
@@ -90,6 +91,10 @@ class CreateAgentTool(Tool):
             "Returns the generated agent name and a preview of the content. "
             "If an agent with the same name already exists, it is overwritten."
         )
+
+    @property
+    def risk_level(self) -> RiskLevel:
+        return RiskLevel.HIGH
 
     async def execute(
         self,

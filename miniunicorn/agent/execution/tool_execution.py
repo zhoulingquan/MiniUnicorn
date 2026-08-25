@@ -14,11 +14,14 @@ runner reference it is constructed with.
 from __future__ import annotations
 
 import asyncio
+import time
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+from miniunicorn.agent.safety_policy import RiskLevel, SafetyPolicy
+from miniunicorn.agent.tool_checkpoint import ToolCheckpoint
 from miniunicorn.providers.base import ToolCallRequest
 from miniunicorn.utils.file_edit_events import (
     build_file_edit_end_event,
@@ -49,6 +52,7 @@ class ToolExecutionCoordinator:
 
     def __init__(self, runner: AgentRunner) -> None:
         self._runner = runner
+        self._safety = SafetyPolicy()
 
     def build_tool_result_messages(
         self,
@@ -80,6 +84,8 @@ class ToolExecutionCoordinator:
         tool_calls: list[ToolCallRequest],
         external_lookup_counts: dict[str, int],
         workspace_violation_counts: dict[str, int],
+        *,
+        step_id: int | None = None,
     ) -> tuple[list[Any], list[dict[str, str]], BaseException | None]:
         batches = self.partition_tool_batches(spec, tool_calls)
         tool_results: list[tuple[Any, dict[str, str], BaseException | None]] = []
@@ -92,6 +98,7 @@ class ToolExecutionCoordinator:
                             tool_call,
                             external_lookup_counts,
                             workspace_violation_counts,
+                            step_id=step_id,
                         )
                         for tool_call in batch
                     )
@@ -105,6 +112,7 @@ class ToolExecutionCoordinator:
                         tool_call,
                         external_lookup_counts,
                         workspace_violation_counts,
+                        step_id=step_id,
                     )
                     tool_results.append(result)
                     batch_results.append(result)
@@ -120,6 +128,50 @@ class ToolExecutionCoordinator:
         return results, events, fatal_error
 
     async def run_tool(
+        self,
+        spec: AgentRunSpec,
+        tool_call: ToolCallRequest,
+        external_lookup_counts: dict[str, int],
+        workspace_violation_counts: dict[str, int],
+        *,
+        step_id: int | None = None,
+    ) -> tuple[Any, dict[str, str], BaseException | None]:
+        get_tool = getattr(spec.tools, "get", None)
+        tool = get_tool(tool_call.name) if callable(get_tool) else None
+        verdict = self._safety.evaluate(tool_call.name, tool)
+        if verdict.risk_level is RiskLevel.HIGH:
+            logger.warning("HIGH-risk tool '{}' in {}", tool_call.name, spec.session_key)
+        start = time.perf_counter()
+        result, event, error = await self._run_tool_impl(
+            spec,
+            tool_call,
+            external_lookup_counts,
+            workspace_violation_counts,
+        )
+        duration_ms = (time.perf_counter() - start) * 1000
+        if spec.checkpoint_callback is not None:
+            summary = ""
+            if result is not None:
+                summary = str(result).replace("\n", " ").strip()
+                if len(summary) > 200:
+                    summary = summary[:200]
+            checkpoint = ToolCheckpoint(
+                tool_call_id=tool_call.id,
+                tool_name=tool_call.name,
+                intent=dict(tool_call.arguments) if tool_call.arguments else {},
+                result_summary=summary,
+                status=event.get("status", "ok"),
+                duration_ms=duration_ms,
+                step_id=step_id,
+                risk_level=verdict.risk_level.value,
+            )
+            await self._runner.emit_checkpoint(
+                spec,
+                {"phase": "tool_completed", "tool_checkpoint": checkpoint.to_dict()},
+            )
+        return result, event, error
+
+    async def _run_tool_impl(
         self,
         spec: AgentRunSpec,
         tool_call: ToolCallRequest,
@@ -154,7 +206,7 @@ class ToolExecutionCoordinator:
                 "status": "error",
                 "detail": prep_error.split(": ", 1)[-1][:120],
             }
-            handled = self._runner._classify_violation(
+            handled = self._runner.classify_violation(
                 raw_text=prep_error,
                 soft_payload=prep_error + hint,
                 event=event,
@@ -218,7 +270,7 @@ class ToolExecutionCoordinator:
                 "detail": str(exc),
             }
             payload = f"Error: {type(exc).__name__}: {exc}"
-            handled = self._runner._classify_violation(
+            handled = self._runner.classify_violation(
                 raw_text=str(exc),
                 # Preserve legacy exception payloads without the retry hint.
                 soft_payload=payload,
@@ -246,7 +298,7 @@ class ToolExecutionCoordinator:
                 "status": "error",
                 "detail": result.replace("\n", " ").strip()[:120],
             }
-            handled = self._runner._classify_violation(
+            handled = self._runner.classify_violation(
                 raw_text=result,
                 soft_payload=result + hint,
                 event=event,

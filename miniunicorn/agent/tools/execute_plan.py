@@ -1,8 +1,10 @@
-"""Execute a plan by spawning subagents per step.
+"""Delegate independent steps to parallel subagents.
 
-This tool bridges the Planner and SubagentManager: it takes a plan (list of
-steps), spawns a subagent for each step, and collects results. Supports
-parallel (no dependencies) and serial (chain results) execution.
+This tool enables parallel delegation: it takes a plan (list of steps),
+spawns a subagent for each step, and collects results. Use ONLY when
+steps are independent and parallel execution pays off. For dependent
+multi-step work, execute steps in the main conversation loop instead.
+In 'serial' mode each step's result is passed to the next step.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ from typing import Any
 
 from loguru import logger
 
+from miniunicorn.agent.safety_policy import RiskLevel
 from miniunicorn.agent.tools.base import Tool, tool_parameters
 from miniunicorn.agent.tools.context import ContextAware, RequestContext
 from miniunicorn.agent.tools.schema import StringSchema, tool_parameters_schema
@@ -37,7 +40,7 @@ from miniunicorn.security.workspace_access import current_workspace_scope
     )
 )
 class ExecutePlanTool(Tool, ContextAware):
-    """Execute a plan by spawning one subagent per step."""
+    """Delegate independent steps to parallel subagents, one subagent per step."""
 
     _scopes = {"core"}  # Not available to subagents (avoid recursion)
 
@@ -62,17 +65,24 @@ class ExecutePlanTool(Tool, ContextAware):
 
     @property
     def name(self) -> str:
-        return "execute_plan"
+        return "delegate_plan"
+
+    @property
+    def aliases(self) -> tuple[str, ...]:
+        return ("execute_plan",)
 
     @property
     def description(self) -> str:
         return (
-            "Execute a multi-step plan by spawning one subagent per step. "
-            "Each step runs as an independent subagent. In 'serial' mode, "
-            "each step's result is passed to the next step as context. "
-            "In 'parallel' mode, all steps run simultaneously. "
-            "Use after decomposing a complex task. Returns a structured summary."
+            "Delegate independent steps to parallel subagents, one subagent per step. "
+            "Use ONLY when steps are independent and parallel execution pays off. "
+            "For dependent multi-step work, execute steps in the main conversation loop instead. "
+            "In 'serial' mode each step's result is passed to the next step."
         )
+
+    @property
+    def risk_level(self) -> RiskLevel:
+        return RiskLevel.HIGH
 
     def _detect_mode(self, steps: list[dict]) -> str:
         """Auto-detect execution mode from step actions."""

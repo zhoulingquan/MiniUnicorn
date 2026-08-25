@@ -9,6 +9,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 
+from miniunicorn.agent.safety_policy import RiskLevel
 from miniunicorn.agent.tools.base import Tool, tool_parameters
 from miniunicorn.agent.tools.context import current_request_session_key
 from miniunicorn.agent.tools.schema import (
@@ -421,6 +422,10 @@ class WriteStdinTool(Tool):
     @property
     def exclusive(self) -> bool:
         return True
+
+    @property
+    def risk_level(self) -> RiskLevel:
+        return RiskLevel.HIGH
 
     @property
     def name(self) -> str:
