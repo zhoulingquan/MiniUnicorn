@@ -17,6 +17,11 @@ import os
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any
 
+from miniunicorn.agent.call_ledger import (
+    CallPurpose,
+    allow_call_ledger_child_tasks,
+    call_purpose,
+)
 from miniunicorn.agent.hook import AgentHook, AgentHookContext
 from miniunicorn.providers.base import LLMResponse
 from miniunicorn.utils.file_edit_events import StreamingFileEditTracker
@@ -87,7 +92,9 @@ class ModelRequestExecutor:
         kwargs = self.build_request_kwargs(
             spec,
             messages,
-            tools=spec.tools.get_definitions(),
+            tools=spec.effective_tool_definitions
+            if spec.effective_tool_definitions is not None
+            else spec.tools.get_definitions(),
         )
         wants_streaming = hook.wants_streaming()
         wants_progress_streaming = (
@@ -175,11 +182,13 @@ class ModelRequestExecutor:
         # because total elapsed time exceeded MINIUNICORN_LLM_TIMEOUT_S.
         outer_timeout_s = None if (wants_streaming or wants_progress_streaming) else timeout_s
         try:
-            response = (
-                await coro
-                if outer_timeout_s is None
-                else await asyncio.wait_for(coro, timeout=outer_timeout_s)
-            )
+            async with call_purpose(CallPurpose.EXECUTOR):
+                with allow_call_ledger_child_tasks():
+                    response = (
+                        await coro
+                        if outer_timeout_s is None
+                        else await asyncio.wait_for(coro, timeout=outer_timeout_s)
+                    )
             if live_file_edits is not None:
                 await live_file_edits.flush()
                 if response.should_execute_tools:
@@ -216,7 +225,8 @@ class ModelRequestExecutor:
         retry_messages = list(messages)
         retry_messages.append(build_finalization_retry_message())
         kwargs = self.build_request_kwargs(spec, retry_messages, tools=None)
-        return await self._runner.provider.chat_with_retry(**kwargs)
+        async with call_purpose(CallPurpose.FINALIZATION):
+            return await self._runner.provider.chat_with_retry(**kwargs)
 
     @staticmethod
     def usage_dict(usage: dict[str, Any] | None) -> dict[str, int]:

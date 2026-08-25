@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
+from miniunicorn.agent.call_ledger import CallPurpose, call_purpose
 from miniunicorn.utils.prompt_templates import render_template
 
 if TYPE_CHECKING:
@@ -53,24 +54,25 @@ async def evaluate_response(
     that important messages are never silently dropped.
     """
     try:
-        llm_response = await provider.chat_with_retry(
-            messages=[
-                {"role": "system", "content": render_template("agent/evaluator.md", part="system")},
-                {
-                    "role": "user",
-                    "content": render_template(
-                        "agent/evaluator.md",
-                        part="user",
-                        task_context=task_context,
-                        response=response,
-                    ),
-                },
-            ],
-            tools=_EVALUATE_TOOL,
-            model=model,
-            max_tokens=256,
-            temperature=0.0,
-        )
+        async with call_purpose(CallPurpose.TOOL):
+            llm_response = await provider.chat_with_retry(
+                messages=[
+                    {"role": "system", "content": render_template("agent/evaluator.md", part="system")},
+                    {
+                        "role": "user",
+                        "content": render_template(
+                            "agent/evaluator.md",
+                            part="user",
+                            task_context=task_context,
+                            response=response,
+                        ),
+                    },
+                ],
+                tools=_EVALUATE_TOOL,
+                model=model,
+                max_tokens=256,
+                temperature=0.0,
+            )
 
         if not llm_response.should_execute_tools:
             if llm_response.has_tool_calls:

@@ -22,6 +22,7 @@ from typing import Any
 
 from loguru import logger
 
+from miniunicorn.agent.call_ledger import CallPurpose, call_purpose
 from miniunicorn.utils.prompt_templates import render_template
 
 # Hard cap on reflection text length to keep reflections.jsonl compact.
@@ -137,28 +138,29 @@ class Reflection:
         try:
             # Build a compact context from recent messages (last 6)
             recent = self._format_recent_messages(messages[-6:])
-            response = await self.provider.chat_with_retry(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": render_template(
-                            "agent/reflection_system.md",
-                            strip=True,
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": (
-                            f"## Trigger\n{trigger} (iteration {iteration})\n\n"
-                            f"## What Happened\n{context_summary[:500]}\n\n"
-                            f"## Recent Conversation\n{recent}"
-                        ),
-                    },
-                ],
-                tools=None,
-                tool_choice=None,
-            )
+            async with call_purpose(CallPurpose.REFLECTION):
+                response = await self.provider.chat_with_retry(
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": render_template(
+                                "agent/reflection_system.md",
+                                strip=True,
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": (
+                                f"## Trigger\n{trigger} (iteration {iteration})\n\n"
+                                f"## What Happened\n{context_summary[:500]}\n\n"
+                                f"## Recent Conversation\n{recent}"
+                            ),
+                        },
+                    ],
+                    tools=None,
+                    tool_choice=None,
+                )
             reflection_text = (response.content or "").strip()
             reflection_text = self._parse_structured_response(reflection_text)
             # Truncate to keep file compact

@@ -344,6 +344,7 @@
 | `refresh_provider_snapshot` | 可调用 | `self._refresh_provider_snapshot` |
 | `resolve_agent_override` | 可调用 | `self._resolve_agent_override` |
 | `process_system_message` | 可调用 | `self._process_system_message` |
+| `build_turn_budget` | `Callable[[], TurnBudget \| None]` | `self._build_turn_budget` |
 
 > 晚绑定说明:测试在构造后替换 `loop._run_agent_loop` / `loop._schedule_background` /
 > `loop.context.build_messages` 等,故所有可调用字段均在调用时经 lambda / 方法体
@@ -446,4 +447,31 @@
 - [x] Session 写点收敛至 `SessionWriteService`(例外已声明)
 - [x] mixin 三文件(`_state_machine` / `_mcp_lifecycle` / `_provider_switching`)保留 re-export——测试仍 import,处置依据 Phase 3 验收记录
 - [x] import-linter 与 codex 移植:按方案纪律独立决策,未实施
+
+### 8.6 Lean ReAct Kernel P0
+
+- `AgentLoopConfig` 是执行策略配置的单一传播入口；`usePlanner=false` 保持 FAST
+  ReAct 默认路径，`usePlanner=true` 是全局 managed opt-in，不包含复杂度分类器或
+  FAST→MANAGED 动态升级。
+- `turn_orchestrator.py` 在状态机进入前创建并绑定一个 context-local
+  `CallLedger`；`AgentRunner.run()` 复用活动 ledger，直接调用时才建立独立 ledger。
+  因此并发 turn/runner 不共享计数，异常与取消均由 async context manager 恢复上下文。
+- provider 的 `chat_with_retry` / `chat_stream_with_retry` 是唯一计账边界：一次逻辑
+  调用在重试完成后只记录最终响应一次。planner、replan、executor、reflection、
+  compact/memory、tool 与 finalization 通过 `CallPurpose` 标注，全部进入同一 turn
+  budget。
+- 配置 USD 上限时采用 fail-closed 语义：provider 未报告 `cost_usd` 且没有该模型
+  pricing 时，budget 返回 `cost_tracking_unavailable`，不会把未知成本静默当作 0。
+- ledger 绑定到创建 turn 的 asyncio task；普通子任务继承到的 ContextVar 不获得父
+  ledger 写权限。仅 Python 3.11 `wait_for` 包装和 periodic reflection 可显式继承写
+  权，且只在父 binding 仍活动时有效。subagent runner 会建立自己的 ledger，迟到的
+  fire-and-forget reflection 与 post-turn consolidation 不会污染已完成 usage 快照。
+- `Planner.create_plan()` / `replan()` 返回 `PlannerResult`。只有 `VALID` 结果进入
+  managed 执行；缺失/非法 JSON、无有效 steps 或 provider 异常返回带稳定 error code
+  的 `FALLBACK`，执行退回 FAST。replan 精确允许 `max_replans` 次 provider 尝试，
+  有效替换计划继承计数并前置已完成历史；耗尽仍以 `plan_failed` 终止。
+- `ContextGovernor` 从 `BUILTIN_PIPELINE` 逐项实例化内置策略，包括 snip 后重复的
+  orphan/backfill 清理；仅插件名称与内置名称去重。
+- P1/P2 明确延期：不新增任务复杂度 router、classifier LLM call、verifier LLM
+  call 或其它自适应路由策略。
 

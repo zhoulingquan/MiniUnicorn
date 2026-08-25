@@ -1408,6 +1408,52 @@ at once. If your provider can handle more parallel work, raise the limit:
 | `agents.defaults.maxConcurrentSubagents` | `1` | Maximum number of spawned subagents that may run at the same time. Attempts to spawn beyond this limit return an error. |
 
 
+## Execution Policy and Turn Budgets
+
+MiniUnicorn uses the lean FAST ReAct loop by default. Set `usePlanner` to `true`
+only when every turn should opt into managed plan-and-execute mode:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "usePlanner": true,
+      "plannerModel": "deepseek/deepseek-chat",
+      "plannerMaxReplans": 2,
+      "enableReflection": false,
+      "reflectionInterval": 5,
+      "maxInputTokensPerTurn": 120000,
+      "maxCostPerTurnUsd": 0.25
+    }
+  }
+}
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `agents.defaults.usePlanner` | `false` | Global managed-mode opt-in. `false` preserves the FAST ReAct loop. |
+| `agents.defaults.plannerModel` | `null` | Model used for planning and replanning; `null` reuses the active execution model. |
+| `agents.defaults.plannerMaxReplans` | `3` | Maximum replan provider attempts per managed turn. |
+| `agents.defaults.enableReflection` | `false` | Enables periodic and failure-triggered reflection calls. |
+| `agents.defaults.reflectionInterval` | `5` | Iterations between periodic reflections when reflection is enabled. |
+| `agents.defaults.maxInputTokensPerTurn` | `null` | Optional cumulative input-token limit across every model call in the turn. |
+| `agents.defaults.maxCostPerTurnUsd` | `null` | Optional cumulative USD cost limit across every model call in the turn. |
+
+Turn limits cover planner, replan, executor, compaction/memory, reflection, tool,
+and finalization model calls. Provider retries contribute only the final response
+once. Periodic reflection counts only when it completes before the owning turn
+closes; late fire-and-forget work cannot mutate a completed turn snapshot. A
+configured USD limit fails closed with `cost_tracking_unavailable` when
+the provider reports neither `cost_usd` nor model pricing; MiniUnicorn never
+silently treats an unknown cost as zero. If planning output is missing or malformed, MiniUnicorn records a stable
+diagnostic code and falls back to FAST mode instead of executing a fabricated
+managed plan.
+
+P0 does not classify task complexity or dynamically escalate FAST turns into
+managed mode. Any future adaptive routing, classifier, or verifier policy is a
+separate P1/P2 decision.
+
+
 ## Auto Compact
 
 When a user is idle for longer than a configured threshold, MiniUnicorn **proactively** compresses the older part of the session context into a summary while keeping a recent legal suffix of live messages. This reduces token cost and first-token latency when the user returns — instead of re-processing a long stale context with an expired KV cache, the model receives a compact summary, the most recent live context, and fresh input.

@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from loguru import logger
 
+from miniunicorn.agent.call_ledger import CallLedger, bind_call_ledger
 from miniunicorn.agent.tools.message import MessageTool
 from miniunicorn.bus.events import InboundMessage, OutboundMessage
 from miniunicorn.session.webui_turns import mark_webui_session
@@ -41,6 +42,7 @@ if TYPE_CHECKING:
     from miniunicorn.agent.session_turn import SessionTurnService
     from miniunicorn.agent.subagent_registry import SubagentDefinition
     from miniunicorn.agent.tools.registry import ToolRegistry
+    from miniunicorn.agent.turn_budget import TurnBudget
     from miniunicorn.config.schema import ChannelsConfig
     from miniunicorn.security.workspace_access import WorkspaceScope
     from miniunicorn.session.manager import Session, SessionManager
@@ -109,6 +111,8 @@ class TurnContext:
     # ``_run_agent_loop`` combines these with the loop-level ``_extra_hooks``
     # so the SDK no longer needs to mutate shared state for concurrent runs.
     turn_hooks: list["AgentHook"] = field(default_factory=list)
+    # Per-turn call ledger for LLM usage accounting and budget enforcement.
+    call_ledger: CallLedger | None = None
 
 
 @dataclass
@@ -149,6 +153,7 @@ class TurnDeps:
     refresh_provider_snapshot: Callable[[], None]
     resolve_agent_override: Callable[[InboundMessage], SubagentDefinition | None]
     process_system_message: Callable[..., Awaitable[OutboundMessage | None]]
+    build_turn_budget: Callable[[], TurnBudget | None]
 
 
 class TurnOrchestrator:
@@ -190,14 +195,16 @@ class TurnOrchestrator:
         self._deps.refresh_provider_snapshot()
 
         if msg.channel == "system":
-            return await self._deps.process_system_message(
-                msg,
-                session_key=session_key,
-                on_progress=on_progress,
-                on_stream=on_stream,
-                on_stream_end=on_stream_end,
-                pending_queue=pending_queue,
-            )
+            ledger = CallLedger(budget=self._deps.build_turn_budget())
+            async with bind_call_ledger(ledger):
+                return await self._deps.process_system_message(
+                    msg,
+                    session_key=session_key,
+                    on_progress=on_progress,
+                    on_stream=on_stream,
+                    on_stream_end=on_stream_end,
+                    pending_queue=pending_queue,
+                )
 
         key = session_key or msg.session_key
         ctx = TurnContext(
@@ -214,51 +221,55 @@ class TurnOrchestrator:
             turn_hooks=list(turn_hooks or []),
         )
 
-        while ctx.state is not TurnState.DONE:
-            handler_name = f"_state_{ctx.state.name.lower()}"
-            handler = getattr(self, handler_name, None)
-            if handler is None:
-                raise RuntimeError(f"Missing state handler for {ctx.state}")
+        ledger = CallLedger(budget=self._deps.build_turn_budget())
+        ctx.call_ledger = ledger
 
-            t0 = time.perf_counter()
-            try:
-                event = await handler(ctx)
-            except Exception:
+        async with bind_call_ledger(ledger):
+            while ctx.state is not TurnState.DONE:
+                handler_name = f"_state_{ctx.state.name.lower()}"
+                handler = getattr(self, handler_name, None)
+                if handler is None:
+                    raise RuntimeError(f"Missing state handler for {ctx.state}")
+
+                t0 = time.perf_counter()
+                try:
+                    event = await handler(ctx)
+                except Exception:
+                    duration = (time.perf_counter() - t0) * 1000
+                    ctx.trace.append(
+                        StateTraceEntry(
+                            state=ctx.state,
+                            started_at=t0,
+                            duration_ms=duration,
+                            event="",
+                            error="exception",
+                        )
+                    )
+                    raise
+
                 duration = (time.perf_counter() - t0) * 1000
                 ctx.trace.append(
                     StateTraceEntry(
                         state=ctx.state,
                         started_at=t0,
                         duration_ms=duration,
-                        event="",
-                        error="exception",
+                        event=event,
                     )
                 )
-                raise
-
-            duration = (time.perf_counter() - t0) * 1000
-            ctx.trace.append(
-                StateTraceEntry(
-                    state=ctx.state,
-                    started_at=t0,
-                    duration_ms=duration,
-                    event=event,
+                logger.debug(
+                    "[turn {}] State {} took {:.1f}ms -> event {}",
+                    ctx.turn_id,
+                    ctx.state.name,
+                    duration,
+                    event,
                 )
-            )
-            logger.debug(
-                "[turn {}] State {} took {:.1f}ms -> event {}",
-                ctx.turn_id,
-                ctx.state.name,
-                duration,
-                event,
-            )
 
-            next_state = self._TRANSITIONS.get((ctx.state, event))
-            if next_state is None:
-                raise RuntimeError(
-                    f"[turn {ctx.turn_id}] No transition from {ctx.state} on event {event!r}"
-                )
-            ctx.state = next_state
+                next_state = self._TRANSITIONS.get((ctx.state, event))
+                if next_state is None:
+                    raise RuntimeError(
+                        f"[turn {ctx.turn_id}] No transition from {ctx.state} on event {event!r}"
+                    )
+                ctx.state = next_state
 
         logger.debug(
             "[turn {}] Turn completed after {} states",

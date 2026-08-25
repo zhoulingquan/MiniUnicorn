@@ -37,33 +37,35 @@ def _make_tool(
     """构造带 mock provider/aggregator 的 DeepResearchTool。
 
     - provider_responses: 按 _llm_chat 调用顺序依次返回(Plan/Reflect/Write)
-    - provider_raises: provider.chat 抛指定异常
+    - provider_raises: provider.chat_with_retry 抛指定异常
     - search_results: aggregator.search 固定返回这些结果
     """
+    # Disable fetch to avoid real HTTP calls in tests
     cfg = config or DeepResearchConfig(
         max_queries=5,
         initial_queries=3,
         enable_reflect=True,
         reflect_rounds=1,
         overall_timeout_s=30,
+        enable_fetch=False,
     )
     ws_cfg = WebSearchConfig()
 
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
     if provider_raises is not None:
-        provider.chat = AsyncMock(side_effect=provider_raises)
+        provider.chat_with_retry = AsyncMock(side_effect=provider_raises)
     else:
         # 用迭代器按顺序返回不同响应
         responses = list(provider_responses or [])
         llm_responses = [LLMResponse(content=r) for r in responses]
 
-        async def _chat(*args, **kwargs):
+        async def _chat_with_retry(*args, **kwargs):
             if llm_responses:
                 return llm_responses.pop(0)
             return LLMResponse(content="")
 
-        provider.chat = AsyncMock(side_effect=_chat)
+        provider.chat_with_retry = AsyncMock(side_effect=_chat_with_retry)
 
     tool = DeepResearchTool(
         config=cfg,
@@ -220,7 +222,7 @@ async def test_reflect_rounds_multiple_iterations():
         # Write
         return LLMResponse(content="## Report")
 
-    provider.chat = AsyncMock(side_effect=_chat)
+    provider.chat_with_retry = AsyncMock(side_effect=_chat)
 
     tool = DeepResearchTool(config=cfg, web_search_config=ws_cfg, provider=provider, model="m")
 
@@ -270,7 +272,7 @@ async def test_reflect_rounds_stops_on_sufficient():
         # Write
         return LLMResponse(content="## Report")
 
-    provider.chat = AsyncMock(side_effect=_chat)
+    provider.chat_with_retry = AsyncMock(side_effect=_chat)
 
     tool = DeepResearchTool(config=cfg, web_search_config=ws_cfg, provider=provider, model="m")
 
@@ -316,7 +318,7 @@ async def test_reflect_rounds_stops_on_budget_exhausted():
         # Write
         return LLMResponse(content="## Report")
 
-    provider.chat = AsyncMock(side_effect=_chat)
+    provider.chat_with_retry = AsyncMock(side_effect=_chat)
 
     tool = DeepResearchTool(config=cfg, web_search_config=ws_cfg, provider=provider, model="m")
 
@@ -370,7 +372,7 @@ async def test_write_llm_failure_returns_explicit_error():
         # Write 失败
         raise RuntimeError("write API error")
 
-    provider.chat = AsyncMock(side_effect=_chat)
+    provider.chat_with_retry = AsyncMock(side_effect=_chat)
 
     tool = DeepResearchTool(config=cfg, web_search_config=ws_cfg, provider=provider, model="m")
 
@@ -413,7 +415,7 @@ async def test_reflect_llm_failure_does_not_block_write():
             raise RuntimeError("reflect API error")  # Reflect 失败
         return LLMResponse(content="## Report")  # Write
 
-    provider.chat = AsyncMock(side_effect=_chat)
+    provider.chat_with_retry = AsyncMock(side_effect=_chat)
 
     tool = DeepResearchTool(config=cfg, web_search_config=ws_cfg, provider=provider, model="m")
 
@@ -463,7 +465,7 @@ async def test_all_searches_fail_returns_error():
 
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
-    provider.chat = AsyncMock(return_value=LLMResponse(content=json.dumps(["q1", "q2"])))
+    provider.chat_with_retry = AsyncMock(return_value=LLMResponse(content=json.dumps(["q1", "q2"])))
 
     tool = DeepResearchTool(config=cfg, web_search_config=ws_cfg, provider=provider, model="m")
 

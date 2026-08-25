@@ -2,7 +2,10 @@
 MiniUnicorn - A lightweight AI agent framework
 """
 
-import tomllib
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib
 from functools import lru_cache
 from pathlib import Path
 

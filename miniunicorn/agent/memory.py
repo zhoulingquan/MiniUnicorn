@@ -20,6 +20,7 @@ import tiktoken
 from filelock import FileLock
 from loguru import logger
 
+from miniunicorn.agent.call_ledger import CallPurpose, call_purpose
 from miniunicorn.agent.memory_jsonl_import import (
     LegacyJournalImportError,
     migrate_legacy_journal,
@@ -1269,21 +1270,22 @@ class Consolidator:
                     f"{formatted}\n\n## Agent Scratchpad Notes (from notes.md)\n{notes_content}"
                 )
             formatted = self._truncate_to_token_budget(formatted)
-            response = await self.provider.chat_with_retry(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": render_template(
-                            "agent/consolidator_archive.md",
-                            strip=True,
-                        ),
-                    },
-                    {"role": "user", "content": formatted},
-                ],
-                tools=None,
-                tool_choice=None,
-            )
+            async with call_purpose(CallPurpose.COMPACT):
+                response = await self.provider.chat_with_retry(
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": render_template(
+                                "agent/consolidator_archive.md",
+                                strip=True,
+                            ),
+                        },
+                        {"role": "user", "content": formatted},
+                    ],
+                    tools=None,
+                    tool_choice=None,
+                )
             if response.finish_reason == "error":
                 raise RuntimeError(f"LLM returned error: {response.content}")
             summary = response.content or "[no summary]"
@@ -1946,15 +1948,16 @@ class Dream:
             allowed_scope_hints=", ".join(kind.value for kind in scope_by_hint),
         )
         try:
-            response = await self.provider.chat_with_retry(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                tools=None,
-                tool_choice=None,
-            )
+            async with call_purpose(CallPurpose.MEMORY):
+                response = await self.provider.chat_with_retry(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    tools=None,
+                    tool_choice=None,
+                )
         except Exception:
             logger.exception("memory_dream_batch_failed code=phase1_provider_error")
             return False

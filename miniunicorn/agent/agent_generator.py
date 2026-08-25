@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
+from miniunicorn.agent.call_ledger import CallPurpose, call_purpose
+
 if TYPE_CHECKING:
     from miniunicorn.providers.base import LLMProvider
 
@@ -39,7 +41,7 @@ _AVAILABLE_TOOLS = (
     "deep_research",
     "apply_patch",
     "spawn",
-    "execute_plan",
+    "delegate_plan",
     "cron",
     "message",
     "complete_goal",
@@ -197,13 +199,14 @@ class AgentGenerator:
         ]
 
         model = self._model or self._provider.get_default_model()
-        response = await self._provider.chat(
-            messages=messages,
-            tools=None,
-            model=model,
-            max_tokens=2048,
-            temperature=0.3,
-        )
+        async with call_purpose(CallPurpose.TOOL):
+            response = await self._provider.chat_with_retry(
+                messages=messages,
+                tools=None,
+                model=model,
+                max_tokens=2048,
+                temperature=0.3,
+            )
 
         raw = (response.content or "").strip()
         if not raw:

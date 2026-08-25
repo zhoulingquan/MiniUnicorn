@@ -619,7 +619,7 @@ class LLMProvider(ABC):
             on_thinking_delta=on_thinking_delta,
             on_tool_call_delta=on_tool_call_delta,
         )
-        return await self._run_with_retry(
+        response = await self._run_with_retry(
             self._safe_chat_stream,
             kw,
             messages,
@@ -627,6 +627,19 @@ class LLMProvider(ABC):
             on_retry_wait=on_retry_wait,
             should_retry_guard=lambda: not has_streamed_content,
         )
+
+        # Record the ledger once with the final response
+        from miniunicorn.agent.call_ledger import current_call_ledger
+
+        ledger = current_call_ledger()
+        if ledger is not None:
+            ledger.record(
+                model=model or self.get_default_model(),
+                usage=response.usage,
+                finish_reason=response.finish_reason,
+            )
+
+        return response
 
     async def chat_with_retry(
         self,
@@ -665,13 +678,26 @@ class LLMProvider(ABC):
             reasoning_effort=reasoning_effort,
             tool_choice=tool_choice,
         )
-        return await self._run_with_retry(
+        response = await self._run_with_retry(
             self._safe_chat,
             kw,
             messages,
             retry_mode=retry_mode,
             on_retry_wait=on_retry_wait,
         )
+
+        # Record the ledger once with the final response
+        from miniunicorn.agent.call_ledger import current_call_ledger
+
+        ledger = current_call_ledger()
+        if ledger is not None:
+            ledger.record(
+                model=model or self.get_default_model(),
+                usage=response.usage,
+                finish_reason=response.finish_reason,
+            )
+
+        return response
 
     @classmethod
     def _extract_retry_after(cls, content: str | None) -> float | None:
