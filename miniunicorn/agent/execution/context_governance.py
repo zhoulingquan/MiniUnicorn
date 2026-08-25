@@ -56,15 +56,20 @@ class ContextGovernanceService:
         try:
             from miniunicorn.agent.context_governor import GovernanceContext
 
-            governor = self._runner._get_governor(spec)
+            governor = self._runner.get_governor(spec)
+            pressure = self.compute_pressure(spec, messages)
             ctx_gov = GovernanceContext(
                 spec=spec,
                 tools=spec.tools,
                 provider=self._runner.provider,
                 iteration=iteration,
                 runner=self._runner,
+                pressure=pressure,
             )
-            return governor.govern(messages, ctx_gov)
+            governed = governor.govern(messages, ctx_gov)
+            if pressure is not None:
+                self._record_prompt_telemetry(spec, governed, pressure)
+            return governed
         except Exception:
             logger.exception(
                 "Context governance failed on turn {} for {}; using raw messages",
@@ -73,21 +78,127 @@ class ContextGovernanceService:
             )
             return messages
 
+    _COMPACTION_MARKERS = (
+        "result omitted from context",
+        "[Tool result unavailable",
+    )
+
+    def _record_prompt_telemetry(
+        self,
+        spec: AgentRunSpec,
+        messages: list[dict[str, Any]],
+        pressure: Any,
+    ) -> None:
+        from miniunicorn.agent import turn_telemetry
+
+        telemetry = turn_telemetry.current()
+        if telemetry is None:
+            return
+        telemetry.governance_pressure = pressure
+        telemetry.prompt_components = self.compute_prompt_components(spec, messages)
+
+    def compute_prompt_components(self, spec: AgentRunSpec, messages: list[dict[str, Any]]) -> Any:
+        """Estimate per-component prompt tokens (approximate, telemetry-only)."""
+        import json
+
+        from miniunicorn.agent.turn_telemetry import PromptComponentTokens
+
+        system_tokens = 0
+        history_tokens = 0
+        compacted_tokens = 0
+        for message in messages:
+            tokens = estimate_message_tokens(message)
+            role = message.get("role")
+            if role == "system":
+                system_tokens += tokens
+                continue
+            history_tokens += tokens
+            content = message.get("content")
+            if (
+                role == "tool"
+                and isinstance(content, str)
+                and any(marker in content for marker in self._COMPACTION_MARKERS)
+            ):
+                compacted_tokens += tokens
+        tool_tokens = 0
+        try:
+            definitions = (
+                spec.effective_tool_definitions
+                if getattr(spec, "effective_tool_definitions", None) is not None
+                else spec.tools.get_definitions()
+            )
+            if definitions:
+                tool_tokens = len(json.dumps(definitions, ensure_ascii=False)) // 4
+        except Exception:
+            tool_tokens = 0
+        return PromptComponentTokens(
+            system_prompt=system_tokens,
+            tool_definitions=tool_tokens,
+            conversation_history=history_tokens - compacted_tokens,
+            step_guidance=0,
+            reflection_context=0,
+            compacted_context=compacted_tokens,
+            total_estimated=system_tokens + tool_tokens + history_tokens,
+        )
+
+    def compute_pressure(
+        self,
+        spec: AgentRunSpec,
+        messages: list[dict[str, Any]],
+    ) -> Any | None:
+        """Estimate prompt pressure relative to the context window budget."""
+        from miniunicorn.agent.context_governor import PressureLevel, PressureSignal
+
+        token_limit = spec.context_window_tokens
+        if not token_limit:
+            return None
+
+        estimated, _ = estimate_prompt_tokens_chain(
+            self._runner.provider,
+            spec.model,
+            messages,
+            spec.tools.get_definitions(),
+        )
+        if estimated <= 0:
+            return None
+
+        ratio = estimated / token_limit
+        level = (
+            PressureLevel.RED
+            if ratio >= 0.8
+            else (PressureLevel.YELLOW if ratio >= 0.5 else PressureLevel.GREEN)
+        )
+        return PressureSignal(estimated, token_limit, ratio, level)
+
     def apply_tool_result_budget(
         self,
         spec: AgentRunSpec,
         messages: list[dict[str, Any]],
+        *,
+        pressure_level: Any | None = None,
     ) -> list[dict[str, Any]]:
+        from miniunicorn.agent.context_governor import PressureLevel
+        from miniunicorn.utils.helpers import truncate_text
+
+        max_chars = spec.max_tool_result_chars
+        if pressure_level is PressureLevel.RED:
+            max_chars = max_chars // 2
         updated = messages
         for idx, message in enumerate(messages):
             if message.get("role") != "tool":
                 continue
-            normalized = self._runner._normalize_tool_result(
+            normalized = self._runner.tool_execution.normalize_tool_result(
                 spec,
                 str(message.get("tool_call_id") or f"tool_{idx}"),
                 str(message.get("name") or "tool"),
                 message.get("content"),
             )
+            if (
+                pressure_level is PressureLevel.RED
+                and isinstance(normalized, str)
+                and len(normalized) > max_chars
+            ):
+                normalized = truncate_text(normalized, max_chars)
             if normalized != message.get("content"):
                 if updated is messages:
                     updated = [dict(m) for m in messages]

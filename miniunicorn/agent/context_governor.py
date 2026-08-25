@@ -10,12 +10,32 @@ entry point group.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from enum import Enum
 from importlib.metadata import entry_points
 from typing import Any, Protocol, runtime_checkable
 
 from loguru import logger
 
 from miniunicorn.agent.tools.registry import ToolRegistry
+
+
+class PressureLevel(str, Enum):
+    """Context pressure tier used by governance strategies."""
+
+    GREEN = "green"  # ratio < 0.5
+    YELLOW = "yellow"  # 0.5 <= ratio < 0.8
+    RED = "red"  # ratio >= 0.8
+
+
+@dataclass(frozen=True, slots=True)
+class PressureSignal:
+    """Estimated prompt pressure relative to the turn budget."""
+
+    input_tokens: int
+    token_limit: int
+    ratio: float
+    level: PressureLevel
 
 
 @runtime_checkable
@@ -47,7 +67,7 @@ class GovernanceContext:
     can delegate to its existing private methods.
     """
 
-    __slots__ = ("spec", "tools", "provider", "iteration", "_runner")
+    __slots__ = ("spec", "tools", "provider", "iteration", "_runner", "pressure")
 
     def __init__(
         self,
@@ -56,12 +76,14 @@ class GovernanceContext:
         provider: Any,
         iteration: int,
         runner: Any | None = None,
+        pressure: PressureSignal | None = None,
     ) -> None:
         self.spec = spec
         self.tools = tools
         self.provider = provider
         self.iteration = iteration
         self._runner = runner
+        self.pressure = pressure
 
 
 class ContextGovernor:
@@ -82,6 +104,7 @@ class ContextGovernor:
         "microcompact",
         "apply_tool_result_budget",
         "snip_history",
+        "schema_crop",
         # cleanup pass after snip
         "drop_orphan_tool_results",
         "backfill_missing_tool_results",
@@ -98,6 +121,7 @@ class ContextGovernor:
     def _load_default_strategies(cls) -> list[ContextStrategy]:
         """Load built-in strategies plus any registered plugins."""
         # Imported lazily to avoid circular import with AgentRunner
+        from miniunicorn.agent.context_strategies.schema_crop import SchemaCropStrategy
         from miniunicorn.agent.runner_strategies import (
             ApplyToolResultBudgetStrategy,
             BackfillMissingStrategy,
@@ -106,15 +130,17 @@ class ContextGovernor:
             SnipHistoryStrategy,
         )
 
-        builtins: list[ContextStrategy] = [
-            DropOrphanStrategy(),
-            BackfillMissingStrategy(),
-            MicrocompactStrategy(),
-            ApplyToolResultBudgetStrategy(),
-            SnipHistoryStrategy(),
-        ]
+        factories = {
+            "drop_orphan_tool_results": DropOrphanStrategy,
+            "backfill_missing_tool_results": BackfillMissingStrategy,
+            "microcompact": MicrocompactStrategy,
+            "apply_tool_result_budget": ApplyToolResultBudgetStrategy,
+            "snip_history": SnipHistoryStrategy,
+            "schema_crop": SchemaCropStrategy,
+        }
+        builtins: list[ContextStrategy] = [factories[name]() for name in cls.BUILTIN_PIPELINE]
         # Merge plugin strategies (by name; plugin never overrides builtin)
-        builtin_names = {s.name for s in builtins}
+        builtin_names = set(cls.BUILTIN_PIPELINE)
         for ep in entry_points(group="miniunicorn.context_strategies"):
             try:
                 strategy_cls = ep.load()

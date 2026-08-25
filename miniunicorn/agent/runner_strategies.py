@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from miniunicorn.agent.context_governor import GovernanceContext
+from miniunicorn.agent.context_governor import GovernanceContext, PressureLevel
 from miniunicorn.agent.tools.registry import ToolRegistry
 
 # ---------------------------------------------------------------------------
@@ -198,6 +198,9 @@ class MicrocompactStrategy(_RunnerBoundStrategy):
     name = "microcompact"
 
     def apply(self, messages, ctx):
+        # P2-T1: skip compaction when pressure is GREEN (no compaction needed).
+        if ctx.pressure is not None and ctx.pressure.level is PressureLevel.GREEN:
+            return messages
         return microcompact(messages, ctx.tools)
 
 
@@ -205,8 +208,9 @@ class ApplyToolResultBudgetStrategy(_RunnerBoundStrategy):
     name = "apply_tool_result_budget"
 
     def apply(self, messages, ctx):
-        return self._runner(ctx)._context_governance.apply_tool_result_budget(
-            ctx.spec, messages
+        pressure_level = ctx.pressure.level if ctx.pressure else None
+        return self._runner(ctx).context_governance.apply_tool_result_budget(
+            ctx.spec, messages, pressure_level=pressure_level
         )
 
 
@@ -214,4 +218,6 @@ class SnipHistoryStrategy(_RunnerBoundStrategy):
     name = "snip_history"
 
     def apply(self, messages, ctx):
-        return self._runner(ctx)._context_governance.snip_history(ctx.spec, messages)
+        if ctx.pressure is not None and ctx.pressure.level is PressureLevel.GREEN:
+            return messages
+        return self._runner(ctx).context_governance.snip_history(ctx.spec, messages)

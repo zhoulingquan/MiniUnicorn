@@ -19,12 +19,34 @@ from typing import Any
 
 
 @dataclass
+class PromptComponentTokens:
+    """Estimated per-component prompt tokens for the current iteration.
+
+    Estimates are approximate (char-to-token heuristics) and are used for
+    telemetry and pressure signals only, never billing.
+    """
+
+    system_prompt: int = 0
+    tool_definitions: int = 0
+    conversation_history: int = 0
+    step_guidance: int = 0          # managed-plan step guidance (P1)
+    reflection_context: int = 0
+    compacted_context: int = 0      # compacted tool results carved out of history
+    total_estimated: int = 0
+
+
+@dataclass
 class TurnTelemetry:
     """Usage / iteration telemetry scoped to a single dispatched turn."""
 
     usage: dict[str, int] = field(default_factory=dict)
     last_call_usage: dict[str, int] = field(default_factory=dict)
     iteration: int = 0
+    # P2-T2: per-component prompt estimates + governance pressure, set by
+    # ContextGovernanceService after each governance pass. Typed Any to avoid
+    # a circular import with miniunicorn.agent.context_governor.
+    prompt_components: PromptComponentTokens | None = None
+    governance_pressure: Any | None = None
 
 
 _current: ContextVar[TurnTelemetry | None] = ContextVar("turn_telemetry", default=None)
