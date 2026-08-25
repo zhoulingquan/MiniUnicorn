@@ -328,6 +328,11 @@ class AgentDefaults(Base):
         validation_alias=AliasChoices("maxTurnWallTimeS"),
         serialization_alias="maxTurnWallTimeS",
     )  # Per-turn wall-clock limit in seconds (None = unlimited)
+    enable_step_verifier: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("enableStepVerifier"),
+        serialization_alias="enableStepVerifier",
+    )  # Enable LLM verifier fallback when step acceptance rules are inconclusive
     dream: DreamConfig = Field(default_factory=DreamConfig)
     structured_memory: StructuredMemoryConfig = Field(default_factory=StructuredMemoryConfig)
 

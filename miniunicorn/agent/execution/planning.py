@@ -270,13 +270,32 @@ class PlanningReflectionService:
             return False
 
         policy = StepAcceptancePolicy()
-        evidence = policy.evaluate(
-            step=completed_step,
-            tool_calls=tool_calls or [],
-            tool_results=tool_results or [],
-            final_content=clean,
-            iterations_used=completed_step.iterations_used,
-        )
+
+        # Initialize verifier cache on plan if not present
+        if not hasattr(plan, "_verifier_cache"):
+            plan._verifier_cache = {}
+
+        # Use verifier-enabled evaluation when spec provides the config
+        if spec is not None and getattr(spec, "enable_step_verifier", False):
+            evidence = await policy.evaluate_with_verifier(
+                step=completed_step,
+                tool_calls=tool_calls or [],
+                tool_results=tool_results or [],
+                final_content=clean,
+                iterations_used=completed_step.iterations_used,
+                provider=self._runner.provider,
+                model=spec.model,
+                enable_verifier=True,
+                step_evidence_cache=plan._verifier_cache,
+            )
+        else:
+            evidence = policy.evaluate(
+                step=completed_step,
+                tool_calls=tool_calls or [],
+                tool_results=tool_results or [],
+                final_content=clean,
+                iterations_used=completed_step.iterations_used,
+            )
         plan.step_evidence.append(evidence)
 
         if not evidence.accepted:

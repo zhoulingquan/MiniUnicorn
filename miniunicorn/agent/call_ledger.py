@@ -24,6 +24,7 @@ class CallPurpose(str, Enum):
     FINALIZATION = "finalization"
     MEMORY = "memory"
     TOOL = "tool"
+    VERIFIER = "verifier"
     UNCLASSIFIED = "unclassified"
 
     def __str__(self) -> str:

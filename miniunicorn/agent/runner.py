@@ -130,6 +130,8 @@ class AgentRunSpec:
     # with stop_reason="turn_timeout" once the deadline is reached.
     # None = unlimited (P0 behavior).
     max_turn_wall_time_s: float | None = None
+    # T5: Enable LLM verifier fallback when step acceptance rules are inconclusive.
+    enable_step_verifier: bool = False
 
 
 @dataclass(slots=True)

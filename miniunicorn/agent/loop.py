@@ -175,6 +175,8 @@ class AgentLoopConfig:
     # T1: Tiered max tool iterations per planning mode
     fast_max_tool_iterations: int | None = None
     managed_max_tool_iterations: int | None = None
+    # T5: Enable LLM verifier fallback for step acceptance
+    enable_step_verifier: bool = False
 
 
 class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):

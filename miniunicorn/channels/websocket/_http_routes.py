@@ -18,11 +18,10 @@ import re
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from loguru import logger
 from websockets.datastructures import Headers
 from websockets.http11 import Request as WsRequest
 from websockets.http11 import Response
-
-from loguru import logger
 
 from miniunicorn.channels.websocket._chunked_header import (  # noqa: F401 — re-exported for channel.py
     _collect_chunked_header,

@@ -289,6 +289,10 @@ class AgentLoopBuilder:
         self._kwargs["max_turn_wall_time_s"] = max_turn_wall_time_s
         return self
 
+    def with_enable_step_verifier(self, enable_step_verifier: bool) -> AgentLoopBuilder:
+        self._kwargs["enable_step_verifier"] = enable_step_verifier
+        return self
+
     def with_extra(self, **kwargs: Any) -> AgentLoopBuilder:
         """追加任意关键字参数(用于注入服务对象或新增参数)。
 
@@ -388,6 +392,7 @@ class AgentLoopBuilder:
         builder.with_fast_max_tool_iterations(defaults.fast_max_tool_iterations)
         builder.with_managed_max_tool_iterations(defaults.managed_max_tool_iterations)
         builder.with_max_turn_wall_time_s(defaults.max_turn_wall_time_s)
+        builder.with_enable_step_verifier(defaults.enable_step_verifier)
         builder.with_restrict_to_workspace(config.tools.restrict_to_workspace)
         builder.with_mcp_servers(config.tools.mcp_servers)
         builder.with_channels_config(config.channels)

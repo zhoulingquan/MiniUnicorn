@@ -173,6 +173,8 @@ ignore = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+timeout = 600
+timeout_method = "thread"
 
 [tool.coverage.run]
 source = ["miniunicorn"]

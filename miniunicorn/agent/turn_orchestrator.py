@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from loguru import logger
 
+from miniunicorn.agent import turn_telemetry
 from miniunicorn.agent.call_ledger import CallLedger, bind_call_ledger
 from miniunicorn.agent.tools.message import MessageTool
 from miniunicorn.bus.events import InboundMessage, OutboundMessage
@@ -276,6 +277,19 @@ class TurnOrchestrator:
             ctx.turn_id,
             len(ctx.trace),
         )
+        telemetry = turn_telemetry.current()
+        if telemetry is not None and telemetry.prompt_components is not None:
+            pc = telemetry.prompt_components
+            pressure_level = telemetry.governance_pressure.level if telemetry.governance_pressure else "unknown"
+            logger.info(
+                "prompt telemetry: sys={} tools={} history={} compacted={} total={} pressure={}",
+                pc.system_prompt,
+                pc.tool_definitions,
+                pc.conversation_history,
+                pc.compacted_context,
+                pc.total_estimated,
+                pressure_level,
+            )
         return ctx.outbound
 
     # -- RESTORE --------------------------------------------------------------

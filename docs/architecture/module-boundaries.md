@@ -228,6 +228,36 @@
   与并发模型冲突;本阶段仅迁移写入位置不改语义,Phase 6 改为 per-turn 上下文数据
   (webui turn_end 事件字段不变)。
 
+### 2.15 agent/safety(SafetyPolicy)
+
+- 位置:`miniunicorn/agent/safety.py`
+- 公开 API:`SafetyPolicy`(class),`RiskLevel`(enum: `LOW` / `MEDIUM` / `HIGH` / `CRITICAL`),`assess_risk(tool_name, args, context) -> RiskLevel`,`should_block(risk: RiskLevel) -> bool`,`should_require_approval(risk: RiskLevel) -> bool`。
+- 拥有的状态:风险规则表(内置,可通过配置扩展)、审批回调注册表。
+- 生命周期所有者:`composition`(构建 `AgentLoop` 时注入 `AgentRunner`)。
+- 依赖方向:依赖 `config`(读取安全策略配置)、`security/workspace_access`(路径越权判定);不 import `agent/loop`、`agent/execution`。
+- 边界说明:风险分级**独立于规划复杂度**。`SafetyPolicy` 仅根据工具名、参数、工作区上下文评估单次调用的风险等级,不关心当前是 FAST 还是 MANAGED 模式,也不参与 `usePlanner`/升级决策。规划层在生成计划时可调用 `assess_risk` 做前置过滤,但最终拦截/审批在工具执行入口(`ToolExecutionCoordinator.execute_tools`)统一执行,保证策略单一入口。
+
+### 2.16 agent/planning(PlanningPolicy)
+
+- 位置:`miniunicorn/agent/planning.py`
+- 公开 API:`PlanningPolicy`(class),`ExecutionMode`(enum: `FAST` / `MANAGED`),`select_mode(config, turn_context) -> ExecutionMode`,`should_upgrade(turn_context) -> bool`,`build_upgrade_context(turn_context) -> UpgradeContext`。
+- 拥有的状态:模式选择规则(含运行时升级判定)、`max_replans` 计数器(仅 MANAGED 模式生效)。
+- 生命周期所有者:`composition`(经 `AgentRunner` 持有,`PlanningReflectionService` 回调使用)。
+- 依赖方向:依赖 `config`(读取 `usePlanner`、`plannerMaxReplans`、分层预算等)、`agent/execution/recovery.py`(复用空响应重试计数);不 import `agent/loop`、具体 provider。
+- 边界说明:
+  1. **FAST/MANAGED 选择**: `usePlanner=true` 直接进入 MANAGED; `false` 走 FAST,但受运行时升级规则影响。
+  2. **运行时升级**: 连续 **2 个 turn** 无工具响应(模型直接产出文本) → 下一 turn 自动升级为 MANAGED;升级**每 turn 至多一次**,MANAGED turn 结束后重置,下一 turn 重新评估。此规则在 `PlanningPolicy.should_upgrade` 实现,由 `TurnOrchestrator` 在状态机进入前调用。
+  3. **与 SafetyPolicy 解耦**: 升级判定不读取风险等级;风险拦截在工具执行层,规划层只管模式切换与重规划预算。
+
+### 2.17 agent/delegation(delegate_plan)
+
+- 位置:`miniunicorn/agent/delegation.py`(原 `execute_plan.py`,别名兼容)
+- 公开 API:`delegate_plan(steps: list[PlanStep], runner: AgentRunner, context: TurnContext) -> list[StepResult]`,兼容导出 `execute_plan = delegate_plan`。
+- 拥有的状态:无自有可变状态;纯函数式编排,依赖 `runner` 运行子步骤。
+- 生命周期:随调用方(`PlanningReflectionService` 在 MANAGED 执行阶段调用)同生同灭。
+- 依赖方向:依赖 `agent/execution/model_request.py`(`ModelRequestExecutor`)、`agent/execution/tool_execution.py`(`ToolExecutionCoordinator`)、`agent/execution/context_governance.py`(`ContextGovernanceService`);不 import `agent/loop`。
+- 语义变更:原 `execute_plan` 语义为**串行**执行计划步骤。新 `delegate_plan` 语义为**并行委派独立步骤**——将无数据依赖的步骤打包为独立子任务并发执行,有依赖的步骤仍保序。别名 `execute_plan = delegate_plan` 保留向后兼容,既有调用方零改动;新代码应直接用 `delegate_plan` 以表达并行委派意图。
+
 ---
 
 ## 3. 生命周期与启动/关闭顺序(gateway)

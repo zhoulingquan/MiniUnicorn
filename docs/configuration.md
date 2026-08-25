@@ -1436,8 +1436,16 @@ only when every turn should opt into managed plan-and-execute mode:
 | `agents.defaults.plannerMaxReplans` | `3` | Maximum replan provider attempts per managed turn. |
 | `agents.defaults.enableReflection` | `false` | Enables periodic and failure-triggered reflection calls. |
 | `agents.defaults.reflectionInterval` | `5` | Iterations between periodic reflections when reflection is enabled. |
-| `agents.defaults.maxInputTokensPerTurn` | `null` | Optional cumulative input-token limit across every model call in the turn. |
-| `agents.defaults.maxCostPerTurnUsd` | `null` | Optional cumulative USD cost limit across every model call in the turn. |
+| `agents.defaults.maxInputTokensPerTurn` | `null` | Optional cumulative input-token limit across every model call in the turn (overrides tiered defaults). |
+| `agents.defaults.maxCostPerTurnUsd` | `null` | Optional cumulative USD cost limit across every model call in the turn (overrides tiered defaults). |
+| `agents.defaults.maxTurnWallTimeS` | `null` | Per-turn wall-clock limit in seconds (`None` = unlimited). |
+| `agents.defaults.fastMaxToolIterations` | `50` | FAST-mode tool iteration ceiling (lower ordinary-turn ceiling). |
+| `agents.defaults.managedMaxToolIterations` | `200` | MANAGED-mode tool iteration ceiling. |
+| `agents.defaults.maxToolResultTokens` | `4000` | Max tokens per tool result. `maxToolResultChars` (deprecated, default `16000`) takes precedence if explicitly set. |
+| `agents.defaults.fastMaxInputTokensPerTurn` | `80000` | FAST-mode input token ceiling (lower ordinary-turn ceiling). |
+| `agents.defaults.managedMaxInputTokensPerTurn` | `null` | MANAGED-mode input ceiling (`None` = P0 default 200k). |
+| `agents.defaults.fastMaxCostPerTurnUsd` | `2.0` | FAST-mode cost ceiling (lower ordinary-turn ceiling). |
+| `agents.defaults.managedMaxCostPerTurnUsd` | `null` | MANAGED-mode cost ceiling (`None` = P0 default $5). |
 
 Turn limits cover planner, replan, executor, compaction/memory, reflection, tool,
 and finalization model calls. Provider retries contribute only the final response
@@ -1449,9 +1457,20 @@ silently treats an unknown cost as zero. If planning output is missing or malfor
 diagnostic code and falls back to FAST mode instead of executing a fabricated
 managed plan.
 
+**FAST / MANAGED modes and runtime upgrade.** By default MiniUnicorn runs the
+lean FAST ReAct loop (`usePlanner: false`). When `usePlanner: true`, every turn
+opts into managed plan-and-execute mode. Additionally, FAST turns can be
+upgraded to MANAGED at runtime: if **two consecutive turns** produce **no tool
+responses** (i.e. the model answers directly without calling tools), the next
+turn automatically runs in MANAGED mode. This upgrade happens at most **once per
+turn** — after a managed turn completes, the next turn re-evaluates from FAST
+again. The upgrade is a safety net for tasks that turn out to need planning
+mid-conversation; it does not replace the explicit `usePlanner` opt-in for
+known-complex workloads.
+
 P0 does not classify task complexity or dynamically escalate FAST turns into
-managed mode. Any future adaptive routing, classifier, or verifier policy is a
-separate P1/P2 decision.
+managed mode beyond this upgrade rule. Any future adaptive routing, classifier,
+or verifier policy is a separate P1/P2 decision.
 
 
 ## Auto Compact
