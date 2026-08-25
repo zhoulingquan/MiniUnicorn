@@ -69,12 +69,31 @@ class TurnRecoveryPolicy:
         replans are exhausted we fall through to the normal failure exit.
         """
         if plan is not None and planner is not None and plan.current_step is not None:
+            from miniunicorn.agent import progress_policy as _progress_policy
             from miniunicorn.agent.planner import StepStatus as _StepStatus
 
             failed_step = plan.current_step
             failed_step.status = _StepStatus.FAILED
             failed_step.failure_reason = str(fatal_error)
-            if plan.can_replan:
+            # P1-T4: no-progress detection — repeated failures abort the turn.
+            tracker = state.progress_tracker
+            if tracker is not None:
+                verdict = tracker.check_failure_progress(plan)
+                if verdict.action is _progress_policy.ProgressAction.ABORT:
+                    logger.warning(
+                        "ProgressPolicy: {} after {} failed step(s); aborting turn",
+                        verdict.reason,
+                        len(plan.failed_steps),
+                    )
+                    state.stop_reason = "no_progress"
+            if state.stop_reason == "no_progress":
+                logger.warning(
+                    "Step {} failed; progress policy aborted the turn",
+                    failed_step.id,
+                )
+            elif plan.can_replan:
+                from miniunicorn.agent.planner import PlannerStatus as _PlannerStatus
+
                 logger.info(
                     "Step {} failed ({}); triggering replan {}/{}",
                     failed_step.id,
@@ -82,36 +101,50 @@ class TurnRecoveryPolicy:
                     plan.replan_count + 1,
                     plan.max_replans,
                 )
-                plan = await planner.replan(
+                result = await planner.replan(
                     plan,
                     failed_step,
                     str(fatal_error),
                     planner_task_text or "",
                     planner_tools_summary or "",
                 )
-                # Drain tool-result messages are already appended; the loop
-                # picks up the new plan's first pending step.
                 await hook.after_iteration(context)
-                return "continue", plan
-            logger.warning(
-                "Step {} failed and max_replans reached; failing turn",
-                failed_step.id,
-            )
-            state.stop_reason = "plan_failed"
-        state.error = f"Error: {type(fatal_error).__name__}: {fatal_error}"
-        state.final_content = state.error
-        if state.stop_reason != "plan_failed":
-            state.stop_reason = "tool_error"
-        self._runner._append_final_message(messages, state.final_content)
+                if result.status is _PlannerStatus.VALID:
+                    # Drain tool-result messages are already appended; the loop
+                    # picks up the replacement plan's first pending step.
+                    return "continue", result.plan
+                logger.warning(
+                    "Replan returned fallback {}; continuing in FAST mode",
+                    result.error_code,
+                )
+                return "continue", None
+            else:
+                logger.warning(
+                    "Step {} failed and max_replans reached; failing turn",
+                    failed_step.id,
+                )
+                state.stop_reason = "plan_failed"
+        if state.stop_reason == "no_progress":
+            state.error = "Stopped: repeated plan-step failures with no progress."
+            state.final_content = state.error
+        else:
+            state.error = f"Error: {type(fatal_error).__name__}: {fatal_error}"
+            state.final_content = state.error
+            if state.stop_reason != "plan_failed":
+                state.stop_reason = "tool_error"
+        self._runner.append_final_message(messages, state.final_content)
         context.final_content = state.final_content
         context.error = state.error
         context.stop_reason = state.stop_reason
-        # Reflection: capture lesson learned on fatal tool/plan error.
+        # Reflection: capture lesson learned on fatal tool/plan/no-progress exit.
         if reflection is not None:
+            trigger = "tool_error"
+            if state.stop_reason == "plan_failed":
+                trigger = "plan_failed"
+            elif state.stop_reason == "no_progress":
+                trigger = "no_progress"
             await reflection.reflect(
-                trigger=(
-                    "plan_failed" if state.stop_reason == "plan_failed" else "tool_error"
-                ),
+                trigger=trigger,
                 iteration=iteration,
                 context_summary=state.error,
                 messages=messages,
@@ -135,7 +168,7 @@ class TurnRecoveryPolicy:
     ) -> str:
         """after_iteration + injection drain. Returns "continue" or "break"."""
         await hook.after_iteration(context)
-        should_continue, state.injection_cycles = await self._runner._try_drain_injections(
+        should_continue, state.injection_cycles = await self._runner.try_drain_injections(
             spec,
             messages,
             None,
@@ -190,13 +223,13 @@ class TurnRecoveryPolicy:
         )
         if hook.wants_streaming():
             await hook.on_stream_end(context, resuming=False)
-        response = await self._runner._request_finalization_retry(
+        response = await self._runner.request_finalization_retry(
             spec, messages_for_model
         )
-        retry_usage = self._runner._usage_dict(response.usage)
-        self._runner._accumulate_usage(state.usage, retry_usage)
+        retry_usage = self._runner.usage_dict(response.usage)
+        self._runner.accumulate_usage(state.usage, retry_usage)
         # Budget check: stop early if cumulative usage exceeds limits.
-        _fc, _sr, _err = self._runner._handle_budget_exceeded(
+        _fc, _sr, _err = self._runner.handle_budget_exceeded(
             budget,
             retry_usage,
             spec.model,
@@ -208,10 +241,10 @@ class TurnRecoveryPolicy:
         )
         if _fc is not None:
             state.final_content, state.stop_reason, state.error = _fc, _sr, _err
-            self._runner._append_final_message(messages, state.final_content)
+            self._runner.append_final_message(messages, state.final_content)
             await hook.after_iteration(context)
             return "break", response, raw_usage, clean
-        raw_usage = self._runner._merge_usage(raw_usage, retry_usage)
+        raw_usage = self._runner.merge_usage(raw_usage, retry_usage)
         context.response = response
         context.usage = dict(raw_usage)
         context.tool_calls = list(response.tool_calls)
@@ -274,7 +307,7 @@ class TurnRecoveryPolicy:
                 strip=True,
                 max_iterations=spec.max_iterations,
             )
-        self._runner._append_final_message(messages, state.final_content)
+        self._runner.append_final_message(messages, state.final_content)
         # Reflection: capture lesson learned on max_iterations exhaustion.
         if reflection is not None:
             await reflection.reflect(
@@ -290,7 +323,7 @@ class TurnRecoveryPolicy:
         # independent inbound messages by _dispatch's finally block.
         # We ignore should_continue here because the for-loop has already
         # exhausted all iterations.
-        drained, state.injection_cycles = await self._runner._try_drain_injections(
+        drained, state.injection_cycles = await self._runner.try_drain_injections(
             spec,
             messages,
             None,

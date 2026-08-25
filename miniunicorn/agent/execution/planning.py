@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+from miniunicorn.agent.call_ledger import allow_call_ledger_child_tasks
+
 if TYPE_CHECKING:
     from miniunicorn.agent.hook import AgentHook, AgentHookContext
     from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
@@ -37,6 +39,31 @@ class PlanningReflectionService:
         # 跟踪 reflection 后台任务，避免被 GC 回收
         self._reflection_tasks: set[asyncio.Task] = set()
 
+    async def emit_plan_snapshot(
+        self,
+        spec: AgentRunSpec,
+        plan: Any,
+        turn_id: str,
+        stop_reason: str | None = None,
+    ) -> Any:
+        """Serialize *plan* into a PlanSnapshot and emit it as a checkpoint.
+
+        Returns the created snapshot so callers can keep the latest one on
+        the turn state. The ``plan_snapshot`` checkpoint payload is additive
+        and never replaces existing checkpoint emissions.
+        """
+        from miniunicorn.agent.plan_snapshot import PlanSnapshot
+
+        snapshot = PlanSnapshot.from_plan(plan, turn_id, stop_reason)
+        await self._runner.emit_checkpoint(
+            spec,
+            {
+                "phase": "plan_snapshot",
+                "plan_snapshot": snapshot.to_dict(),
+            },
+        )
+        return snapshot
+
     async def init_planner(
         self, spec: AgentRunSpec
     ) -> tuple[Any, Any, str | None, str | None]:
@@ -45,21 +72,44 @@ class PlanningReflectionService:
         创建计划失败时回退 ReAct-only (planner/plan 均为 None)。Typed as Any
         to avoid importing planner at module load time (keeps runner.py
         import-light).
-        """
-        if not getattr(spec, "use_planner", False):
-            return None, None, None, None
-        from miniunicorn.agent.planner import Planner as _Planner
 
-        planner_model = getattr(spec, "planner_model", None) or spec.model
+        Mode resolution (P1): an explicit ``spec.planning_policy`` takes
+        priority; otherwise fall back to P0's legacy ``use_planner`` flag.
+        ``PlanningMode.FAST`` skips the planner entirely.
+        """
+        from miniunicorn.agent.planning_policy import PlanningMode
+
+        if getattr(spec, "planning_policy", None) is not None:
+            policy_mode = spec.planning_policy.mode
+            planner_model = spec.planning_policy.planner_model or spec.model
+            max_replans = spec.planning_policy.planner_max_replans
+            if policy_mode != PlanningMode.MANAGED:
+                return None, None, None, None
+        elif not getattr(spec, "use_planner", False):
+            return None, None, None, None
+        else:
+            planner_model = getattr(spec, "planner_model", None) or spec.model
+            max_replans = getattr(spec, "planner_max_replans", 3)
+
+        from miniunicorn.agent.planner import Planner as _Planner
+        from miniunicorn.agent.planner import PlannerStatus as _PlannerStatus
+
         planner = _Planner(self._runner.provider, planner_model)
-        task_text = self._runner._extract_task_from_messages(spec.initial_messages)
-        tools_summary = self._runner._build_tools_summary(spec.tools)
+        task_text = self._runner.extract_task_from_messages(spec.initial_messages)
+        tools_summary = self._runner.build_tools_summary(spec.tools)
         try:
-            plan = await planner.create_plan(
+            result = await planner.create_plan(
                 task=task_text,
                 tools_summary=tools_summary,
             )
-            plan.max_replans = getattr(spec, "planner_max_replans", 3)
+            if result.status is not _PlannerStatus.VALID:
+                logger.warning(
+                    "Planner returned fallback {}; using ReAct-only",
+                    result.error_code,
+                )
+                return None, None, task_text, tools_summary
+            plan = result.plan
+            plan.max_replans = max_replans
             logger.info(
                 "Planner produced {} steps for: {}",
                 len(plan.steps),
@@ -84,21 +134,32 @@ class PlanningReflectionService:
             spec.workspace,
         )
 
-    def apply_plan_step_guidance(
-        self, messages_for_model: list[dict[str, Any]], plan: Any
+    async def apply_plan_step_guidance(
+        self,
+        messages_for_model: list[dict[str, Any]],
+        plan: Any,
+        *,
+        spec: AgentRunSpec | None = None,
+        turn_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Mark the current plan step IN_PROGRESS and append step guidance."""
+        """Mark the current plan step IN_PROGRESS and append step guidance.
+
+        When *spec* and *turn_id* are provided, a plan snapshot is emitted
+        after the status transition.
+        """
         from miniunicorn.agent.planner import StepStatus as _StepStatus
 
         step = plan.current_step
         step.status = _StepStatus.IN_PROGRESS
         step.iterations_used += 1
+        if spec is not None and turn_id is not None:
+            await self.emit_plan_snapshot(spec, plan, turn_id)
         guidance = (
             f"\n\n[Current Plan Step {step.id}/{len(plan.steps)}: {step.action}]\n"
             f"Done when: {step.done_criteria or 'step goal achieved'}\n"
             f"Focus on this step. Use tool_hint={step.tool_hint} if applicable."
         )
-        return self._runner._inject_step_guidance(messages_for_model, guidance)
+        return self._runner.inject_step_guidance(messages_for_model, guidance)
 
     def fire_periodic_reflection(
         self,
@@ -116,18 +177,66 @@ class PlanningReflectionService:
         ) != 0:
             return
         # 跟踪 reflection 任务避免被 GC 回收，完成后从集合移除
-        task = asyncio.create_task(
-            reflection.reflect(
-                trigger="periodic",
+        with allow_call_ledger_child_tasks():
+            task = asyncio.create_task(
+                reflection.reflect(
+                    trigger="periodic",
+                    iteration=iteration,
+                    context_summary=f"Periodic reflection at iteration {iteration}",
+                    messages=messages,
+                    session_key=spec.session_key,
+                    user_key=spec.user_key,
+                )
+            )
+        self._reflection_tasks.add(task)
+        task.add_done_callback(self._reflection_tasks.discard)
+
+    # Stop reasons that already have inline reflection in the loop or
+    # recovery path — terminal reflection skips them to avoid duplication.
+    _INLINE_REFLECTED_REASONS = frozenset(
+        {"tool_error", "plan_failed", "no_progress", "error", "max_iterations"}
+    )
+
+    _TERMINAL_TRIGGER_MAP = {
+        "completed": "turn_completed",
+        "budget_exceeded": "budget_exceeded",
+        "turn_timeout": "turn_timeout",
+    }
+
+    async def fire_terminal_reflection(
+        self,
+        reflection: Any | None,
+        spec: AgentRunSpec,
+        state: Any,
+        messages: list[dict[str, Any]],
+        iteration: int,
+    ) -> None:
+        """Fire reflection once after the runner loop exits (P1-T6).
+
+        Only fires for stop reasons that lack inline reflection (completed,
+        budget_exceeded, turn_timeout). Wrapped in try/except so a
+        reflection failure never blocks ``AgentRunResult`` return.
+        """
+        if reflection is None:
+            return
+        reason = state.stop_reason
+        if reason in self._INLINE_REFLECTED_REASONS:
+            return
+        trigger = self._TERMINAL_TRIGGER_MAP.get(reason, reason)
+        try:
+            await reflection.reflect(
+                trigger=trigger,
                 iteration=iteration,
-                context_summary=f"Periodic reflection at iteration {iteration}",
+                context_summary=state.final_content or f"Turn ended: {reason}",
                 messages=messages,
                 session_key=spec.session_key,
                 user_key=spec.user_key,
             )
-        )
-        self._reflection_tasks.add(task)
-        task.add_done_callback(self._reflection_tasks.discard)
+        except Exception:
+            logger.warning(
+                "Terminal reflection failed for {}; result still returned",
+                reason,
+            )
 
     async def complete_plan_step(
         self,
@@ -136,16 +245,56 @@ class PlanningReflectionService:
         hook: AgentHook,
         clean: str | None,
         stop_reason: str,
+        *,
+        spec: AgentRunSpec | None = None,
+        turn_id: str | None = None,
+        tool_calls: list[dict[str, Any]] | None = None,
+        tool_results: list[dict[str, Any]] | None = None,
     ) -> bool:
-        """Mark the current plan step COMPLETED.
+        """Evaluate step evidence and mark COMPLETED if accepted.
 
         Returns True when pending steps remain (continue the loop); False
-        when all steps are done (caller finalizes the turn).
+        when all steps are done (caller finalizes the turn). When *spec*
+        and *turn_id* are provided, a plan snapshot is emitted after the
+        transition — terminal with ``stop_reason="plan_completed"`` when
+        the plan is fully done.
+
+        When evidence is rejected, the step remains IN_PROGRESS and True
+        is returned (more steps remain — the current step still needs work).
         """
         from miniunicorn.agent.planner import StepStatus as _StepStatus
+        from miniunicorn.agent.step_acceptance import StepAcceptancePolicy
 
         completed_step = plan.current_step
+        if completed_step is None:
+            return False
+
+        policy = StepAcceptancePolicy()
+        evidence = policy.evaluate(
+            step=completed_step,
+            tool_calls=tool_calls or [],
+            tool_results=tool_results or [],
+            final_content=clean,
+            iterations_used=completed_step.iterations_used,
+        )
+        plan.step_evidence.append(evidence)
+
+        if not evidence.accepted:
+            logger.info(
+                "Step {} evidence rejected ({}); keeping IN_PROGRESS",
+                completed_step.id,
+                evidence.rejection_reason,
+            )
+            return True
+
         completed_step.status = _StepStatus.COMPLETED
+        if spec is not None and turn_id is not None:
+            await self.emit_plan_snapshot(
+                spec,
+                plan,
+                turn_id,
+                stop_reason="plan_completed" if plan.all_done else None,
+            )
         if plan.current_step is not None:
             logger.info(
                 "Step {} completed ({}); {} steps remaining",
@@ -162,3 +311,16 @@ class PlanningReflectionService:
             completed_step.action,
         )
         return False
+
+    def evaluate_step_progress(self, plan: Any, tracker: Any | None) -> Any | None:
+        """Check managed-plan progress after a step evaluation (P1-T4).
+
+        Feeds the latest ``Plan.step_evidence`` entry (if any) plus the
+        current step into *tracker*. Returns the tracker's
+        ``ProgressVerdict``, or ``None`` when no tracker is attached
+        (FAST mode / legacy ReAct-only turns).
+        """
+        if tracker is None or plan is None:
+            return None
+        evidence = plan.step_evidence[-1] if plan.step_evidence else None
+        return tracker.check_step_progress(plan.current_step, evidence)
