@@ -469,22 +469,40 @@ def gateway(
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    desktop: bool = typer.Option(
+        False,
+        "--desktop",
+        hidden=True,
+        help="Desktop-app mode: private local WebSocket-only gateway",
+    ),
+    webui_port: int = typer.Option(
+        0, "--webui-port", min=0, max=65535, help="Desktop WebUI port (requires --desktop)"
+    ),
+    webui_socket: str | None = typer.Option(
+        None, "--webui-socket", help="Unix socket path for desktop IPC (requires --desktop)"
+    ),
+    token_issue_secret: str | None = typer.Option(
+        None, "--token-issue-secret", help="WebSocket token issue secret (requires --desktop)"
+    ),
 ):
     """Start the MiniUnicorn gateway."""
-    if verbose:
-        logger.remove(_log_handler_id)
-        logger.add(
-            sys.stderr,
-            format=(
-                "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
-                "<level>{level: <5}</level> | "
-                "<cyan>{extra[channel]}</cyan> | "
-                "<level>{message}</level>"
-            ),
-            level="DEBUG",
-            colorize=None,
-            filter=lambda record: record["extra"].setdefault("channel", "-") or True,
+    if desktop:
+        _run_desktop_gateway_mode(
+            webui_port=webui_port,
+            webui_socket=webui_socket,
+            token_issue_secret=token_issue_secret or "",
+            workspace=workspace,
+            config=config,
+            verbose=verbose,
         )
+        return
+    if webui_port or webui_socket or token_issue_secret:
+        console.print(
+            "[yellow]Warning:[/yellow] --webui-port/--webui-socket/--token-issue-secret "
+            "only apply in --desktop mode; ignoring."
+        )
+    if verbose:
+        _reconfigure_verbose_logging()
     cfg = _load_runtime_config(config, workspace)
     _ensure_local_allow_from(cfg)
     _run_gateway(cfg)
@@ -587,20 +605,35 @@ def _configure_desktop_gateway(
     config.channels.__pydantic_extra__ = extras
 
 
-@app.command("desktop-gateway", hidden=True)
-def desktop_gateway(
-    webui_port: int = typer.Option(0, "--webui-port", min=0, max=65535),
-    webui_socket: str | None = typer.Option(
-        None, "--webui-socket", help="Unix socket path for desktop IPC"
-    ),
-    token_issue_secret: str = typer.Option(..., "--token-issue-secret"),
-    workspace: str | None = typer.Option(
-        None, "--workspace", "-w", help="Desktop workspace directory"
-    ),
-    config: str | None = typer.Option(None, "--config", "-c", help="Desktop config file"),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
-):
-    """Start the private local gateway used by MiniUnicorn Desktop."""
+def _reconfigure_verbose_logging() -> None:
+    """Swap the stderr loguru handler to DEBUG-level channel-formatted output."""
+    logger.remove(_log_handler_id)
+    logger.add(
+        sys.stderr,
+        format=(
+            "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
+            "<level>{level: <5}</level> | "
+            "<cyan>{extra[channel]}</cyan> | "
+            "<level>{message}</level>"
+        ),
+        level="DEBUG",
+        colorize=None,
+        filter=lambda record: record["extra"].setdefault("channel", "-") or True,
+    )
+
+
+def _run_desktop_gateway_mode(
+    *,
+    webui_port: int,
+    webui_socket: str | None,
+    token_issue_secret: str,
+    workspace: str | None,
+    config: str | None,
+    verbose: bool,
+) -> None:
+    """Shared implementation of ``gateway --desktop`` (and the deprecated
+    ``desktop-gateway`` alias): force a private local WebSocket configuration,
+    then run the gateway with the native runtime surface capabilities."""
     if not token_issue_secret.strip():
         console.print("[red]Error: --token-issue-secret is required[/red]")
         raise typer.Exit(1)
@@ -608,19 +641,7 @@ def desktop_gateway(
         console.print("[red]Error: --webui-port or --webui-socket is required[/red]")
         raise typer.Exit(1)
     if verbose:
-        logger.remove(_log_handler_id)
-        logger.add(
-            sys.stderr,
-            format=(
-                "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
-                "<level>{level: <5}</level> | "
-                "<cyan>{extra[channel]}</cyan> | "
-                "<level>{message}</level>"
-            ),
-            level="DEBUG",
-            colorize=None,
-            filter=lambda record: record["extra"].setdefault("channel", "-") or True,
-        )
+        _reconfigure_verbose_logging()
     cfg = _load_or_create_desktop_config(config, workspace)
     _configure_desktop_gateway(
         cfg,
@@ -638,6 +659,34 @@ def desktop_gateway(
             "can_open_logs": True,
             "can_export_diagnostics": True,
         },
+    )
+
+
+@app.command("desktop-gateway", hidden=True)
+def desktop_gateway(
+    webui_port: int = typer.Option(0, "--webui-port", min=0, max=65535),
+    webui_socket: str | None = typer.Option(
+        None, "--webui-socket", help="Unix socket path for desktop IPC"
+    ),
+    token_issue_secret: str = typer.Option(..., "--token-issue-secret"),
+    workspace: str | None = typer.Option(
+        None, "--workspace", "-w", help="Desktop workspace directory"
+    ),
+    config: str | None = typer.Option(None, "--config", "-c", help="Desktop config file"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+):
+    """Deprecated alias for ``gateway --desktop``."""
+    console.print(
+        "[yellow]Warning:[/yellow] 'desktop-gateway' is deprecated and will be removed; "
+        "use 'gateway --desktop' instead."
+    )
+    _run_desktop_gateway_mode(
+        webui_port=webui_port,
+        webui_socket=webui_socket,
+        token_issue_secret=token_issue_secret,
+        workspace=workspace,
+        config=config,
+        verbose=verbose,
     )
 
 

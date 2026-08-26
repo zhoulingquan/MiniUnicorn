@@ -1226,6 +1226,101 @@ def test_configure_desktop_gateway_forces_local_websocket_only() -> None:
     assert extras["websocket"]["websocket_requires_token"] is True
 
 
+class _DesktopGatewayProbeError(RuntimeError):
+    pass
+
+
+def _patch_desktop_config_load(monkeypatch, config: Config) -> None:
+    monkeypatch.setattr("miniunicorn.config.loader.set_config_path", lambda _path: None)
+    monkeypatch.setattr("miniunicorn.config.loader.load_config", lambda _path=None: config)
+    monkeypatch.setattr("miniunicorn.config.loader.resolve_config_env_vars", lambda c: c)
+
+
+def _invoke_desktop_gateway(monkeypatch, tmp_path: Path, command: list[str]):
+    from miniunicorn.cli import commands
+
+    config_file = tmp_path / "config.json"
+    config_file.write_text("{}", encoding="utf-8")
+    config = Config()
+    _patch_desktop_config_load(monkeypatch, config)
+
+    seen: dict[str, object] = {}
+
+    def _fake_run_gateway(cfg, **kwargs):
+        seen.update(kwargs)
+        seen["cfg"] = cfg
+        raise _DesktopGatewayProbeError("stop")
+
+    monkeypatch.setattr(commands, "_run_gateway", _fake_run_gateway)
+
+    result = runner.invoke(app, command)
+    return result, seen
+
+
+def test_desktop_gateway_alias_delegates_with_deprecation_notice(monkeypatch, tmp_path) -> None:
+    result, seen = _invoke_desktop_gateway(
+        monkeypatch,
+        tmp_path,
+        [
+            "desktop-gateway",
+            "--webui-port",
+            "29888",
+            "--token-issue-secret",
+            "secret",
+            "--config",
+            str(tmp_path / "config.json"),
+        ],
+    )
+
+    assert isinstance(result.exception, _DesktopGatewayProbeError)
+    assert "deprecated" in result.stdout
+    assert seen["webui_static_dist"] is False
+    assert seen["webui_runtime_surface"] == "native"
+    capabilities = seen["webui_runtime_capabilities"]
+    assert isinstance(capabilities, dict) and capabilities["can_pick_folder"] is True
+    cfg = seen["cfg"]
+    assert isinstance(cfg, Config)
+    assert cfg.gateway.host == "127.0.0.1"
+
+
+def test_gateway_desktop_flag_routes_to_same_runtime(monkeypatch, tmp_path) -> None:
+    result, seen = _invoke_desktop_gateway(
+        monkeypatch,
+        tmp_path,
+        [
+            "gateway",
+            "--desktop",
+            "--webui-socket",
+            "/tmp/miniunicorn-test.sock",
+            "--token-issue-secret",
+            "secret",
+            "--config",
+            str(tmp_path / "config.json"),
+        ],
+    )
+
+    assert isinstance(result.exception, _DesktopGatewayProbeError)
+    assert "deprecated" not in result.stdout
+    assert seen["webui_runtime_surface"] == "native"
+    cfg = seen["cfg"]
+    assert isinstance(cfg, Config)
+    assert cfg.gateway.host == "127.0.0.1"
+
+
+def test_gateway_desktop_requires_token_secret() -> None:
+    result = runner.invoke(app, ["gateway", "--desktop", "--webui-port", "29888"])
+
+    assert result.exit_code == 1
+    assert "--token-issue-secret is required" in result.stdout
+
+
+def test_gateway_desktop_requires_port_or_socket() -> None:
+    result = runner.invoke(app, ["gateway", "--desktop", "--token-issue-secret", "secret"])
+
+    assert result.exit_code == 1
+    assert "--webui-port or --webui-socket is required" in result.stdout
+
+
 def test_serve_uses_api_config_defaults_and_workspace_override(monkeypatch, tmp_path: Path) -> None:
     config_file = _write_instance_config(tmp_path)
     config = Config()
