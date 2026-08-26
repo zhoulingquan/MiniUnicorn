@@ -100,7 +100,11 @@ class ChannelManager:
 
     def _init_channels(self) -> None:
         """Initialize channels discovered via pkgutil scan + entry_points plugins."""
-        from miniunicorn.channels.registry import discover_channel_names, discover_enabled
+        from miniunicorn.channels.registry import (
+            ChannelDependencyError,
+            discover_channel_names,
+            discover_enabled,
+        )
 
         transcription_provider = self.config.channels.transcription_provider
         transcription_key = self._resolve_transcription_key(transcription_provider)
@@ -128,7 +132,19 @@ class ChannelManager:
             ):
                 enabled_names.add(name)
 
-        for name, cls in discover_enabled(enabled_names, _names=names).items():
+        # Strict discovery: an enabled channel whose optional dependencies
+        # (extras) are missing surfaces as a loud startup error with the
+        # matching `pip install` hint, instead of a silently skipped channel.
+        try:
+            discovered = discover_enabled(enabled_names, _names=names)
+        except ChannelDependencyError as e:
+            logger.error("{}", e)
+            # Degrade gracefully: still load the remaining healthy channels
+            # (websocket/WebUI included) so one missing extra doesn't take
+            # the whole gateway down.
+            discovered = discover_enabled(enabled_names, _names=names, strict=False)
+
+        for name, cls in discovered.items():
             section = getattr(self.config.channels, name, None)
             if section is None:
                 continue

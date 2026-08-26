@@ -70,6 +70,38 @@ pdf = [
 olostep = [
     "olostep>=0.1.0",
 ]
+# IM 频道适配器拆分为可选 extras（与 miniunicorn/channels/<name>/ 一一对应）。
+# 本体仅内置 websocket(WebUI)；按需安装，例如: pip install miniunicorn-ai[feishu]
+# 聚合安装全部 IM 适配器: pip install miniunicorn-ai[channels-all]
+feishu = [
+    # channels/feishu/channel.py、_feishu_ws.py 运行时 import lark_oapi
+    "lark-oapi>=1.7.0",
+    # channels/feishu/_registration.py 扫码登录打印二维码(缺失时回退打印链接)
+    "qrcode>=7.0",
+]
+weixin = [
+    # channels/weixin/channel.py CDN 媒体 AES 加解密(优先 pycryptodome,回退 cryptography)
+    "cryptography>=41.0",
+    # channels/weixin/channel.py 登录二维码 ASCII 打印(缺失时回退打印链接)
+    "qrcode>=7.0",
+]
+dingtalk = [
+    # channels/dingtalk/channel.py import dingtalk_stream(DingTalkStreamClient 等)
+    "dingtalk-stream>=0.20",
+]
+qq = [
+    # channels/qq/channel.py 模块级 import aiohttp(媒体上传下载 HTTP 客户端)
+    "aiohttp>=3.9.0,<4.0.0",
+    # channels/qq/channel.py import botpy(QQ 机器人开放平台 SDK, PyPI 名 qq-botpy)
+    "qq-botpy>=1.2",
+]
+wecom = [
+    # channels/wecom/channel.py 运行时 import wecom_aibot_sdk(WSClient 等)
+    "wecom-aibot-sdk>=1.0",
+]
+channels-all = [
+    "miniunicorn-ai[feishu,weixin,dingtalk,qq,wecom]",
+]
 dev = [
     "pytest>=9.0.0,<10.0.0",
     "pytest-asyncio>=1.3.0,<2.0.0",
