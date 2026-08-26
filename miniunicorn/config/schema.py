@@ -14,6 +14,7 @@ from miniunicorn.cron.types import CronSchedule
 if TYPE_CHECKING:
     from miniunicorn.agent.tools.cli_apps import CliAppsToolConfig
     from miniunicorn.agent.tools.deep_research.config import DeepResearchConfig
+    from miniunicorn.agent.tools.exec_session import ExecSessionToolConfig
     from miniunicorn.agent.tools.image_generation.config import ImageGenerationConfig
     from miniunicorn.agent.tools.self import MyToolConfig
     from miniunicorn.agent.tools.shell import ExecToolConfig
@@ -544,6 +545,11 @@ class ToolsConfig(Base, metaclass=_lazy_rebuild_meta(type(Base))):
     exec: ExecToolConfig = Field(
         default_factory=lambda: _lazy_default("miniunicorn.agent.tools.shell", "ExecToolConfig")
     )
+    exec_session: ExecSessionToolConfig = Field(
+        default_factory=lambda: _lazy_default(
+            "miniunicorn.agent.tools.exec_session", "ExecSessionToolConfig"
+        )
+    )
     cli_apps: CliAppsToolConfig = Field(
         default_factory=lambda: _lazy_default(
             "miniunicorn.agent.tools.cli_apps", "CliAppsToolConfig"
@@ -811,6 +817,7 @@ def _resolve_tool_config_refs() -> None:
 
     from miniunicorn.agent.tools.cli_apps import CliAppsToolConfig
     from miniunicorn.agent.tools.deep_research.config import DeepResearchConfig
+    from miniunicorn.agent.tools.exec_session import ExecSessionToolConfig
     from miniunicorn.agent.tools.image_generation.config import ImageGenerationConfig
     from miniunicorn.agent.tools.self import MyToolConfig
     from miniunicorn.agent.tools.shell import ExecToolConfig
@@ -820,6 +827,7 @@ def _resolve_tool_config_refs() -> None:
     # Re-export into this module's namespace
     mod = sys.modules[__name__]
     mod.ExecToolConfig = ExecToolConfig  # type: ignore[attr-defined]
+    mod.ExecSessionToolConfig = ExecSessionToolConfig  # type: ignore[attr-defined]
     mod.CliAppsToolConfig = CliAppsToolConfig  # type: ignore[attr-defined]
     mod.WebToolsConfig = WebToolsConfig  # type: ignore[attr-defined]
     mod.WebFetchConfig = WebFetchConfig  # type: ignore[attr-defined]

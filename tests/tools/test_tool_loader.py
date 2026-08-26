@@ -268,6 +268,77 @@ def test_exec_tool_enabled():
     assert ExecTool.enabled(ctx) is False
 
 
+# --- exec_session gating ---
+
+
+def test_exec_session_config_default_is_enabled():
+    from miniunicorn.config.schema import Config
+
+    config = Config.model_validate({})
+    assert config.tools.exec_session.enabled is True
+    dumped = config.model_dump(mode="json", by_alias=True)
+    assert dumped["tools"]["execSession"]["enabled"] is True
+
+
+def test_exec_session_tools_registered_by_default(tmp_path):
+    """Default config keeps write_stdin / list_exec_sessions in the registry."""
+    from types import SimpleNamespace
+
+    from miniunicorn.agent.tools.registry import ToolRegistry
+    from miniunicorn.config.schema import ToolsConfig
+
+    ctx = ToolContext(
+        config=ToolsConfig(),
+        workspace=str(tmp_path),
+        subagent_manager=SimpleNamespace(),
+    )
+    registry = ToolRegistry()
+    registered = ToolLoader().load(ctx, registry)
+
+    assert "write_stdin" in registered
+    assert "list_exec_sessions" in registered
+
+
+def test_exec_session_tools_not_registered_when_disabled(tmp_path):
+    """execSession.enabled=false removes both tools from the registry."""
+    from types import SimpleNamespace
+
+    from miniunicorn.agent.tools.registry import ToolRegistry
+    from miniunicorn.config.schema import ToolsConfig
+
+    cfg = ToolsConfig()
+    cfg.exec_session.enabled = False
+    ctx = ToolContext(
+        config=cfg,
+        workspace=str(tmp_path),
+        subagent_manager=SimpleNamespace(),
+    )
+    registry = ToolRegistry()
+    registered = ToolLoader().load(ctx, registry)
+
+    assert "write_stdin" not in registered
+    assert "list_exec_sessions" not in registered
+
+
+def test_exec_session_tools_enabled_requires_both_flags():
+    from miniunicorn.agent.tools.exec_session import ListExecSessionsTool, WriteStdinTool
+
+    mock_config = MagicMock()
+    mock_config.exec.enable = True
+    mock_config.exec_session.enabled = False
+    ctx = ToolContext(config=mock_config, workspace="/tmp")
+    assert WriteStdinTool.enabled(ctx) is False
+    assert ListExecSessionsTool.enabled(ctx) is False
+
+    mock_config.exec_session.enabled = True
+    assert WriteStdinTool.enabled(ctx) is True
+    assert ListExecSessionsTool.enabled(ctx) is True
+
+    mock_config.exec.enable = False
+    assert WriteStdinTool.enabled(ctx) is False
+    assert ListExecSessionsTool.enabled(ctx) is False
+
+
 def test_exec_tool_create():
     from miniunicorn.agent.tools.shell import ExecTool
 

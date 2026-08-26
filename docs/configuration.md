@@ -1243,6 +1243,24 @@ The CLI Apps ecosystem — installing and running external CLI applications from
 
 When disabled, the `run_cli_app` tool is not registered, the WebUI `/api/settings/cli-apps*` endpoints report the feature as disabled (actions respond with 403), and the CLI app service under `apps/` is never initialized — zero overhead on gateway startup and message flow.
 
+## Exec Sessions
+
+The `write_stdin` / `list_exec_sessions` tools manage interactive long-running shell sessions created via `exec` with `yieldTimeMs`. They are **enabled by default** (`tools.execSession.enabled: true`). Single-user setups that never use interactive sessions can disable them:
+
+```json
+{
+  "tools": {
+    "execSession": {
+      "enabled": false
+    }
+  }
+}
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `tools.execSession.enabled` | `true` | When `false`, both `write_stdin` and `list_exec_sessions` are omitted from the tool registry at startup. The main `exec` tool is unaffected. Note that setting `tools.exec.enable: false` also removes both session tools, since they operate on sessions created by `exec`. |
+
 ## MCP (Model Context Protocol)
 
 > [!TIP]

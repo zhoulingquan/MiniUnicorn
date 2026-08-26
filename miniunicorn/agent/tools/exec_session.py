@@ -18,6 +18,7 @@ from miniunicorn.agent.tools.schema import (
     StringSchema,
     tool_parameters_schema,
 )
+from miniunicorn.config.schema import Base
 
 DEFAULT_YIELD_MS = 1000
 MAX_YIELD_MS = 30_000
@@ -25,6 +26,18 @@ DEFAULT_WAIT_FOR_MS = 10_000
 MAX_WAIT_FOR_MS = 120_000
 DEFAULT_MAX_OUTPUT_CHARS = 10_000
 MAX_OUTPUT_CHARS = 50_000
+
+
+class ExecSessionToolConfig(Base):
+    """Configuration for the interactive exec-session tools.
+
+    ``enabled`` gates registration of ``write_stdin`` and
+    ``list_exec_sessions``. It defaults to ``True`` so existing setups keep
+    their current tool set; set it to ``false`` to omit both tools from the
+    registry (the main ``exec`` tool is unaffected).
+    """
+
+    enabled: bool = True
 
 
 @dataclass(slots=True)
@@ -406,7 +419,7 @@ class WriteStdinTool(Tool):
 
     @classmethod
     def enabled(cls, ctx: Any) -> bool:
-        return ctx.config.exec.enable
+        return ctx.config.exec.enable and ctx.config.exec_session.enabled
 
     def __init__(
         self,
@@ -552,7 +565,7 @@ class ListExecSessionsTool(Tool):
 
     @classmethod
     def enabled(cls, ctx: Any) -> bool:
-        return ctx.config.exec.enable
+        return ctx.config.exec.enable and ctx.config.exec_session.enabled
 
     def __init__(
         self,
