@@ -490,17 +490,15 @@ class QQChannel(BaseChannel):
                 return
             self._remember_chat_type(chat_id, chat_type)
 
-            # Early permission check — avoid attachment downloads and ack side effects
-            # for unauthorized users. C2C messages can receive pairing codes;
-            # group messages remain silently ignored.
+            # Early permission check — avoid attachment downloads and ack side
+            # effects for unauthorized users. Access is managed exclusively
+            # via the allowFrom config; C2C and group senders are denied alike.
             if not self.is_allowed(user_id):
-                if not is_group:
-                    await self._handle_message(
-                        sender_id=user_id,
-                        chat_id=chat_id,
-                        content="",
-                        is_dm=True,
-                    )
+                self.logger.warning(
+                    "Access denied for sender {}. "
+                    "Add them to allowFrom list in config to grant access.",
+                    user_id,
+                )
                 return
 
             # the data used by tests don't contain attachments property
@@ -543,7 +541,6 @@ class QQChannel(BaseChannel):
                     "message_id": data.id,
                     "attachments": att_meta,
                 },
-                is_dm=not is_group,
             )
         except Exception:
             self.logger.exception("Error handling inbound message id={}", getattr(data, "id", "?"))

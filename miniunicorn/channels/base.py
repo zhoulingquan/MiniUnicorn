@@ -11,12 +11,6 @@ from loguru import logger
 
 from miniunicorn.bus.events import InboundMessage, OutboundMessage
 from miniunicorn.bus.queue import MessageBus
-from miniunicorn.pairing import (
-    PAIRING_CODE_META_KEY,
-    format_pairing_reply,
-    generate_code,
-    is_approved,
-)
 
 
 class BaseChannel(ABC):
@@ -192,7 +186,12 @@ class BaseChannel(ABC):
         return bool(streaming) and type(self).send_delta is not BaseChannel.send_delta
 
     def is_allowed(self, sender_id: str) -> bool:
-        """Check sender permission: star > allowlist > pairing store > deny."""
+        """Check sender permission: star > allowlist.
+
+        Senders not on the allowlist are denied; there is no pairing
+        fallback (single-user deployments manage access purely via
+        ``allowFrom``).
+        """
         if isinstance(self.config, dict):
             allow_list = self.config.get("allow_from") or self.config.get("allowFrom") or []
         else:
@@ -200,11 +199,7 @@ class BaseChannel(ABC):
         if "*" in allow_list:
             return True
         # allowFrom entries are opaque tokens — must match exactly.
-        if str(sender_id) in allow_list:
-            return True
-        if is_approved(self.name, str(sender_id)):
-            return True
-        return False
+        return str(sender_id) in allow_list
 
     def _dedup_message(self, msg_id: str, max_size: int = 1000) -> bool:
         """Check and record a message ID for deduplication.
@@ -227,32 +222,18 @@ class BaseChannel(ABC):
         media: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         session_key: str | None = None,
-        is_dm: bool = False,
     ) -> None:
-        """Handle an incoming message: check permissions, issue pairing codes in DMs, or forward to bus."""
+        """Handle an incoming message: check permissions, then forward to bus.
+
+        Unauthorized senders are denied regardless of DM/group — access is
+        managed exclusively through the channel's ``allowFrom`` config.
+        """
         if not self.is_allowed(sender_id):
-            if is_dm:
-                code = generate_code(self.name, str(sender_id))
-                await self.send(
-                    OutboundMessage(
-                        channel=self.name,
-                        chat_id=str(chat_id),
-                        content=format_pairing_reply(code),
-                        metadata={PAIRING_CODE_META_KEY: code},
-                    )
-                )
-                self.logger.info(
-                    "Sent pairing code {} to sender {} in chat {}",
-                    code,
-                    sender_id,
-                    chat_id,
-                )
-            else:
-                self.logger.warning(
-                    "Access denied for sender {}. "
-                    "Add them to allowFrom list in config to grant access.",
-                    sender_id,
-                )
+            self.logger.warning(
+                "Access denied for sender {}. "
+                "Add them to allowFrom list in config to grant access.",
+                sender_id,
+            )
             return
 
         meta = metadata or {}

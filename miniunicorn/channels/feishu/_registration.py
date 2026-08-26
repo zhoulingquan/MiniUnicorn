@@ -27,11 +27,9 @@ from rich.text import Text
 from miniunicorn.channels.feishu._feishu_instances import (
     DEFAULT_INSTANCE_ID,
     feishu_instance_specs,
-    runtime_channel_name,
     update_feishu_instance_preserving_shape,
     upsert_feishu_instance,
 )
-from miniunicorn.pairing import clear_channel
 
 if TYPE_CHECKING:
     pass
@@ -257,7 +255,6 @@ def sync_saved_feishu_identity_boundary(
     if access_cleared:
         values["allowFrom"] = []
         values["allow_from"] = []
-        clear_channel(runtime_channel_name("feishu", instance_id))
 
     if not previous_identity_key or access_cleared:
         feishu_cfg = update_feishu_instance_preserving_shape(
@@ -317,7 +314,6 @@ def save_registration_result(
     if identity_changed:
         values["allowFrom"] = []
         values["allow_from"] = []
-        clear_channel(runtime_channel_name("feishu", instance_id))
     feishu_cfg = upsert_feishu_instance(
         feishu_cfg,
         defaults,

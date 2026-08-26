@@ -492,9 +492,9 @@ def gateway(
 
 def _ensure_local_allow_from(cfg: Config) -> None:
     """For local dev (``miniunicorn gateway``), auto-allow all clients on the
-    configured WebSocket channel so the WebUI can connect without manual
-    pairing. Only applied when ``allow_from`` is unset and the host is
-    loopback, preserving explicit user configuration otherwise.
+    configured WebSocket channel so the WebUI works out of the box. Only
+    applied when ``allow_from`` is unset and the host is loopback,
+    preserving explicit user configuration otherwise.
 
     Since the QwenPaw-style channel refactor, ``websocket`` is an explicit
     field on ``ChannelsConfig`` (not in ``__pydantic_extra__``), so we read

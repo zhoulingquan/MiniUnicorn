@@ -1004,7 +1004,7 @@ class _StartableChannel(BaseChannel):
 
 @pytest.mark.asyncio
 async def test_validate_allow_from_allows_empty_list():
-    """Empty allow_from is valid now — pairing store handles unapproved senders."""
+    """Empty allow_from is valid — unapproved senders are simply denied."""
     fake_config = SimpleNamespace(
         channels=ChannelsConfig(),
         providers=SimpleNamespace(groq=SimpleNamespace(api_key="")),
@@ -1015,7 +1015,7 @@ async def test_validate_allow_from_allows_empty_list():
     mgr.channels = {"test": _ChannelWithAllowFrom(fake_config, None, [])}
     mgr._dispatch_task = None
 
-    # Should not raise — empty list defers to pairing store
+    # Should not raise — empty list denies all senders
     mgr._validate_allow_from()
 
 
@@ -1038,7 +1038,7 @@ async def test_validate_allow_from_passes_with_asterisk():
 
 @pytest.mark.asyncio
 async def test_validate_allow_from_allows_empty_dict_allow_from():
-    """Empty dict-backed allow_from is valid — pairing store handles approval."""
+    """Empty dict-backed allow_from is valid — unapproved senders are denied."""
     fake_config = SimpleNamespace(
         channels=ChannelsConfig(),
         providers=SimpleNamespace(groq=SimpleNamespace(api_key="")),
@@ -1054,7 +1054,7 @@ async def test_validate_allow_from_allows_empty_dict_allow_from():
 
 @pytest.mark.asyncio
 async def test_validate_allow_from_allows_missing_allow_from():
-    """Omitted allowFrom is valid — channel operates in pairing-only mode."""
+    """Omitted allowFrom is valid — the manager logs a warning but proceeds."""
     fake_config = SimpleNamespace(
         channels=ChannelsConfig(),
         providers=SimpleNamespace(groq=SimpleNamespace(api_key="")),
@@ -1078,7 +1078,7 @@ async def test_validate_allow_from_allows_missing_allow_from():
     mgr.channels = {"test": _NoAllowFromChannel({"enabled": True}, None)}
     mgr._dispatch_task = None
 
-    # Should not raise — pairing-only mode
+    # Should not raise — all senders denied until allowFrom is configured
     mgr._validate_allow_from()
 
 

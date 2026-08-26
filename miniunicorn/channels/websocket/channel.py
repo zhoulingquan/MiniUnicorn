@@ -854,7 +854,6 @@ class WebSocketChannel(BaseChannel):
         media: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         session_key: str | None = None,
-        is_dm: bool = False,
     ) -> None:
         meta = metadata or {}
         if meta.get("webui"):
@@ -879,7 +878,6 @@ class WebSocketChannel(BaseChannel):
             media,
             metadata,
             session_key,
-            is_dm,
         )
 
     def _sign_media_path(self, abs_path: Path) -> str | None:
@@ -1181,14 +1179,12 @@ class WebSocketChannel(BaseChannel):
                 if content is None:
                     continue
                 # WebSocket already authenticates at handshake time (token),
-                # so pairing is not applicable. Treat as non-DM to avoid
-                # sending pairing codes to an already-authenticated client.
+                # so sender authorization is handled there, not via allowFrom.
                 await self._handle_message(
                     sender_id=client_id,
                     chat_id=default_chat_id,
                     content=content,
                     metadata={"remote": getattr(connection, "remote_address", None)},
-                    is_dm=False,
                 )
         except Exception as e:
             self.logger.debug("connection ended: {}", e)
@@ -1434,7 +1430,6 @@ class WebSocketChannel(BaseChannel):
                 content=content,
                 media=media_paths or None,
                 metadata=metadata,
-                is_dm=False,
             )
             return
         await self._send_event(connection, "error", detail=f"unknown type: {t!r}")

@@ -971,8 +971,8 @@ def test_on_background_task_done_removes_from_set() -> None:
 
 
 @pytest.mark.asyncio
-async def test_on_message_unauthorized_dm_sends_pairing_code_without_side_effects() -> None:
-    """Unauthorized DM sender gets a pairing code but no media side effects."""
+async def test_on_message_unauthorized_dm_denied_without_side_effects() -> None:
+    """Unauthorized DM sender is denied with no reply and no media side effects."""
     channel = _make_feishu_channel(group_policy="open")
     channel.config.allow_from = ["ou_allowed"]
     channel._add_reaction = AsyncMock()
@@ -991,8 +991,8 @@ async def test_on_message_unauthorized_dm_sends_pairing_code_without_side_effect
     channel._add_reaction.assert_not_awaited()
     channel._download_and_save_media.assert_not_awaited()
     channel.transcribe_audio.assert_not_awaited()
-    # _handle_message is called to issue the pairing code in DMs
-    channel._handle_message.assert_awaited_once()
+    # Unauthorized senders never reach _handle_message (no pairing fallback)
+    channel._handle_message.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -51,7 +51,7 @@ The channel layer (`channels/`, 6 adapters) is fully decoupled from the agent co
 | 6 | Output Parsing | Native function calling + JSON repair | `providers/*/parsing.py` |
 | 7 | State Management | Atomic session persistence + Git-versioned memory | `session/` · `utils/` (GitStore) |
 | 8 | Error Handling | Provider fallback + failure reflection | `providers/fallback_provider.py` · `agent/reflection.py` |
-| 9 | Guardrails | Workspace confinement / SSRF / sandbox / DM approval | `security/` · `pairing/` |
+| 9 | Guardrails | Workspace confinement / SSRF / sandbox / channel admission | `security/` |
 | 10 | Verification Loops | Reflection lessons + plan execution | `agent/reflection.py` · `agent/planner.py` |
 | 11 | Subagent Orchestration | spawn / delegate / create_agent | `agent/subagent.py` |
 | 12 | Termination Conditions | Iteration caps + turn budget + user interrupt | `agent/turn_budget.py` |
@@ -125,7 +125,7 @@ Errors compound in multi-step agents. MiniUnicorn's countermeasures are layered:
 | File access | `_resolve_path` confines paths to the workspace |
 | Shell execution | Optional `bwrap` sandbox, workspace restriction |
 | Outbound HTTP | `validate_url_target` blocks RFC1918 and cloud metadata endpoints |
-| DM admission | Pairing-code approval for channel senders (`pairing/`, persisted with 0600 permissions) |
+| Channel admission | Per-channel `allowFrom` allowlist (exact match, `*` wildcard supported) |
 
 Permission architecture is separated from reasoning architecture: security checks are enforced at the tool-execution layer, never relying on the model's goodwill.
 
@@ -184,8 +184,7 @@ A layered termination system: natural termination (the model stops calling tools
 | `utils/` | Document parsing, media decoding, Git storage, and other utilities |
 | `providers/` | LLM provider abstraction and OpenAI-compatible implementations |
 | `security/` | Workspace confinement, SSRF protection, shell sandbox |
-| `pairing/` | DM sender pairing-code approval store (persisted with 0600 permissions) |
-| `api/` | OpenAI-compatible HTTP API |
+| `api_compat/` | OpenAI-compatible HTTP API (optional `[api]` extra) |
 
 ## Installation
 
@@ -286,7 +285,7 @@ Defined in Markdown + YAML frontmatter, loaded on demand:
 
 ## Testing and quality
 
-About 185 test files covering all core modules (agent 59 · channels 27 · tools 23 · utils 16 · providers 14 · cli/config/session/cron/security/pairing, etc.), `pytest-asyncio` auto mode + coverage reporting, `ruff` static checks.
+About 185 test files covering all core modules (agent 59 · channels 27 · tools 23 · utils 16 · providers 14 · cli/config/session/cron/security, etc.), `pytest-asyncio` auto mode + coverage reporting, `ruff` static checks.
 
 ```bash
 pip install -e ".[dev]"

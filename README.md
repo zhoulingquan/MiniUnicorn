@@ -51,7 +51,7 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 | 6   | 输出解析 Output Parsing               | 原生 Function Calling + JSON 修复      | `providers/*/parsing.py`                                   |
 | 7   | 状态管理 State Management             | 原子持久化会话 + Git 版本化记忆                | `session/` · `utils/`(GitStore)                            |
 | 8   | 错误处理 Error Handling               | Provider Fallback + 失败反思           | `providers/fallback_provider.py` · `agent/reflection.py`   |
-| 9   | 安全防护 Guardrails                   | 工作区限制 / SSRF / 沙箱 / DM 审批          | `security/` · `pairing/`                                   |
+| 9   | 安全防护 Guardrails                   | 工作区限制 / SSRF / 沙箱 / 频道准入        | `security/`                                                |
 | 10  | 验证循环 Verification Loops           | Reflection 教训沉淀 + 计划执行             | `agent/reflection.py` · `agent/planner.py`                 |
 | 11  | 子 Agent 编排 Subagent Orchestration | spawn / delegate / create_agent    | `agent/subagent.py`                                        |
 | 12  | 终止条件 Termination Conditions       | 迭代上限 + 轮次预算 + 用户中断                 | `agent/turn_budget.py`                                     |
@@ -125,7 +125,7 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 | 文件访问 | `_resolve_path` 强制路径在工作区内 |
 | Shell 执行 | 可选 `bwrap` 沙箱，工作区限制 |
 | 出站 HTTP | `validate_url_target` 阻止 RFC1918 和云元数据端点 |
-| DM 准入 | 频道发送者配对码审批（`pairing/`，0600 权限持久化） |
+| 频道准入 | 各频道 `allowFrom` 白名单（精确匹配，支持 `*` 通配） |
 
 权限架构与推理架构分离：安全检查在工具执行层强制执行，不依赖模型自觉。
 
@@ -184,8 +184,7 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 | `utils/` | 文档解析、媒体解码、Git 存储等工具 |
 | `providers/` | LLM 提供商抽象与 OpenAI 兼容实现 |
 | `security/` | 工作区限制、SSRF 防护、Shell 沙箱 |
-| `pairing/` | DM 发送者配对码审批存储（0600 权限持久化） |
-| `api/` | OpenAI 兼容 HTTP API |
+| `api_compat/` | OpenAI 兼容 HTTP API（可选 extras `[api]`） |
 
 ## 安装
 
@@ -286,7 +285,7 @@ Markdown + YAML frontmatter 定义，按需加载：
 
 ## 测试与质量
 
-约 185 个测试文件覆盖全部核心模块（agent 59 · channels 27 · tools 23 · utils 16 · providers 14 · cli/config/session/cron/security/pairing 等），`pytest-asyncio` 自动模式 + 覆盖率统计，`ruff` 静态检查。
+约 185 个测试文件覆盖全部核心模块（agent 59 · channels 27 · tools 23 · utils 16 · providers 14 · cli/config/session/cron/security 等），`pytest-asyncio` 自动模式 + 覆盖率统计，`ruff` 静态检查。
 
 ```bash
 pip install -e ".[dev]"

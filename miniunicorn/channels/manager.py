@@ -231,10 +231,10 @@ class ChannelManager:
             else:
                 allow = getattr(cfg, "allow_from", None)
             if allow is None:
-                # allowFrom omitted → pairing-only mode.  Unapproved senders
-                # receive a pairing code instead of being silently ignored.
-                logger.info(
-                    '"{}" has no allowFrom; unapproved users will receive a pairing code',
+                # allowFrom omitted → every sender is denied (no pairing
+                # fallback anymore). Surface the misconfiguration loudly.
+                logger.warning(
+                    '"{}" has no allowFrom; all senders will be denied until you set allowFrom',
                     name,
                 )
 

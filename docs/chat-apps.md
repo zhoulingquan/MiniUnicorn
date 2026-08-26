@@ -159,12 +159,6 @@ miniunicorn gateway
 }
 ```
 
-## 配对（Pairing）
+## 准入控制（allowFrom）
 
-当未在 allowlist 中的用户向机器人发送私信时，MiniUnicorn 会自动回复一个 10 分钟过期的配对码（形如 `ABCD-EFGH`）。在任意频道会话中执行：
-
-```text
-/pairing approve ABCD-EFGH
-```
-
-即可放行该用户。完整指令见 [In-Chat Commands](./chat-commands.md#pairing)。
+各频道的 `allowFrom` 配置决定谁可以与机器人对话：设置为 `["*"]` 放行所有人，或列出具体的用户 ID（精确匹配）。未配置或为空时拒绝所有发送者。详见 [Configuration](./configuration.md)。

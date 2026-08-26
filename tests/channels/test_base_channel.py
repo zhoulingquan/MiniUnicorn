@@ -57,34 +57,29 @@ def test_is_allowed_star_allows_all() -> None:
     assert channel.is_allowed("anyone") is True
 
 
-def test_is_allowed_pairing_fallback(monkeypatch) -> None:
+def test_is_allowed_has_no_pairing_fallback() -> None:
+    """After pairing removal, an empty allowFrom denies everyone."""
     channel = _DummyChannel({"allowFrom": []}, MessageBus())
-    monkeypatch.setattr("miniunicorn.channels.base.is_approved", lambda _ch, sid: sid == "paired")
-    assert channel.is_allowed("paired") is True
+    assert channel.is_allowed("paired") is False
     assert channel.is_allowed("unknown") is False
 
 
 @pytest.mark.asyncio
-async def test_handle_message_dm_sends_pairing_code(monkeypatch) -> None:
-    channel = _DummyChannel({"allowFrom": []}, MessageBus())
-    monkeypatch.setattr("miniunicorn.channels.base.generate_code", lambda _ch, sid: "ABCD-EFGH")
+async def test_handle_message_dm_denies_unknown_silently() -> None:
+    """Unauthorized DM senders are denied without any reply or bus publish."""
+    bus = MessageBus()
+    channel = _DummyChannel({"allowFrom": []}, bus)
 
-    await channel._handle_message(
-        sender_id="stranger", chat_id="chat1", content="hello", is_dm=True
-    )
+    await channel._handle_message(sender_id="stranger", chat_id="chat1", content="hello")
 
-    assert len(channel._sent) == 1
-    msg = channel._sent[0]
-    assert "ABCD-EFGH" in msg.content
-    assert msg.metadata.get("_pairing_code") == "ABCD-EFGH"
+    assert channel._sent == []
+    assert bus.inbound_size == 0
 
 
 @pytest.mark.asyncio
 async def test_handle_message_group_ignores_unknown() -> None:
     channel = _DummyChannel({"allowFrom": []}, MessageBus())
 
-    await channel._handle_message(
-        sender_id="stranger", chat_id="chat1", content="hello", is_dm=False
-    )
+    await channel._handle_message(sender_id="stranger", chat_id="chat1", content="hello")
 
     assert channel._sent == []

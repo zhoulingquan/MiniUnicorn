@@ -1316,74 +1316,9 @@ For API keys, tokens, and other secrets, see [Environment Variables for Secrets]
 | `tools.exec.enable` | `true` | When `false`, the shell `exec` tool is not registered at all. Use this to completely disable shell command execution. |
 | `tools.exec.timeout` | `60` | Default hard timeout in seconds for shell commands. Config values may exceed the per-call tool cap; set `0` to disable the hard timeout for trusted long-running commands. |
 | `tools.exec.pathAppend` | `""` | Extra directories to append to `PATH` when running shell commands (e.g. `/usr/sbin` for `ufw`). |
-| `channels.*.allowFrom` | omitted | Access control per channel. Omit to use pairing-only mode; set `["*"]` to allow everyone; or list specific user IDs. See [Pairing](#pairing) for details. |
+| `channels.*.allowFrom` | omitted | Access control per channel. Set `["*"]` to allow everyone, or list specific user IDs (exact match). Omitted or empty means every sender is denied. |
 
 **Docker security**: The official Docker image runs as a non-root user (`miniunicorn`, UID 1000) with bubblewrap pre-installed. When using `docker-compose.yml`, the container drops all Linux capabilities except `SYS_ADMIN` (required for bwrap's namespace isolation).
-
-
-## Pairing
-
-Pairing lets users get access to the bot through a simple code exchange — no config editing required. This works for both new users and existing users connecting from a new channel (e.g. someone already approved on Telegram now setting up Discord).
-
-### How it works
-
-1. A user sends a DM to the bot on any channel (Telegram, Discord, Slack, etc.) where they aren't yet approved.
-2. The bot replies with a pairing code (like `ABCD-EFGH`) and tells them to forward it to you.
-3. You approve the code:
-
-```text
-/pairing approve ABCD-EFGH
-```
-
-4. The user can now chat with the bot normally.
-
-Pairing only works in **DMs** — unapproved users in group chats are silently ignored.
-
-### Pairing-only mode
-
-By default, if you don't set `allowFrom`, anyone who isn't approved yet will get a pairing code when they DM the bot. This means you can skip `allowFrom` entirely and manage all access through pairing:
-
-```json
-{
-  "channels": {
-    "telegram": {
-      "enabled": true
-    }
-  }
-}
-```
-
-If you prefer to allow everyone without approval:
-
-```json
-{
-  "channels": {
-    "telegram": {
-      "enabled": true,
-      "allowFrom": ["*"]
-    }
-  }
-}
-```
-
-### Managing access
-
-| Command | What it does |
-|---------|-------------|
-| `/pairing` | Show all pending pairing requests |
-| `/pairing approve <code>` | Approve a request — the sender can now chat |
-| `/pairing deny <code>` | Reject a pending request |
-| `/pairing revoke <user_id>` | Remove a previously approved user from the current channel |
-| `/pairing revoke <channel> <user_id>` | Remove a user from a specific channel |
-
-You can find user IDs in the output of `/pairing list`.
-
-From the terminal:
-
-```bash
-miniunicorn agent -m "/pairing list"
-miniunicorn agent -m "/pairing approve ABCD-EFGH"
-```
 
 
 ## Subagent Concurrency
