@@ -9,7 +9,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import pytest_asyncio
 
-from miniunicorn.api.server import (
+# The OpenAI-compatible server lives behind the optional ``api`` extra;
+# skip the whole module when aiohttp (or the api_compat package) is absent.
+pytest.importorskip("aiohttp")
+
+from miniunicorn.api_compat.server import (
     API_CHAT_ID,
     API_SESSION_KEY,
     _chat_completion_response,

@@ -52,10 +52,13 @@ BUSINESS_PACKAGES = frozenset(
 # Rule B 已声明的过渡期例外：channels 对 agent 的既有功能依赖。
 # - channel.py 经 agent.tools.mcp.request_mcp_reload 触发 MCP 服务热重载。
 # - handlers/skills.py 复用 agent.skills 的 SkillsLoader 校验/加载技能。
+# - handlers/agents.py 复用 agent.routes_agents 的子代理 CRUD/生成 handler
+#   (create_agent 工具与 /api/agents* 端点共用同一实现)。
 # 长期应改为依赖注入(bus 事件或注入服务),届时移除对应豁免条目。
 AGENT_IMPORT_EXEMPTIONS = frozenset(
     {
         ("channels/websocket/channel", "miniunicorn.agent.tools.mcp"),
+        ("channels/websocket/handlers/agents", "miniunicorn.agent.routes_agents"),
         ("channels/websocket/handlers/skills", "miniunicorn.agent.skills"),
     }
 )

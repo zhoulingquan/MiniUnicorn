@@ -703,7 +703,7 @@ def _patch_serve_runtime(monkeypatch, config: Config, seen: dict[str, object]) -
         session_manager=lambda _workspace: object(),
     )
     monkeypatch.setattr("miniunicorn.cli.commands.AgentLoop", _FakeAgentLoop)
-    monkeypatch.setattr("miniunicorn.api.server.create_app", _fake_create_app)
+    monkeypatch.setattr("miniunicorn.api_compat.server.create_app", _fake_create_app)
     monkeypatch.setattr("aiohttp.web.run_app", _fake_run_app)
 
 

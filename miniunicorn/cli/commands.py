@@ -374,14 +374,15 @@ def serve(
     try:
         from aiohttp import web  # noqa: F401
     except ImportError:
+        # Rich would swallow a literal [api] as a markup tag — escape it.
         console.print(
-            "[red]aiohttp is required. Install with: pip install 'miniunicorn-ai[api]'[/red]"
+            r"[red]aiohttp is required. Install with: pip install miniunicorn-ai\[api][/red]"
         )
         raise typer.Exit(1)
 
     from loguru import logger
 
-    from miniunicorn.api.server import create_app
+    from miniunicorn.api_compat.server import create_app
     from miniunicorn.session.manager import SessionManager
 
     if verbose:

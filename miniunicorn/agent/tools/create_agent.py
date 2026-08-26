@@ -123,7 +123,7 @@ class CreateAgentTool(Tool):
 
         # Reuse the route's save_agent so name validation, directory creation,
         # and overwrite semantics stay consistent with the HTTP API.
-        from miniunicorn.api.routes_agents import router
+        from miniunicorn.agent.routes_agents import router
 
         try:
             path = router.save_agent(self._workspace, name, content)

@@ -19,7 +19,7 @@ from ._common import require_auth
 @router.route("/api/agents", methods={"GET"})
 def list(ctx: RouteContext) -> Response:
     """Return all registered subagent definitions as JSON."""
-    from miniunicorn.api.routes_agents import router
+    from miniunicorn.agent.routes_agents import router
 
     try:
         return _http_json_response(router.list_agents(ctx.deps.workspace_path))
@@ -30,7 +30,7 @@ def list(ctx: RouteContext) -> Response:
 @router.route("/api/agents/read", methods={"GET"})
 def read(ctx: RouteContext) -> Response:
     """Return a single subagent definition (parsed fields + raw .md)."""
-    from miniunicorn.api.routes_agents import router
+    from miniunicorn.agent.routes_agents import router
 
     name = _query_first(ctx.query, "name")
     if not name:
@@ -53,7 +53,7 @@ def save(ctx: RouteContext) -> Response:
     (URL-encoded chunks) like the skills save endpoint.
     """
 
-    from miniunicorn.api.routes_agents import router
+    from miniunicorn.agent.routes_agents import router
 
     name = _query_first(ctx.query, "name")
     if not name:
@@ -79,7 +79,7 @@ def save(ctx: RouteContext) -> Response:
 @require_auth
 def delete(ctx: RouteContext) -> Response:
     """Delete an agent's ``.md`` file by name."""
-    from miniunicorn.api.routes_agents import router
+    from miniunicorn.agent.routes_agents import router
 
     name = _query_first(ctx.query, "name")
     if not name:
@@ -105,7 +105,7 @@ async def generate_agent(ctx: RouteContext) -> Response:
     review the preview and then POST to ``/api/agents/save``.
     """
 
-    from miniunicorn.api.routes_agents import router
+    from miniunicorn.agent.routes_agents import router
 
     # Resolve the LLM provider lazily so the channel can be constructed
     # before the agent loop is fully wired (e.g. in tests).

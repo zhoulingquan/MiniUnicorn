@@ -3,6 +3,10 @@
 Provides /v1/chat/completions and /v1/models endpoints.
 All requests route to a single persistent API session.
 
+This module belongs to the optional ``api`` extra (imports ``aiohttp``).
+The only supported entry point is ``miniunicorn serve``, which imports it
+lazily so the core install never requires aiohttp.
+
 CORS 说明
 ---------
 本服务器**不**处理 CORS 预检请求,也不返回 ``Access-Control-*`` 响应头。

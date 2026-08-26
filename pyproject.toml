@@ -58,6 +58,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# OpenAI-compatible HTTP server (miniunicorn/api_compat/, entry: miniunicorn serve).
+# Dependency audit: api_compat/server.py imports aiohttp plus core-only modules
+# (loguru, config.paths, utils.helpers, utils.media_decode, utils.runtime),
+# so aiohttp is the only package this extra must add.
 api = [
     "aiohttp>=3.9.0,<4.0.0",
 ]

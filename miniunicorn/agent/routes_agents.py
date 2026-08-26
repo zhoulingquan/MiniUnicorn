@@ -1,10 +1,17 @@
-"""HTTP API route handlers for declarative subagent management.
+"""Route handlers for declarative subagent management.
 
 Subagents are defined as ``.md`` files with YAML frontmatter in the
 workspace's ``agents/`` directory (see ``SubagentRegistry``). This module
-exposes a stateless ``router`` object with handlers for the
-``/api/agents*`` endpoints. The dispatcher in ``channels/websocket.py``
-calls these handlers and wraps their return values in HTTP responses.
+exposes a stateless ``router`` object with handlers for subagent CRUD and
+LLM-backed generation.
+
+It intentionally has no heavy dependencies (stdlib + ``SubagentRegistry``
+only) so it can be shared by callers with different transports: the
+WebSocket channel's ``/api/agents*`` endpoints
+(``channels/websocket/handlers/agents.py``) and the ``create_agent`` agent
+tool both import ``router`` from here. The optional aiohttp-based OpenAI
+server lives in ``miniunicorn.api_compat`` and does NOT re-export this
+module, keeping the websocket channel free of any aiohttp dependency.
 """
 
 from __future__ import annotations
