@@ -472,6 +472,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             timezone=cfg.timezone,
             disabled_skills=cfg.disabled_skills,
             structured_memory_config=cfg.structured_memory_config,
+            cli_apps_enabled=_tc.cli_apps.enabled,
         )
         self.sessions = cfg.session_manager or SessionManager(workspace)
         self._webui_turns = WebuiTurnCoordinator(

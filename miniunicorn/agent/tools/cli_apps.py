@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import Field
 
@@ -16,15 +16,22 @@ from miniunicorn.agent.tools.schema import (
     StringSchema,
     tool_parameters_schema,
 )
-from miniunicorn.apps.cli import CliAppError, CliAppManager, CliAppsRuntimeConfig
 from miniunicorn.config.schema import Base
 from miniunicorn.security.workspace_access import current_tool_workspace
 
+if TYPE_CHECKING:
+    from miniunicorn.apps.cli import CliAppsRuntimeConfig
+
 
 class CliAppsToolConfig(Base):
-    """CLI Apps tool configuration."""
+    """CLI Apps tool configuration.
 
-    enable: bool = True
+    ``enabled`` gates the whole optional CLI Apps ecosystem (agent tool,
+    WebUI settings API, and the ``apps/`` service). It defaults to ``False``
+    so the slim single-user core never imports or initializes the service.
+    """
+
+    enabled: bool = False
     install_timeout: int = Field(default=300, ge=1, le=3600)
     run_timeout: int = Field(default=60, ge=1, le=600)
     catalog_ttl_seconds: int = Field(default=3600, ge=60, le=86_400)
@@ -67,10 +74,12 @@ class CliAppsTool(Tool):
 
     @classmethod
     def enabled(cls, ctx: Any) -> bool:
-        return ctx.config.cli_apps.enable
+        return ctx.config.cli_apps.enabled
 
     @classmethod
     def create(cls, ctx: Any) -> Tool:
+        from miniunicorn.apps.cli import CliAppsRuntimeConfig
+
         cfg = ctx.config.cli_apps
         return cls(
             workspace=Path(ctx.workspace),
@@ -89,6 +98,8 @@ class CliAppsTool(Tool):
         restrict_to_workspace: bool = False,
         runtime: CliAppsRuntimeConfig | None = None,
     ) -> None:
+        from miniunicorn.apps.cli import CliAppsRuntimeConfig
+
         self.workspace = workspace
         self.restrict_to_workspace = restrict_to_workspace
         self.runtime = runtime or CliAppsRuntimeConfig()
@@ -99,6 +110,8 @@ class CliAppsTool(Tool):
 
     @property
     def description(self) -> str:
+        from miniunicorn.apps.cli import CliAppManager
+
         try:
             installed = CliAppManager(
                 workspace=self.workspace, runtime=self.runtime
@@ -128,6 +141,8 @@ class CliAppsTool(Tool):
         working_dir: str | None = None,
         timeout: int | None = None,
     ) -> str:
+        from miniunicorn.apps.cli import CliAppError, CliAppManager
+
         access = current_tool_workspace(
             self.workspace,
             restrict_to_workspace=self.restrict_to_workspace,

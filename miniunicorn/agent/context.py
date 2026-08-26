@@ -37,11 +37,26 @@ def session_extra(metadata: Mapping[str, Any] | None) -> dict[str, Any]:
 
 
 def runtime_lines(
-    state: RuntimeStateView, msg: Any, workspace: Path, *, skip: bool = False
+    state: RuntimeStateView,
+    msg: Any,
+    workspace: Path,
+    *,
+    skip: bool = False,
+    cli_apps_enabled: bool = True,
 ) -> list[str]:
-    """Return model-visible runtime annotations for turn-attached capabilities."""
+    """Return model-visible runtime annotations for turn-attached capabilities.
+
+    ``cli_apps_enabled=False`` (the default config) skips the CLI Apps
+    helpers entirely so the optional ``apps`` service is never touched on
+    the gateway main flow.
+    """
+    cli_lines = (
+        cli_app_utils.runtime_lines(msg, workspace, skip=skip)
+        if cli_apps_enabled
+        else []
+    )
     return [
-        *cli_app_utils.runtime_lines(msg, workspace, skip=skip),
+        *cli_lines,
         *mcp_tools.runtime_lines(
             msg,
             configured_server_names=set(state.mcp_servers),
@@ -97,9 +112,11 @@ class ContextBuilder:
         disabled_skills: list[str] | None = None,
         subagent_registry: Any = None,
         structured_memory_config: StructuredMemoryConfig | None = None,
+        cli_apps_enabled: bool = True,
     ):
         self.workspace = workspace
         self.timezone = None
+        self.cli_apps_enabled = cli_apps_enabled
         self.memory = MemoryStore(workspace, structured_config=structured_memory_config)
         self.memory_registry = WorkspaceMemoryRegistry(
             workspace,
@@ -564,7 +581,13 @@ class ContextBuilder:
         ]
         if runtime_state is not None and inbound_message is not None:
             extra.extend(
-                runtime_lines(runtime_state, inbound_message, root, skip=skip_runtime_lines)
+                runtime_lines(
+                    runtime_state,
+                    inbound_message,
+                    root,
+                    skip=skip_runtime_lines,
+                    cli_apps_enabled=self.cli_apps_enabled,
+                )
             )
         if current_runtime_lines:
             extra.extend(line for line in current_runtime_lines if line)

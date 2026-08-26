@@ -1225,6 +1225,24 @@ Image generation is configured under `tools.imageGeneration` and uses credential
 
 See [Image Generation](./image-generation.md) for WebUI usage, provider examples, artifact storage, and troubleshooting.
 
+## CLI Apps
+
+The CLI Apps ecosystem — installing and running external CLI applications from Settings → CLI Apps via the `run_cli_app` tool — is an **optional** feature aimed at multi-app setups, and it is **disabled by default** (`tools.cliApps.enabled: false`). Single-user setups can run any CLI directly through the shell tool instead. To enable it:
+
+```json
+{
+  "tools": {
+    "cliApps": {
+      "enabled": true,
+      "installTimeout": 300,
+      "runTimeout": 60
+    }
+  }
+}
+```
+
+When disabled, the `run_cli_app` tool is not registered, the WebUI `/api/settings/cli-apps*` endpoints report the feature as disabled (actions respond with 403), and the CLI app service under `apps/` is never initialized — zero overhead on gateway startup and message flow.
+
 ## MCP (Model Context Protocol)
 
 > [!TIP]

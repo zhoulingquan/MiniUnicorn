@@ -367,7 +367,8 @@ def test_config_defaults():
     assert config.tools.web.enable is True
     assert config.tools.my.enable is True
     assert config.tools.my.allow_set is False
-    assert config.tools.cli_apps.enable is True
+    # CLI Apps ecosystem is optional and off by default (single-user slim core).
+    assert config.tools.cli_apps.enabled is False
     assert config.tools.restrict_to_workspace is True
 
 
