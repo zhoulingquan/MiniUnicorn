@@ -112,6 +112,7 @@ def test_to_dict_round_trip() -> None:
         "created_at",
         "stop_reason",
         "origin",
+        "digest",
     }
     assert data["goal"] == "ship it"
     assert data["steps"] == [step.to_dict() for step in plan.steps]

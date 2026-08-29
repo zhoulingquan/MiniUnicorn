@@ -43,7 +43,10 @@ class SessionTurnService:
     # 仅审计用途的 checkpoint phase：不含恢复字段
     # (assistant_message/completed_tool_results/pending_tool_calls)，
     # 持久化进单槽 runtime_checkpoint 会破坏崩溃恢复，直接跳过。
-    _AUDIT_ONLY_CHECKPOINT_PHASES = frozenset({"tool_started", "tool_completed", "tool_blocked"})
+    # plan_snapshot 每次步骤迁移都 emit，不跳过的话会顶掉崩溃前真实的执行断点。
+    _AUDIT_ONLY_CHECKPOINT_PHASES = frozenset(
+        {"tool_started", "tool_completed", "tool_blocked", "plan_snapshot"}
+    )
 
     def __init__(
         self,

@@ -10,12 +10,29 @@ Plan/PlanStep object references.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from miniunicorn.agent.planner import Plan
+
+
+def _plan_digest(goal: str, steps: list[dict[str, Any]], replan_count: int) -> str:
+    """Canonical digest of the plan body.
+
+    Deliberately excludes turn_id / created_at / stop_reason / origin: those
+    change on every emission, so including them would make the digest useless
+    for telling "the plan actually changed" apart from "a transition happened".
+    """
+    payload = json.dumps(
+        {"goal": goal, "steps": steps, "replan_count": replan_count},
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +48,7 @@ class PlanSnapshot:
     created_at: str  # ISO 8601 timestamp
     stop_reason: str | None = None  # set on terminal snapshots
     origin: str = "planner"  # "planner" or "escalated"
+    digest: str = ""  # canonical digest of the plan body (audit comparison)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -43,6 +61,7 @@ class PlanSnapshot:
             "created_at": self.created_at,
             "stop_reason": self.stop_reason,
             "origin": self.origin,
+            "digest": self.digest,
         }
 
     @classmethod
@@ -54,9 +73,10 @@ class PlanSnapshot:
         origin: str = "planner",
     ) -> PlanSnapshot:
         current = plan.current_step
+        steps = [s.to_dict() for s in plan.steps]
         return cls(
             goal=plan.goal,
-            steps=[s.to_dict() for s in plan.steps],
+            steps=steps,
             replan_count=plan.replan_count,
             max_replans=plan.max_replans,
             current_step_id=current.id if current is not None else None,
@@ -64,4 +84,5 @@ class PlanSnapshot:
             created_at=datetime.now(timezone.utc).isoformat(),
             stop_reason=stop_reason,
             origin=origin,
+            digest=_plan_digest(plan.goal, steps, plan.replan_count),
         )
