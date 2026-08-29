@@ -93,6 +93,87 @@ class TestStopPreservesContext:
         assert "runtime_checkpoint" not in session.metadata
 
 
+class TestAuditOnlyCheckpointsNotPersisted:
+    """仅审计用途的 checkpoint phase 不得覆盖单槽 runtime_checkpoint 恢复位。
+
+    tool_started/tool_completed/tool_blocked payload 不含恢复字段
+    (assistant_message/completed_tool_results/pending_tool_calls)，若持久化进
+    单槽 runtime_checkpoint，崩溃后 restore 读到空 payload，中断轮次不再被
+    物化（回归）。
+    """
+
+    @staticmethod
+    def _session():
+        session = MagicMock()
+        session.metadata = {}
+        session.messages = []
+        return session
+
+    def test_tool_started_not_persisted(self, tmp_path):
+        loop = _make_loop(tmp_path)
+        session = self._session()
+        loop._set_runtime_checkpoint(
+            session,
+            {"phase": "tool_started", "iteration": 1},
+        )
+        assert "runtime_checkpoint" not in session.metadata
+
+    def test_tool_completed_not_persisted(self, tmp_path):
+        loop = _make_loop(tmp_path)
+        session = self._session()
+        loop._set_runtime_checkpoint(
+            session,
+            {
+                "phase": "tool_completed",
+                "iteration": 1,
+                "tool_checkpoint": {"tool_name": "read_file", "status": "ok"},
+            },
+        )
+        assert "runtime_checkpoint" not in session.metadata
+
+    def test_tool_blocked_not_persisted(self, tmp_path):
+        loop = _make_loop(tmp_path)
+        session = self._session()
+        loop._set_runtime_checkpoint(
+            session,
+            {
+                "phase": "tool_blocked",
+                "iteration": 1,
+                "tool_checkpoint": {"tool_name": "exec", "status": "blocked"},
+            },
+        )
+        assert "runtime_checkpoint" not in session.metadata
+
+    def test_awaiting_tools_still_persisted(self, tmp_path):
+        """对照组：含恢复字段的 awaiting_tools checkpoint 正常持久化。"""
+        loop = _make_loop(tmp_path)
+        session = self._session()
+        loop._set_runtime_checkpoint(
+            session,
+            {
+                "phase": "awaiting_tools",
+                "iteration": 1,
+                "assistant_message": {
+                    "role": "assistant",
+                    "content": "Let me search.",
+                    "tool_calls": [
+                        {
+                            "id": "tc_1",
+                            "type": "function",
+                            "function": {"name": "read_file", "arguments": "{}"},
+                        }
+                    ],
+                },
+                "completed_tool_results": [],
+                "pending_tool_calls": [],
+            },
+        )
+        saved = session.metadata["runtime_checkpoint"]
+        assert saved["phase"] == "awaiting_tools"
+        assert saved["assistant_message"]["content"] == "Let me search."
+        loop.sessions.save.assert_called_with(session)
+
+
 @pytest.mark.asyncio
 async def test_dispatch_cancellation_restores_checkpoint():
     """Regression for #2966: /stop interrupting _dispatch must materialize the

@@ -54,9 +54,7 @@ class TestStepAcceptanceVerifier:
         tool_calls = [{"name": "run_tests"}]
         tool_results = [{"summary": "ok"}]
 
-        # This should be rejected by rules (done_criteria not met, but has tools -> accepted)
-        # Wait: with tools, unmet done_criteria is ACCEPTED by rules
-        # Need a case that rules REJECT -> empty content without tools
+        # Rules REJECT: empty content without tools (independent of done_criteria).
         evidence = policy.evaluate(
             step=_step(),
             tool_calls=[],

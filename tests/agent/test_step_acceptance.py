@@ -125,15 +125,63 @@ def test_rejects_unmet_done_criteria_without_tools() -> None:
     assert evidence.rejection_reason == "done_criteria_not_met"
 
 
-# 6. Accept unmet done_criteria when tools were used (tools mean progress).
+# 6. Reject unmet done_criteria even when tools were used (F-002: tool usage is not completion).
 
 
-def test_accepts_unmet_done_criteria_with_tools() -> None:
+def test_rejects_unmet_done_criteria_with_tools() -> None:
     evidence = StepAcceptancePolicy().evaluate(
         step=_step(done_criteria="proof of work"),
         tool_calls=[{"name": "run_tests"}],
         tool_results=[{"summary": "ok"}],
         final_content="Ran the suite, looks fine",
+        iterations_used=2,
+    )
+
+    assert evidence.accepted is False
+    assert evidence.rejection_reason == "done_criteria_not_met"
+
+
+# 6b. Regression (F-002): non-empty tool_calls must not satisfy done criteria.
+
+
+def test_rejects_unmet_done_criteria_with_tool_calls_regression() -> None:
+    evidence = StepAcceptancePolicy().evaluate(
+        step=_step(done_criteria="report.md created"),
+        tool_calls=[{"name": "shell"}],
+        tool_results=[],
+        final_content="I ran some commands",
+        iterations_used=1,
+    )
+
+    assert evidence.accepted is False
+    assert evidence.rejection_reason == "done_criteria_not_met"
+
+
+# 6c. Regression guard: no done_criteria with non-empty content stays accepted.
+
+
+def test_accepts_non_empty_content_when_done_criteria_is_none() -> None:
+    evidence = StepAcceptancePolicy().evaluate(
+        step=_step(done_criteria=None),
+        tool_calls=[{"name": "shell"}],
+        tool_results=[],
+        final_content="Work completed.",
+        iterations_used=1,
+    )
+
+    assert evidence.accepted is True
+    assert evidence.rejection_reason is None
+
+
+# 6d. Regression guard: matched done_criteria stays accepted regardless of tools.
+
+
+def test_accepts_matched_done_criteria_with_tools() -> None:
+    evidence = StepAcceptancePolicy().evaluate(
+        step=_step(done_criteria="report.md created"),
+        tool_calls=[{"name": "shell"}],
+        tool_results=[{"summary": "file written"}],
+        final_content="Done: report.md created",
         iterations_used=2,
     )
 

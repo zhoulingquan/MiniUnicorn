@@ -197,6 +197,7 @@ def test_test_mcp_preset_connects_and_reports_tools(
 
         class FakeTool:
             name = "mcp_playwright_browser_navigate"
+            aliases: tuple[str, ...] = ()
 
             def to_schema(self):
                 return {"name": self.name, "description": "", "parameters": {}}

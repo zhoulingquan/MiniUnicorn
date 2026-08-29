@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -17,8 +18,11 @@ from miniunicorn.agent.tools.registry import ToolRegistry
 @pytest.mark.asyncio
 async def test_probe_returns_true_for_open_port(tmp_path):
     """Start a trivial TCP server, probe should return True."""
+    async def _close_handler(reader, writer):
+        writer.close()
+
     server = await asyncio.start_server(
-        lambda r, w: None,
+        _close_handler,
         "127.0.0.1",
         0,
     )
@@ -105,6 +109,3 @@ async def test_probe_not_called_for_stdio():
         await connect_mcp_servers({"s": cfg}, registry)
 
     assert not called, "probe should not be called for stdio transport"
-
-
-import asyncio

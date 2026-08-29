@@ -165,6 +165,7 @@ async def test_full_workflow_with_reflect_extra_queries():
             enable_reflect=True,
             reflect_rounds=1,
             overall_timeout_s=30,
+            enable_fetch=False,
         ),
         provider_responses=[
             json.dumps(["q1", "q2"]),  # Plan
@@ -198,6 +199,7 @@ async def test_reflect_rounds_multiple_iterations():
         enable_reflect=True,
         reflect_rounds=2,
         overall_timeout_s=30,
+        enable_fetch=False,
     )
     ws_cfg = WebSearchConfig()
 
@@ -255,6 +257,7 @@ async def test_reflect_rounds_stops_on_sufficient():
         enable_reflect=True,
         reflect_rounds=3,  # 允许 3 轮
         overall_timeout_s=30,
+        enable_fetch=False,
     )
     ws_cfg = WebSearchConfig()
 

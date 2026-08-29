@@ -986,3 +986,208 @@ async def test_subagent_build_tools_isolates_file_read_state(tmp_path):
     second_result = await second_read.execute(path="note.txt")
     assert second_result.startswith("1| hello")
     assert "File unchanged" not in second_result
+
+
+# ---------------------------------------------------------------------------
+# TurnBudget factory injection (fix: main-turn budget escape via subagents)
+# ---------------------------------------------------------------------------
+
+
+def _ok_result() -> AgentRunResult:
+    return AgentRunResult(final_content="done", messages=[], stop_reason="completed")
+
+
+class TestTurnBudgetFactory:
+    """SubagentManager 必须把主循环的预算工厂接到每次子代理 run 上。"""
+
+    @pytest.mark.asyncio
+    async def test_factory_injected_spec_gets_budget_spawn(self, tmp_path):
+        calls: list[object] = []
+
+        def _factory():
+            budget = object()
+            calls.append(budget)
+            return budget
+
+        sm = _manager(tmp_path, turn_budget_factory=_factory)
+        captured_specs = []
+
+        async def _capture_run(spec):
+            captured_specs.append(spec)
+            return _ok_result()
+
+        sm.runner.run = _capture_run
+        await sm.spawn("do task")
+        await asyncio.gather(*list(sm._running_tasks.values()))
+
+        assert len(calls) == 1
+        assert captured_specs[0].turn_budget is not None
+
+    @pytest.mark.asyncio
+    async def test_factory_injected_spec_gets_budget_direct(self, tmp_path):
+        calls: list[object] = []
+
+        def _factory():
+            budget = object()
+            calls.append(budget)
+            return budget
+
+        sm = _manager(tmp_path, turn_budget_factory=_factory)
+        captured_specs = []
+
+        async def _capture_run(spec):
+            captured_specs.append(spec)
+            return _ok_result()
+
+        sm.runner.run = _capture_run
+        status = SubagentStatus(
+            task_id="t-bud",
+            label="worker",
+            task_description="do task",
+            started_at=time.monotonic(),
+        )
+        await sm._run_subagent_direct(
+            "t-bud",
+            "do task",
+            "worker",
+            {"channel": "cli", "chat_id": "direct"},
+            status,
+        )
+
+        assert len(calls) == 1
+        assert captured_specs[0].turn_budget is not None
+
+    @pytest.mark.asyncio
+    async def test_no_factory_turn_budget_is_none(self, tmp_path):
+        """不传工厂时保持旧行为：spec.turn_budget 为 None（向后兼容）。"""
+        sm = _manager(tmp_path)
+        captured_specs = []
+
+        async def _capture_run(spec):
+            captured_specs.append(spec)
+            return _ok_result()
+
+        sm.runner.run = _capture_run
+        status = SubagentStatus(
+            task_id="t-nofactory",
+            label="worker",
+            task_description="do task",
+            started_at=time.monotonic(),
+        )
+        await sm._run_subagent_direct(
+            "t-nofactory",
+            "do task",
+            "worker",
+            {"channel": "cli", "chat_id": "direct"},
+            status,
+        )
+
+        assert captured_specs[0].turn_budget is None
+
+    @pytest.mark.asyncio
+    async def test_concurrent_subagents_get_independent_budgets(self, tmp_path):
+        """工厂每次返回新对象；并发子代理各自持有独立的 TurnBudget 实例。"""
+        created: list[object] = []
+
+        def _factory():
+            budget = object()
+            created.append(budget)
+            return budget
+
+        sm = _manager(
+            tmp_path,
+            turn_budget_factory=_factory,
+            max_concurrent_subagents=4,
+        )
+        captured_specs = []
+
+        async def _capture_run(spec):
+            await asyncio.sleep(0.05)  # 让两个 run 真正并发重叠
+            captured_specs.append(spec)
+            return _ok_result()
+
+        sm.runner.run = _capture_run
+
+        await sm.spawn("task-a", session_key="s1")
+        await sm.spawn("task-b", session_key="s1")
+        await asyncio.gather(*list(sm._running_tasks.values()))
+
+        assert len(created) == 2
+        assert len(captured_specs) == 2
+        b1 = captured_specs[0].turn_budget
+        b2 = captured_specs[1].turn_budget
+        assert b1 is not None
+        assert b2 is not None
+        assert b1 is not b2
+
+
+class TestHighRiskPolicyPropagation:
+    """主循环的 high_risk_policy 必须传播到子代理 spec，否则 deny 可被 spawn 绕过。"""
+
+    @pytest.mark.asyncio
+    async def test_deny_policy_propagates_to_spawn_spec(self, tmp_path):
+        sm = _manager(tmp_path, high_risk_policy="deny")
+        captured_specs = []
+
+        async def _capture_run(spec):
+            captured_specs.append(spec)
+            return _ok_result()
+
+        sm.runner.run = _capture_run
+        await sm.spawn("do task")
+        await asyncio.gather(*list(sm._running_tasks.values()))
+
+        assert captured_specs[0].high_risk_policy == "deny"
+
+    @pytest.mark.asyncio
+    async def test_deny_policy_propagates_to_direct_spec(self, tmp_path):
+        sm = _manager(tmp_path, high_risk_policy="deny")
+        captured_specs = []
+
+        async def _capture_run(spec):
+            captured_specs.append(spec)
+            return _ok_result()
+
+        sm.runner.run = _capture_run
+        status = SubagentStatus(
+            task_id="t-deny",
+            label="worker",
+            task_description="do task",
+            started_at=time.monotonic(),
+        )
+        await sm._run_subagent_direct(
+            "t-deny",
+            "do task",
+            "worker",
+            {"channel": "cli", "chat_id": "direct"},
+            status,
+        )
+
+        assert captured_specs[0].high_risk_policy == "deny"
+
+    @pytest.mark.asyncio
+    async def test_default_policy_is_allow(self, tmp_path):
+        """默认构造（不传 high_risk_policy）保持旧行为：spec 为 allow。"""
+        sm = _manager(tmp_path)
+        captured_specs = []
+
+        async def _capture_run(spec):
+            captured_specs.append(spec)
+            return _ok_result()
+
+        sm.runner.run = _capture_run
+        status = SubagentStatus(
+            task_id="t-allow",
+            label="worker",
+            task_description="do task",
+            started_at=time.monotonic(),
+        )
+        await sm._run_subagent_direct(
+            "t-allow",
+            "do task",
+            "worker",
+            {"channel": "cli", "chat_id": "direct"},
+            status,
+        )
+
+        assert captured_specs[0].high_risk_policy == "allow"
