@@ -3,6 +3,9 @@
 Covers the policy's accept/reject matrix, StepEvidence field population and
 serialization, the ``Plan.step_evidence`` ledger, and integration of evidence
 evaluation into ``PlanningReflectionService.complete_plan_step``.
+
+W0-A3: ``tool_calls`` / ``tool_results`` were dead inputs (empty since the
+evidence pipeline landed), so judgement now reads structured observations.
 """
 
 from __future__ import annotations
@@ -16,13 +19,29 @@ import pytest
 from miniunicorn.agent.execution.planning import PlanningReflectionService
 from miniunicorn.agent.hook import AgentHook, AgentHookContext
 from miniunicorn.agent.planner import Plan, PlanStep, StepStatus
-from miniunicorn.agent.step_acceptance import StepAcceptancePolicy, StepEvidence
+from miniunicorn.agent.step_acceptance import (
+    StepAcceptancePolicy,
+    StepEvidence,
+    ToolObservation,
+)
 
 
 def _step(**overrides: Any) -> PlanStep:
     defaults: dict[str, Any] = {"id": 1, "action": "do the thing"}
     defaults.update(overrides)
     return PlanStep(**defaults)
+
+
+def _obs(tool_name: str, **overrides: Any) -> ToolObservation:
+    """A tool observation with no receipt — text-level evidence only."""
+    defaults: dict[str, Any] = {
+        "tool_name": tool_name,
+        "arguments": {},
+        "status": "ok",
+        "result_excerpt": "",
+    }
+    defaults.update(overrides)
+    return ToolObservation(**defaults)
 
 
 def _service() -> PlanningReflectionService:
@@ -44,8 +63,7 @@ def _hook() -> AgentHook:
 def test_accepts_non_empty_content_without_done_criteria() -> None:
     evidence = StepAcceptancePolicy().evaluate(
         step=_step(),
-        tool_calls=[],
-        tool_results=[],
+        observations=[],
         final_content="The task is finished.",
         iterations_used=1,
     )
@@ -67,8 +85,7 @@ def test_accepts_non_empty_content_without_done_criteria() -> None:
 def test_accepts_when_done_criteria_matched(content: str, criteria: str) -> None:
     evidence = StepAcceptancePolicy().evaluate(
         step=_step(done_criteria=criteria),
-        tool_calls=[],
-        tool_results=[],
+        observations=[],
         final_content=content,
         iterations_used=2,
     )
@@ -83,8 +100,7 @@ def test_accepts_when_done_criteria_matched(content: str, criteria: str) -> None
 def test_rejects_empty_content_without_tools(empty_content: str | None) -> None:
     evidence = StepAcceptancePolicy().evaluate(
         step=_step(),
-        tool_calls=[],
-        tool_results=[],
+        observations=[],
         final_content=empty_content,
         iterations_used=0,
     )
@@ -99,8 +115,7 @@ def test_rejects_empty_content_without_tools(empty_content: str | None) -> None:
 def test_rejects_empty_content_with_tools() -> None:
     evidence = StepAcceptancePolicy().evaluate(
         step=_step(),
-        tool_calls=[{"name": "web_search"}],
-        tool_results=[{"summary": "3 hits"}],
+        observations=[_obs("web_search")],
         final_content=None,
         iterations_used=3,
     )
@@ -115,8 +130,7 @@ def test_rejects_empty_content_with_tools() -> None:
 def test_rejects_unmet_done_criteria_without_tools() -> None:
     evidence = StepAcceptancePolicy().evaluate(
         step=_step(done_criteria="proof of work"),
-        tool_calls=[],
-        tool_results=[],
+        observations=[],
         final_content="I did something else entirely",
         iterations_used=1,
     )
@@ -131,8 +145,7 @@ def test_rejects_unmet_done_criteria_without_tools() -> None:
 def test_rejects_unmet_done_criteria_with_tools() -> None:
     evidence = StepAcceptancePolicy().evaluate(
         step=_step(done_criteria="proof of work"),
-        tool_calls=[{"name": "run_tests"}],
-        tool_results=[{"summary": "ok"}],
+        observations=[_obs("run_tests")],
         final_content="Ran the suite, looks fine",
         iterations_used=2,
     )
@@ -141,14 +154,13 @@ def test_rejects_unmet_done_criteria_with_tools() -> None:
     assert evidence.rejection_reason == "done_criteria_not_met"
 
 
-# 6b. Regression (F-002): non-empty tool_calls must not satisfy done criteria.
+# 6b. Regression (F-002): tool observations must not satisfy done criteria.
 
 
 def test_rejects_unmet_done_criteria_with_tool_calls_regression() -> None:
     evidence = StepAcceptancePolicy().evaluate(
         step=_step(done_criteria="report.md created"),
-        tool_calls=[{"name": "shell"}],
-        tool_results=[],
+        observations=[_obs("shell")],
         final_content="I ran some commands",
         iterations_used=1,
     )
@@ -163,8 +175,7 @@ def test_rejects_unmet_done_criteria_with_tool_calls_regression() -> None:
 def test_accepts_non_empty_content_when_done_criteria_is_none() -> None:
     evidence = StepAcceptancePolicy().evaluate(
         step=_step(done_criteria=None),
-        tool_calls=[{"name": "shell"}],
-        tool_results=[],
+        observations=[_obs("shell")],
         final_content="Work completed.",
         iterations_used=1,
     )
@@ -179,8 +190,7 @@ def test_accepts_non_empty_content_when_done_criteria_is_none() -> None:
 def test_accepts_matched_done_criteria_with_tools() -> None:
     evidence = StepAcceptancePolicy().evaluate(
         step=_step(done_criteria="report.md created"),
-        tool_calls=[{"name": "shell"}],
-        tool_results=[{"summary": "file written"}],
+        observations=[_obs("shell")],
         final_content="Done: report.md created",
         iterations_used=2,
     )
@@ -193,21 +203,21 @@ def test_accepts_matched_done_criteria_with_tools() -> None:
 
 def test_evidence_fields_populated_correctly() -> None:
     step = _step(id=7, action="fetch data")
-    tool_calls = [{"name": "http_get", "args": {"url": "https://x"}}]
-    tool_results = [{"summary": "200 OK"}]
+    observations = [_obs("http_get", arguments={"url": "https://x"})]
 
     evidence = StepAcceptancePolicy().evaluate(
         step=step,
-        tool_calls=tool_calls,
-        tool_results=tool_results,
+        observations=observations,
         final_content="data fetched",
         iterations_used=4,
     )
 
     assert isinstance(evidence, StepEvidence)
     assert evidence.step_id == 7
-    assert evidence.tool_calls == tool_calls
-    assert evidence.tool_results == tool_results
+    # tool_calls/tool_results are dead inputs and stay empty by construction.
+    assert evidence.tool_calls == []
+    assert evidence.tool_results == []
+    assert [o["tool_name"] for o in evidence.observations] == ["http_get"]
     assert evidence.final_content == "data fetched"
     assert evidence.iterations_used == 4
     assert evidence.accepted is True
@@ -217,8 +227,7 @@ def test_evidence_fields_populated_correctly() -> None:
 def test_rejected_evidence_carries_reason_and_inputs() -> None:
     evidence = StepAcceptancePolicy().evaluate(
         step=_step(done_criteria="signed off"),
-        tool_calls=[],
-        tool_results=[],
+        observations=[],
         final_content="half done",
         iterations_used=1,
     )
@@ -228,7 +237,7 @@ def test_rejected_evidence_carries_reason_and_inputs() -> None:
     assert evidence.final_content == "half done"
 
 
-# 8. to_dict round-trip exposes all 7 keys with matching values.
+# 8. to_dict round-trip exposes all keys with matching values.
 
 
 def test_to_dict_round_trip_has_all_keys() -> None:
@@ -251,6 +260,8 @@ def test_to_dict_round_trip_has_all_keys() -> None:
         "iterations_used",
         "accepted",
         "rejection_reason",
+        "evidence_level",
+        "evidence_digest",
     }
     assert data == {
         "step_id": 3,
@@ -260,6 +271,8 @@ def test_to_dict_round_trip_has_all_keys() -> None:
         "iterations_used": 2,
         "accepted": True,
         "rejection_reason": None,
+        "evidence_level": "text",
+        "evidence_digest": None,
     }
 
 
@@ -308,8 +321,7 @@ async def test_complete_plan_step_appends_accepted_evidence_and_completes() -> N
         hook,
         "found the answer",
         "stop",
-        tool_calls=[{"name": "web_search", "args": {"q": "docs"}}],
-        tool_results=[{"summary": "3 hits"}],
+        tool_observations=[_obs("web_search", arguments={"q": "docs"})],
     )
 
     assert more_steps is False
@@ -318,8 +330,9 @@ async def test_complete_plan_step_appends_accepted_evidence_and_completes() -> N
     evidence = plan.step_evidence[0]
     assert evidence.step_id == 1
     assert evidence.accepted is True
-    assert evidence.tool_calls == [{"name": "web_search", "args": {"q": "docs"}}]
-    assert evidence.tool_results == [{"summary": "3 hits"}]
+    assert [o["tool_name"] for o in evidence.observations] == ["web_search"]
+    assert evidence.tool_calls == []
+    assert evidence.tool_results == []
     assert evidence.final_content == "found the answer"
     assert evidence.iterations_used == 2
     hook.after_iteration.assert_not_awaited()

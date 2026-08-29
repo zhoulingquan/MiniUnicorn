@@ -1,21 +1,22 @@
 """T5: StepAcceptancePolicy LLM verifier fallback.
 
-Tests that when rules return rejected (not accepted), and enable_step_verifier=True,
-an LLM call is made as a fallback. The verifier's verdict is recorded in step evidence.
+The verifier is a narrow rescue channel: it only re-judges a step whose rules
+rejection was ``done_criteria_not_met``, i.e. one that already produced real
+evidence but whose text does not restate the criteria. Hard failures (no
+receipt, empty content) never reach the LLM.
 """
 
 from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.call_ledger import CallPurpose
+from miniunicorn.agent.execution.planning import PlanningReflectionService
 from miniunicorn.agent.planner import Plan, PlanStep, StepStatus
 from miniunicorn.agent.step_acceptance import StepAcceptancePolicy, StepEvidence
-from miniunicorn.agent.execution.planning import PlanningReflectionService
 
 
 def _step(**overrides: Any) -> PlanStep:
@@ -50,15 +51,11 @@ class TestStepAcceptanceVerifier:
     def test_verifier_disabled_by_default_no_llm_call(self, mock_provider):
         """When enable_step_verifier=False (default), no LLM call is made."""
         policy = StepAcceptancePolicy()
-        step = _step(done_criteria="QED")
-        tool_calls = [{"name": "run_tests"}]
-        tool_results = [{"summary": "ok"}]
 
-        # Rules REJECT: empty content without tools (independent of done_criteria).
+        # Rules REJECT: empty content without observations.
         evidence = policy.evaluate(
             step=_step(),
-            tool_calls=[],
-            tool_results=[],
+            observations=[],
             final_content="",
             iterations_used=1,
         )
@@ -68,7 +65,7 @@ class TestStepAcceptanceVerifier:
 
     @pytest.mark.asyncio
     async def test_verifier_enabled_triggers_llm_on_rejection(self, mock_provider):
-        """When enable_step_verifier=True and rules reject, LLM is called once."""
+        """When enable_step_verifier=True and the only gap is the criteria, LLM is called once."""
         # Setup mock response with accepted verdict
         response = MagicMock()
         response.content = '{"accepted": true, "reason": "Content shows completion"}'
@@ -78,9 +75,10 @@ class TestStepAcceptanceVerifier:
         step = _step(done_criteria="QED")
         evidence = await policy.evaluate_with_verifier(
             step=step,
-            tool_calls=[],
-            tool_results=[],
-            final_content="",  # Rules reject: empty content
+            observations=[],
+            # Non-empty but missing the criteria -> done_criteria_not_met,
+            # the one rejection the verifier is allowed to rescue.
+            final_content="work in progress",
             iterations_used=1,
             provider=mock_provider,
             model="test-model",
@@ -105,9 +103,8 @@ class TestStepAcceptanceVerifier:
         step = _step(done_criteria="QED")
         evidence = await policy.evaluate_with_verifier(
             step=step,
-            tool_calls=[],
-            tool_results=[],
-            final_content="",
+            observations=[],
+            final_content="work in progress",
             iterations_used=1,
             provider=mock_provider,
             model="test-model",
@@ -124,34 +121,32 @@ class TestStepAcceptanceVerifier:
         assert data["verifier_verdict"]["accepted"] is False
 
     @pytest.mark.asyncio
-    async def test_verifier_not_called_twice_for_same_step(self, mock_provider):
-        """Second evaluation of same step should not re-call LLM (cached)."""
+    async def test_verifier_not_called_twice_for_same_evidence(self, mock_provider):
+        """Second evaluation with the same observations reuses the cached verdict."""
         response = MagicMock()
         response.content = '{"accepted": true, "reason": "OK"}'
         mock_provider.chat_with_retry.return_value = response
 
         policy = StepAcceptancePolicy()
         step = _step(done_criteria="QED")
-        cache: dict[int, dict[str, Any]] = {}
+        cache: dict[tuple[int, str], dict[str, Any]] = {}
 
         # First call
         await policy.evaluate_with_verifier(
             step=step,
-            tool_calls=[],
-            tool_results=[],
-            final_content="",
+            observations=[],
+            final_content="work in progress",
             iterations_used=1,
             provider=mock_provider,
             model="test-model",
             enable_verifier=True,
             step_evidence_cache=cache,
         )
-        # Second call with same step_id
+        # Second call with identical evidence
         await policy.evaluate_with_verifier(
             step=step,
-            tool_calls=[],
-            tool_results=[],
-            final_content="",
+            observations=[],
+            final_content="work in progress",
             iterations_used=1,
             provider=mock_provider,
             model="test-model",
@@ -171,9 +166,8 @@ class TestStepAcceptanceVerifier:
         step = _step(done_criteria="QED")
         evidence = await policy.evaluate_with_verifier(
             step=step,
-            tool_calls=[],
-            tool_results=[],
-            final_content="",  # Rules reject
+            observations=[],
+            final_content="work in progress",
             iterations_used=1,
             provider=mock_provider,
             model="test-model",
@@ -182,7 +176,7 @@ class TestStepAcceptanceVerifier:
 
         # Should fall back to rule result (rejected)
         assert evidence.accepted is False
-        assert evidence.rejection_reason == "empty_content_no_tools"
+        assert evidence.rejection_reason == "done_criteria_not_met"
         assert evidence.verifier_verdict is not None
         assert evidence.verifier_verdict.get("error") == "verifier_failed"
         assert evidence.verifier_verdict.get("fallback_to_rule") is True
@@ -190,8 +184,6 @@ class TestStepAcceptanceVerifier:
     @pytest.mark.asyncio
     async def test_verifier_uses_call_ledger_with_verifier_purpose(self, mock_provider):
         """LLM call uses CallPurpose.VERIFIER for ledger accounting."""
-        from miniunicorn.agent.call_ledger import CallPurpose, _PURPOSE
-
         response = MagicMock()
         response.content = '{"accepted": true, "reason": "OK"}'
         mock_provider.chat_with_retry.return_value = response
@@ -200,9 +192,8 @@ class TestStepAcceptanceVerifier:
         step = _step(done_criteria="QED")
         await policy.evaluate_with_verifier(
             step=step,
-            tool_calls=[],
-            tool_results=[],
-            final_content="",
+            observations=[],
+            final_content="work in progress",
             iterations_used=1,
             provider=mock_provider,
             model="test-model",
@@ -211,8 +202,3 @@ class TestStepAcceptanceVerifier:
 
         # Verify chat_with_retry was called (which means call_purpose context was entered)
         mock_provider.chat_with_retry.assert_called_once()
-        # The call_purpose context manager sets _PURPOSE context var during the call
-        # We can't easily test the context var after the call since it's reset,
-        # but we can verify the call happened within the expected context by
-        # checking the provider was called with the right setup.
-        # The key assertion is that no exception occurred and the call was made.

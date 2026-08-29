@@ -245,8 +245,6 @@ class PlanningReflectionService:
         *,
         spec: AgentRunSpec | None = None,
         turn_id: str | None = None,
-        tool_calls: list[dict[str, Any]] | None = None,
-        tool_results: list[dict[str, Any]] | None = None,
         tool_observations: list[ToolObservation] | None = None,
     ) -> bool:
         """Evaluate step evidence and mark COMPLETED if accepted.
@@ -277,24 +275,20 @@ class PlanningReflectionService:
         if spec is not None and getattr(spec, "enable_step_verifier", False):
             evidence = await policy.evaluate_with_verifier(
                 step=completed_step,
-                tool_calls=tool_calls or [],
-                tool_results=tool_results or [],
+                observations=tool_observations,
                 final_content=clean,
                 iterations_used=completed_step.iterations_used,
                 provider=self._runner.provider,
                 model=spec.model,
                 enable_verifier=True,
                 step_evidence_cache=plan._verifier_cache,
-                observations=tool_observations,
             )
         else:
             evidence = policy.evaluate(
                 step=completed_step,
-                tool_calls=tool_calls or [],
-                tool_results=tool_results or [],
+                observations=tool_observations,
                 final_content=clean,
                 iterations_used=completed_step.iterations_used,
-                observations=tool_observations,
             )
         plan.step_evidence.append(evidence)
 
@@ -342,4 +336,12 @@ class PlanningReflectionService:
         if tracker is None or plan is None:
             return None
         evidence = plan.step_evidence[-1] if plan.step_evidence else None
+        # Feed the verifier circuit breaker before the verdict is computed: a
+        # verdict that was reached without the verifier says nothing about it.
+        verdict_dict = evidence.verifier_verdict if evidence is not None else None
+        if verdict_dict is not None:
+            if verdict_dict.get("error") == "verifier_failed":
+                tracker.record_verifier_failure()
+            else:
+                tracker.record_verifier_success()
         return tracker.check_step_progress(plan.current_step, evidence)

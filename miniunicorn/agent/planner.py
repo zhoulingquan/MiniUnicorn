@@ -50,6 +50,7 @@ class PlanStep:
     status: StepStatus = StepStatus.PENDING
     failure_reason: str | None = None
     iterations_used: int = 0
+    evidence_level: str = "text"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -60,7 +61,22 @@ class PlanStep:
             "status": self.status.value,
             "failure_reason": self.failure_reason,
             "iterations_used": self.iterations_used,
+            "evidence_level": self.evidence_level,
         }
+
+
+RECEIPT_TOOLS = frozenset({"write_file", "edit_file", "apply_patch"})
+
+
+def effective_evidence_level(step: PlanStep) -> str:
+    """Resolve the evidence level actually enforced for a step.
+
+    The Planner's declaration can only raise the bar, never lower it: a step
+    that touches a receipt-issuing tool always demands tool-level evidence.
+    """
+    if step.evidence_level == "tool" or (step.tool_hint or "") in RECEIPT_TOOLS:
+        return "tool"
+    return "text"
 
 
 @dataclass

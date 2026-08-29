@@ -138,6 +138,7 @@ def test_steps_serialized_with_full_schema() -> None:
         "status",
         "failure_reason",
         "iterations_used",
+        "evidence_level",
     }
     for step in snapshot.steps:
         assert set(step) == expected_keys
@@ -148,6 +149,7 @@ def test_steps_serialized_with_full_schema() -> None:
     assert snapshot.steps[0]["status"] == "pending"
     assert snapshot.steps[0]["failure_reason"] is None
     assert snapshot.steps[0]["iterations_used"] == 0
+    assert snapshot.steps[0]["evidence_level"] == "text"
 
 
 # --- 7: frozen dataclass ------------------------------------------------------
@@ -199,9 +201,7 @@ async def test_runner_emits_plan_snapshots_via_checkpoint_callback() -> None:
         )
     )
 
-    snapshots = [
-        payload for payload in checkpoints if payload.get("phase") == "plan_snapshot"
-    ]
+    snapshots = [payload for payload in checkpoints if payload.get("phase") == "plan_snapshot"]
     assert len(snapshots) >= 2
     first = snapshots[0]["plan_snapshot"]
     last = snapshots[-1]["plan_snapshot"]

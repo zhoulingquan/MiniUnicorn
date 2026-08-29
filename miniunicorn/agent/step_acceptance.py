@@ -7,11 +7,13 @@ enable_step_verifier is True, an LLM call is made as a fallback.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from hashlib import sha256
 from typing import Any
 
-from miniunicorn.agent.planner import PlanStep
+from miniunicorn.agent.planner import PlanStep, effective_evidence_level
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +55,8 @@ class StepEvidence:
     rejection_reason: str | None = None
     verifier_verdict: dict[str, Any] | None = None
     observations: list[dict[str, Any]] = field(default_factory=list)
+    evidence_level: str = "text"
+    evidence_digest: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data = {
@@ -63,6 +67,8 @@ class StepEvidence:
             "iterations_used": self.iterations_used,
             "accepted": self.accepted,
             "rejection_reason": self.rejection_reason,
+            "evidence_level": self.evidence_level,
+            "evidence_digest": self.evidence_digest,
         }
         if self.verifier_verdict is not None:
             data["verifier_verdict"] = self.verifier_verdict
@@ -71,102 +77,128 @@ class StepEvidence:
         return data
 
 
+def observations_digest(observations: list[ToolObservation]) -> str:
+    """观察序列规范化哈希：只取影响判定的稳定字段。
+
+    排序后哈希，使并发批次下到达顺序不同的一组观察得到同一个 digest；
+    不含 result_excerpt / occurred_at / arguments，避免缓存永远失效。
+    """
+    items = sorted(
+        (
+            o.tool_name,
+            o.status,
+            o.receipt.get("digest") if o.receipt else None,
+            o.receipt.get("target") if o.receipt else None,
+        )
+        for o in observations
+    )
+    return sha256(json.dumps(items, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
 class StepAcceptancePolicy:
     """Deterministic step acceptance with optional LLM verifier fallback."""
 
     def evaluate(
         self,
         step: PlanStep,
-        tool_calls: list[dict[str, Any]],
-        tool_results: list[dict[str, Any]],
+        observations: list[ToolObservation] | None,
         final_content: str | None,
         iterations_used: int,
-        observations: list[ToolObservation] | None = None,
     ) -> StepEvidence:
         """Rule-based evaluation only (no LLM)."""
-        accepted = self._is_accepted(step, tool_calls, final_content)
+        obs = list(observations or [])
+        accepted = self._is_accepted(step, obs, final_content)
         return StepEvidence(
             step_id=step.id,
-            tool_calls=list(tool_calls),
-            tool_results=list(tool_results),
+            tool_calls=[],
+            tool_results=[],
             final_content=final_content,
             iterations_used=iterations_used,
             accepted=accepted,
-            rejection_reason=None
-            if accepted
-            else self._rejection_reason(step, tool_calls, final_content),
-            observations=[o.to_dict() for o in observations or []],
+            rejection_reason=None if accepted else self._rejection_reason(step, obs, final_content),
+            observations=[o.to_dict() for o in obs],
+            evidence_level=effective_evidence_level(step),
+            evidence_digest=observations_digest(obs),
         )
 
     async def evaluate_with_verifier(
         self,
         step: PlanStep,
-        tool_calls: list[dict[str, Any]],
-        tool_results: list[dict[str, Any]],
+        observations: list[ToolObservation] | None,
         final_content: str | None,
         iterations_used: int,
         *,
         provider: Any,
         model: str,
         enable_verifier: bool,
-        step_evidence_cache: dict[int, dict[str, Any]] | None = None,
-        observations: list[ToolObservation] | None = None,
+        step_evidence_cache: dict[tuple[int, str], dict[str, Any]] | None = None,
     ) -> StepEvidence:
         """Evaluate with optional LLM verifier fallback.
 
-        If rules reject and enable_verifier is True, calls LLM once per step.
-        Verdict is cached in step_evidence_cache to avoid duplicate calls.
+        The verifier is a rescue channel for exactly one rejection reason
+        (``done_criteria_not_met``); hard failures such as a missing receipt
+        never reach the LLM. Verdicts are cached under
+        ``(step_id, observations_digest)``, so a step that produced new
+        evidence is judged again instead of reusing a stale verdict.
         """
-        obs = [o.to_dict() for o in observations or []]
+        obs = list(observations or [])
+        obs_dicts = [o.to_dict() for o in obs]
+        digest = observations_digest(obs)
+        cache_key = (step.id, digest)
 
         # Check cache first
-        if step_evidence_cache is not None and step.id in step_evidence_cache:
-            cached = step_evidence_cache[step.id]
+        if step_evidence_cache is not None and cache_key in step_evidence_cache:
+            cached = step_evidence_cache[cache_key]
             return StepEvidence(
                 step_id=step.id,
-                tool_calls=list(tool_calls),
-                tool_results=list(tool_results),
+                tool_calls=[],
+                tool_results=[],
                 final_content=final_content,
                 iterations_used=iterations_used,
                 accepted=cached["accepted"],
                 rejection_reason=cached.get("rejection_reason"),
                 verifier_verdict=cached.get("verifier_verdict"),
-                observations=obs,
+                observations=obs_dicts,
+                evidence_level=effective_evidence_level(step),
+                evidence_digest=digest,
             )
 
         # Rule-based evaluation
-        rule_accepted = self._is_accepted(step, tool_calls, final_content)
-        rule_rejection = (
-            None if rule_accepted else self._rejection_reason(step, tool_calls, final_content)
-        )
+        rule_accepted = self._is_accepted(step, obs, final_content)
+        rule_rejection = None if rule_accepted else self._rejection_reason(step, obs, final_content)
 
-        if rule_accepted or not enable_verifier:
+        # Only a criteria mismatch is rescuable — a step with no receipt must
+        # not be talked into passing.
+        rescuable = rule_rejection == "done_criteria_not_met"
+
+        if rule_accepted or not enable_verifier or not rescuable:
             evidence = StepEvidence(
                 step_id=step.id,
-                tool_calls=list(tool_calls),
-                tool_results=list(tool_results),
+                tool_calls=[],
+                tool_results=[],
                 final_content=final_content,
                 iterations_used=iterations_used,
                 accepted=rule_accepted,
                 rejection_reason=rule_rejection,
-                observations=obs,
+                observations=obs_dicts,
+                evidence_level=effective_evidence_level(step),
+                evidence_digest=digest,
             )
             if step_evidence_cache is not None:
-                step_evidence_cache[step.id] = {
+                step_evidence_cache[cache_key] = {
                     "accepted": evidence.accepted,
                     "rejection_reason": evidence.rejection_reason,
                     "verifier_verdict": evidence.verifier_verdict,
-                    "observations": obs,
+                    "observations": obs_dicts,
                 }
             return evidence
 
-        # Rules rejected and verifier enabled -> call LLM
+        # Rules rejected, rescue allowed and verifier enabled -> call LLM
         verifier_verdict = await self._call_verifier_llm(
             provider=provider,
             model=model,
             step=step,
-            tool_calls=tool_calls,
-            tool_results=tool_results,
+            observations=obs,
             final_content=final_content,
         )
 
@@ -184,22 +216,26 @@ class StepAcceptancePolicy:
 
         evidence = StepEvidence(
             step_id=step.id,
-            tool_calls=list(tool_calls),
-            tool_results=list(tool_results),
+            tool_calls=[],
+            tool_results=[],
             final_content=final_content,
             iterations_used=iterations_used,
             accepted=accepted,
             rejection_reason=rejection_reason,
             verifier_verdict=verifier_verdict,
-            observations=obs,
+            observations=obs_dicts,
+            evidence_level=effective_evidence_level(step),
+            evidence_digest=digest,
         )
 
-        if step_evidence_cache is not None:
-            step_evidence_cache[step.id] = {
+        # A failed verifier must not poison the cache: the rule fallback is a
+        # degraded answer, not a considered one.
+        if step_evidence_cache is not None and verifier_verdict.get("error") is None:
+            step_evidence_cache[cache_key] = {
                 "accepted": evidence.accepted,
                 "rejection_reason": evidence.rejection_reason,
                 "verifier_verdict": evidence.verifier_verdict,
-                "observations": obs,
+                "observations": obs_dicts,
             }
         return evidence
 
@@ -208,14 +244,13 @@ class StepAcceptancePolicy:
         provider: Any,
         model: str,
         step: PlanStep,
-        tool_calls: list[dict[str, Any]],
-        tool_results: list[dict[str, Any]],
+        observations: list[ToolObservation],
         final_content: str | None,
     ) -> dict[str, Any] | None:
         """Call LLM to verify step completion. Returns verdict dict or None on failure."""
         from miniunicorn.agent.call_ledger import CallPurpose, call_purpose
 
-        prompt = self._build_verifier_prompt(step, tool_calls, tool_results, final_content)
+        prompt = self._build_verifier_prompt(step, observations, final_content)
 
         try:
             async with call_purpose(CallPurpose.VERIFIER):
@@ -269,29 +304,69 @@ class StepAcceptancePolicy:
     def _build_verifier_prompt(
         self,
         step: PlanStep,
-        tool_calls: list[dict[str, Any]],
-        tool_results: list[dict[str, Any]],
+        observations: list[ToolObservation],
         final_content: str | None,
     ) -> str:
-        """Build the prompt for the LLM verifier."""
+        """Build the prompt for the LLM verifier from the real evidence.
+
+        Observations are rendered one per line with their receipt (or an
+        explicit "no receipt" marker). Full arguments and result excerpts are
+        left out deliberately: they bloat the prompt and widen the injection
+        surface without helping the verdict.
+        """
         lines = [
             f"Step: {step.action}",
             f"Done criteria: {step.done_criteria or 'N/A'}",
-            f"Tool calls: {len(tool_calls)}",
-            f"Tool results: {len(tool_results)}",
-            f"Final content: {final_content or '(empty)'}",
-            "",
-            "Does the final content satisfy the done criteria (if any) and demonstrate step completion?",
-            'Respond with JSON: {"accepted": true|false, "reason": "..."}',
+            f"Evidence level: {effective_evidence_level(step)}",
+            f"Tool observations ({len(observations)}):",
         ]
+        for o in observations:
+            if o.receipt is None:
+                lines.append(f"  - {o.tool_name}(status={o.status}, no receipt)")
+                continue
+            committed = o.receipt.get("committed")
+            files = o.receipt.get("files") or []
+            if files:
+                for entry in files:
+                    lines.append(
+                        f"  - {o.tool_name}(target={entry.get('path')}, "
+                        f"committed={committed}, digest={str(entry.get('digest'))[:12]}...)"
+                    )
+            else:
+                lines.append(
+                    f"  - {o.tool_name}(target={o.receipt.get('target')}, "
+                    f"committed={committed}, digest={str(o.receipt.get('digest'))[:12]}...)"
+                )
+        lines.extend(
+            [
+                "",
+                f"Final content: {final_content or '(empty)'}",
+                "",
+                "The step HAS produced verified side effects (receipts above). "
+                "Judge ONLY whether those actions plus the content satisfy the done criteria.",
+                'Respond with JSON: {"accepted": true|false, "reason": "..."}',
+            ]
+        )
         return "\n".join(lines)
 
     def _is_accepted(
         self,
         step: PlanStep,
-        tool_calls: list[dict[str, Any]],
+        observations: list[ToolObservation],
         final_content: str | None,
     ) -> bool:
+        if effective_evidence_level(step) == "tool":
+            # A committed receipt is necessary — text alone can never satisfy a
+            # tool-level step, which is what closes the forgery loophole.
+            if not any(
+                o.receipt is not None and o.receipt.get("committed") is True for o in observations
+            ):
+                return False
+            # The side effect is proven. A declared criteria still has to be
+            # met; that is the one gap the verifier is allowed to rescue.
+            if step.done_criteria:
+                return bool(final_content and step.done_criteria.lower() in final_content.lower())
+            return True
         if final_content and final_content.strip():
             if step.done_criteria:
                 return step.done_criteria.lower() in final_content.lower()
@@ -301,11 +376,21 @@ class StepAcceptancePolicy:
     def _rejection_reason(
         self,
         step: PlanStep,
-        tool_calls: list[dict[str, Any]],
+        observations: list[ToolObservation],
         final_content: str | None,
     ) -> str:
+        if effective_evidence_level(step) == "tool":
+            if not observations:
+                # No tool ran at all.
+                return "no_tool_receipt"
+            if not any(o.receipt for o in observations):
+                # Tools ran but none produced a trusted side effect.
+                return "no_tool_receipt"
+            # A receipt exists; only the criteria is in question, which the
+            # verifier may rescue.
+            return "done_criteria_not_met"
         if not final_content or not final_content.strip():
-            if not tool_calls:
+            if not observations:
                 return "empty_content_no_tools"
             return "empty_content_with_tools"
         if step.done_criteria and step.done_criteria.lower() not in final_content.lower():

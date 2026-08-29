@@ -59,6 +59,13 @@ class ProgressTracker:
         self._policy = policy
         self._consecutive_empty: int = 0
         self._consecutive_failures: int = 0
+        self._verifier_failures: int = 0
+
+    def record_verifier_failure(self) -> None:
+        self._verifier_failures += 1
+
+    def record_verifier_success(self) -> None:
+        self._verifier_failures = 0
 
     def check_step_progress(
         self,
@@ -69,6 +76,12 @@ class ProgressTracker:
         # Check iteration limit.
         if step.iterations_used > self._policy.max_step_iterations:
             return ProgressVerdict(ProgressAction.REPLAN, "step_iteration_limit")
+
+        # The verifier is the rescue channel for tool-level evidence. When it
+        # keeps failing, step verdicts are untrustworthy — change approach
+        # instead of burning more verifier calls.
+        if self._verifier_failures >= 2:
+            return ProgressVerdict(ProgressAction.REPLAN, "verifier_unavailable")
 
         # Check for empty evidence (no tools, no content).
         if evidence is not None and not evidence.accepted:
