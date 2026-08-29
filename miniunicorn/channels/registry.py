@@ -205,6 +205,4 @@ def discover_all() -> dict[str, type[BaseChannel]]:
     channel instead of raising (``strict=False``).
     """
     names = discover_channel_names()
-    return discover_enabled(
-        set(names), _names=names, _include_all_external=True, strict=False
-    )
+    return discover_enabled(set(names), _names=names, _include_all_external=True, strict=False)
