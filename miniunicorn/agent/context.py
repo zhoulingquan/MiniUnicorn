@@ -50,11 +50,7 @@ def runtime_lines(
     helpers entirely so the optional ``apps`` service is never touched on
     the gateway main flow.
     """
-    cli_lines = (
-        cli_app_utils.runtime_lines(msg, workspace, skip=skip)
-        if cli_apps_enabled
-        else []
-    )
+    cli_lines = cli_app_utils.runtime_lines(msg, workspace, skip=skip) if cli_apps_enabled else []
     return [
         *cli_lines,
         *mcp_tools.runtime_lines(
