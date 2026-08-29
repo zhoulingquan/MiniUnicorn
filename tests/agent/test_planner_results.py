@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.planner import Planner, PlannerStatus
+from miniunicorn.agent.planner import (
+    Planner,
+    PlannerStatus,
+    _normalize_evidence_level,
+    effective_evidence_level,
+)
 from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 from miniunicorn.providers.base import LLMProvider, LLMResponse
 
@@ -114,3 +120,101 @@ async def test_planner_receives_full_latest_user_message() -> None:
     assert task_text == long_task
     call = provider.chat_with_retry.await_args.kwargs
     assert long_task in call["messages"][1]["content"]
+
+
+# --- W0-A4: evidence_level protocol ------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_parses_tool_evidence_level() -> None:
+    provider = _provider_with_content(
+        json.dumps(
+            {
+                "goal": "ship",
+                "steps": [{"id": 1, "action": "write it", "evidence_level": "tool"}],
+            }
+        )
+    )
+
+    result = await Planner(provider, "test-model").create_plan("ship", "tools")
+
+    assert result.plan.steps[0].evidence_level == "tool"
+    assert effective_evidence_level(result.plan.steps[0]) == "tool"
+
+
+@pytest.mark.asyncio
+async def test_missing_evidence_level_defaults_to_text() -> None:
+    provider = _provider_with_content(
+        json.dumps({"goal": "ship", "steps": [{"id": 1, "action": "research it"}]})
+    )
+
+    result = await Planner(provider, "test-model").create_plan("ship", "tools")
+
+    assert result.plan.steps[0].evidence_level == "text"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("none", "text"),
+        ("TOOL", "tool"),
+        ("tool ", "tool"),
+        ("Text", "text"),
+        ("", "text"),
+    ],
+)
+def test_evidence_level_normalization(raw: str, expected: str) -> None:
+    assert _normalize_evidence_level(raw) == expected
+
+
+@pytest.mark.parametrize("raw", [True, 1, None, ["tool"], {"level": "tool"}])
+def test_non_string_evidence_level_falls_back_to_text(raw: object) -> None:
+    assert _normalize_evidence_level(raw) == "text"
+
+
+def test_planner_template_declares_evidence_level() -> None:
+    template = (
+        Path(__file__).resolve().parents[2]
+        / "miniunicorn"
+        / "templates"
+        / "agent"
+        / "planner_system.md"
+    )
+
+    assert "evidence_level" in template.read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_end_to_end_tool_level_step_reaches_acceptance() -> None:
+    """A Planner-declared tool step keeps tool level through to the judgement."""
+    provider = _provider_with_content(
+        json.dumps(
+            {
+                "goal": "ship",
+                "steps": [
+                    {
+                        "id": 1,
+                        "action": "write the report",
+                        "tool_hint": None,
+                        "evidence_level": "tool",
+                    }
+                ],
+            }
+        )
+    )
+    tools = MagicMock()
+    tools.get_definitions.return_value = []
+    spec = AgentRunSpec(
+        initial_messages=[{"role": "user", "content": "ship"}],
+        tools=tools,
+        model="test-model",
+        max_iterations=1,
+        max_tool_result_chars=1000,
+        use_planner=True,
+    )
+
+    _planner, plan, _task_text, _summary = await AgentRunner(provider)._init_planner(spec)
+
+    assert plan is not None
+    # No tool_hint, so the level comes from the Planner's declaration alone.
+    assert effective_evidence_level(plan.steps[0]) == "tool"

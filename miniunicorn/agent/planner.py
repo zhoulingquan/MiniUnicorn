@@ -68,6 +68,16 @@ class PlanStep:
 RECEIPT_TOOLS = frozenset({"write_file", "edit_file", "apply_patch"})
 
 
+def _normalize_evidence_level(value: Any) -> str:
+    """Fold any non-"tool" value (missing, "none", typo, non-str) onto "text".
+
+    Never raises: the static floor still lifts write/edit/patch steps to tool
+    level via their tool_hint, so a Planner that forgets to declare the field
+    cannot open an acceptance hole.
+    """
+    return "tool" if str(value or "").strip().lower() == "tool" else "text"
+
+
 def effective_evidence_level(step: PlanStep) -> str:
     """Resolve the evidence level actually enforced for a step.
 
@@ -310,6 +320,7 @@ class Planner:
                     action=action,
                     tool_hint=raw.get("tool_hint"),
                     done_criteria=raw.get("done_criteria"),
+                    evidence_level=_normalize_evidence_level(raw.get("evidence_level")),
                 )
             )
             next_id += 1

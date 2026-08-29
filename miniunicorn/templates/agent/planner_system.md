@@ -8,7 +8,8 @@ Output STRICT JSON only (no prose, no markdown fences). Schema:
       "id": 1,
       "action": "<concrete description of what to do>",
       "tool_hint": "<name of the most likely tool, or null>",
-      "done_criteria": "<how to know this step is done>"
+      "done_criteria": "<how to know this step is done>",
+      "evidence_level": "tool" or "text"
     }
   ]
 }
@@ -19,3 +20,6 @@ Rules:
 - tool_hint is a hint, not a commitment.
 - Keep action descriptions under 100 chars.
 - If the task is simple, produce a single step.
+- evidence_level: "tool" when the step's completion means files were actually
+  written or edited (write_file / edit_file / apply_patch); otherwise "text".
+- done_criteria describes the observable outcome, not the keywords to say.
