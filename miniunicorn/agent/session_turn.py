@@ -40,6 +40,11 @@ class SessionTurnService:
     _RUNTIME_CHECKPOINT_KEY = "runtime_checkpoint"
     _PENDING_USER_TURN_KEY = "pending_user_turn"
 
+    # 仅审计用途的 checkpoint phase：不含恢复字段
+    # (assistant_message/completed_tool_results/pending_tool_calls)，
+    # 持久化进单槽 runtime_checkpoint 会破坏崩溃恢复，直接跳过。
+    _AUDIT_ONLY_CHECKPOINT_PHASES = frozenset({"tool_started", "tool_completed", "tool_blocked"})
+
     def __init__(
         self,
         sessions: SessionManager | None,
@@ -199,6 +204,8 @@ class SessionTurnService:
 
     def _set_runtime_checkpoint(self, session: Session, payload: dict[str, Any]) -> None:
         """Persist the latest in-flight turn state into session metadata."""
+        if payload.get("phase") in self._AUDIT_ONLY_CHECKPOINT_PHASES:
+            return
         session.metadata[self._RUNTIME_CHECKPOINT_KEY] = payload
         self.sessions.save(session)
 

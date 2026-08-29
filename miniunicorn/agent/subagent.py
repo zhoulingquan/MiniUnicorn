@@ -54,7 +54,9 @@ class SubagentStatus:
     label: str
     task_description: str
     started_at: float  # time.monotonic()
-    phase: str = "initializing"  # initializing | awaiting_tools | tools_completed | final_response | done | error
+    # initializing | awaiting_tools | tool_started | tool_blocked |
+    # tool_completed | tools_completed | final_response | done | error
+    phase: str = "initializing"
     iteration: int = 0
     tool_events: list = field(default_factory=list)  # [{name, status, detail}, ...]
     usage: dict = field(default_factory=dict)  # token usage
@@ -190,6 +192,11 @@ class SubagentManager:
         max_concurrent_subagents: int | None = None,
         llm_wall_timeout_for_session: Callable[[str | None], float | None] | None = None,
         max_subagent_recursion_depth: int | None = None,
+        turn_budget_factory: Callable[[], Any] | None = None,
+        # 主循环的高风险工具策略必须传播到子代理，否则 deny 可被 spawn 绕过。
+        # 注意：approval_callback 不向子代理传播（loop 级 Manager vs 每次运行的
+        # spec 级回调，架构上需要更大改动），此处仅同步静态策略。
+        high_risk_policy: str = "allow",
     ):
         defaults = AgentDefaults()
         self.provider = provider
@@ -220,6 +227,10 @@ class SubagentManager:
         )
         self.runner = AgentRunner(provider)
         self._llm_wall_timeout_for_session = llm_wall_timeout_for_session
+        # 每个子代理 run 调用一次该工厂，获得独立的新鲜 TurnBudget，
+        # 使主轮次的 token/cost 预算对派生的 LLM 调用同样生效。
+        self._turn_budget_factory = turn_budget_factory
+        self._high_risk_policy = high_risk_policy
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._task_statuses: dict[str, SubagentStatus] = {}
         self._session_tasks: dict[str, set[str]] = {}  # session_key -> {task_id, ...}
@@ -440,6 +451,12 @@ class SubagentManager:
                             session_key=sess_key,
                             workspace=root,
                             llm_timeout_s=llm_timeout,
+                            turn_budget=(
+                                self._turn_budget_factory()
+                                if self._turn_budget_factory is not None
+                                else None
+                            ),
+                            high_risk_policy=self._high_risk_policy,
                         )
                     )
                 finally:
@@ -585,6 +602,12 @@ class SubagentManager:
                         session_key=sub_session_key,
                         workspace=root,
                         llm_timeout_s=llm_timeout,
+                        turn_budget=(
+                            self._turn_budget_factory()
+                            if self._turn_budget_factory is not None
+                            else None
+                        ),
+                        high_risk_policy=self._high_risk_policy,
                     )
                 )
             finally:

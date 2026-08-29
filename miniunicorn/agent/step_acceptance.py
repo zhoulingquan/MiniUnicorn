@@ -100,7 +100,9 @@ class StepAcceptancePolicy:
 
         # Rule-based evaluation
         rule_accepted = self._is_accepted(step, tool_calls, final_content)
-        rule_rejection = None if rule_accepted else self._rejection_reason(step, tool_calls, final_content)
+        rule_rejection = (
+            None if rule_accepted else self._rejection_reason(step, tool_calls, final_content)
+        )
 
         if rule_accepted or not enable_verifier:
             evidence = StepEvidence(
@@ -133,7 +135,9 @@ class StepAcceptancePolicy:
         # Use verifier verdict; on failure fall back to rule result
         if verifier_verdict is not None and verifier_verdict.get("accepted") is not None:
             accepted = bool(verifier_verdict["accepted"])
-            rejection_reason = None if accepted else (verifier_verdict.get("reason") or rule_rejection)
+            rejection_reason = (
+                None if accepted else (verifier_verdict.get("reason") or rule_rejection)
+            )
         else:
             # Verifier failed or returned invalid result -> fall back to rule
             accepted = rule_accepted
@@ -178,7 +182,10 @@ class StepAcceptancePolicy:
                 response = await provider.chat_with_retry(
                     model=model,
                     messages=[
-                        {"role": "system", "content": "You are a strict step acceptance verifier. Respond ONLY with a JSON object: {\"accepted\": true|false, \"reason\": \"...\"}. No extra text."},
+                        {
+                            "role": "system",
+                            "content": 'You are a strict step acceptance verifier. Respond ONLY with a JSON object: {"accepted": true|false, "reason": "..."}. No extra text.',
+                        },
                         {"role": "user", "content": prompt},
                     ],
                     tools=None,
@@ -235,7 +242,7 @@ class StepAcceptancePolicy:
             f"Final content: {final_content or '(empty)'}",
             "",
             "Does the final content satisfy the done criteria (if any) and demonstrate step completion?",
-            "Respond with JSON: {\"accepted\": true|false, \"reason\": \"...\"}",
+            'Respond with JSON: {"accepted": true|false, "reason": "..."}',
         ]
         return "\n".join(lines)
 
@@ -247,11 +254,7 @@ class StepAcceptancePolicy:
     ) -> bool:
         if final_content and final_content.strip():
             if step.done_criteria:
-                if step.done_criteria.lower() in final_content.lower():
-                    return True
-                if tool_calls:
-                    return True
-                return False
+                return step.done_criteria.lower() in final_content.lower()
             return True
         return False
 

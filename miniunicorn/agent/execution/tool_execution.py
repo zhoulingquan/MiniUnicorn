@@ -14,6 +14,7 @@ runner reference it is constructed with.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import time
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any
@@ -140,6 +141,80 @@ class ToolExecutionCoordinator:
         tool = get_tool(tool_call.name) if callable(get_tool) else None
         verdict = self._safety.evaluate(tool_call.name, tool)
         if verdict.risk_level is RiskLevel.HIGH:
+            policy = getattr(spec, "high_risk_policy", "allow") or "allow"
+            approval = getattr(spec, "approval_callback", None)
+            denied_reason = None
+            if policy == "deny":
+                denied_reason = "high_risk_policy=deny"
+            elif approval is not None:
+                approved = False
+                with suppress(Exception):
+                    result = approval(
+                        {
+                            "tool_name": tool_call.name,
+                            "arguments": dict(tool_call.arguments) if tool_call.arguments else {},
+                            "risk_level": verdict.risk_level.value,
+                            "session_key": spec.session_key,
+                            "step_id": step_id,
+                        }
+                    )
+                    # 支持同步与异步两种审批回调形态：同步回调若直接
+                    # ``await`` 会 TypeError 被 suppress 吞掉而静默拒绝。
+                    if inspect.isawaitable(result):
+                        result = await result
+                    approved = bool(result)
+                if not approved:
+                    denied_reason = "approval_callback denied"
+            if denied_reason is not None:
+                blocked = (
+                    f"Error: Tool '{tool_call.name}' blocked before execution ({denied_reason}). "
+                    "This is a hard policy boundary; do not retry. "
+                    "Tell the user this action requires approval or a policy change."
+                )
+                event = {
+                    "name": tool_call.name,
+                    "status": "error",
+                    "detail": f"blocked: {denied_reason}",
+                }
+                # 被拦截的高危尝试恰是最该留痕的事件：拒绝路径早返回、
+                # 不经过任何执行期 checkpoint，这里补一条审计记录。
+                if spec.checkpoint_callback is not None:
+                    blocked_checkpoint = ToolCheckpoint(
+                        tool_call_id=tool_call.id,
+                        tool_name=tool_call.name,
+                        intent=dict(tool_call.arguments) if tool_call.arguments else {},
+                        result_summary=f"blocked: {denied_reason}",
+                        status="blocked",
+                        duration_ms=0.0,
+                        step_id=step_id,
+                        risk_level=verdict.risk_level.value,
+                    )
+                    await self._runner.emit_checkpoint(
+                        spec,
+                        {
+                            "phase": "tool_blocked",
+                            "tool_checkpoint": blocked_checkpoint.to_dict(),
+                        },
+                    )
+                if spec.fail_on_tool_error:
+                    return blocked, event, RuntimeError(blocked)
+                return blocked, event, None
+            # 执行前审计 checkpoint(消费 requires_checkpoint,修复死字段)
+            if spec.checkpoint_callback is not None and verdict.requires_checkpoint:
+                checkpoint = ToolCheckpoint(
+                    tool_call_id=tool_call.id,
+                    tool_name=tool_call.name,
+                    intent=dict(tool_call.arguments) if tool_call.arguments else {},
+                    result_summary="",
+                    status="started",
+                    duration_ms=0.0,
+                    step_id=step_id,
+                    risk_level=verdict.risk_level.value,
+                )
+                await self._runner.emit_checkpoint(
+                    spec,
+                    {"phase": "tool_started", "tool_checkpoint": checkpoint.to_dict()},
+                )
             logger.warning("HIGH-risk tool '{}' in {}", tool_call.name, spec.session_key)
         start = time.perf_counter()
         result, event, error = await self._run_tool_impl(

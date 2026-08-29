@@ -137,6 +137,7 @@ class AgentLoopConfig:
     tool_hint_max_length: int | None = None
     cron_service: "CronService | None" = None
     restrict_to_workspace: bool = False
+    high_risk_policy: str = "allow"
     session_manager: "SessionManager | None" = None
     mcp_servers: dict | None = None
     channels_config: "ChannelsConfig | None" = None
@@ -384,11 +385,23 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         if cfg.max_iterations is not None:
             self.max_iterations = cfg.max_iterations
         else:
-            managed = cfg.planning_policy.mode == PlanningMode.MANAGED if cfg.planning_policy else cfg.use_planner
+            managed = (
+                cfg.planning_policy.mode == PlanningMode.MANAGED
+                if cfg.planning_policy
+                else cfg.use_planner
+            )
             if managed:
-                self.max_iterations = cfg.managed_max_tool_iterations if cfg.managed_max_tool_iterations is not None else defaults.managed_max_tool_iterations
+                self.max_iterations = (
+                    cfg.managed_max_tool_iterations
+                    if cfg.managed_max_tool_iterations is not None
+                    else defaults.managed_max_tool_iterations
+                )
             else:
-                self.max_iterations = cfg.fast_max_tool_iterations if cfg.fast_max_tool_iterations is not None else defaults.fast_max_tool_iterations
+                self.max_iterations = (
+                    cfg.fast_max_tool_iterations
+                    if cfg.fast_max_tool_iterations is not None
+                    else defaults.fast_max_tool_iterations
+                )
         self.context_window_tokens = (
             cfg.context_window_tokens
             if cfg.context_window_tokens is not None
@@ -459,6 +472,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         self.exec_config = _tc.exec
         self.cron_service = cfg.cron_service
         self.restrict_to_workspace = cfg.restrict_to_workspace
+        self.high_risk_policy = cfg.high_risk_policy
         self.workspace_scopes = WorkspaceScopeResolver(
             default_workspace=workspace,
             default_restrict_to_workspace=cfg.restrict_to_workspace,
@@ -503,6 +517,8 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             max_concurrent_subagents=cfg.max_concurrent_subagents,
             llm_wall_timeout_for_session=lambda sk: runner_wall_llm_timeout_s(self.sessions, sk),
             max_subagent_recursion_depth=cfg.max_subagent_recursion_depth,
+            turn_budget_factory=self._build_turn_budget,
+            high_risk_policy=self.high_risk_policy,
         )
         # Declarative subagent registry (TRAE-style .md definitions in agents/).
         # Loaded once at startup; empty when no agents/ dir exists.
@@ -800,9 +816,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         """Propagate a provider snapshot to every cached workspace helper."""
         self._resources._sync_runtime_helpers(provider, model, context_window_tokens)
 
-    async def _build_bus_progress_callback(
-        self, msg: InboundMessage
-    ) -> ProgressCallback:
+    async def _build_bus_progress_callback(self, msg: InboundMessage) -> ProgressCallback:
         """Build a progress callback that publishes to the message bus."""
         return build_bus_progress_callback(self.bus, msg)
 
@@ -1145,6 +1159,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
                     stream_progress_deltas=on_stream is not None,
                     retry_wait_callback=on_retry_wait,
                     checkpoint_callback=_checkpoint,
+                    high_risk_policy=self.high_risk_policy,
                     injection_callback=_drain_pending,
                     # Sustained goals may legitimately exceed MINIUNICORN_LLM_TIMEOUT_S; idle stall
                     # is still capped by MINIUNICORN_STREAM_IDLE_TIMEOUT_S in streaming providers.

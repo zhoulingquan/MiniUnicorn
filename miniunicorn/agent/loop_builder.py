@@ -79,11 +79,15 @@ class AgentLoopBuilder:
         self._kwargs["max_iterations"] = max_iterations
         return self
 
-    def with_fast_max_tool_iterations(self, fast_max_tool_iterations: int | None) -> AgentLoopBuilder:
+    def with_fast_max_tool_iterations(
+        self, fast_max_tool_iterations: int | None
+    ) -> AgentLoopBuilder:
         self._kwargs["fast_max_tool_iterations"] = fast_max_tool_iterations
         return self
 
-    def with_managed_max_tool_iterations(self, managed_max_tool_iterations: int | None) -> AgentLoopBuilder:
+    def with_managed_max_tool_iterations(
+        self, managed_max_tool_iterations: int | None
+    ) -> AgentLoopBuilder:
         self._kwargs["managed_max_tool_iterations"] = managed_max_tool_iterations
         return self
 
@@ -131,6 +135,10 @@ class AgentLoopBuilder:
 
     def with_restrict_to_workspace(self, restrict_to_workspace: bool) -> AgentLoopBuilder:
         self._kwargs["restrict_to_workspace"] = restrict_to_workspace
+        return self
+
+    def with_high_risk_policy(self, high_risk_policy: str) -> AgentLoopBuilder:
+        self._kwargs["high_risk_policy"] = high_risk_policy
         return self
 
     def with_session_manager(self, session_manager: SessionManager | None) -> AgentLoopBuilder:
@@ -253,7 +261,9 @@ class AgentLoopBuilder:
         self._kwargs["reflection_interval"] = reflection_interval
         return self
 
-    def with_max_input_tokens_per_turn(self, max_input_tokens_per_turn: int | None) -> AgentLoopBuilder:
+    def with_max_input_tokens_per_turn(
+        self, max_input_tokens_per_turn: int | None
+    ) -> AgentLoopBuilder:
         self._kwargs["max_input_tokens_per_turn"] = max_input_tokens_per_turn
         return self
 
@@ -394,6 +404,7 @@ class AgentLoopBuilder:
         builder.with_max_turn_wall_time_s(defaults.max_turn_wall_time_s)
         builder.with_enable_step_verifier(defaults.enable_step_verifier)
         builder.with_restrict_to_workspace(config.tools.restrict_to_workspace)
+        builder.with_high_risk_policy(config.tools.high_risk_policy)
         builder.with_mcp_servers(config.tools.mcp_servers)
         builder.with_channels_config(config.channels)
         builder.with_timezone(defaults.timezone)

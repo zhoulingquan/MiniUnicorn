@@ -92,6 +92,10 @@ class AgentRunSpec:
     stream_progress_deltas: bool = True
     retry_wait_callback: Any | None = None
     checkpoint_callback: Any | None = None
+    # 三态高风险审批: "allow"(默认) | "deny"(静态拒绝)
+    high_risk_policy: str = "allow"
+    # 执行前审批回调: async def approval(info: dict) -> bool; False = 拒绝执行
+    approval_callback: Any | None = None
     injection_callback: Any | None = None
     llm_timeout_s: float | None = None
     goal_active_predicate: Callable[[], bool] | None = None
@@ -132,6 +136,12 @@ class AgentRunSpec:
     max_turn_wall_time_s: float | None = None
     # T5: Enable LLM verifier fallback when step acceptance rules are inconclusive.
     enable_step_verifier: bool = False
+
+    def __post_init__(self) -> None:
+        if self.high_risk_policy not in ("allow", "deny"):
+            raise ValueError(
+                f"high_risk_policy must be 'allow' or 'deny', got {self.high_risk_policy!r}"
+            )
 
 
 @dataclass(slots=True)
@@ -474,14 +484,13 @@ class AgentRunner:
         state.turn_id = uuid4().hex[:12]
         # P1-T7: Per-turn wall-clock deadline.
         turn_deadline = (
-            time.monotonic() + spec.max_turn_wall_time_s
-            if spec.max_turn_wall_time_s
-            else None
+            time.monotonic() + spec.max_turn_wall_time_s if spec.max_turn_wall_time_s else None
         )
         planner, plan, planner_task_text, planner_tools_summary = await self._init_planner(spec)
         if plan is not None:
             state.plan_snapshot = await self._emit_plan_snapshot(spec, plan, state.turn_id)
             from miniunicorn.agent.progress_policy import ProgressPolicy, ProgressTracker
+
             state.progress_tracker = ProgressTracker(ProgressPolicy())
         reflection = self._init_reflection(spec)
 
@@ -513,9 +522,12 @@ class AgentRunner:
                 if new_mode is PlanningMode.MANAGED:
                     try:
                         # Create a plan using the existing planner infrastructure
-                        planner, new_plan, planner_task_text, planner_tools_summary = (
-                            await self._init_planner(spec)
-                        )
+                        (
+                            planner,
+                            new_plan,
+                            planner_task_text,
+                            planner_tools_summary,
+                        ) = await self._init_planner(spec)
                         if new_plan is not None:
                             plan = new_plan
                             state.plan_snapshot = await self._emit_plan_snapshot(
@@ -524,6 +536,7 @@ class AgentRunner:
                             # Update snapshot origin to "escalated"
                             if state.plan_snapshot is not None:
                                 from miniunicorn.agent.plan_snapshot import PlanSnapshot
+
                                 state.plan_snapshot = PlanSnapshot(
                                     goal=state.plan_snapshot.goal,
                                     steps=state.plan_snapshot.steps,
@@ -539,6 +552,7 @@ class AgentRunner:
                                 ProgressPolicy,
                                 ProgressTracker,
                             )
+
                             state.progress_tracker = ProgressTracker(ProgressPolicy())
                             state.escalated_this_turn = True
                             state.consecutive_nontool_iterations = 0
@@ -874,6 +888,7 @@ class AgentRunner:
                             from miniunicorn.agent.progress_policy import (
                                 ProgressAction,
                             )
+
                             if verdict.action is ProgressAction.ABORT:
                                 state.stop_reason = "no_progress"
                                 state.final_content = _NO_PROGRESS_FINAL_MESSAGE
@@ -893,18 +908,16 @@ class AgentRunner:
                                     from miniunicorn.agent.planner import (
                                         PlannerStatus as _PlannerStatus,
                                     )
+
                                     if replan_result.status is _PlannerStatus.VALID:
                                         plan = replan_result.plan
-                                        state.plan_snapshot = (
-                                            await self._emit_plan_snapshot(
-                                                spec, plan, state.turn_id
-                                            )
+                                        state.plan_snapshot = await self._emit_plan_snapshot(
+                                            spec, plan, state.turn_id
                                         )
                                 else:
                                     state.stop_reason = "plan_failed"
                                     state.final_content = (
-                                        "Plan failed: replans exhausted "
-                                        "with no progress."
+                                        "Plan failed: replans exhausted with no progress."
                                     )
                                     context.stop_reason = state.stop_reason
                                     context.final_content = state.final_content
@@ -920,17 +933,13 @@ class AgentRunner:
             await self._finalize_max_iterations(spec, state, messages, reflection)
 
         # P1-T6: Terminal-only reflection — fires once after the loop exits.
-        await self._fire_terminal_reflection(
-            reflection, spec, state, messages, iteration
-        )
+        await self._fire_terminal_reflection(reflection, spec, state, messages, iteration)
 
         # Compatibility for injected test/dummy providers that override the
         # retry boundary itself and therefore cannot populate the ledger.
         result_usage = dict(ledger.total_usage) if ledger.records else dict(state.usage)
         result_last_usage = (
-            dict(ledger.last_call_usage)
-            if ledger.records
-            else dict(state.last_call_usage)
+            dict(ledger.last_call_usage) if ledger.records else dict(state.last_call_usage)
         )
         return AgentRunResult(
             final_content=state.final_content,
@@ -948,9 +957,7 @@ class AgentRunner:
 
     # -- run() 阶段 helper (自 run 拆出, 语义与原内联实现逐句对应) ------------
 
-    async def init_planner(
-        self, spec: AgentRunSpec
-    ) -> tuple[Any, Any, str | None, str | None]:
+    async def init_planner(self, spec: AgentRunSpec) -> tuple[Any, Any, str | None, str | None]:
         """Plan-and-Execute 初始化, 返回 (planner, plan, task_text, tools_summary)。
 
         创建计划失败时回退 ReAct-only (planner/plan 均为 None)。Typed as Any
@@ -1094,9 +1101,7 @@ class AgentRunner:
         Migrated to :class:`PlanningReflectionService` (PR-5c); this method
         is a thin delegation keeping the AgentRunner surface unchanged.
         """
-        self.planning.fire_periodic_reflection(
-            reflection, spec, messages, iteration
-        )
+        self.planning.fire_periodic_reflection(reflection, spec, messages, iteration)
 
     _fire_periodic_reflection = fire_periodic_reflection  # compat alias
 
@@ -1112,9 +1117,7 @@ class AgentRunner:
 
         Thin delegation to ``PlanningReflectionService``.
         """
-        await self.planning.fire_terminal_reflection(
-            reflection, spec, state, messages, iteration
-        )
+        await self.planning.fire_terminal_reflection(reflection, spec, state, messages, iteration)
 
     _fire_terminal_reflection = fire_terminal_reflection  # compat alias
 
@@ -1219,9 +1222,7 @@ class AgentRunner:
         Owned by :class:`PlanningReflectionService` (P1-T2); thin delegation
         keeping the AgentRunner surface unchanged.
         """
-        return await self.planning.emit_plan_snapshot(
-            spec, plan, turn_id, stop_reason=stop_reason
-        )
+        return await self.planning.emit_plan_snapshot(spec, plan, turn_id, stop_reason=stop_reason)
 
     _emit_plan_snapshot = emit_plan_snapshot  # compat alias
 
@@ -1237,9 +1238,7 @@ class AgentRunner:
         Migrated to :class:`TurnRecoveryPolicy` (PR-5b); this method is a
         thin delegation keeping the AgentRunner surface unchanged.
         """
-        return await self.recovery.finalize_max_iterations(
-            spec, state, messages, reflection
-        )
+        return await self.recovery.finalize_max_iterations(spec, state, messages, reflection)
 
     _finalize_max_iterations = finalize_max_iterations  # compat alias
 
@@ -1540,9 +1539,7 @@ class AgentRunner:
         tool_name: str,
         result: Any,
     ) -> Any:
-        return self.tool_execution.normalize_tool_result(
-            spec, tool_call_id, tool_name, result
-        )
+        return self.tool_execution.normalize_tool_result(spec, tool_call_id, tool_name, result)
 
     _normalize_tool_result = normalize_tool_result  # compat alias
 
