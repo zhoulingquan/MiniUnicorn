@@ -136,9 +136,7 @@ def _transaction_visible(tx, allowed: frozenset[MemoryScope]) -> bool:
 
 def _visible_transactions(repository, allowed: frozenset[MemoryScope], limit: int):
     return [
-        tx
-        for tx in repository.transaction_log(limit=limit)
-        if _transaction_visible(tx, allowed)
+        tx for tx in repository.transaction_log(limit=limit) if _transaction_visible(tx, allowed)
     ]
 
 
@@ -359,7 +357,7 @@ async def cmd_memory_list(ctx: CommandContext) -> OutboundMessage:
         if _record_visible(record, allowed)
     ]
     total = len(records)
-    records = records[: _MAX_LIST_ITEMS]
+    records = records[:_MAX_LIST_ITEMS]
     lines = [
         f"## Memory records ({total})",
     ]
@@ -428,9 +426,7 @@ async def cmd_memory_promote(ctx: CommandContext) -> OutboundMessage:
     """Promote a candidate; a same-slot conflict requires --replace <active-id>."""
     store, repository, lifecycle = _stack(ctx)
     allowed = _allowed_scopes(ctx, store)
-    parts, usage = _split_args_or_usage(
-        ctx, "/memory-promote <id> [--replace <active-id>]"
-    )
+    parts, usage = _split_args_or_usage(ctx, "/memory-promote <id> [--replace <active-id>]")
     if usage is not None:
         return usage
     replace_id: str | None = None

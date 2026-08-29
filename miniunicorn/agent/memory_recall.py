@@ -90,7 +90,9 @@ class StructuredMemoryRecall:
     def __init__(self, repository: StructuredMemoryRepository, tag_catalog: TagCatalog) -> None:
         self._repository = repository
         self._tag_catalog = tag_catalog
-        self._aliases_by_tag = {definition.name: definition.aliases for definition in tag_catalog.tags}
+        self._aliases_by_tag = {
+            definition.name: definition.aliases for definition in tag_catalog.tags
+        }
 
     def recall(self, query: RecallQuery) -> RecallResult:
         """Run deterministic recall over SQL-preauthorized candidates.
@@ -162,14 +164,22 @@ class StructuredMemoryRecall:
             )
             rendered_hits.append(rendered)
             used = prospective_tokens
-        return RecallResult(hits=tuple(hits), candidates=candidates, filtered=filtered, excluded_by_budget=excluded, tokens_used=used)
+        return RecallResult(
+            hits=tuple(hits),
+            candidates=candidates,
+            filtered=filtered,
+            excluded_by_budget=excluded,
+            tokens_used=used,
+        )
 
     def render_prompt(self, result: RecallResult) -> str:
         if not result.hits:
             return ""
         lines = [PROMPT_HEADER, ""]
         for hit in result.hits:
-            lines.append(f"- [{hit.record.id} | {hit.record.kind.value} | {hit.record.scope.kind.value}] {hit.record.statement}")
+            lines.append(
+                f"- [{hit.record.id} | {hit.record.kind.value} | {hit.record.scope.kind.value}] {hit.record.statement}"
+            )
             lines.append(f"  Why: {', '.join(hit.reasons)}, total={hit.score}")
         return "\n".join(lines)
 
@@ -177,12 +187,17 @@ class StructuredMemoryRecall:
     # Internal scoring
     # ------------------------------------------------------------------
 
-    def _route_from_query(self, record: MemoryRecord, query_norm: str, explicit_tags: frozenset[str]) -> tuple[int, list[str]] | None:
+    def _route_from_query(
+        self, record: MemoryRecord, query_norm: str, explicit_tags: frozenset[str]
+    ) -> tuple[int, list[str]] | None:
         subject_hits = _matches(query_norm, normalize_match_text(record.subject))
 
         tag_hits = []
         for tag in record.tags:
-            if _matches(query_norm, normalize_match_text(tag)) or normalize_match_text(tag) in explicit_tags:
+            if (
+                _matches(query_norm, normalize_match_text(tag))
+                or normalize_match_text(tag) in explicit_tags
+            ):
                 tag_hits.append(tag)
         tag_score, tag_reasons = self._capped_route_reasons(
             tag_hits, prefix="tag", initial=ROUTE_CANONICAL_TAG, cap=ROUTE_TAG_CAP
@@ -262,5 +277,7 @@ class StructuredMemoryRecall:
         return total, reasons
 
     def _render_hit(self, record: MemoryRecord, reasons: list[str], total: int) -> str:
-        header = f"- [{record.id} | {record.kind.value} | {record.scope.kind.value}] {record.statement}"
+        header = (
+            f"- [{record.id} | {record.kind.value} | {record.scope.kind.value}] {record.statement}"
+        )
         return f"{header}\n  Why: {', '.join(reasons)}, total={total}"

@@ -1,4 +1,4 @@
-﻿"""Reflection mechanism for AgentRunner.
+"""Reflection mechanism for AgentRunner.
 
 When enabled via AgentRunSpec.enable_reflection=True, the runner periodically
 asks the LLM to produce a one-sentence "lesson learned" from the current
@@ -302,4 +302,3 @@ class Reflection:
         except Exception:
             logger.exception("Failed to read reflections")
         return results
-

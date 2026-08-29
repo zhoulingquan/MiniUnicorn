@@ -109,7 +109,9 @@ class CallLedger:
         if isinstance(normalized.get("cost_usd"), (int, float)):
             self._cost_usd += float(normalized["cost_usd"])
 
-        purpose_enum = CallPurpose(purpose) if isinstance(purpose, str) else (purpose or self.current_purpose)
+        purpose_enum = (
+            CallPurpose(purpose) if isinstance(purpose, str) else (purpose or self.current_purpose)
+        )
         pname = str(purpose_enum)
         if pname not in self.purpose_usage:
             self.purpose_usage[pname] = {}
@@ -157,8 +159,7 @@ class CallLedger:
         if not self._ever_bound:
             return True
         return self._binding_depth > 0 and (
-            self._owner_task is self._current_task()
-            or _ALLOWED_CHILD_LEDGER.get() is self
+            self._owner_task is self._current_task() or _ALLOWED_CHILD_LEDGER.get() is self
         )
 
     def check_budget(self, budget: TurnBudget | None = None) -> str | None:
@@ -250,7 +251,11 @@ class _DualPurposeContext:
     """Context manager that works with both `with` and `async with`."""
 
     def __init__(self, purpose: CallPurpose | str | None = None) -> None:
-        self._purpose = CallPurpose(purpose) if isinstance(purpose, str) else (purpose or CallPurpose.UNCLASSIFIED)
+        self._purpose = (
+            CallPurpose(purpose)
+            if isinstance(purpose, str)
+            else (purpose or CallPurpose.UNCLASSIFIED)
+        )
 
     def __enter__(self) -> None:
         self._token = _PURPOSE.set(self._purpose)

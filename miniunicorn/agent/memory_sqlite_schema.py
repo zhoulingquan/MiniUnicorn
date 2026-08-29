@@ -239,9 +239,7 @@ SQL_QUICK_CHECK = "PRAGMA quick_check(1)"
 
 SQL_MAX_TX_SEQ = "SELECT COALESCE(MAX(tx_seq), 0) FROM memory_transactions"
 
-SQL_AUDIT_EXPORTED_SEQ = (
-    "SELECT value FROM storage_meta WHERE key = 'audit_exported_seq'"
-)
+SQL_AUDIT_EXPORTED_SEQ = "SELECT value FROM storage_meta WHERE key = 'audit_exported_seq'"
 
 SQL_INSERT_TRANSACTION = (
     "INSERT INTO memory_transactions "
@@ -261,13 +259,10 @@ SQL_INSERT_REVISION = (
     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 )
 
-SQL_INSERT_TAG = (
-    "INSERT OR IGNORE INTO memory_tags (memory_id, revision, tag) VALUES (?, ?, ?)"
-)
+SQL_INSERT_TAG = "INSERT OR IGNORE INTO memory_tags (memory_id, revision, tag) VALUES (?, ?, ?)"
 
 SQL_INSERT_ALIAS = (
-    "INSERT OR IGNORE INTO memory_aliases "
-    "(memory_id, revision, alias_norm) VALUES (?, ?, ?)"
+    "INSERT OR IGNORE INTO memory_aliases (memory_id, revision, alias_norm) VALUES (?, ?, ?)"
 )
 
 SQL_INSERT_SOURCE_BATCH = (
@@ -281,13 +276,11 @@ SQL_INSERT_CREATION_KEY = (
 )
 
 SQL_CURRENT_RECORD_JSON_BY_ID = (
-    "SELECT record_json FROM memory_revisions "
-    "WHERE memory_id = ? AND is_current = 1"
+    "SELECT record_json FROM memory_revisions WHERE memory_id = ? AND is_current = 1"
 )
 
 SQL_CREATION_KEY_OWNER = (
-    "SELECT memory_id FROM memory_creation_keys "
-    "WHERE source_batch = ? AND content_hash = ?"
+    "SELECT memory_id FROM memory_creation_keys WHERE source_batch = ? AND content_hash = ?"
 )
 
 SQL_TX_BY_ID = "SELECT tx_id FROM memory_transactions WHERE tx_id = ?"
@@ -308,8 +301,7 @@ SQL_CREATION_KEY_RECORD = (
 )
 
 SQL_REVISIONS_BY_ID = (
-    "SELECT record_json FROM memory_revisions "
-    "WHERE memory_id = ? ORDER BY revision ASC"
+    "SELECT record_json FROM memory_revisions WHERE memory_id = ? ORDER BY revision ASC"
 )
 
 SQL_CURRENT_RECORDS = "SELECT record_json FROM memory_revisions WHERE is_current = 1"
@@ -325,24 +317,18 @@ SQL_CANDIDATE_IDS_FOR_SOURCE = (
     "WHERE r.is_current = 1 AND r.status = 'candidate' AND b.source_batch = ?"
 )
 
-SQL_IDS_FOR_SOURCE = (
-    "SELECT memory_id FROM memory_source_batches WHERE source_batch = ?"
-)
+SQL_IDS_FOR_SOURCE = "SELECT memory_id FROM memory_source_batches WHERE source_batch = ?"
 
 SQL_RECALL_SELECT = (
-    "SELECT record_json FROM memory_revisions "
-    "WHERE is_current = 1 AND status = 'active' AND ("
+    "SELECT record_json FROM memory_revisions WHERE is_current = 1 AND status = 'active' AND ("
 )
 
 SQL_RECALL_SUFFIX = ") AND (expires_at IS NULL OR expires_at > ?)"
 
-SQL_TX_LOG_RECENT = (
-    "SELECT transaction_json FROM memory_transactions ORDER BY tx_seq DESC LIMIT ?"
-)
+SQL_TX_LOG_RECENT = "SELECT transaction_json FROM memory_transactions ORDER BY tx_seq DESC LIMIT ?"
 
 SQL_TX_LOG_BY_ID = (
-    "SELECT transaction_json FROM memory_transactions "
-    "WHERE tx_id = ? ORDER BY tx_seq DESC LIMIT ?"
+    "SELECT transaction_json FROM memory_transactions WHERE tx_id = ? ORDER BY tx_seq DESC LIMIT ?"
 )
 
 SQL_TX_ROWS_IN_RANGE = (

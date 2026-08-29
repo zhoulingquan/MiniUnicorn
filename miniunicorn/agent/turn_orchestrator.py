@@ -136,7 +136,9 @@ class TurnDeps:
     runner: AgentRunner
     tools: ToolRegistry
     context_builder: ContextBuilder
-    commands: Callable[[InboundMessage, Session | None, str, str], Awaitable[OutboundMessage | None]]
+    commands: Callable[
+        [InboundMessage, Session | None, str, str], Awaitable[OutboundMessage | None]
+    ]
     webui_turns: WebuiTurnCoordinator
     sessions: SessionManager
     channels_config: ChannelsConfig | None
@@ -144,7 +146,9 @@ class TurnDeps:
 
     run_agent_loop: Callable[..., Awaitable[tuple[str | None, list[str], list[dict], str, bool]]]
     build_bus_progress_callback: Callable[[InboundMessage], Awaitable[ProgressCallback]]
-    build_retry_wait_callback: Callable[[InboundMessage], Awaitable[Callable[[str], Awaitable[None]]]]
+    build_retry_wait_callback: Callable[
+        [InboundMessage], Awaitable[Callable[[str], Awaitable[None]]]
+    ]
     assemble_outbound: Callable[..., OutboundMessage | None]
     schedule_background: Callable[[Any], None]
     set_tool_context: Callable[..., None]
@@ -280,7 +284,9 @@ class TurnOrchestrator:
         telemetry = turn_telemetry.current()
         if telemetry is not None and telemetry.prompt_components is not None:
             pc = telemetry.prompt_components
-            pressure_level = telemetry.governance_pressure.level if telemetry.governance_pressure else "unknown"
+            pressure_level = (
+                telemetry.governance_pressure.level if telemetry.governance_pressure else "unknown"
+            )
             logger.info(
                 "prompt telemetry: sys={} tools={} history={} compacted={} total={} pressure={}",
                 pc.system_prompt,
@@ -320,9 +326,7 @@ class TurnOrchestrator:
 
         return "ok"
 
-    def _prepare_message_media(
-        self, content: str, media: list[str]
-    ) -> tuple[str, list[str]]:
+    def _prepare_message_media(self, content: str, media: list[str]) -> tuple[str, list[str]]:
         if self._should_extract_document_text():
             return extract_documents(content, media)
         return reference_non_image_attachments(content, media)
@@ -367,7 +371,9 @@ class TurnOrchestrator:
 
     async def _state_build(self, ctx: TurnContext) -> str:
         scope = self._turn_scope(ctx.msg, ctx.session)
-        await self._deps.resources._consolidator_for(scope.project_path).maybe_consolidate_by_tokens(
+        await self._deps.resources._consolidator_for(
+            scope.project_path
+        ).maybe_consolidate_by_tokens(
             ctx.session,
             replay_max_messages=self._deps.max_messages,
         )
@@ -417,11 +423,7 @@ class TurnOrchestrator:
     async def _state_run(self, ctx: TurnContext) -> str:
         await self._deps.webui_turns.publish_run_status(ctx.msg, "running")
         sender_id = ctx.msg.sender_id
-        user_key = (
-            f"user:{sender_id}"
-            if sender_id and sender_id != "subagent"
-            else "user:default"
-        )
+        user_key = f"user:{sender_id}" if sender_id and sender_id != "subagent" else "user:default"
         result = await self._deps.run_agent_loop(
             ctx.initial_messages,
             on_progress=ctx.on_progress,
@@ -536,9 +538,7 @@ class StateMixin:
     async def _state_respond(self, ctx: TurnContext) -> str:
         return await self._turn_orchestrator._state_respond(ctx)
 
-    def _prepare_message_media(
-        self, content: str, media: list[str]
-    ) -> tuple[str, list[str]]:
+    def _prepare_message_media(self, content: str, media: list[str]) -> tuple[str, list[str]]:
         return self._turn_orchestrator._prepare_message_media(content, media)
 
     def _should_extract_document_text(self) -> bool:

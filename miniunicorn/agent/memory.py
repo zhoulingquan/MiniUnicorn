@@ -225,9 +225,10 @@ class MemoryStore:
             if target.exists():
                 continue
             ensure_dir(target.parent)
-            with self._bundled_template_path(name).open("r", encoding="utf-8") as source, target.open(
-                "w", encoding="utf-8", newline="\n"
-            ) as dest:
+            with (
+                self._bundled_template_path(name).open("r", encoding="utf-8") as source,
+                target.open("w", encoding="utf-8", newline="\n") as dest,
+            ):
                 dest.write(source.read())
 
     def _build_structured_stack(self) -> StructuredMemoryRepository:
@@ -912,9 +913,7 @@ class MemoryStore:
     def _archive_identity(messages: list[dict]) -> tuple[str | None, str | None]:
         """Return exact identity only when the archive batch is unambiguous."""
         sessions = {
-            str(message["session_key"])
-            for message in messages
-            if message.get("session_key")
+            str(message["session_key"]) for message in messages if message.get("session_key")
         }
         senders = {
             str(message["sender_id"])
@@ -1701,9 +1700,7 @@ class Dream:
         if self.context_window_tokens is None:
             return prompt
         budget = (
-            self.context_window_tokens
-            - self.max_completion_tokens
-            - self._PROMPT_SAFETY_TOKENS
+            self.context_window_tokens - self.max_completion_tokens - self._PROMPT_SAFETY_TOKENS
         )
         if budget <= 0:
             return None
@@ -1801,9 +1798,7 @@ class Dream:
             logger.warning("memory_dream_batch_failed code=structured_stack_missing")
             return False
 
-        history_entries = store.read_unprocessed_history(
-            since_cursor=store.get_last_dream_cursor()
-        )
+        history_entries = store.read_unprocessed_history(since_cursor=store.get_last_dream_cursor())
         reflection_entries = store.read_unprocessed_reflections(
             since_cursor=store.get_last_reflections_cursor()
         )
@@ -1816,7 +1811,9 @@ class Dream:
             None,
         )
         if first_history is None and first_reflection is None:
-            store.set_last_reflections_cursor(max(entry.get("_line", 0) for entry in reflection_entries))
+            store.set_last_reflections_cursor(
+                max(entry.get("_line", 0) for entry in reflection_entries)
+            )
             store.run_memory_hygiene()
             store._export_audit_pending()
             return True
@@ -1859,9 +1856,7 @@ class Dream:
                 if self._partition_identity(entry) != partition:
                     break
                 selected_reflections.append(entry)
-                reflection_advance_line = max(
-                    reflection_advance_line, int(entry.get("_line", 0))
-                )
+                reflection_advance_line = max(reflection_advance_line, int(entry.get("_line", 0)))
 
         if primary_source == "history":
             take_history()
@@ -1888,9 +1883,7 @@ class Dream:
                 kind=ScopeKind.SESSION, key=f"session:{session_key}"
             )
         if user_key is not None:
-            scope_by_hint[ScopeKind.USER] = MemoryScope(
-                kind=ScopeKind.USER, key=user_key
-            )
+            scope_by_hint[ScopeKind.USER] = MemoryScope(kind=ScopeKind.USER, key=user_key)
 
         fitted = self._fit_bounded_batch(
             repository,
@@ -1907,9 +1900,7 @@ class Dream:
         # A pre-fit scan may have crossed reflections that were later removed
         # from the batch. Recompute the physical cursor as a strict prefix so
         # no valid, unsent reflection can be pruned or skipped.
-        selected_reflection_lines = {
-            int(entry.get("_line", 0)) for entry in selected_reflections
-        }
+        selected_reflection_lines = {int(entry.get("_line", 0)) for entry in selected_reflections}
         reflection_advance_line = 0
         for entry in reflection_entries:
             line = int(entry.get("_line", 0))
@@ -2011,11 +2002,7 @@ class Dream:
             )
         try:
             if store.git.is_initialized():
-                last_entry = (
-                    selected_history[-1]
-                    if selected_history
-                    else selected_reflections[-1]
-                )
+                last_entry = selected_history[-1] if selected_history else selected_reflections[-1]
                 ts = last_entry.get("timestamp") or datetime.now().strftime("%Y-%m-%d %H:%M")
                 sha = store.git.auto_commit(f"dream structured: {ts}, {len(results)} proposal(s)")
                 if sha:

@@ -29,9 +29,9 @@ class PromptComponentTokens:
     system_prompt: int = 0
     tool_definitions: int = 0
     conversation_history: int = 0
-    step_guidance: int = 0          # managed-plan step guidance (P1)
+    step_guidance: int = 0  # managed-plan step guidance (P1)
     reflection_context: int = 0
-    compacted_context: int = 0      # compacted tool results carved out of history
+    compacted_context: int = 0  # compacted tool results carved out of history
     total_estimated: int = 0
 
 

@@ -223,9 +223,7 @@ class TurnRecoveryPolicy:
         )
         if hook.wants_streaming():
             await hook.on_stream_end(context, resuming=False)
-        response = await self._runner.request_finalization_retry(
-            spec, messages_for_model
-        )
+        response = await self._runner.request_finalization_retry(spec, messages_for_model)
         retry_usage = self._runner.usage_dict(response.usage)
         self._runner.accumulate_usage(state.usage, retry_usage)
         # Budget check: stop early if cumulative usage exceeds limits.

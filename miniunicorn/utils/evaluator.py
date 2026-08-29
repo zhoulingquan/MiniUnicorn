@@ -57,7 +57,10 @@ async def evaluate_response(
         async with call_purpose(CallPurpose.TOOL):
             llm_response = await provider.chat_with_retry(
                 messages=[
-                    {"role": "system", "content": render_template("agent/evaluator.md", part="system")},
+                    {
+                        "role": "system",
+                        "content": render_template("agent/evaluator.md", part="system"),
+                    },
                     {
                         "role": "user",
                         "content": render_template(

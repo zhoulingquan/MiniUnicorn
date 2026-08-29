@@ -184,10 +184,14 @@ def assert_transition(old: MemoryStatus | str, new: MemoryStatus | str) -> None:
     old_status = _coerce_status(old)
     new_status = _coerce_status(new)
     if new_status not in LEGAL_STATUS_TRANSITIONS[old_status]:
-        raise InvalidMemoryTransition(f"illegal memory transition: {old_status.value} -> {new_status.value}")
+        raise InvalidMemoryTransition(
+            f"illegal memory transition: {old_status.value} -> {new_status.value}"
+        )
 
 
-def content_hash(kind: MemoryKind, scope: MemoryScope, subject: str, slot: str, statement: str) -> str:
+def content_hash(
+    kind: MemoryKind, scope: MemoryScope, subject: str, slot: str, statement: str
+) -> str:
     canonical = json.dumps(
         [
             kind.value,
@@ -379,7 +383,10 @@ class MemoryRecord(BaseModel):
             if not 1 <= len(alias) <= 80:
                 raise ValueError("alias must be 1..80 characters")
         evidence: tuple[EvidenceRef, ...] = tuple(
-            sorted({(e.kind, e.ref, e.sha256): e for e in self.evidence}.values(), key=lambda e: (e.kind.value, e.ref))
+            sorted(
+                {(e.kind, e.ref, e.sha256): e for e in self.evidence}.values(),
+                key=lambda e: (e.kind.value, e.ref),
+            )
         )
         if not evidence:
             raise ValueError("at least one evidence is required")
@@ -692,7 +699,9 @@ class MemoryStorageStats(BaseModel):
 # Same-status revision rules (design section 7)
 # ---------------------------------------------------------------------------
 
-_SAME_STATUS_CANDIDATE_FIELDS = frozenset({"evidence", "derived_from", "blocked_by", "status_reason", "updated_at"})
+_SAME_STATUS_CANDIDATE_FIELDS = frozenset(
+    {"evidence", "derived_from", "blocked_by", "status_reason", "updated_at"}
+)
 _SAME_STATUS_ACTIVE_FIELDS = frozenset({"evidence", "derived_from", "updated_at"})
 _IDENTITY_FIELDS = frozenset({"schema_version", "id", "revision"})
 
@@ -710,7 +719,9 @@ def validate_same_status_revision(previous: MemoryRecord, current: MemoryRecord)
     if previous.status in TERMINAL_STATUSES:
         raise InvalidMemoryTransition(f"terminal status {previous.status.value} cannot be revised")
     changed = {
-        field for field in type(previous).model_fields if field not in _IDENTITY_FIELDS and getattr(previous, field) != getattr(current, field)
+        field
+        for field in type(previous).model_fields
+        if field not in _IDENTITY_FIELDS and getattr(previous, field) != getattr(current, field)
     }
     if previous.status is MemoryStatus.CANDIDATE:
         allowed = _SAME_STATUS_CANDIDATE_FIELDS

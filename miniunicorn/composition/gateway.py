@@ -156,8 +156,7 @@ class GatewayApplication:
 
         if self.channels.enabled_channels:
             console.print(
-                f"[green]✓[/green] Channels enabled: "
-                f"{', '.join(self.channels.enabled_channels)}"
+                f"[green]✓[/green] Channels enabled: {', '.join(self.channels.enabled_channels)}"
             )
         else:
             console.print("[yellow]Warning: No channels enabled[/yellow]")

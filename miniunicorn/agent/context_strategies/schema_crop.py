@@ -35,9 +35,7 @@ def _crop_schema(schema: dict[str, Any], max_description_chars: int) -> dict[str
     if isinstance(fn, dict):
         updated["function"] = _crop_function(fn, max_description_chars)
         return updated
-    if isinstance(updated.get("parameters"), dict) or isinstance(
-        updated.get("description"), str
-    ):
+    if isinstance(updated.get("parameters"), dict) or isinstance(updated.get("description"), str):
         return _crop_function(updated, max_description_chars)
     return updated
 

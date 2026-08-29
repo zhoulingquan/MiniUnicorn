@@ -31,19 +31,19 @@ from docx.oxml import OxmlElement
 
 paragraph = doc.add_paragraph()
 run = paragraph.add_run()
-fldChar = OxmlElement('w:fldChar')
-fldChar.set(qn('w:fldCharType'), 'begin')
+fldChar = OxmlElement("w:fldChar")
+fldChar.set(qn("w:fldCharType"), "begin")
 run._r.append(fldChar)
 
 run = paragraph.add_run()
-instrText = OxmlElement('w:instrText')
-instrText.set(qn('xml:space'), 'preserve')
+instrText = OxmlElement("w:instrText")
+instrText.set(qn("xml:space"), "preserve")
 instrText.text = 'TOC \\o "1-3" \\h \\z \\u'
 run._r.append(instrText)
 
 run = paragraph.add_run()
-fldChar = OxmlElement('w:fldChar')
-fldChar.set(qn('w:fldCharType'), 'end')
+fldChar = OxmlElement("w:fldChar")
+fldChar.set(qn("w:fldCharType"), "end")
 run._r.append(fldChar)
 ```
 
@@ -73,18 +73,18 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
 run = p.add_run()
-fldChar1 = OxmlElement('w:fldChar')
-fldChar1.set(qn('w:fldCharType'), 'begin')
+fldChar1 = OxmlElement("w:fldChar")
+fldChar1.set(qn("w:fldCharType"), "begin")
 run._r.append(fldChar1)
 
 run = p.add_run("页码: ")
-instrText = OxmlElement('w:instrText')
+instrText = OxmlElement("w:instrText")
 instrText.text = "PAGE"
 run._r.append(instrText)
 
 run = p.add_run()
-fldChar2 = OxmlElement('w:fldChar')
-fldChar2.set(qn('w:fldCharType'), 'end')
+fldChar2 = OxmlElement("w:fldChar")
+fldChar2.set(qn("w:fldCharType"), "end")
 run._r.append(fldChar2)
 ```
 
@@ -130,26 +130,27 @@ doc.add_paragraph("图 1: 示例图").alignment = 1
 from docx.shared import Pt, RGBColor
 
 # 修改 Normal 样式
-style = doc.styles['Normal']
-style.font.name = 'Arial'
+style = doc.styles["Normal"]
+style.font.name = "Arial"
 style.font.size = Pt(12)
 style.font.color.rgb = RGBColor(0, 0, 0)
 
 # 创建自定义段落样式
-custom = doc.styles.add_style('MyStyle', 1)  # 1 = WD_STYLE_TYPE.PARAGRAPH
-custom.font.name = 'Arial'
+custom = doc.styles.add_style("MyStyle", 1)  # 1 = WD_STYLE_TYPE.PARAGRAPH
+custom.font.name = "Arial"
 custom.font.size = Pt(14)
 custom.font.bold = True
 custom.font.color.rgb = RGBColor(0x1F, 0x49, 0x7D)
 
 # 应用样式
-p = doc.add_paragraph("自定义样式文本", style='MyStyle')
+p = doc.add_paragraph("自定义样式文本", style="MyStyle")
 
 # 中文字体设置
 from docx.oxml.ns import qn
+
 run = doc.add_paragraph().add_run("中文文本")
-run.font.name = 'Arial'  # 西文字体
-run._element.rPr.rFonts.set(qn('w:eastAsia'), '宋体')  # 中文字体
+run.font.name = "Arial"  # 西文字体
+run._element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")  # 中文字体
 ```
 
 ## 表格高级用法
@@ -159,7 +160,7 @@ from docx.shared import Inches, Cm
 
 # 创建表格并设样式
 table = doc.add_table(rows=3, cols=3)
-table.style = 'Table Grid'
+table.style = "Table Grid"
 
 # 设列宽(需要同时设列和单元格)
 for i, width in enumerate([Inches(2), Inches(3), Inches(1)]):
@@ -177,8 +178,8 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
 cell = table.cell(0, 0)
-shading = OxmlElement('w:shd')
-shading.set(qn('w:fill'), 'D5E8F0')
+shading = OxmlElement("w:shd")
+shading.set(qn("w:fill"), "D5E8F0")
 cell._tc.get_or_add_tcPr().append(shading)
 
 # 单元格内多段落

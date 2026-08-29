@@ -109,7 +109,9 @@ class StructuredMemoryRepository:
         self._initialize_database()
         if self._health.state != "degraded":
             self.rebuild()
-        logger.info("memory_repository_loaded workspace={} health={}", self.workspace, self._health.state)
+        logger.info(
+            "memory_repository_loaded workspace={} health={}", self.workspace, self._health.state
+        )
 
     @property
     def workspace(self) -> Path:
@@ -182,9 +184,7 @@ class StructuredMemoryRepository:
     def _migration_manifest_completed(self) -> bool:
         try:
             manifest = json.loads(
-                self.structured_dir.joinpath(_MIGRATION_MANIFEST_FILE).read_text(
-                    encoding="utf-8"
-                )
+                self.structured_dir.joinpath(_MIGRATION_MANIFEST_FILE).read_text(encoding="utf-8")
             )
         except (OSError, ValueError):
             return False
@@ -295,11 +295,14 @@ class StructuredMemoryRepository:
             raise
         except OSError as exc:
             raise MemoryWriteError(str(exc)) from exc
-        logger.info("memory_transaction_committed tx={} actor={} reason={}", transaction.tx_id, transaction.actor, transaction.reason)
+        logger.info(
+            "memory_transaction_committed tx={} actor={} reason={}",
+            transaction.tx_id,
+            transaction.actor,
+            transaction.reason,
+        )
 
-    def append_create_if_absent(
-        self, transaction: MemoryTransaction
-    ) -> tuple[MemoryRecord, bool]:
+    def append_create_if_absent(self, transaction: MemoryTransaction) -> tuple[MemoryRecord, bool]:
         """Atomically create a revision-1 record unless its source key exists.
 
         The creation-key lookup, validation, and append all happen inside one
@@ -497,9 +500,7 @@ class StructuredMemoryRepository:
             record = operation.record
             self._tag_catalog.validate_record(record)
             previous = record_from_row(
-                connection.execute(
-                    SQL_CURRENT_RECORD_JSON_BY_ID, (record.id,)
-                ).fetchone()
+                connection.execute(SQL_CURRENT_RECORD_JSON_BY_ID, (record.id,)).fetchone()
             )
             expected = transaction.expected_revisions[record.id]
             if previous is None:
@@ -566,13 +567,9 @@ class StructuredMemoryRepository:
         Runs after the write transaction was rolled back, so the diagnostic
         queries observe only committed rows and never the failed attempt.
         """
-        duplicate = connection.execute(
-            SQL_TX_BY_ID, (transaction.tx_id,)
-        ).fetchone()
+        duplicate = connection.execute(SQL_TX_BY_ID, (transaction.tx_id,)).fetchone()
         if duplicate is not None:
-            return DuplicateMemoryIdempotencyKey(
-                f"duplicate transaction id {transaction.tx_id}"
-            )
+            return DuplicateMemoryIdempotencyKey(f"duplicate transaction id {transaction.tx_id}")
         if transaction.source_batch:
             for operation in transaction.operations:
                 record = operation.record
@@ -618,9 +615,7 @@ class StructuredMemoryRepository:
         source_batch: str,
         content_hash: str,
     ) -> MemoryRecord | None:
-        row = connection.execute(
-            SQL_CREATION_KEY_RECORD, (source_batch, content_hash)
-        ).fetchone()
+        row = connection.execute(SQL_CREATION_KEY_RECORD, (source_batch, content_hash)).fetchone()
         return record_from_row(row)
 
     def _validate_create_transaction_shape(self, transaction: MemoryTransaction) -> None:
@@ -640,14 +635,10 @@ class StructuredMemoryRepository:
 
     def get(self, memory_id: str) -> MemoryRecord | None:
         with self._open_read() as connection:
-            row = connection.execute(
-                SQL_CURRENT_RECORD_JSON_BY_ID, (memory_id,)
-            ).fetchone()
+            row = connection.execute(SQL_CURRENT_RECORD_JSON_BY_ID, (memory_id,)).fetchone()
         return record_from_row(row)
 
-    def get_current(
-        self, memory_id: str, *, synchronize: bool = True
-    ) -> MemoryRecord | None:
+    def get_current(self, memory_id: str, *, synchronize: bool = True) -> MemoryRecord | None:
         """Return the committed current record for *memory_id*.
 
         SQLite reads already observe committed state, so ``synchronize`` is
@@ -681,9 +672,7 @@ class StructuredMemoryRepository:
 
     def candidate_ids_for_source(self, source_batch: str) -> frozenset[str]:
         with self._open_read() as connection:
-            rows = connection.execute(
-                SQL_CANDIDATE_IDS_FOR_SOURCE, (source_batch,)
-            ).fetchall()
+            rows = connection.execute(SQL_CANDIDATE_IDS_FOR_SOURCE, (source_batch,)).fetchall()
         return frozenset(row[0] for row in rows)
 
     def record_created_for(self, source_batch: str, content_hash: str) -> MemoryRecord | None:
@@ -716,9 +705,7 @@ class StructuredMemoryRepository:
             value for scope in allowed_scopes for value in (scope.kind.value, scope.key)
         ]
         sql = SQL_RECALL_SELECT + scope_clause + SQL_RECALL_SUFFIX
-        params.append(
-            now.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
-        )
+        params.append(now.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"))
         if requested_kinds:
             sql += f" AND kind IN ({','.join('?' for _ in requested_kinds)})"
             params.extend(kind.value for kind in requested_kinds)
@@ -737,9 +724,7 @@ class StructuredMemoryRepository:
             sql, params = SQL_TX_LOG_BY_ID, [tx_id, limit]
         with self._open_read() as connection:
             rows = connection.execute(sql, params).fetchall()
-        return tuple(
-            MemoryTransaction.model_validate_json(row["transaction_json"]) for row in rows
-        )
+        return tuple(MemoryTransaction.model_validate_json(row["transaction_json"]) for row in rows)
 
     def transaction_rows_in_range(
         self, first_tx_seq: int, last_tx_seq: int
@@ -751,9 +736,7 @@ class StructuredMemoryRepository:
         so the read never blocks concurrent writers.
         """
         with self._open_read() as connection:
-            rows = connection.execute(
-                SQL_TX_ROWS_IN_RANGE, (first_tx_seq, last_tx_seq)
-            ).fetchall()
+            rows = connection.execute(SQL_TX_ROWS_IN_RANGE, (first_tx_seq, last_tx_seq)).fetchall()
         return tuple((row["tx_seq"], row["transaction_json"]) for row in rows)
 
     def storage_stats(self) -> MemoryStorageStats:

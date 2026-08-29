@@ -64,9 +64,7 @@ class PlanningReflectionService:
         )
         return snapshot
 
-    async def init_planner(
-        self, spec: AgentRunSpec
-    ) -> tuple[Any, Any, str | None, str | None]:
+    async def init_planner(self, spec: AgentRunSpec) -> tuple[Any, Any, str | None, str | None]:
         """Plan-and-Execute 初始化, 返回 (planner, plan, task_text, tools_summary)。
 
         创建计划失败时回退 ReAct-only (planner/plan 均为 None)。Typed as Any
@@ -172,9 +170,7 @@ class PlanningReflectionService:
 
         Non-blocking: fire-and-forget so the main loop isn't slowed.
         """
-        if reflection is None or (iteration + 1) % getattr(
-            spec, "reflection_interval", 5
-        ) != 0:
+        if reflection is None or (iteration + 1) % getattr(spec, "reflection_interval", 5) != 0:
             return
         # 跟踪 reflection 任务避免被 GC 回收，完成后从集合移除
         with allow_call_ledger_child_tasks():

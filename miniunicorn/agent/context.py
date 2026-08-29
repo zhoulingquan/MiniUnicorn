@@ -307,9 +307,7 @@ class ContextBuilder:
                 )
             )
 
-        entries = store.read_unprocessed_history(
-            since_cursor=store.get_last_dream_cursor()
-        )
+        entries = store.read_unprocessed_history(since_cursor=store.get_last_dream_cursor())
         if entries:
             capped = entries[-self._MAX_RECENT_HISTORY :]
             history_text = "\n".join(

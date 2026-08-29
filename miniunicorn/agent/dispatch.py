@@ -516,9 +516,7 @@ class MessageDispatcher:
         if channel == "websocket":
             self._agent._response.record_pending_turn_latency(key, latency_ms)
         session.enforce_file_cap(
-            on_archive=self._agent._resources.memory_for(
-                workspace_scope.project_path
-            ).raw_archive
+            on_archive=self._agent._resources.memory_for(workspace_scope.project_path).raw_archive
         )
         self._agent._session_turn._clear_runtime_checkpoint(session)
         self._agent.sessions.save(session)

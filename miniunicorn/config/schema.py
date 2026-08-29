@@ -197,8 +197,18 @@ class AgentDefaults(Base):
     temperature: float = 0.1
     fallback_models: list[FallbackCandidate] = Field(default_factory=list)
     max_tool_iterations: int = 200
-    fast_max_tool_iterations: int = Field(default=50, ge=1, validation_alias=AliasChoices("fastMaxToolIterations"), serialization_alias="fastMaxToolIterations")
-    managed_max_tool_iterations: int = Field(default=200, ge=1, validation_alias=AliasChoices("managedMaxToolIterations"), serialization_alias="managedMaxToolIterations")
+    fast_max_tool_iterations: int = Field(
+        default=50,
+        ge=1,
+        validation_alias=AliasChoices("fastMaxToolIterations"),
+        serialization_alias="fastMaxToolIterations",
+    )
+    managed_max_tool_iterations: int = Field(
+        default=200,
+        ge=1,
+        validation_alias=AliasChoices("managedMaxToolIterations"),
+        serialization_alias="managedMaxToolIterations",
+    )
     # None = 自适应：根据 provider.is_local 选择默认值（本地 1，云端 4）。
     # 显式指定 int 时，按用户配置生效（向下兼容旧配置）。
     max_concurrent_subagents: int | None = Field(default=None, ge=1)
@@ -389,9 +399,7 @@ class ProvidersConfig(Base):
 
 # Names that collide with built-in provider fields declared on ProvidersConfig;
 # rejected as custom overrides to prevent shadowing the typed schema fields.
-_BUILTIN_PROVIDER_NAMES: frozenset[str] = frozenset(
-    {"custom", "deepseek", "opencode", "agnes"}
-)
+_BUILTIN_PROVIDER_NAMES: frozenset[str] = frozenset({"custom", "deepseek", "opencode", "agnes"})
 
 
 class HeartbeatConfig(Base):
@@ -523,8 +531,8 @@ def _lazy_rebuild_meta(metaclass: type) -> type:
     """
 
     class _LazyRebuildMeta(metaclass):
-        def __call__(cls, *args: Any, **kwargs: Any) -> Any:
-            if not cls.__pydantic_complete__:
+        def __call__(self, *args: Any, **kwargs: Any) -> Any:
+            if not self.__pydantic_complete__:
                 _resolve_tool_config_refs()
             return super().__call__(*args, **kwargs)
 
@@ -575,6 +583,8 @@ class ToolsConfig(Base, metaclass=_lazy_rebuild_meta(type(Base))):
     )
     # 默认开启工作区隔离,避免工具越权访问工作区外路径;已有 config.json 中的显式值会覆盖此默认
     restrict_to_workspace: bool = True
+    # HIGH 风险工具执行策略: "allow"(默认,仅审计) | "deny"(执行前静态拒绝)
+    high_risk_policy: Literal["allow", "deny"] = "allow"
     webui_allow_local_service_access: bool = Field(
         default=True,
         validation_alias=AliasChoices(

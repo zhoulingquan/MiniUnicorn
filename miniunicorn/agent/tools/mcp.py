@@ -624,9 +624,7 @@ async def connect_mcp_servers(
             elif transport_type == "sse":
                 url_error = _validate_mcp_url(cfg.url)
                 if url_error:
-                    logger.warning(
-                        "MCP server '{}': URL rejected ({}), skipping", name, url_error
-                    )
+                    logger.warning("MCP server '{}': URL rejected ({}), skipping", name, url_error)
                     await server_stack.aclose()
                     return name, None
                 if not await _probe_http_url(cfg.url):
@@ -668,9 +666,7 @@ async def connect_mcp_servers(
             elif transport_type == "streamableHttp":
                 url_error = _validate_mcp_url(cfg.url)
                 if url_error:
-                    logger.warning(
-                        "MCP server '{}': URL rejected ({}), skipping", name, url_error
-                    )
+                    logger.warning("MCP server '{}': URL rejected ({}), skipping", name, url_error)
                     await server_stack.aclose()
                     return name, None
                 if not await _probe_http_url(cfg.url):
@@ -1022,7 +1018,9 @@ async def request_mcp_reload(bus: Any, *, timeout: float = 15.0) -> dict[str, An
     )
 
 
-async def handle_runtime_control(state: RuntimeState, msg: InboundMessage, registry: ToolRegistry) -> bool:
+async def handle_runtime_control(
+    state: RuntimeState, msg: InboundMessage, registry: ToolRegistry
+) -> bool:
     metadata = msg.metadata if isinstance(msg.metadata, dict) else {}
     control = metadata.get(INBOUND_META_RUNTIME_CONTROL)
     if control != RUNTIME_CONTROL_MCP_RELOAD:

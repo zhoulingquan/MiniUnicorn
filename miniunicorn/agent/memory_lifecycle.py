@@ -65,7 +65,9 @@ SOURCE_RANK = {
 }
 
 _HARD_EVIDENCE_KINDS = frozenset({EvidenceKind.USER_MESSAGE, EvidenceKind.MANUAL})
-_VERIFIED_EVIDENCE_KINDS = frozenset({EvidenceKind.FILE, EvidenceKind.TOOL_RESULT, EvidenceKind.GIT})
+_VERIFIED_EVIDENCE_KINDS = frozenset(
+    {EvidenceKind.FILE, EvidenceKind.TOOL_RESULT, EvidenceKind.GIT}
+)
 
 
 class MemoryLifecycleError(StructuredMemoryError):
@@ -89,15 +91,23 @@ def can_auto_promote(record: MemoryRecord, config: LifecyclePolicy) -> bool:
     if record.source_level is SourceLevel.EXPLICIT_CORRECTION:
         return any(e.kind in _HARD_EVIDENCE_KINDS for e in record.evidence)
     if record.source_level is SourceLevel.CONFIRMED_DECISION:
-        return record.confidence >= 0.90 and any(e.kind in _HARD_EVIDENCE_KINDS for e in record.evidence)
+        return record.confidence >= 0.90 and any(
+            e.kind in _HARD_EVIDENCE_KINDS for e in record.evidence
+        )
     if record.source_level is SourceLevel.VERIFIED:
-        return config.auto_promote_verified and record.confidence >= 0.80 and any(e.kind in _VERIFIED_EVIDENCE_KINDS for e in record.evidence)
+        return (
+            config.auto_promote_verified
+            and record.confidence >= 0.80
+            and any(e.kind in _VERIFIED_EVIDENCE_KINDS for e in record.evidence)
+        )
     if record.source_level is SourceLevel.REPEATED_EXPERIENCE:
         return record.confidence >= 0.85 and len(distinct) >= config.min_repeated_evidence
     return False
 
 
-def classify_source_level(evidence: tuple[EvidenceRef, ...], speech_act: SourceLevel) -> SourceLevel:
+def classify_source_level(
+    evidence: tuple[EvidenceRef, ...], speech_act: SourceLevel
+) -> SourceLevel:
     kinds = {e.kind for e in evidence}
     if speech_act is SourceLevel.EXPLICIT_CORRECTION and kinds & _HARD_EVIDENCE_KINDS:
         return SourceLevel.EXPLICIT_CORRECTION
@@ -152,7 +162,9 @@ class StructuredMemoryLifecycle:
         evidence = self._resolve_evidence(proposal, context)
         tags = self._canonical_tags(proposal.tags)
         now = _utc(context.now)
-        content = content_hash(proposal.kind, context.scope, proposal.subject, proposal.slot, proposal.statement)
+        content = content_hash(
+            proposal.kind, context.scope, proposal.subject, proposal.slot, proposal.statement
+        )
 
         source_level = classify_source_level(evidence, proposal.speech_act)
         record = MemoryRecord(
@@ -202,11 +214,11 @@ class StructuredMemoryLifecycle:
                 if fresh is None:
                     raise
                 record = fresh
-        raise MemoryRevisionConflict(
-            f"post-create reconciliation exhausted for {record.id}"
-        )
+        raise MemoryRevisionConflict(f"post-create reconciliation exhausted for {record.id}")
 
-    def _resolve_evidence(self, proposal: CandidateProposal, context: IngestContext) -> tuple[EvidenceRef, ...]:
+    def _resolve_evidence(
+        self, proposal: CandidateProposal, context: IngestContext
+    ) -> tuple[EvidenceRef, ...]:
         resolved: list[EvidenceRef] = []
         for ref in proposal.evidence_refs:
             evidence = context.evidence_catalog.get(ref)
@@ -247,15 +259,17 @@ class StructuredMemoryLifecycle:
                 f"file evidence source unreadable for {catalog_ref}: {exc}"
             ) from exc
         if normalize_match_text(evidence.excerpt) not in normalize_match_text(source):
-            raise MemoryEvidenceUnresolved(
-                f"file evidence source mismatch for {catalog_ref}"
-            )
+            raise MemoryEvidenceUnresolved(f"file evidence source mismatch for {catalog_ref}")
 
     def _canonical_tags(self, tags: tuple[str, ...]) -> tuple[str, ...]:
         catalog = self.repository.tag_catalog
         canonical: list[str] = []
         for tag in tags:
-            matched = [entry.name for entry in catalog.tags if normalize_match_text(entry.name) == normalize_match_text(tag)]
+            matched = [
+                entry.name
+                for entry in catalog.tags
+                if normalize_match_text(entry.name) == normalize_match_text(tag)
+            ]
             if not matched:
                 raise UnknownMemoryTag(f"unknown tag: {tag}")
             canonical.append(matched[0])
@@ -293,11 +307,15 @@ class StructuredMemoryLifecycle:
     # Post-ingest conflict resolution
     # ------------------------------------------------------------------
 
-    def _apply_after_ingest(self, candidate: MemoryRecord, context: IngestContext, now: datetime, create_tx_id: str) -> IngestResult:
+    def _apply_after_ingest(
+        self, candidate: MemoryRecord, context: IngestContext, now: datetime, create_tx_id: str
+    ) -> IngestResult:
         existing = self.repository.active_for_conflict_key(candidate.conflict_key)
         if existing is None:
             if can_auto_promote(candidate, self.policy):
-                promoted = self._promote_single(candidate, context, now, reason_code=REASON_AUTO_PROMOTED)
+                promoted = self._promote_single(
+                    candidate, context, now, reason_code=REASON_AUTO_PROMOTED
+                )
                 return dataclasses_replace(
                     promoted,
                     transaction_ids=(
@@ -403,7 +421,9 @@ class StructuredMemoryLifecycle:
         if existing.content_hash == candidate.content_hash:
             return self._merge_identical(candidate, existing, context, now, "")
         if replace_id is None or replace_id != existing.id:
-            raise MemoryLifecycleError(f"conflict with active {existing.id}; --replace {existing.id} required")
+            raise MemoryLifecycleError(
+                f"conflict with active {existing.id}; --replace {existing.id} required"
+            )
         return self._replace_with(candidate, existing, context, now)
 
     # ------------------------------------------------------------------
@@ -415,7 +435,9 @@ class StructuredMemoryLifecycle:
         if current is None:
             raise MemoryRecordNotFound(f"no memory record with id {memory_id}")
         if current.status not in {MemoryStatus.CANDIDATE, MemoryStatus.ACTIVE}:
-            raise MemoryLifecycleError(f"record {memory_id} is in terminal status {current.status.value}")
+            raise MemoryLifecycleError(
+                f"record {memory_id} is in terminal status {current.status.value}"
+            )
         now = _utc(datetime.now(timezone.utc))
         revoked = current.model_copy(
             update={
@@ -474,7 +496,9 @@ class StructuredMemoryLifecycle:
     # Shared transaction builders
     # ------------------------------------------------------------------
 
-    def _promote_single(self, candidate: MemoryRecord, context: IngestContext, now: datetime, reason_code: str) -> IngestResult:
+    def _promote_single(
+        self, candidate: MemoryRecord, context: IngestContext, now: datetime, reason_code: str
+    ) -> IngestResult:
         promoted = candidate.model_copy(
             update={
                 "revision": candidate.revision + 1,
@@ -522,7 +546,9 @@ class StructuredMemoryLifecycle:
             update={
                 "revision": existing.revision + 1,
                 "evidence": tuple(merged_evidence),
-                "derived_from": tuple(sorted(set(existing.derived_from) | set(candidate.derived_from))),
+                "derived_from": tuple(
+                    sorted(set(existing.derived_from) | set(candidate.derived_from))
+                ),
                 "updated_at": now,
             }
         )
@@ -545,7 +571,12 @@ class StructuredMemoryLifecycle:
             recorded_at=now,
         )
         self.repository.append_transaction(tx)
-        logger.info("memory_record_superseded id={} replacement={} tx={}", candidate.id, existing.id, tx.tx_id)
+        logger.info(
+            "memory_record_superseded id={} replacement={} tx={}",
+            candidate.id,
+            existing.id,
+            tx.tx_id,
+        )
         return IngestResult(
             candidate_id=candidate.id,
             final_status=MemoryStatus.SUPERSEDED,
@@ -589,7 +620,12 @@ class StructuredMemoryLifecycle:
             recorded_at=now,
         )
         self.repository.append_transaction(tx)
-        logger.info("memory_record_superseded id={} replacement={} tx={}", existing.id, candidate.id, tx.tx_id)
+        logger.info(
+            "memory_record_superseded id={} replacement={} tx={}",
+            existing.id,
+            candidate.id,
+            tx.tx_id,
+        )
         return IngestResult(
             candidate_id=candidate.id,
             final_status=MemoryStatus.ACTIVE,
@@ -622,7 +658,9 @@ class StructuredMemoryLifecycle:
             recorded_at=now,
         )
         self.repository.append_transaction(tx)
-        logger.info("memory_conflict_blocked id={} blocked_by={} tx={}", candidate.id, blocked_by, tx.tx_id)
+        logger.info(
+            "memory_conflict_blocked id={} blocked_by={} tx={}", candidate.id, blocked_by, tx.tx_id
+        )
         return IngestResult(
             candidate_id=candidate.id,
             final_status=MemoryStatus.CANDIDATE,

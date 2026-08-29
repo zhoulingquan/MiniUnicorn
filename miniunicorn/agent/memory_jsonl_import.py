@@ -231,9 +231,7 @@ def _build_import_repository(
     return repository
 
 
-def _verify_temp_database(
-    temp_db: Path, lock_timeout_s: float
-) -> tuple[int, dict[str, int], str]:
+def _verify_temp_database(temp_db: Path, lock_timeout_s: float) -> tuple[int, dict[str, int], str]:
     """Verify integrity, compute the canonical current-state digest and counts."""
     with connect_memory_db(temp_db, lock_timeout_s=lock_timeout_s) as connection:
         row = connection.execute("PRAGMA integrity_check").fetchone()

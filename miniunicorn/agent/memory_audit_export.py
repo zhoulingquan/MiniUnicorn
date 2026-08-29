@@ -155,15 +155,11 @@ class MemoryAuditExporter:
         if segments and watermark >= segments[0]["first_tx_seq"]:
             overlap = watermark - segments[0]["first_tx_seq"] + 1
             rows_written -= min(overlap, rows_written)
-        coverage_max = max(
-            (entry["last_tx_seq"] for entry in full_segments), default=0
-        )
+        coverage_max = max((entry["last_tx_seq"] for entry in full_segments), default=0)
         final_watermark, lag = self._advance_watermark(coverage_max)
         return AuditExportResult(
             exported_rows=rows_written,
-            sealed_segments=sum(
-                1 for entry in segments if entry["path"] != _OPEN_SEGMENT_FILE
-            ),
+            sealed_segments=sum(1 for entry in segments if entry["path"] != _OPEN_SEGMENT_FILE),
             first_tx_seq=first_exported,
             last_tx_seq=final_watermark,
             lag=lag,
@@ -181,22 +177,16 @@ class MemoryAuditExporter:
         try:
             _, max_seq = self._watermark_state()
             generated_at = _utc_now()
-            segments, rows_written, first_exported = self._build_segments(
-                temp_dir, 0, max_seq
-            )
+            segments, rows_written, first_exported = self._build_segments(temp_dir, 0, max_seq)
             self._write_manifest(temp_dir, generated_at, max_seq, segments)
             self._verify_directory(temp_dir)
-            coverage_max = max(
-                (entry["last_tx_seq"] for entry in segments), default=0
-            )
+            coverage_max = max((entry["last_tx_seq"] for entry in segments), default=0)
             final_watermark, lag = self._swap_audit_directory(temp_dir, coverage_max)
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
         return AuditExportResult(
             exported_rows=rows_written,
-            sealed_segments=sum(
-                1 for entry in segments if entry["path"] != _OPEN_SEGMENT_FILE
-            ),
+            sealed_segments=sum(1 for entry in segments if entry["path"] != _OPEN_SEGMENT_FILE),
             first_tx_seq=first_exported,
             last_tx_seq=final_watermark,
             lag=lag,
@@ -210,9 +200,7 @@ class MemoryAuditExporter:
             with FileLock(str(lock_path), timeout=self._repository.lock_timeout_s):
                 if audit.exists():
                     stamp = _utc_stamp()
-                    recovered = (
-                        self._repository.structured_dir / _RECOVERY_DIR / stamp / "audit"
-                    )
+                    recovered = self._repository.structured_dir / _RECOVERY_DIR / stamp / "audit"
                     suffix = 2
                     while recovered.exists():
                         recovered = (
@@ -302,8 +290,7 @@ class MemoryAuditExporter:
         return [
             entry
             for entry in previous.get("segments", [])
-            if entry.get("path") != _OPEN_SEGMENT_FILE
-            and (target_dir / entry["path"]).exists()
+            if entry.get("path") != _OPEN_SEGMENT_FILE and (target_dir / entry["path"]).exists()
         ]
 
     @staticmethod

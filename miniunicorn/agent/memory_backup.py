@@ -349,4 +349,6 @@ class MemoryBackupManager:
         resolved = path.resolve()
         root = self._repository.structured_dir.resolve()
         if resolved != root and root not in resolved.parents:
-            raise MemoryBackupError("unsafe_backup_path", f"backup path escapes structured dir: {path}")
+            raise MemoryBackupError(
+                "unsafe_backup_path", f"backup path escapes structured dir: {path}"
+            )
