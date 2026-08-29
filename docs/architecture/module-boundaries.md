@@ -230,7 +230,7 @@
 
 ### 2.15 agent/safety(SafetyPolicy)
 
-- 位置:`miniunicorn/agent/safety.py`
+- 位置:`miniunicorn/agent/safety_policy.py`
 - 公开 API:`SafetyPolicy`(class),`RiskLevel`(enum: `LOW` / `MEDIUM` / `HIGH` / `CRITICAL`),`assess_risk(tool_name, args, context) -> RiskLevel`,`should_block(risk: RiskLevel) -> bool`,`should_require_approval(risk: RiskLevel) -> bool`。
 - 拥有的状态:风险规则表(内置,可通过配置扩展)、审批回调注册表。
 - 生命周期所有者:`composition`(构建 `AgentLoop` 时注入 `AgentRunner`)。
@@ -239,7 +239,7 @@
 
 ### 2.16 agent/planning(PlanningPolicy)
 
-- 位置:`miniunicorn/agent/planning.py`
+- 位置:`miniunicorn/agent/planning_policy.py`
 - 公开 API:`PlanningPolicy`(class),`ExecutionMode`(enum: `FAST` / `MANAGED`),`select_mode(config, turn_context) -> ExecutionMode`,`should_upgrade(turn_context) -> bool`,`build_upgrade_context(turn_context) -> UpgradeContext`。
 - 拥有的状态:模式选择规则(含运行时升级判定)、`max_replans` 计数器(仅 MANAGED 模式生效)。
 - 生命周期所有者:`composition`(经 `AgentRunner` 持有,`PlanningReflectionService` 回调使用)。
@@ -249,14 +249,14 @@
   2. **运行时升级**: 连续 **2 个 turn** 无工具响应(模型直接产出文本) → 下一 turn 自动升级为 MANAGED;升级**每 turn 至多一次**,MANAGED turn 结束后重置,下一 turn 重新评估。此规则在 `PlanningPolicy.should_upgrade` 实现,由 `TurnOrchestrator` 在状态机进入前调用。
   3. **与 SafetyPolicy 解耦**: 升级判定不读取风险等级;风险拦截在工具执行层,规划层只管模式切换与重规划预算。
 
-### 2.17 agent/delegation(delegate_plan)
+### 2.17 agent/tools/execute_plan(ExecutePlanTool)
 
-- 位置:`miniunicorn/agent/delegation.py`(原 `execute_plan.py`,别名兼容)
-- 公开 API:`delegate_plan(steps: list[PlanStep], runner: AgentRunner, context: TurnContext) -> list[StepResult]`,兼容导出 `execute_plan = delegate_plan`。
-- 拥有的状态:无自有可变状态;纯函数式编排,依赖 `runner` 运行子步骤。
-- 生命周期:随调用方(`PlanningReflectionService` 在 MANAGED 执行阶段调用)同生同灭。
-- 依赖方向:依赖 `agent/execution/model_request.py`(`ModelRequestExecutor`)、`agent/execution/tool_execution.py`(`ToolExecutionCoordinator`)、`agent/execution/context_governance.py`(`ContextGovernanceService`);不 import `agent/loop`。
-- 语义变更:原 `execute_plan` 语义为**串行**执行计划步骤。新 `delegate_plan` 语义为**并行委派独立步骤**——将无数据依赖的步骤打包为独立子任务并发执行,有依赖的步骤仍保序。别名 `execute_plan = delegate_plan` 保留向后兼容,既有调用方零改动;新代码应直接用 `delegate_plan` 以表达并行委派意图。
+- 位置:`miniunicorn/agent/tools/execute_plan.py`
+- 公开 API:`ExecutePlanTool`(class,继承 `Tool` 与 `ContextAware`),注册工具名 `delegate_plan`(别名 `execute_plan`);核心方法 `execute(plan, execution) -> str`,`create(ctx)` 经 `ctx.subagent_manager` 注入管理器。
+- 拥有的状态:请求上下文 ContextVar(origin_channel / origin_chat_id / session_key / origin_message_id)与 subagent 管理器引用;无跨请求业务状态。
+- 生命周期:随工具注册表构建;作用域 `_scopes = {"core"}`,不对 subagent 开放(避免递归)。
+- 依赖方向:依赖 `agent/subagent.py`(`SubagentManager.spawn_and_wait`)、`security/workspace_access`(工作区范围透传)、`safety_policy`(`RiskLevel.HIGH`);不 import `agent/loop`。
+- 语义说明:将计划步骤委派给并行 subagent——无数据依赖的步骤走 **parallel** 模式并发执行(每步一个 subagent),有依赖的步骤走 **serial** 模式,上一步结果以 sandbox 标记包裹后作为下一步上下文传入(防 prompt injection)。默认 `auto`:步骤动作引用先前输出则串行,否则并行。
 
 ---
 
