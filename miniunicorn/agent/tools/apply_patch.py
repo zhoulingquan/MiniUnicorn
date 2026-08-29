@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import difflib
 import re
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from miniunicorn.agent.safety_policy import RiskLevel
 from miniunicorn.agent.tools.base import tool_parameters
+from miniunicorn.agent.tools.file_state import _hash_file
 from miniunicorn.agent.tools.filesystem import _FsTool
+from miniunicorn.agent.tools.receipts import ToolReceiptClaim, emit_receipt
 from miniunicorn.agent.tools.schema import (
     ArraySchema,
     BooleanSchema,
@@ -304,6 +307,29 @@ class ApplyPatchTool(_FsTool):
 
             for path in writes:
                 self._file_states.record_write(path)
+
+            # 同一文件被多个 edit 连续修改时，writes 只保留最终内容而 summaries
+            # 按 edit 逐条累积，因此按解析后的路径取该文件的最后一条摘要。
+            stats_by_source: dict[Path, _PatchSummary] = {}
+            for summary in summaries:
+                with suppress(Exception):
+                    stats_by_source[self._resolve(summary.path)] = summary
+            files: list[dict[str, Any]] = []
+            for source in writes:
+                stats = stats_by_source.get(source)
+                files.append(
+                    {
+                        "path": str(source),
+                        "digest": _hash_file(str(source)),
+                        "added": stats.added if stats is not None else 0,
+                        "deleted": stats.deleted if stats is not None else 0,
+                    }
+                )
+            emit_receipt(
+                ToolReceiptClaim(
+                    tool="apply_patch", operation="patch", target="", digest=None, files=files
+                )
+            )
             return "Patch applied:\n" + "\n".join(_format_summary(summary) for summary in summaries)
         except PermissionError as exc:
             return f"Error: {exc}"

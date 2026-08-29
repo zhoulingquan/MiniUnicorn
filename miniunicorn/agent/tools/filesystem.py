@@ -11,6 +11,7 @@ from miniunicorn.agent.safety_policy import RiskLevel
 from miniunicorn.agent.tools.base import Tool, tool_parameters
 from miniunicorn.agent.tools.file_state import FileStates, _hash_file, current_file_states
 from miniunicorn.agent.tools.path_utils import resolve_workspace_path, verify_workspace_path
+from miniunicorn.agent.tools.receipts import ToolReceiptClaim, emit_receipt
 from miniunicorn.agent.tools.schema import (
     BooleanSchema,
     IntegerSchema,
@@ -488,6 +489,14 @@ class WriteFileTool(_FsTool):
             fp.write_text(content, encoding="utf-8")
             self._verify_within(fp)
             self._file_states.record_write(fp)
+            emit_receipt(
+                ToolReceiptClaim(
+                    tool="write_file",
+                    operation="write",
+                    target=str(fp),
+                    digest=_hash_file(str(fp)),
+                )
+            )
             return f"Successfully wrote {len(content)} characters to {fp}"
         except PermissionError as e:
             return f"Error: {e}"
@@ -870,6 +879,14 @@ class EditFileTool(_FsTool):
                     fp.write_text(new_text, encoding="utf-8")
                     self._verify_within(fp)
                     self._file_states.record_write(fp)
+                    emit_receipt(
+                        ToolReceiptClaim(
+                            tool="edit_file",
+                            operation="edit",
+                            target=str(fp),
+                            digest=_hash_file(str(fp)),
+                        )
+                    )
                     return f"Successfully created {fp}"
                 return self._file_not_found_msg(path, fp)
 
@@ -890,6 +907,14 @@ class EditFileTool(_FsTool):
                 fp.write_text(new_text, encoding="utf-8")
                 self._verify_within(fp)
                 self._file_states.record_write(fp)
+                emit_receipt(
+                    ToolReceiptClaim(
+                        tool="edit_file",
+                        operation="edit",
+                        target=str(fp),
+                        digest=_hash_file(str(fp)),
+                    )
+                )
                 return f"Successfully edited {fp}"
 
             # Read-before-edit check
@@ -981,6 +1006,14 @@ class EditFileTool(_FsTool):
             fp.write_bytes(new_content.encode("utf-8"))
             self._verify_within(fp)
             self._file_states.record_write(fp)
+            emit_receipt(
+                ToolReceiptClaim(
+                    tool="edit_file",
+                    operation="edit",
+                    target=str(fp),
+                    digest=_hash_file(str(fp)),
+                )
+            )
             msg = f"Successfully edited {fp}"
             if warning:
                 msg = f"{warning}\n{msg}"

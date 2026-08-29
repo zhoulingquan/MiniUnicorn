@@ -25,6 +25,7 @@ from loguru import logger
 from miniunicorn.agent.safety_policy import RiskLevel, SafetyPolicy
 from miniunicorn.agent.step_acceptance import ToolObservation
 from miniunicorn.agent.tool_checkpoint import ToolCheckpoint
+from miniunicorn.agent.tools.receipts import take_receipt
 from miniunicorn.providers.base import ToolCallRequest
 from miniunicorn.utils.file_edit_events import (
     build_file_edit_end_event,
@@ -89,9 +90,9 @@ class ToolExecutionCoordinator:
         workspace_violation_counts: dict[str, int],
         *,
         step_id: int | None = None,
-    ) -> tuple[list[Any], list[dict[str, str]], BaseException | None]:
+    ) -> tuple[list[Any], list[dict[str, Any]], BaseException | None]:
         batches = self.partition_tool_batches(spec, tool_calls)
-        tool_results: list[tuple[Any, dict[str, str], BaseException | None]] = []
+        tool_results: list[tuple[Any, dict[str, Any], BaseException | None]] = []
         for batch in batches:
             if spec.concurrent_tools and len(batch) > 1:
                 batch_results = await asyncio.gather(
@@ -121,7 +122,7 @@ class ToolExecutionCoordinator:
                     batch_results.append(result)
 
         results: list[Any] = []
-        events: list[dict[str, str]] = []
+        events: list[dict[str, Any]] = []
         fatal_error: BaseException | None = None
         for result, event, error in tool_results:
             results.append(result)
@@ -138,7 +139,7 @@ class ToolExecutionCoordinator:
         workspace_violation_counts: dict[str, int],
         *,
         step_id: int | None = None,
-    ) -> tuple[Any, dict[str, str], BaseException | None]:
+    ) -> tuple[Any, dict[str, Any], BaseException | None]:
         get_tool = getattr(spec.tools, "get", None)
         tool = get_tool(tool_call.name) if callable(get_tool) else None
         verdict = self._safety.evaluate(tool_call.name, tool)
@@ -225,6 +226,11 @@ class ToolExecutionCoordinator:
             external_lookup_counts,
             workspace_violation_counts,
         )
+        # 回执只能在这个 Task 内读取：并发批次下每个 run_tool 协程拷贝上下文，
+        # 工具 execute 里 set 的 contextvar 父协程事后读不到。
+        claim = take_receipt()
+        if claim is not None:
+            event["receipt"] = claim.to_dict()
         duration_ms = (time.perf_counter() - start) * 1000
         if spec.checkpoint_callback is not None:
             summary = ""
@@ -254,7 +260,7 @@ class ToolExecutionCoordinator:
         tool_call: ToolCallRequest,
         external_lookup_counts: dict[str, int],
         workspace_violation_counts: dict[str, int],
-    ) -> tuple[Any, dict[str, str], BaseException | None]:
+    ) -> tuple[Any, dict[str, Any], BaseException | None]:
         hint = "\n\n[Analyze the error above and try a different approach.]"
         lookup_error = repeated_external_lookup_error(
             tool_call.name,
@@ -489,6 +495,9 @@ class ToolExecutionCoordinator:
                 excerpt = str(result).replace("\n", " ").strip()
                 if len(excerpt) > 200:
                     excerpt = excerpt[:200]
+            # pop 而非 get：receipt 只属于观察，不能随 event 流进 tool_events
+            # 这类持久化/外泄面。
+            receipt = event.pop("receipt", None)
             observations.append(
                 ToolObservation(
                     tool_name=tool_call.name,
@@ -496,6 +505,7 @@ class ToolExecutionCoordinator:
                     status=event.get("status", "ok"),
                     result_excerpt=excerpt,
                     step_id=step_id,
+                    receipt=receipt,
                 )
             )
         return observations

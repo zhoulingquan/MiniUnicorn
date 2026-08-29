@@ -155,7 +155,7 @@ class AgentRunResult:
     usage: dict[str, int] = field(default_factory=dict)
     stop_reason: str = "completed"
     error: str | None = None
-    tool_events: list[dict[str, str]] = field(default_factory=list)
+    tool_events: list[dict[str, Any]] = field(default_factory=list)
     had_injections: bool = False
     budget_exceeded: bool = False
     plan: Any | None = None  # Plan | None, populated when use_planner=True
@@ -181,7 +181,7 @@ class _TurnState:
     empty_content_retries: int = 0
     length_recovery_count: int = 0
     tools_used: list[str] = field(default_factory=list)
-    tool_events: list[dict[str, str]] = field(default_factory=list)
+    tool_events: list[dict[str, Any]] = field(default_factory=list)
     usage: dict[str, int] = field(
         default_factory=lambda: {"prompt_tokens": 0, "completion_tokens": 0}
     )
@@ -676,7 +676,8 @@ class AgentRunner:
                         else None
                     ),
                 )
-                state.tool_events.extend(new_events)
+                # 先摘出观察（其中会 pop 掉 receipt），再把已清干净的事件入列，
+                # 保证 tool_events 任何时刻都不持有回执。
                 state.tool_observations.extend(
                     self.tool_execution.build_observations(
                         response.tool_calls,
@@ -689,6 +690,7 @@ class AgentRunner:
                         ),
                     )
                 )
+                state.tool_events.extend(new_events)
                 context.tool_results = list(results)
                 context.tool_events = list(new_events)
                 completed_tool_results = self.build_tool_result_messages(
@@ -1403,7 +1405,7 @@ class AgentRunner:
         workspace_violation_counts: dict[str, int],
         *,
         step_id: int | None = None,
-    ) -> tuple[list[Any], list[dict[str, str]], BaseException | None]:
+    ) -> tuple[list[Any], list[dict[str, Any]], BaseException | None]:
         return await self.tool_execution.execute_tools(
             spec,
             tool_calls,
@@ -1422,7 +1424,7 @@ class AgentRunner:
         workspace_violation_counts: dict[str, int],
         *,
         step_id: int | None = None,
-    ) -> tuple[Any, dict[str, str], BaseException | None]:
+    ) -> tuple[Any, dict[str, Any], BaseException | None]:
         return await self.tool_execution.run_tool(
             spec,
             tool_call,
@@ -1481,10 +1483,10 @@ class AgentRunner:
         *,
         raw_text: str,
         soft_payload: str,
-        event: dict[str, str],
+        event: dict[str, Any],
         tool_call: ToolCallRequest,
         workspace_violation_counts: dict[str, int],
-    ) -> tuple[Any, dict[str, str], BaseException | None] | None:
+    ) -> tuple[Any, dict[str, Any], BaseException | None] | None:
         """Classify safety-boundary failures, or return ``None`` to pass through."""
         if self._is_ssrf_violation(raw_text):
             logger.warning(
