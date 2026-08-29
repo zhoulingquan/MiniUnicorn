@@ -7,10 +7,37 @@ enable_step_verifier is True, an LLM call is made as a fallback.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 from miniunicorn.agent.planner import PlanStep
+
+
+@dataclass(frozen=True, slots=True)
+class ToolObservation:
+    """单次工具调用的结构化观察，验收证据的最小单元。"""
+
+    tool_name: str
+    arguments: dict[str, Any]
+    status: str
+    result_excerpt: str
+    step_id: int | None = None
+    receipt: dict[str, Any] | None = None
+    occurred_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    def to_dict(self) -> dict[str, Any]:
+        data = {
+            "tool_name": self.tool_name,
+            "arguments": dict(self.arguments),
+            "status": self.status,
+            "result_excerpt": self.result_excerpt,
+            "step_id": self.step_id,
+            "occurred_at": self.occurred_at,
+        }
+        if self.receipt is not None:
+            data["receipt"] = self.receipt
+        return data
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +52,7 @@ class StepEvidence:
     accepted: bool
     rejection_reason: str | None = None
     verifier_verdict: dict[str, Any] | None = None
+    observations: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         data = {
@@ -38,6 +66,8 @@ class StepEvidence:
         }
         if self.verifier_verdict is not None:
             data["verifier_verdict"] = self.verifier_verdict
+        if self.observations:
+            data["observations"] = list(self.observations)
         return data
 
 
@@ -51,6 +81,7 @@ class StepAcceptancePolicy:
         tool_results: list[dict[str, Any]],
         final_content: str | None,
         iterations_used: int,
+        observations: list[ToolObservation] | None = None,
     ) -> StepEvidence:
         """Rule-based evaluation only (no LLM)."""
         accepted = self._is_accepted(step, tool_calls, final_content)
@@ -64,6 +95,7 @@ class StepAcceptancePolicy:
             rejection_reason=None
             if accepted
             else self._rejection_reason(step, tool_calls, final_content),
+            observations=[o.to_dict() for o in observations or []],
         )
 
     async def evaluate_with_verifier(
@@ -78,12 +110,15 @@ class StepAcceptancePolicy:
         model: str,
         enable_verifier: bool,
         step_evidence_cache: dict[int, dict[str, Any]] | None = None,
+        observations: list[ToolObservation] | None = None,
     ) -> StepEvidence:
         """Evaluate with optional LLM verifier fallback.
 
         If rules reject and enable_verifier is True, calls LLM once per step.
         Verdict is cached in step_evidence_cache to avoid duplicate calls.
         """
+        obs = [o.to_dict() for o in observations or []]
+
         # Check cache first
         if step_evidence_cache is not None and step.id in step_evidence_cache:
             cached = step_evidence_cache[step.id]
@@ -96,6 +131,7 @@ class StepAcceptancePolicy:
                 accepted=cached["accepted"],
                 rejection_reason=cached.get("rejection_reason"),
                 verifier_verdict=cached.get("verifier_verdict"),
+                observations=obs,
             )
 
         # Rule-based evaluation
@@ -113,12 +149,14 @@ class StepAcceptancePolicy:
                 iterations_used=iterations_used,
                 accepted=rule_accepted,
                 rejection_reason=rule_rejection,
+                observations=obs,
             )
             if step_evidence_cache is not None:
                 step_evidence_cache[step.id] = {
                     "accepted": evidence.accepted,
                     "rejection_reason": evidence.rejection_reason,
                     "verifier_verdict": evidence.verifier_verdict,
+                    "observations": obs,
                 }
             return evidence
 
@@ -153,6 +191,7 @@ class StepAcceptancePolicy:
             accepted=accepted,
             rejection_reason=rejection_reason,
             verifier_verdict=verifier_verdict,
+            observations=obs,
         )
 
         if step_evidence_cache is not None:
@@ -160,6 +199,7 @@ class StepAcceptancePolicy:
                 "accepted": evidence.accepted,
                 "rejection_reason": evidence.rejection_reason,
                 "verifier_verdict": evidence.verifier_verdict,
+                "observations": obs,
             }
         return evidence
 

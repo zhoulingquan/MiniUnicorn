@@ -29,6 +29,7 @@ from miniunicorn.agent.execution.tool_execution import ToolExecutionCoordinator
 from miniunicorn.agent.hook import AgentHook, AgentHookContext
 from miniunicorn.agent.planning_policy import PlanningMode, PlanningPolicy
 from miniunicorn.agent.provider_registry import ProviderRegistry
+from miniunicorn.agent.step_acceptance import ToolObservation
 from miniunicorn.agent.tools.registry import ToolRegistry
 from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from miniunicorn.utils.file_edit_events import (
@@ -161,6 +162,8 @@ class AgentRunResult:
     # Usage from the last LLM call in this run (not cumulative). Represents
     # the actual context window footprint at the end of the turn.
     last_call_usage: dict[str, int] = field(default_factory=dict)
+    # W0-A1: audit surface for the structured tool evidence of this run.
+    tool_observations: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -195,6 +198,10 @@ class _TurnState:
     escalated_this_turn: bool = False
     # T5: FAST mode stall detection - consecutive iterations without tool calls.
     consecutive_nontool_iterations: int = 0
+    # W0-A1: cross-iteration evidence accumulator, filtered per step at
+    # completion time. Cleared whenever the plan is replaced (step ids restart
+    # at 1 after a replan, so stale observations would leak across plans).
+    tool_observations: list[ToolObservation] = field(default_factory=list)
 
 
 class AgentRunner:
@@ -670,6 +677,18 @@ class AgentRunner:
                     ),
                 )
                 state.tool_events.extend(new_events)
+                state.tool_observations.extend(
+                    self.tool_execution.build_observations(
+                        response.tool_calls,
+                        results,
+                        new_events,
+                        step_id=(
+                            plan.current_step.id
+                            if plan is not None and plan.current_step is not None
+                            else None
+                        ),
+                    )
+                )
                 context.tool_results = list(results)
                 context.tool_events = list(new_events)
                 completed_tool_results = self.build_tool_result_messages(
@@ -694,6 +713,7 @@ class AgentRunner:
                     )
                     if plan is not None and plan is not plan_before_error:
                         # Successful replan returned a replacement plan.
+                        state.tool_observations.clear()
                         state.plan_snapshot = await self._emit_plan_snapshot(
                             spec, plan, state.turn_id
                         )
@@ -878,6 +898,9 @@ class AgentRunner:
                     state.stop_reason,
                     spec=spec,
                     turn_id=state.turn_id,
+                    tool_observations=[
+                        o for o in state.tool_observations if o.step_id == plan.current_step.id
+                    ],
                 ):
                     # P1-T4: Check no-progress after step evidence evaluation.
                     if state.progress_tracker is not None:
@@ -911,6 +934,7 @@ class AgentRunner:
 
                                     if replan_result.status is _PlannerStatus.VALID:
                                         plan = replan_result.plan
+                                        state.tool_observations.clear()
                                         state.plan_snapshot = await self._emit_plan_snapshot(
                                             spec, plan, state.turn_id
                                         )
@@ -953,6 +977,7 @@ class AgentRunner:
             budget_exceeded=(state.stop_reason == "budget_exceeded"),
             plan=plan,
             last_call_usage=result_last_usage,
+            tool_observations=[o.to_dict() for o in state.tool_observations],
         )
 
     # -- run() 阶段 helper (自 run 拆出, 语义与原内联实现逐句对应) ------------
@@ -1195,6 +1220,7 @@ class AgentRunner:
         *,
         spec: AgentRunSpec | None = None,
         turn_id: str | None = None,
+        tool_observations: list[ToolObservation] | None = None,
     ) -> bool:
         """Mark the current plan step COMPLETED.
 
@@ -1205,7 +1231,14 @@ class AgentRunner:
         is a thin delegation keeping the AgentRunner surface unchanged.
         """
         return await self.planning.complete_plan_step(
-            plan, context, hook, clean, stop_reason, spec=spec, turn_id=turn_id
+            plan,
+            context,
+            hook,
+            clean,
+            stop_reason,
+            spec=spec,
+            turn_id=turn_id,
+            tool_observations=tool_observations,
         )
 
     _complete_plan_step = complete_plan_step  # compat alias

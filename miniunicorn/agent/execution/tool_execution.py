@@ -14,6 +14,7 @@ runner reference it is constructed with.
 from __future__ import annotations
 
 import asyncio
+import copy
 import inspect
 import time
 from contextlib import suppress
@@ -22,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 
 from miniunicorn.agent.safety_policy import RiskLevel, SafetyPolicy
+from miniunicorn.agent.step_acceptance import ToolObservation
 from miniunicorn.agent.tool_checkpoint import ToolCheckpoint
 from miniunicorn.providers.base import ToolCallRequest
 from miniunicorn.utils.file_edit_events import (
@@ -457,3 +459,43 @@ class ToolExecutionCoordinator:
         if current:
             batches.append(current)
         return batches
+
+    def build_observations(
+        self,
+        tool_calls: list[ToolCallRequest],
+        results: list[Any],
+        events: list[dict[str, Any]],
+        *,
+        step_id: int | None = None,
+    ) -> list[ToolObservation]:
+        """Pair tool calls with their results/events into structured observations.
+
+        ``execute_tools`` preserves request order (gather keeps batch order and
+        batches are appended in sequence), so index-wise pairing is safe.
+        """
+        paired = min(len(tool_calls), len(results), len(events))
+        if paired != len(tool_calls):
+            logger.warning(
+                "tool observation length mismatch: calls={} results={} events={}",
+                len(tool_calls),
+                len(results),
+                len(events),
+            )
+
+        observations: list[ToolObservation] = []
+        for tool_call, result, event in zip(tool_calls[:paired], results[:paired], events[:paired]):
+            excerpt = ""
+            if result is not None:
+                excerpt = str(result).replace("\n", " ").strip()
+                if len(excerpt) > 200:
+                    excerpt = excerpt[:200]
+            observations.append(
+                ToolObservation(
+                    tool_name=tool_call.name,
+                    arguments=copy.deepcopy(tool_call.arguments) if tool_call.arguments else {},
+                    status=event.get("status", "ok"),
+                    result_excerpt=excerpt,
+                    step_id=step_id,
+                )
+            )
+        return observations

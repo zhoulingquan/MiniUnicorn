@@ -23,6 +23,7 @@ from miniunicorn.agent.call_ledger import allow_call_ledger_child_tasks
 if TYPE_CHECKING:
     from miniunicorn.agent.hook import AgentHook, AgentHookContext
     from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
+    from miniunicorn.agent.step_acceptance import ToolObservation
 
 
 class PlanningReflectionService:
@@ -246,6 +247,7 @@ class PlanningReflectionService:
         turn_id: str | None = None,
         tool_calls: list[dict[str, Any]] | None = None,
         tool_results: list[dict[str, Any]] | None = None,
+        tool_observations: list[ToolObservation] | None = None,
     ) -> bool:
         """Evaluate step evidence and mark COMPLETED if accepted.
 
@@ -283,6 +285,7 @@ class PlanningReflectionService:
                 model=spec.model,
                 enable_verifier=True,
                 step_evidence_cache=plan._verifier_cache,
+                observations=tool_observations,
             )
         else:
             evidence = policy.evaluate(
@@ -291,6 +294,7 @@ class PlanningReflectionService:
                 tool_results=tool_results or [],
                 final_content=clean,
                 iterations_used=completed_step.iterations_used,
+                observations=tool_observations,
             )
         plan.step_evidence.append(evidence)
 
