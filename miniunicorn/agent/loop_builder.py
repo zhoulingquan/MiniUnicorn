@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from miniunicorn.agent.hook import AgentHook
     from miniunicorn.agent.loop import AgentLoop
     from miniunicorn.agent.subagent import SubagentManager
+    from miniunicorn.composition.mcp_runtime import McpRuntime
     from miniunicorn.config.schema import ModelPresetConfig, ToolsConfig
     from miniunicorn.cron.service import CronService
     from miniunicorn.session.manager import SessionManager
@@ -148,6 +149,10 @@ class AgentLoopBuilder:
 
     def with_subagent_manager(self, subagent_manager: SubagentManager | None) -> AgentLoopBuilder:
         self._kwargs["subagent_manager"] = subagent_manager
+        return self
+
+    def with_mcp_runtime(self, mcp_runtime: McpRuntime | None) -> AgentLoopBuilder:
+        self._kwargs["mcp_runtime"] = mcp_runtime
         return self
 
     def with_mcp_servers(self, mcp_servers: dict | None) -> AgentLoopBuilder:

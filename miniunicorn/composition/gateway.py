@@ -63,6 +63,7 @@ class GatewayApplication:
         from miniunicorn.cli._gateway_runner import (
             _dream_backlog_total,
         )
+        from miniunicorn.composition.mcp_runtime import McpRuntime
         from miniunicorn.cron.service import CronService
         from miniunicorn.providers.factory import build_provider_snapshot, load_provider_snapshot
         from miniunicorn.session.manager import SessionManager
@@ -102,6 +103,10 @@ class GatewayApplication:
         cron_store_path = config.workspace_path / "cron" / "jobs.json"
         self.cron = CronService(cron_store_path)
 
+        # MCP connections are owned by the composition root and injected into
+        # the loop; the loop delegates its MCP stack surface to this runtime.
+        self.mcp_runtime = McpRuntime(config.tools.mcp_servers)
+
         # Create agent with cron service
         self.agent = commands.AgentLoop.from_config(
             config,
@@ -113,6 +118,7 @@ class GatewayApplication:
             else None,
             cron_service=self.cron,
             session_manager=self.session_manager,
+            mcp_runtime=self.mcp_runtime,
             provider_snapshot_loader=load_provider_snapshot,
             runtime_model_publisher=lambda model, preset: publish_runtime_model_update(
                 self.bus,

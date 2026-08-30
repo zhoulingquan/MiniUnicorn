@@ -1,13 +1,11 @@
 """MCP close lifecycle behavior tests.
 
-Locks the current ``close_mcp()`` behavior before the PR-2a extraction:
+Locks the ``close_mcp()`` behavior (W1-2, McpRuntime ownership):
 
 - ``close_mcp()`` drains background tasks and clears ``_mcp_stacks``;
+- it resets ``_mcp_connected`` (the previous "flag stays True" bug was fixed
+  when MCP stack ownership moved to ``McpRuntime.close_all``, which resets it);
 - a subsequent ``_connect_mcp()`` reconnects configured servers.
-
-Known current bug (NOT fixed in this PR, locked with ``xfail``): ``close_mcp()``
-clears ``_mcp_stacks`` but does not reset ``_mcp_connected``, so the flag stays
-``True`` from the last successful connect.
 """
 
 from __future__ import annotations
@@ -57,14 +55,6 @@ async def test_close_mcp_clears_stacks_and_can_reconnect(tmp_path, monkeypatch):
     assert loop._mcp_connected is True
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "close_mcp() clears _mcp_stacks but does not reset _mcp_connected "
-        "(the flag stays True from the last connect). Existing bug locked here; "
-        "not fixed in PR-2a."
-    ),
-)
 @pytest.mark.asyncio
 async def test_close_mcp_resets_connected_flag(tmp_path, monkeypatch):
     loop = _make_loop(tmp_path, {"test": object()})

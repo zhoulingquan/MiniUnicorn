@@ -53,6 +53,7 @@ from miniunicorn.command import (
     CommandRouter,
     register_builtin_commands,
 )
+from miniunicorn.composition.mcp_runtime import McpRuntime
 from miniunicorn.config.schema import AgentDefaults, ModelPresetConfig, StructuredMemoryConfig
 from miniunicorn.providers.base import LLMProvider
 from miniunicorn.providers.factory import ProviderSnapshot
@@ -141,6 +142,7 @@ class AgentLoopConfig:
     session_manager: "SessionManager | None" = None
     subagent_manager: "SubagentManager | None" = None
     mcp_servers: dict | None = None
+    mcp_runtime: "McpRuntime | None" = None
     channels_config: "ChannelsConfig | None" = None
     timezone: str | None = None
     session_ttl_minutes: int = 0
@@ -534,10 +536,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         self.context.subagent_registry = self.subagent_registry
         self._unified_session = cfg.unified_session
         self._max_messages = cfg.max_messages if cfg.max_messages > 0 else 120
-        self._mcp_servers = cfg.mcp_servers or {}
-        self._mcp_stacks: dict[str, AsyncExitStack] = {}
-        self._mcp_connected = False
-        self._mcp_connecting = False
+        self._mcp_runtime = cfg.mcp_runtime or McpRuntime(cfg.mcp_servers or {})
         # Consolidator / AutoCompact / Dream / DreamIdleTrigger and the
         # per-workspace helper caches are owned by ``RuntimeResourceRegistry``;
         # the loop exposes them through read-only delegating properties (below)
@@ -615,6 +614,46 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
     def mcp_stacks(self) -> dict[str, AsyncExitStack]:
         """Live MCP connection stacks (name -> ``AsyncExitStack``)."""
         return self._mcp_stacks
+
+    # -- MCP runtime delegation ----------------------------------------------
+    #
+    # The live MCP connection state is owned by ``self._mcp_runtime`` (a
+    # composition-root-owned ``McpRuntime``). The loop stays a valid
+    # ``RuntimeState`` for ``tools/mcp.py`` (incl. the webui hot-reload path,
+    # which receives the loop as state) by delegating every private MCP
+    # attribute read/write to the runtime instead of owning its own copies.
+
+    @property
+    def _mcp_servers(self) -> dict[str, Any]:
+        return self._mcp_runtime._mcp_servers
+
+    @_mcp_servers.setter
+    def _mcp_servers(self, servers: dict[str, Any]) -> None:
+        self._mcp_runtime._mcp_servers = servers
+
+    @property
+    def _mcp_stacks(self) -> dict[str, AsyncExitStack]:
+        return self._mcp_runtime._mcp_stacks
+
+    @_mcp_stacks.setter
+    def _mcp_stacks(self, stacks: dict[str, AsyncExitStack]) -> None:
+        self._mcp_runtime._mcp_stacks = stacks
+
+    @property
+    def _mcp_connected(self) -> bool:
+        return self._mcp_runtime._mcp_connected
+
+    @_mcp_connected.setter
+    def _mcp_connected(self, value: bool) -> None:
+        self._mcp_runtime._mcp_connected = value
+
+    @property
+    def _mcp_connecting(self) -> bool:
+        return self._mcp_runtime._mcp_connecting
+
+    @_mcp_connecting.setter
+    def _mcp_connecting(self, value: bool) -> None:
+        self._mcp_runtime._mcp_connecting = value
 
     # -- response assembler ---------------------------------------------------
     #

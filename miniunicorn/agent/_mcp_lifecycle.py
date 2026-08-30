@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from miniunicorn.agent import context as agent_context
 from miniunicorn.agent.tools.self import MyTool
 
 if TYPE_CHECKING:
@@ -71,18 +70,12 @@ class McpLifecycleMixin:
         self._mcp_servers = servers
 
     async def _connect_mcp(self: "AgentLoop") -> None:
-        """Connect configured MCP servers."""
-        await agent_context.connect_mcp(self, self.tools)
+        """Connect configured MCP servers (owned by the loop's McpRuntime)."""
+        await self._mcp_runtime.connect_missing(self.tools)
 
     async def close_mcp(self: "AgentLoop") -> None:
         """Drain pending background archives, then close MCP connections."""
         if self._background_tasks:
             await asyncio.gather(*self._background_tasks, return_exceptions=True)
             self._background_tasks.clear()
-        for name, stack in self._mcp_stacks.items():
-            try:
-                await stack.aclose()
-            except Exception:
-                # 兼容老版本 Python（无 BaseExceptionGroup），aclose 通常只 raise Exception 子类
-                logger.debug("MCP server '{}' cleanup error (can be ignored)", name)
-        self._mcp_stacks.clear()
+        await self._mcp_runtime.close_all()
