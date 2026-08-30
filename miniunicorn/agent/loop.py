@@ -36,7 +36,7 @@ from miniunicorn.agent.tools.context import (
     reset_request_context,
 )
 from miniunicorn.agent.tools.file_state import FileStateStore, bind_file_states, reset_file_states
-from miniunicorn.agent.tools.registry import ToolRegistry
+from miniunicorn.agent.tools.registry import LazyToolRegistry, ToolRegistry
 from miniunicorn.agent.turn_orchestrator import (
     StateMixin,
     StateTraceEntry,
@@ -357,7 +357,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         self.commands = CommandRouter()
         register_builtin_commands(self.commands)
         self._commands = CommandApplicationService(bus=bus, router=self.commands)
-        self.tools = ToolRegistry()
+        self.tools: ToolRegistry = LazyToolRegistry(load_hook=self._register_default_tools)
         self._response = response or ResponseAssembler(bus=bus, tools=self.tools)
         self._dispatcher = dispatcher or MessageDispatcher(self, bus, commands=self._commands)
         self.channels_config = cfg.channels_config
@@ -559,7 +559,6 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         self._active_preset: str | None = None
         if cfg.model_preset:
             self.set_model_preset(cfg.model_preset, publish_update=False)
-        self._register_default_tools()
         self._runtime_vars: dict[str, Any] = {}
         self._current_iteration: int = 0
 

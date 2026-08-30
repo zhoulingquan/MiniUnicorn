@@ -1,6 +1,6 @@
 """Tool registry for dynamic tool management."""
 
-from typing import Any
+from typing import Any, Callable
 
 from miniunicorn.agent.tools.base import Tool
 
@@ -142,3 +142,50 @@ class ToolRegistry:
 
     def __contains__(self, name: str) -> bool:
         return name in self._tools
+
+
+class LazyToolRegistry(ToolRegistry):
+    """A :class:`ToolRegistry` that runs a load hook on first read.
+
+    ``register`` / ``unregister`` never trigger loading, so MCP tools can be
+    connected before built-ins are materialized; the first read performs the
+    load at most once. ``_loaded`` is set before the hook runs so a hook that
+    itself calls ``register`` / ``has`` does not recurse into loading.
+    """
+
+    def __init__(self, load_hook: Callable[[], None]) -> None:
+        super().__init__()
+        self._load_hook = load_hook
+        self._loaded = False
+
+    def _ensure_loaded(self) -> None:
+        if self._loaded:
+            return
+        self._loaded = True
+        self._load_hook()
+
+    def get(self, name: str) -> Tool | None:
+        self._ensure_loaded()
+        return super().get(name)
+
+    def has(self, name: str) -> bool:
+        self._ensure_loaded()
+        return super().has(name)
+
+    def get_definitions(self) -> list[dict[str, Any]]:
+        self._ensure_loaded()
+        return super().get_definitions()
+
+    def prepare_call(
+        self, name: str, params: dict[str, Any]
+    ) -> tuple[Tool | None, dict[str, Any], str | None]:
+        self._ensure_loaded()
+        return super().prepare_call(name, params)
+
+    @property
+    def tool_names(self) -> list[str]:
+        # ``_set_tool_context`` iterates the full tool set to propagate per-turn
+        # routing context and must observe loaded tools. Lazy loading is
+        # best-effort, but correctness of tool-context propagation is not.
+        self._ensure_loaded()
+        return list(self._tools.keys())

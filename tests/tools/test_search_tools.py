@@ -300,8 +300,11 @@ def test_agent_loop_registers_grep(tmp_path: Path) -> None:
         context_window_tokens=128_000,
     )
 
-    assert "find_files" in loop.tools.tool_names
-    assert "grep" in loop.tools.tool_names
+    # W1-1 lazy loading: tools are only materialized on the first read, so
+    # assert presence through a load-triggering lookup rather than assuming
+    # construction already registered them.
+    assert loop.tools.get("find_files") is not None
+    assert loop.tools.get("grep") is not None
 
 
 @pytest.mark.asyncio
