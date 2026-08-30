@@ -35,6 +35,7 @@ from miniunicorn.providers.factory import make_provider
 if TYPE_CHECKING:
     from miniunicorn.agent.hook import AgentHook
     from miniunicorn.agent.loop import AgentLoop
+    from miniunicorn.agent.subagent import SubagentManager
     from miniunicorn.config.schema import ModelPresetConfig, ToolsConfig
     from miniunicorn.cron.service import CronService
     from miniunicorn.session.manager import SessionManager
@@ -143,6 +144,10 @@ class AgentLoopBuilder:
 
     def with_session_manager(self, session_manager: SessionManager | None) -> AgentLoopBuilder:
         self._kwargs["session_manager"] = session_manager
+        return self
+
+    def with_subagent_manager(self, subagent_manager: SubagentManager | None) -> AgentLoopBuilder:
+        self._kwargs["subagent_manager"] = subagent_manager
         return self
 
     def with_mcp_servers(self, mcp_servers: dict | None) -> AgentLoopBuilder:

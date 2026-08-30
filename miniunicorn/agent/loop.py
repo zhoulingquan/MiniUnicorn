@@ -139,6 +139,7 @@ class AgentLoopConfig:
     restrict_to_workspace: bool = False
     high_risk_policy: str = "allow"
     session_manager: "SessionManager | None" = None
+    subagent_manager: "SubagentManager | None" = None
     mcp_servers: dict | None = None
     channels_config: "ChannelsConfig | None" = None
     timezone: str | None = None
@@ -504,21 +505,27 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         # shared by this loop, so tools resolve the active state via contextvars.
         self._file_state_store = FileStateStore()
         self.runner = AgentRunner(self.provider, provider_registry=self._provider_registry)
-        self.subagents = SubagentManager(
-            provider=self.provider,
-            workspace=workspace,
-            bus=bus,
-            model=self.model,
-            tools_config=_tc,
-            max_tool_result_chars=self.max_tool_result_chars,
-            restrict_to_workspace=cfg.restrict_to_workspace,
-            disabled_skills=cfg.disabled_skills,
-            max_iterations=self.max_iterations,
-            max_concurrent_subagents=cfg.max_concurrent_subagents,
-            llm_wall_timeout_for_session=lambda sk: runner_wall_llm_timeout_s(self.sessions, sk),
-            max_subagent_recursion_depth=cfg.max_subagent_recursion_depth,
-            turn_budget_factory=self._build_turn_budget,
-            high_risk_policy=self.high_risk_policy,
+        self.subagents = (
+            cfg.subagent_manager
+            if cfg.subagent_manager is not None
+            else SubagentManager(
+                provider=self.provider,
+                workspace=workspace,
+                bus=bus,
+                model=self.model,
+                tools_config=_tc,
+                max_tool_result_chars=self.max_tool_result_chars,
+                restrict_to_workspace=cfg.restrict_to_workspace,
+                disabled_skills=cfg.disabled_skills,
+                max_iterations=self.max_iterations,
+                max_concurrent_subagents=cfg.max_concurrent_subagents,
+                llm_wall_timeout_for_session=lambda sk: runner_wall_llm_timeout_s(
+                    self.sessions, sk
+                ),
+                max_subagent_recursion_depth=cfg.max_subagent_recursion_depth,
+                turn_budget_factory=self._build_turn_budget,
+                high_risk_policy=self.high_risk_policy,
+            )
         )
         # Declarative subagent registry (TRAE-style .md definitions in agents/).
         # Loaded once at startup; empty when no agents/ dir exists.
