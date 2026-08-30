@@ -46,6 +46,7 @@ class PlanningReflectionService:
         plan: Any,
         turn_id: str,
         stop_reason: str | None = None,
+        origin: str = "planner",
     ) -> Any:
         """Serialize *plan* into a PlanSnapshot and emit it as a checkpoint.
 
@@ -55,7 +56,7 @@ class PlanningReflectionService:
         """
         from miniunicorn.agent.plan_snapshot import PlanSnapshot
 
-        snapshot = PlanSnapshot.from_plan(plan, turn_id, stop_reason)
+        snapshot = PlanSnapshot.from_plan(plan, turn_id, stop_reason, origin=origin)
         await self._runner.emit_checkpoint(
             spec,
             {

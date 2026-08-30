@@ -757,6 +757,13 @@ class AgentRunner:
                 await hook.after_iteration(context)
                 # T5: Reset FAST stall counter on tool execution.
                 state.consecutive_nontool_iterations = 0
+                # A tool batch may have activated a plan through ``activate_plan``;
+                # adopt it now so the next iteration's step guidance drives it.
+                from miniunicorn.agent.tools.activate_plan import take_pending_plan
+
+                activated = take_pending_plan()
+                if activated is not None:
+                    plan = await self._adopt_activated_plan(spec, state, plan, activated)
                 continue
 
             if response.has_tool_calls:
@@ -1251,15 +1258,57 @@ class AgentRunner:
         plan: Any,
         turn_id: str,
         stop_reason: str | None = None,
+        origin: str = "planner",
     ) -> Any:
         """Serialize *plan* and emit a ``plan_snapshot`` checkpoint payload.
 
         Owned by :class:`PlanningReflectionService` (P1-T2); thin delegation
         keeping the AgentRunner surface unchanged.
         """
-        return await self.planning.emit_plan_snapshot(spec, plan, turn_id, stop_reason=stop_reason)
+        return await self.planning.emit_plan_snapshot(
+            spec, plan, turn_id, stop_reason=stop_reason, origin=origin
+        )
 
     _emit_plan_snapshot = emit_plan_snapshot  # compat alias
+
+    async def _adopt_activated_plan(
+        self,
+        spec: AgentRunSpec,
+        state: _TurnState,
+        current_plan: Any,
+        activated: Any,
+    ) -> Any:
+        """Adopt a plan activated via the ``activate_plan`` tool.
+
+        The tool only parsed/validated the plan and stashed it on a contextvar;
+        this method does the real mounting on the turn state: it guards replan
+        budget, clears stale tool observations, ensures a progress tracker, and
+        emits an ``origin="activated"`` snapshot. Returns the plan the turn
+        should now drive.
+        """
+        if current_plan is not None:
+            if not current_plan.can_replan:
+                logger.warning(
+                    "activate_plan: replan budget exhausted on the active plan; "
+                    "activation rejected, keeping the existing plan"
+                )
+                return current_plan
+            activated.replan_count = current_plan.replan_count + 1
+            activated.max_replans = current_plan.max_replans
+        else:
+            activated.replan_count = 0
+
+        state.tool_observations.clear()
+
+        if state.progress_tracker is None:
+            from miniunicorn.agent.progress_policy import ProgressPolicy, ProgressTracker
+
+            state.progress_tracker = ProgressTracker(ProgressPolicy())
+
+        state.plan_snapshot = await self._emit_plan_snapshot(
+            spec, activated, state.turn_id, origin="activated"
+        )
+        return activated
 
     async def finalize_max_iterations(
         self,
