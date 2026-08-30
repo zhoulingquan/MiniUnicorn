@@ -24,6 +24,10 @@ def build_agent_application(config, bus=None, cron_service=None, **overrides: An
     supplied, then delegates to ``AgentLoop.from_config`` (parameter semantics
     unchanged).  Extra keyword arguments are forwarded to ``from_config``
     verbatim (e.g. ``session_manager=...`` for the API server entry point).
+
+    The CronService here is only constructed and injected; its lifecycle is the
+    caller's responsibility. Only the gateway composition root starts it (and
+    stops it); the ``cli agent`` / ``cli serve`` / SDK paths do not.
     """
     # Late imports: bus/cron are patched by tests on their own modules and
     # ``commands`` must be resolved at call time to honour test patches on
