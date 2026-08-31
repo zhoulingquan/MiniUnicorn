@@ -25,7 +25,6 @@ from miniunicorn.security.workspace_access import (
     WorkspaceScope,
     bind_workspace_scope,
     reset_workspace_scope,
-    workspace_sandbox_status,
 )
 from miniunicorn.utils.prompt_templates import render_template
 
@@ -256,10 +255,6 @@ class SubagentManager:
             config=cfg,
             workspace=str(root.resolve()),
             file_state_store=FileStates(),
-            workspace_sandbox=workspace_sandbox_status(
-                restrict_to_workspace=cfg.restrict_to_workspace,
-                workspace=root,
-            ),
         )
         ToolLoader().load(ctx, registry, scope="subagent")
         return registry

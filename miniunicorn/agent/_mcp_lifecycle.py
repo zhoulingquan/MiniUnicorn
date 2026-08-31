@@ -43,8 +43,6 @@ class McpLifecycleMixin:
             cron_service=self.cron_service,
             sessions=self.sessions,
             provider_snapshot_loader=self._provider_snapshot_loader,
-            timezone="UTC",
-            workspace_sandbox=self.workspace_scopes.sandbox_status,
             subagent_registry=self.subagent_registry,
         )
         loader = ToolLoader()

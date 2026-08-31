@@ -55,6 +55,4 @@ class ToolContext:
     sessions: Any | None = None
     file_state_store: Any = field(default=None)
     provider_snapshot_loader: Callable[[], Any] | None = None
-    timezone: str = "UTC"
-    workspace_sandbox: Any | None = None
     subagent_registry: Any = None  # SubagentRegistry for delegate tool (None = no agents/ dir)

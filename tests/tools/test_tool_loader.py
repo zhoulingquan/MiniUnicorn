@@ -63,7 +63,7 @@ def test_tool_context_has_required_fields():
         "cron_service",
         "file_state_store",
         "provider_snapshot_loader",
-        "timezone",
+        "subagent_registry",
     }
     assert required <= field_names
 
@@ -74,7 +74,6 @@ def test_tool_context_defaults():
     assert ctx.subagent_manager is None
     assert ctx.cron_service is None
     assert ctx.provider_snapshot_loader is None
-    assert ctx.timezone == "UTC"
 
 
 # --- ToolLoader tests ---
@@ -144,7 +143,6 @@ def test_loader_registers_exec_with_real_tools_config(tmp_path):
             max_concurrent_subagents=4,
         ),
         cron_service=None,
-        timezone="UTC",
     )
     registry = ToolRegistry()
     registered = ToolLoader().load(ctx, registry)
@@ -241,7 +239,6 @@ def test_cron_tool_create():
         config=mock_config,
         workspace="/tmp",
         cron_service=mock_service,
-        timezone="Asia/Shanghai",
     )
     tool = CronTool.create(ctx)
     assert isinstance(tool, CronTool)
@@ -472,7 +469,6 @@ def test_loader_registers_same_tools_as_old_hardcoded():
         bus=MagicMock(),
         subagent_manager=MagicMock(),
         cron_service=MagicMock(),
-        timezone="UTC",
     )
     registry = ToolRegistry()
     loader = ToolLoader()
