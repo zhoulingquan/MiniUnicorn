@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import time
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
@@ -58,6 +59,7 @@ from miniunicorn.config.schema import AgentDefaults, ModelPresetConfig, Structur
 from miniunicorn.providers.base import LLMProvider
 from miniunicorn.providers.factory import ProviderSnapshot
 from miniunicorn.security.workspace_access import (
+    WorkspaceScope,
     WorkspaceScopeResolver,
     bind_workspace_scope,
     reset_workspace_scope,
@@ -1074,6 +1076,212 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         budget = self.context_window_tokens - max(1, reserved_output) - 1024
         return budget if budget > 0 else max(128, self.context_window_tokens // 2)
 
+    def _build_turn_hook(
+        self,
+        on_progress,
+        on_stream,
+        on_stream_end,
+        on_retry_wait,
+        channel: str,
+        chat_id: str,
+        message_id: str | None,
+        metadata: dict[str, Any] | None,
+        session_key: str | None,
+        turn_hooks: list[AgentHook] | None,
+    ) -> AgentHook:
+        """单轮 hook 装配。turn_hooks 在 _extra_hooks 之后(per-run 优先)。"""
+        loop_hook = AgentProgressHook(
+            on_progress=on_progress,
+            on_stream=on_stream,
+            on_stream_end=on_stream_end,
+            channel=channel,
+            chat_id=chat_id,
+            message_id=message_id,
+            metadata=metadata,
+            session_key=session_key,
+            tool_hint_max_length=self.tool_hint_max_length,
+            set_tool_context=self._set_tool_context,
+            on_iteration=lambda iteration: setattr(self, "_current_iteration", iteration),
+        )
+        # Per-turn hooks take precedence over loop-level _extra_hooks so the
+        # SDK can pass distinct hooks for concurrent runs without serializing
+        # through shared mutable state.
+        extra = list(self._extra_hooks) + list(turn_hooks or [])
+        hook: AgentHook = CompositeHook([loop_hook] + extra) if extra else loop_hook
+        return hook
+
+    async def _drain_pending_messages(
+        self,
+        pending_queue: asyncio.Queue | None,
+        session: Session | None,
+        *,
+        limit: int = _MAX_INJECTIONS_PER_TURN,
+    ) -> list[dict[str, Any]]:
+        """Drain follow-up messages from the pending queue.
+
+        When no messages are immediately available but sub-agents
+        spawned in this dispatch are still running, blocks until at
+        least one result arrives (or timeout).  This keeps the runner
+        loop alive so subsequent sub-agent completions are consumed
+        in-order rather than dispatched separately.
+        """
+        if pending_queue is None:
+            return []
+
+        def _to_user_message(pending_msg: InboundMessage) -> dict[str, Any]:
+            content = pending_msg.content
+            media = pending_msg.media if pending_msg.media else None
+            if media:
+                content, media = self._prepare_message_media(content, media)
+                media = media or None
+            user_content = self.context._build_user_content(content, media)
+            return {"role": "user", "content": user_content}
+
+        items: list[dict[str, Any]] = []
+        while len(items) < limit:
+            try:
+                items.append(_to_user_message(pending_queue.get_nowait()))
+            except asyncio.QueueEmpty:
+                break
+
+        # Block if nothing drained but sub-agents spawned in this dispatch
+        # are still running.  Keeps the runner loop alive so subsequent
+        # completions are injected in-order rather than dispatched separately.
+        if (
+            not items
+            and session is not None
+            and self.subagents.get_running_count_by_session(session.key) > 0
+        ):
+            try:
+                msg = await asyncio.wait_for(pending_queue.get(), timeout=_SUBAGENT_DRAIN_WAIT_S)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Timeout waiting for sub-agent completion in session {}",
+                    session.key,
+                )
+                return items
+            items.append(_to_user_message(msg))
+            while len(items) < limit:
+                try:
+                    items.append(_to_user_message(pending_queue.get_nowait()))
+                except asyncio.QueueEmpty:
+                    break
+
+        return items
+
+    async def _emit_turn_checkpoint(self, session: Session | None, payload: dict[str, Any]) -> None:
+        if session is None:
+            return
+        self._set_runtime_checkpoint(session, payload)
+
+    def _resolve_override_runtime(
+        self, agent_override: SubagentDefinition | None
+    ) -> tuple[ToolRegistry, str]:
+        """agent_override 工具白名单与模型选择。返回 (tools, run_model)。"""
+        # Apply subagent takeover overrides: filter tools to the subagent's
+        # whitelist (if any) and select its model (falling back to self.model).
+        if agent_override is not None:
+            if agent_override.tools is not None:
+                tools = self._filter_tools_for_override(agent_override.tools)
+            else:
+                tools = self.tools
+            run_model = agent_override.model or self.model
+        else:
+            tools = self.tools
+            run_model = self.model
+        return tools, run_model
+
+    def _build_goal_continue(self, session: Session | None) -> str:
+        # Build continuation message that embeds the active goal objective so
+        # the LLM can see it even if earlier Runtime Context was truncated.
+        _goal_lines = goal_state_runtime_lines(session.metadata if session is not None else None)
+        _goal_continue = (
+            (
+                "You have an active sustained goal:\n\n"
+                + "\n".join(_goal_lines)
+                + "\n\nPlease continue working toward the objective using your tools, "
+                "or call complete_goal if the work is truly finished."
+            )
+            if _goal_lines
+            else SUSTAINED_GOAL_CONTINUE_PROMPT
+        )
+        return _goal_continue
+
+    def _build_agent_run_spec(
+        self,
+        initial_messages: list[dict],
+        tools: ToolRegistry,
+        run_model: str,
+        hook: AgentHook,
+        session: Session | None,
+        session_key: str | None,
+        user_key: str | None,
+        effective_scope: WorkspaceScope,
+        goal_continue: str,
+        on_progress,
+        on_stream,
+        on_retry_wait,
+        checkpoint_callback,
+        injection_callback,
+    ) -> AgentRunSpec:
+        return AgentRunSpec(
+            initial_messages=initial_messages,
+            tools=tools,
+            model=run_model,
+            max_iterations=self.max_iterations,
+            max_tool_result_chars=self.max_tool_result_chars,
+            hook=hook,
+            error_message="Sorry, I encountered an error calling the AI model.",
+            concurrent_tools=True,
+            workspace=effective_scope.project_path,
+            session_key=session.key if session else session_key,
+            user_key=user_key,
+            context_window_tokens=self.context_window_tokens,
+            context_block_limit=self.context_block_limit,
+            provider_retry_mode=self.provider_retry_mode,
+            progress_callback=on_progress,
+            stream_progress_deltas=on_stream is not None,
+            retry_wait_callback=on_retry_wait,
+            checkpoint_callback=checkpoint_callback,
+            high_risk_policy=self.high_risk_policy,
+            injection_callback=injection_callback,
+            # Sustained goals may legitimately exceed MINIUNICORN_LLM_TIMEOUT_S; idle stall
+            # is still capped by MINIUNICORN_STREAM_IDLE_TIMEOUT_S in streaming providers.
+            llm_timeout_s=runner_wall_llm_timeout_s(
+                self.sessions,
+                session.key if session is not None else session_key,
+                metadata=(session.metadata if session is not None else None),
+            ),
+            goal_active_predicate=lambda: (
+                sustained_goal_active(session.metadata) if session is not None else False
+            ),
+            goal_continue_message=goal_continue,
+            # Plan-and-Execute / Reflection / TurnBudget (opt-in via config).
+            use_planner=self.use_planner,
+            planner_model=self.planner_model,
+            planner_max_replans=self.planner_max_replans,
+            planning_policy=self.planning_policy,
+            enable_reflection=self.enable_reflection,
+            reflection_interval=self.reflection_interval,
+            turn_budget=self._build_turn_budget(),
+        )
+
+    async def _record_turn_outcome(self, result, on_stream, on_stream_end) -> None:
+        self._response.record_last_usage(result)
+        telemetry = turn_telemetry.current()
+        if telemetry is not None:
+            telemetry.usage = dict(result.usage or {})
+            telemetry.last_call_usage = dict(result.last_call_usage or {})
+        if result.stop_reason == "max_iterations":
+            logger.warning("Max iterations ({}) reached", self.max_iterations)
+            # Push final content through stream so streaming channels (e.g. Feishu)
+            # update the card instead of leaving it empty.
+            if on_stream and on_stream_end:
+                await on_stream(result.final_content or "")
+                await on_stream_end(resuming=False)
+        elif result.stop_reason == "error":
+            logger.error("LLM returned error: {}", (result.final_content or "")[:200])
+
     async def _run_agent_loop(
         self,
         initial_messages: list[dict],
@@ -1108,84 +1316,21 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         """
         self._sync_subagent_runtime_limits()
 
-        loop_hook = AgentProgressHook(
-            on_progress=on_progress,
-            on_stream=on_stream,
-            on_stream_end=on_stream_end,
+        hook = self._build_turn_hook(
+            on_progress,
+            on_stream,
+            on_stream_end,
+            on_retry_wait,
             channel=channel,
             chat_id=chat_id,
             message_id=message_id,
             metadata=metadata,
             session_key=session_key,
-            tool_hint_max_length=self.tool_hint_max_length,
-            set_tool_context=self._set_tool_context,
-            on_iteration=lambda iteration: setattr(self, "_current_iteration", iteration),
+            turn_hooks=turn_hooks,
         )
-        # Per-turn hooks take precedence over loop-level _extra_hooks so the
-        # SDK can pass distinct hooks for concurrent runs without serializing
-        # through shared mutable state.
-        extra = list(self._extra_hooks) + list(turn_hooks or [])
-        hook: AgentHook = CompositeHook([loop_hook] + extra) if extra else loop_hook
 
-        async def _checkpoint(payload: dict[str, Any]) -> None:
-            if session is None:
-                return
-            self._set_runtime_checkpoint(session, payload)
-
-        async def _drain_pending(*, limit: int = _MAX_INJECTIONS_PER_TURN) -> list[dict[str, Any]]:
-            """Drain follow-up messages from the pending queue.
-
-            When no messages are immediately available but sub-agents
-            spawned in this dispatch are still running, blocks until at
-            least one result arrives (or timeout).  This keeps the runner
-            loop alive so subsequent sub-agent completions are consumed
-            in-order rather than dispatched separately.
-            """
-            if pending_queue is None:
-                return []
-
-            def _to_user_message(pending_msg: InboundMessage) -> dict[str, Any]:
-                content = pending_msg.content
-                media = pending_msg.media if pending_msg.media else None
-                if media:
-                    content, media = self._prepare_message_media(content, media)
-                    media = media or None
-                user_content = self.context._build_user_content(content, media)
-                return {"role": "user", "content": user_content}
-
-            items: list[dict[str, Any]] = []
-            while len(items) < limit:
-                try:
-                    items.append(_to_user_message(pending_queue.get_nowait()))
-                except asyncio.QueueEmpty:
-                    break
-
-            # Block if nothing drained but sub-agents spawned in this dispatch
-            # are still running.  Keeps the runner loop alive so subsequent
-            # completions are injected in-order rather than dispatched separately.
-            if (
-                not items
-                and session is not None
-                and self.subagents.get_running_count_by_session(session.key) > 0
-            ):
-                try:
-                    msg = await asyncio.wait_for(
-                        pending_queue.get(), timeout=_SUBAGENT_DRAIN_WAIT_S
-                    )
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        "Timeout waiting for sub-agent completion in session {}",
-                        session.key,
-                    )
-                    return items
-                items.append(_to_user_message(msg))
-                while len(items) < limit:
-                    try:
-                        items.append(_to_user_message(pending_queue.get_nowait()))
-                    except asyncio.QueueEmpty:
-                        break
-
-            return items
+        injection_callback = functools.partial(self._drain_pending_messages, pending_queue, session)
+        checkpoint_callback = functools.partial(self._emit_turn_checkpoint, session)
 
         active_session_key = session.key if session else session_key
         effective_scope = self.workspace_scopes.for_turn(
@@ -1211,72 +1356,25 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         if telemetry is None:
             telemetry = turn_telemetry.TurnTelemetry()
             telemetry_token = turn_telemetry.bind(telemetry)
-        # Apply subagent takeover overrides: filter tools to the subagent's
-        # whitelist (if any) and select its model (falling back to self.model).
-        if agent_override is not None:
-            if agent_override.tools is not None:
-                tools = self._filter_tools_for_override(agent_override.tools)
-            else:
-                tools = self.tools
-            run_model = agent_override.model or self.model
-        else:
-            tools = self.tools
-            run_model = self.model
-        # Build continuation message that embeds the active goal objective so
-        # the LLM can see it even if earlier Runtime Context was truncated.
-        _goal_lines = goal_state_runtime_lines(session.metadata if session is not None else None)
-        _goal_continue = (
-            (
-                "You have an active sustained goal:\n\n"
-                + "\n".join(_goal_lines)
-                + "\n\nPlease continue working toward the objective using your tools, "
-                "or call complete_goal if the work is truly finished."
-            )
-            if _goal_lines
-            else SUSTAINED_GOAL_CONTINUE_PROMPT
-        )
+        tools, run_model = self._resolve_override_runtime(agent_override)
+        goal_continue = self._build_goal_continue(session)
         try:
             result = await self.runner.run(
-                AgentRunSpec(
-                    initial_messages=initial_messages,
-                    tools=tools,
-                    model=run_model,
-                    max_iterations=self.max_iterations,
-                    max_tool_result_chars=self.max_tool_result_chars,
-                    hook=hook,
-                    error_message="Sorry, I encountered an error calling the AI model.",
-                    concurrent_tools=True,
-                    workspace=effective_scope.project_path,
-                    session_key=session.key if session else session_key,
-                    user_key=user_key,
-                    context_window_tokens=self.context_window_tokens,
-                    context_block_limit=self.context_block_limit,
-                    provider_retry_mode=self.provider_retry_mode,
-                    progress_callback=on_progress,
-                    stream_progress_deltas=on_stream is not None,
-                    retry_wait_callback=on_retry_wait,
-                    checkpoint_callback=_checkpoint,
-                    high_risk_policy=self.high_risk_policy,
-                    injection_callback=_drain_pending,
-                    # Sustained goals may legitimately exceed MINIUNICORN_LLM_TIMEOUT_S; idle stall
-                    # is still capped by MINIUNICORN_STREAM_IDLE_TIMEOUT_S in streaming providers.
-                    llm_timeout_s=runner_wall_llm_timeout_s(
-                        self.sessions,
-                        session.key if session is not None else session_key,
-                        metadata=(session.metadata if session is not None else None),
-                    ),
-                    goal_active_predicate=lambda: (
-                        sustained_goal_active(session.metadata) if session is not None else False
-                    ),
-                    goal_continue_message=_goal_continue,
-                    # Plan-and-Execute / Reflection / TurnBudget (opt-in via config).
-                    use_planner=self.use_planner,
-                    planner_model=self.planner_model,
-                    planner_max_replans=self.planner_max_replans,
-                    planning_policy=self.planning_policy,
-                    enable_reflection=self.enable_reflection,
-                    reflection_interval=self.reflection_interval,
-                    turn_budget=self._build_turn_budget(),
+                self._build_agent_run_spec(
+                    initial_messages,
+                    tools,
+                    run_model,
+                    hook,
+                    session,
+                    session_key,
+                    user_key,
+                    effective_scope,
+                    goal_continue,
+                    on_progress,
+                    on_stream,
+                    on_retry_wait,
+                    checkpoint_callback,
+                    injection_callback,
                 )
             )
         finally:
@@ -1285,20 +1383,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             reset_file_states(file_state_token)
             if telemetry_token is not None:
                 turn_telemetry.reset(telemetry_token)
-        self._response.record_last_usage(result)
-        telemetry = turn_telemetry.current()
-        if telemetry is not None:
-            telemetry.usage = dict(result.usage or {})
-            telemetry.last_call_usage = dict(result.last_call_usage or {})
-        if result.stop_reason == "max_iterations":
-            logger.warning("Max iterations ({}) reached", self.max_iterations)
-            # Push final content through stream so streaming channels (e.g. Feishu)
-            # update the card instead of leaving it empty.
-            if on_stream and on_stream_end:
-                await on_stream(result.final_content or "")
-                await on_stream_end(resuming=False)
-        elif result.stop_reason == "error":
-            logger.error("LLM returned error: {}", (result.final_content or "")[:200])
+        await self._record_turn_outcome(result, on_stream, on_stream_end)
         return (
             result.final_content,
             result.tools_used,
