@@ -1,0 +1,68 @@
+# MiniUnicorn implementation task - Batch W3-1 (AgentLoop.__init__ assembly phase split, pure-move refactor)
+
+## Role and context
+
+You are a senior Python implementation engineer on the MiniUnicorn project. The project's purpose: a business-intelligence agent for long-term use by a small enterprise (single user), with core demands of efficiency, leanness, and maintainability. This task is the FIRST batch of a two-batch loop-slimming plan (W3-2 follows later, do NOT start it): implement independently, verify independently, commit independently, then STOP.
+
+Working directory: D:\MyProject\MiniUnicorn
+
+Prerequisite: tag `baseline-pre-w3` must exist before you change anything. If it is missing, create it first on the current untouched HEAD: `git tag -a baseline-pre-w3 -m "W2 收官基线,W3 瘦身系列起点"`. If the working tree is NOT clean (besides untracked analysis/temp dirs), stop and report instead.
+
+## Step 1: required reading (in order, before any implementation)
+
+1. `docs/architecture/w3-loop-slim-plan/00-overview.md` - plan overview and global constraints (focus on section 2 verdict table and section 4 global constraints)
+2. `docs/architecture/w3-loop-slim-plan/01-w3-1-init-phase-split.md` - THE batch task book (sole implementation basis)
+
+The task book is self-contained: current-state anchors, change plan, test requirements, do-not-touch list, acceptance checklist. Your entire implementation scope is defined by the task book.
+
+## Implementation discipline (takes priority over any efficiency concern)
+
+### Four situations require immediate stop-and-report (never guess and continue)
+
+1. Any "current-state anchor" in the task book does not match the actual code (symbol not found, line numbers drifted too far, structure mismatch)
+2. Completing the task would require touching anything in the "do-not-touch list"
+3. Tests cannot pass and the cause is unclear - NEVER weaken assertions or delete/modify existing tests to make tests pass
+4. Suspicious behavior not mentioned in the task book (suspected bug, suspected security hole) - record it in the report only, do NOT fix it
+
+### Global red lines (full version in 00-overview.md section 4)
+
+1. Semantics of W0/W1/W2 protected achievements must not be touched: trusted evidence pipeline (ToolObservation/receipts/effective_evidence_level/verifier fuse), three-state approval gate, tool_blocked and runtime_checkpoint chains, LazyToolRegistry loading semantics, McpRuntime/SubagentManager composition-root ownership (the W1-2 injection-fallback dual path), activate_plan activator semantics, and the W2-2 main-loop phase-split shape of `AgentRunner._run_with_ledger` (runner.py gets ZERO changes in this batch)
+2. **THIS BATCH IS A PURE-MOVE REFACTOR of `AgentLoop.__init__` into eight ordered `_init_*` phase methods**: zero behavior change. Move statements VERBATIM in the ORIGINAL ORDER, each statement together with its leading comment. Do NOT change any fallback expression (`x or Y(...)`), do NOT "improve" anything. ZERO existing test assertions may be modified - if any existing test fails after the refactor, you moved something wrong: roll back and re-move it correctly
+3. **Order-sensitivity is the core invariant** (task book section 1.3): `self.provider` / `self.model` / `self.context_window_tokens` are property setters that route into `_provider_registry` - the registry must be created before those assignments; `self.__dict__["_session_turn"] = ...` bypasses the property on purpose - keep it character-for-character, never rewrite it to a property assignment; `AgentDefaults()` is constructed exactly ONCE in `__init__` and passed as a parameter (never re-constructed inside phase methods)
+4. Use symbols (class names / function names / list names) for locating; line numbers in the task book are only reference values from when it was written
+5. No new abstractions: no new classes, no new config options, no new events. The eight `_init_*` methods are plain private methods on AgentLoop that assign `self.*` attributes and return None
+6. No out-of-scope work: no opportunistic refactoring, no fixing out-of-scope problems, no comments explaining "what changed"
+
+### Git discipline
+
+- One batch, one commit; NEVER `git add .`, only add explicit paths
+- Never include `.tmp-*`, temp reports, or unrelated files
+- Commit message: `refactor(w3-1): <one-line topic>`
+
+## Execution flow
+
+1. Read both files -> check each "current-state anchor" in the task book against the actual code, record the conclusion
+2. If consistent -> implement strictly per the task book's "changes" section: rewrite `__init__` into guard + cfg resolution + eight ordered phase-method calls (2.1), then move each section A-H verbatim into its phase method (2.2/2.3), touching nothing listed in 2.4
+3. Implement ALL new tests in the task book's "test requirements" section (not one fewer): structural line-count assertion, construction smoke incl. property-setter routing, ordered phase-call assertion, injection smoke
+4. Verification gate (all must pass before commit is allowed) - MUST use the project venv Python 3.12:
+   - `.venv\Scripts\python.exe -m pytest tests/ -q` -> 0 failed, passed >= 4095
+   - `.venv\Scripts\python.exe -m ruff check miniunicorn/` -> zero output
+   - `.venv\Scripts\python.exe -m ruff format --check miniunicorn/` -> zero output
+   - WARNING: do not use the system default python (3.10, missing typing.Self, causes 14 ImportErrors at collection - that is an environment problem, not a code problem)
+   - The full pytest run takes about 8-13 minutes. Run it in the background with output redirected to a file under $env:TEMP, then poll; do NOT give up on the full run
+5. `git add` explicit paths (expected: `miniunicorn/agent/loop.py` + the new test file), then commit
+6. Output the batch report (format below)
+7. STOP after completion: do not start W3-2 or anything else, end without waiting for further questions
+
+If you cannot finish everything in one run: clearly report how far you got; if the verification gate has not passed, do not commit; do not leave an unclear half-finished state (always roll back half-finished work with `git checkout -- <files>` before reporting).
+
+## Batch report format (output last)
+
+## Batch report: W3-1
+1. Anchor check: all consistent / deviation on item N: <explanation>
+2. Changed files: <list each>
+3. New tests: <file names + case count>
+4. Verification gate: pytest <N passed / 0 failed>; ruff <zero warnings>
+5. Deviations from the task book: listed one by one / none
+6. Acceptance checklist: <check each item in the task book's final section, explain any not met>
+7. Incidental findings (recorded only, not acted on): <problem list / none>
