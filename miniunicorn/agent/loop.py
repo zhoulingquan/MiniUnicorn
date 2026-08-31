@@ -356,6 +356,23 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             )
         _tc = cfg.tools_config or ToolsConfig()
         defaults = AgentDefaults()
+        self._init_command_layer(bus, dispatcher, response, cfg)
+        self._init_provider_layer(cfg, workspace)
+        self._init_execution_limits(cfg, defaults)
+        self._init_policy_and_workspace(cfg, workspace, _tc)
+        self._init_session_layer(cfg, workspace, session_turn, _tc)
+        self._init_subagent_layer(cfg, workspace, bus, _tc)
+        self._init_resource_layer(cfg, workspace, resources, defaults)
+        self._init_turn_orchestrator(turn_orchestrator)
+
+    def _init_command_layer(
+        self,
+        bus: MessageBus,
+        dispatcher: MessageDispatcher | None,
+        response: ResponseAssembler | None,
+        cfg: AgentLoopConfig,
+    ) -> None:
+        """消息/命令/工具注册表装配。A 区段。"""
         self.bus = bus
         self.commands = CommandRouter()
         register_builtin_commands(self.commands)
@@ -364,6 +381,9 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         self._response = response or ResponseAssembler(bus=bus, tools=self.tools)
         self._dispatcher = dispatcher or MessageDispatcher(self, bus, commands=self._commands)
         self.channels_config = cfg.channels_config
+
+    def _init_provider_layer(self, cfg: AgentLoopConfig, workspace: Path) -> None:
+        """Provider registry 与模型标识装配。B 区段(含 workspace 归属)。"""
         # ProviderRegistry: single owner of the runtime provider/model/context
         # window triple. The loop's ``provider`` / ``model`` /
         # ``context_window_tokens`` properties and the runner delegate to it,
@@ -384,6 +404,9 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         )
         self.workspace = workspace
         self.model = cfg.model or self.provider.get_default_model()
+
+    def _init_execution_limits(self, cfg: AgentLoopConfig, defaults: AgentDefaults) -> None:
+        """迭代/上下文窗口/工具结果预算派生。C 区段。"""
         # T1: Explicit max_iterations wins; otherwise select tier by planning mode
         if cfg.max_iterations is not None:
             self.max_iterations = cfg.max_iterations
@@ -449,6 +472,11 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
             if cfg.tool_hint_max_length is not None
             else defaults.tool_hint_max_length
         )
+
+    def _init_policy_and_workspace(
+        self, cfg: AgentLoopConfig, workspace: Path, _tc: "ToolsConfig"
+    ) -> None:
+        """规划策略、审批策略与工作区解析器装配。D 区段。"""
         # Execution policies are propagated through the bundle for both
         # from_config() and legacy direct AgentLoop(...) construction.
         # PlanningPolicy (P1): an explicitly provided policy wins; otherwise
@@ -484,6 +512,14 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         self._last_usage: dict[str, int] = {}
         self._extra_hooks: list[AgentHook] = cfg.hooks or []
 
+    def _init_session_layer(
+        self,
+        cfg: AgentLoopConfig,
+        workspace: Path,
+        session_turn: SessionTurnService | None,
+        _tc: "ToolsConfig",
+    ) -> None:
+        """上下文构建器、会话存储与单轮服务装配。E 区段。"""
         self.context = ContextBuilder(
             workspace,
             timezone=cfg.timezone,
@@ -507,6 +543,11 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         # shared by this loop, so tools resolve the active state via contextvars.
         self._file_state_store = FileStateStore()
         self.runner = AgentRunner(self.provider, provider_registry=self._provider_registry)
+
+    def _init_subagent_layer(
+        self, cfg: AgentLoopConfig, workspace: Path, bus: MessageBus, _tc: "ToolsConfig"
+    ) -> None:
+        """Subagent/注册表/MCP runtime(注入-回退双路径)。F 区段。"""
         self.subagents = (
             cfg.subagent_manager
             if cfg.subagent_manager is not None
@@ -537,6 +578,15 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         self._unified_session = cfg.unified_session
         self._max_messages = cfg.max_messages if cfg.max_messages > 0 else 120
         self._mcp_runtime = cfg.mcp_runtime or McpRuntime(cfg.mcp_servers or {})
+
+    def _init_resource_layer(
+        self,
+        cfg: AgentLoopConfig,
+        workspace: Path,
+        resources: RuntimeResourceRegistry | None,
+        defaults: AgentDefaults,
+    ) -> None:
+        """RuntimeResourceRegistry(注入-回退)与 per-workspace 别名。G 区段。"""
         # Consolidator / AutoCompact / Dream / DreamIdleTrigger and the
         # per-workspace helper caches are owned by ``RuntimeResourceRegistry``;
         # the loop exposes them through read-only delegating properties (below)
@@ -568,6 +618,8 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         self._runtime_vars: dict[str, Any] = {}
         self._current_iteration: int = 0
 
+    def _init_turn_orchestrator(self, turn_orchestrator: TurnOrchestrator | None) -> None:
+        """TurnOrchestrator(注入-回退)与 TurnDeps 晚绑定依赖。H 区段。"""
         # Turn state machine: handlers are provided by the orchestrator; the
         # callable deps are late-bound so test monkeypatches on the loop's
         # methods keep taking effect after construction.
