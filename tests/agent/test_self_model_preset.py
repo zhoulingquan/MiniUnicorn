@@ -239,16 +239,13 @@ def test_self_tool_inspect_shows_model_preset(tmp_path) -> None:
     assert "model_preset: 'fast'" in output
 
 
-def test_self_tool_set_model_preset_via_modify(tmp_path) -> None:
-    presets = {
-        "fast": ModelPresetConfig(model="deepseek/deepseek-chat"),
-    }
-    loop = _make_loop(tmp_path, presets=presets)
+def test_self_tool_set_model_preset_rejected_by_whitelist(tmp_path) -> None:
+    """W2-1 whitelist: model_preset can no longer be replaced via `my set`."""
+    loop = _make_loop(tmp_path)
     tool = MyTool(runtime_state=loop, modify_allowed=True)
     result = tool._modify("model_preset", "fast")
-    assert "Error" not in result
-    assert loop.model_preset == "fast"
-    assert loop.model == "deepseek/deepseek-chat"
+    assert "Error" in result
+    assert loop.model_preset is None
 
 
 def test_self_tool_set_model_clears_active_preset(tmp_path) -> None:

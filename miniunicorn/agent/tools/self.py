@@ -57,6 +57,32 @@ class MyTool(Tool, ContextAware):
     def enabled(cls, ctx: Any) -> bool:
         return ctx.config.my.enable
 
+    # Whitelist gate: check is only allowed on these top-level roots; set is
+    # only allowed on the RESTRICTED keys plus the scratchpad (_runtime_vars).
+    # Everything not listed here is rejected; BLOCKED / READ_ONLY /
+    # _DENIED_ATTRS / _SENSITIVE_NAMES stay as defense in depth.
+    INSPECTABLE = frozenset(
+        {
+            "model",
+            "model_preset",
+            "max_iterations",
+            "context_window_tokens",
+            "tool_names",
+            "workspace",
+            "provider_retry_mode",
+            "max_tool_result_chars",
+            "_last_usage",
+            "exec_config",
+            "workspace_sandbox",
+            "subagents",
+            "_current_iteration",
+            "current_iteration",
+            "scratchpad",
+        }
+    )
+
+    SETTABLE = frozenset({"model", "max_iterations", "context_window_tokens"})
+
     BLOCKED = frozenset(
         {
             # Core infrastructure
@@ -187,7 +213,8 @@ class MyTool(Tool, ContextAware):
             "- check (no key): full config overview — start here.\n"
             "- check (key): drill into a value. Dot-paths allowed "
             "(e.g. '_last_usage.prompt_tokens', 'exec_config.sandbox').\n"
-            "- set (key, value): change config or store notes in your scratchpad. "
+            "- set (key, value): settable keys are 'model', 'max_iterations', "
+            "'context_window_tokens'; any other key stores a note in your scratchpad. "
             "Scratchpad keys persist across turns but not restarts.\n"
             "Key values: _current_iteration (current progress), "
             "max_iterations - _current_iteration = remaining iterations.\n"
@@ -391,12 +418,30 @@ class MyTool(Tool, ContextAware):
         top = key.split(".")[0]
         if top in self._DENIED_ATTRS or top.startswith("__"):
             return f"Error: '{top}' is not accessible"
+        if top not in self.INSPECTABLE:
+            # Whitelist front gate. Keep the scratchpad read-back fallbacks:
+            # they are the read channel for values stored via set.
+            if "." not in key and key in self._runtime_state._runtime_vars:
+                return self._format_value(self._runtime_state._runtime_vars[key], key)
+            if (
+                "." not in key
+                and top not in self.BLOCKED
+                and top not in self.READ_ONLY
+                and not _has_real_attr(self._runtime_state, top)
+            ):
+                return f"Error: '{top}' not found"
+            return f"Error: '{top}' is not accessible"
         obj, err = self._resolve_path(key)
         if err:
             # "scratchpad" alias for _runtime_vars
             if key == "scratchpad":
                 rv = self._runtime_state._runtime_vars
                 return self._format_value(rv, "scratchpad") if rv else "scratchpad is empty"
+            # Read-back for scratchpad values stored via `set scratchpad.<key>`
+            if key.startswith("scratchpad."):
+                name = key[len("scratchpad.") :]
+                if "." not in name and name in self._runtime_state._runtime_vars:
+                    return self._format_value(self._runtime_state._runtime_vars[name], name)
             # Fallback: check _runtime_vars for simple keys stored by modify
             if "." not in key and key in self._runtime_state._runtime_vars:
                 return self._format_value(self._runtime_state._runtime_vars[key], key)
@@ -442,6 +487,7 @@ class MyTool(Tool, ContextAware):
         if err := self._validate_key(key):
             return err
         top = key.split(".")[0]
+        # Defense-in-depth deny-lists (checked beneath the whitelist gate).
         if (
             top in self.BLOCKED
             or top in self._DENIED_ATTRS
@@ -454,24 +500,33 @@ class MyTool(Tool, ContextAware):
             self._audit("modify", f"READ_ONLY {key}")
             return f"Error: '{key}' is read-only and cannot be modified"
         if "." in key:
+            # Whitelist gate: dot-path writes are only allowed in the scratchpad
+            # namespace (scratchpad.<key>); every other dot-path targets host
+            # state and is rejected.
             parent_path, leaf = key.rsplit(".", 1)
+            if parent_path != "scratchpad":
+                self._audit("modify", f"WHITELIST-DENY {key}")
+                return (
+                    f"Error: '{key}' is not accessible (only scratchpad.<key> dot-paths can be set)"
+                )
             if leaf in self._DENIED_ATTRS or leaf.startswith("__"):
                 self._audit("modify", f"BLOCKED leaf '{leaf}'")
                 return f"Error: '{leaf}' is not accessible"
             if leaf.lower() in self._SENSITIVE_NAMES:
                 self._audit("modify", f"BLOCKED sensitive leaf '{leaf}'")
                 return f"Error: '{leaf}' is not accessible"
-            parent, err = self._resolve_path(parent_path)
-            if err:
-                return f"Error: {err}"
-            if isinstance(parent, dict):
-                parent[leaf] = value
-            else:
-                setattr(parent, leaf, value)
-            self._audit("modify", f"{key} = {value!r}")
-            return f"Set {key} = {value!r}"
-        if key in self.RESTRICTED:
+            return self._modify_free(leaf, value)
+        if key in self.RESTRICTED and key in self.SETTABLE:
             return self._modify_restricted(key, value)
+        # Whitelist gate: plain keys may only write scratchpad notes; real
+        # host attributes (e.g. _mcp_runtime, cron_service, model_preset,
+        # workspace) are off-limits.
+        if _has_real_attr(self._runtime_state, key):
+            self._audit("modify", f"WHITELIST-DENY {key}")
+            return (
+                f"Error: '{key}' is not accessible "
+                f"(settable: {', '.join(sorted(self.SETTABLE))}, plus scratchpad notes)"
+            )
         return self._modify_free(key, value)
 
     def _modify_restricted(self, key: str, value: Any) -> str:
@@ -502,25 +557,7 @@ class MyTool(Tool, ContextAware):
         return f"Set {key} = {value!r} (was {old!r})"
 
     def _modify_free(self, key: str, value: Any) -> str:
-        if _has_real_attr(self._runtime_state, key):
-            old = getattr(self._runtime_state, key)
-            if isinstance(old, (str, int, float, bool)):
-                old_t, new_t = type(old), type(value)
-                if old_t is float and new_t is int:
-                    pass  # int → float coercion allowed
-                elif old_t is not new_t:
-                    self._audit(
-                        "modify",
-                        f"REJECTED type mismatch {key}: expects {old_t.__name__}, got {new_t.__name__}",
-                    )
-                    return f"Error: '{key}' expects {old_t.__name__}, got {new_t.__name__}"
-            try:
-                setattr(self._runtime_state, key, value)
-            except (ValueError, KeyError) as e:
-                self._audit("modify", f"REJECTED {key}: {e}")
-                return f"Error: {e}"
-            self._audit("modify", f"{key}: {old!r} -> {value!r}")
-            return f"Set {key} = {value!r} (was {old!r})"
+        """Store a value in the scratchpad (_runtime_vars); never touches host attributes."""
         if callable(value):
             self._audit("modify", f"REJECTED callable {key}")
             return "Error: cannot store callable values"

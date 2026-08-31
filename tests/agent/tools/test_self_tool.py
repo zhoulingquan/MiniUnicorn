@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -174,11 +175,11 @@ class TestInspectPathNavigation:
             api_base: str = ""
 
         loop = _make_mock_loop()
-        loop.some_config = MagicMock()
-        loop.some_config.entry = ProviderConfig()
+        loop.exec_config = MagicMock()
+        loop.exec_config.entry = ProviderConfig()
         tool = _make_tool(loop)
 
-        result = await tool.execute(action="check", key="some_config.entry")
+        result = await tool.execute(action="check", key="exec_config.entry")
 
         assert "label='OpenAI'" in result
         assert "sk-test-secret" not in result
@@ -302,12 +303,12 @@ class TestModifyBlocked:
 
 class TestModifyFree:
     @pytest.mark.asyncio
-    async def test_modify_existing_attr_setattr(self):
-        """Modifying an existing loop attribute should use setattr."""
+    async def test_modify_existing_attr_rejected_by_whitelist(self):
+        """W2-1 whitelist: host attrs outside SETTABLE can no longer be set."""
         tool = _make_tool()
         result = await tool.execute(action="set", key="provider_retry_mode", value="persistent")
-        assert "Set provider_retry_mode" in result
-        assert tool._runtime_state.provider_retry_mode == "persistent"
+        assert "Error" in result
+        assert tool._runtime_state.provider_retry_mode == "standard"
 
     @pytest.mark.asyncio
     async def test_modify_new_key_stores_in_runtime_vars(self):
@@ -372,16 +373,15 @@ class TestModifyFree:
 
     @pytest.mark.asyncio
     async def test_modify_existing_attr_type_mismatch_rejected(self):
-        """Setting a string attr to int should be rejected."""
+        """W2-1 whitelist: existing host attrs are rejected outright on set."""
         tool = _make_tool()
         result = await tool.execute(action="set", key="provider_retry_mode", value=42)
         assert "Error" in result
-        assert "str" in result
         assert tool._runtime_state.provider_retry_mode == "standard"
 
     @pytest.mark.asyncio
     async def test_modify_existing_int_attr_wrong_type_rejected(self):
-        """Setting an int attr to string should be rejected."""
+        """W2-1 whitelist: existing int host attrs are rejected outright on set."""
         tool = _make_tool()
         result = await tool.execute(action="set", key="max_tool_result_chars", value="big")
         assert "Error" in result
@@ -467,11 +467,12 @@ class TestModifyOpen:
         assert "protected" in result
 
     @pytest.mark.asyncio
-    async def test_modify_workspace_allowed(self):
-        """workspace was READONLY in v1, now freely modifiable."""
+    async def test_modify_workspace_rejected_by_whitelist(self):
+        """W2-1 whitelist: workspace is inspect-only and cannot be replaced via set."""
         tool = _make_tool()
         result = await tool.execute(action="set", key="workspace", value="/new/path")
-        assert "Set workspace" in result
+        assert "Error" in result
+        assert tool._runtime_state.workspace == Path("/tmp/workspace")
 
     @pytest.mark.asyncio
     async def test_modify_mcp_servers_blocked(self):
@@ -1104,3 +1105,174 @@ class TestSetContext:
         tool.set_context(RequestContext(channel="feishu", chat_id="oc_abc123"))
         assert tool._channel == "feishu"
         assert tool._chat_id == "oc_abc123"
+
+
+# ---------------------------------------------------------------------------
+# W2-1 whitelist gate (deny-list → allow-list)
+# ---------------------------------------------------------------------------
+
+
+class _FakeLoop:
+    """Plain-object loop stand-in: no auto-generated attrs, so __dict__ is exact."""
+
+    def __init__(self) -> None:
+        self.model = "anthropic/claude-sonnet-4"
+        self.model_preset = None
+        self._active_preset = None
+        self.max_iterations = 40
+        self.context_window_tokens = 65_536
+        self.workspace = "/tmp/workspace"
+        self.provider_retry_mode = "standard"
+        self.max_tool_result_chars = 16_000
+        self._last_usage = {"prompt_tokens": 100, "completion_tokens": 50}
+        self.exec_config = SimpleNamespace(sandbox="none")
+        self.workspace_sandbox = "off"
+        self.subagents = None
+        self._current_iteration = 0
+        self._runtime_vars: dict = {}
+        self._mcp_runtime = object()
+        self.cron_service = object()
+        self.workspace_scopes = object()
+        self._provider_snapshot_loader = object()
+
+
+def _make_fake_tool() -> MyTool:
+    return MyTool(runtime_state=_FakeLoop())
+
+
+class TestWhitelistPositive:
+    @pytest.mark.asyncio
+    async def test_check_overview_contains_existing_keys(self):
+        """W2-1 #1: check without key shows the existing key set."""
+        tool = _make_fake_tool()
+        result = await tool.execute(action="check")
+        for fragment in (
+            "max_iterations: 40",
+            "context_window_tokens: 65536",
+            "model: 'anthropic/claude-sonnet-4'",
+            "model_preset",
+            "workspace: '/tmp/workspace'",
+            "provider_retry_mode: 'standard'",
+            "max_tool_result_chars: 16000",
+            "_current_iteration: 0",
+            "exec_config",
+            "workspace_sandbox",
+            "subagents",
+            "_last_usage",
+        ):
+            assert fragment in result, fragment
+
+    @pytest.mark.asyncio
+    async def test_check_whitelisted_keys(self):
+        """W2-1 #2: legal check paths keep working."""
+        tool = _make_fake_tool()
+        assert "anthropic/claude-sonnet-4" in await tool.execute(action="check", key="model")
+        assert "40" in await tool.execute(action="check", key="max_iterations")
+        assert "100" in await tool.execute(action="check", key="_last_usage.prompt_tokens")
+        assert "none" in await tool.execute(action="check", key="exec_config.sandbox")
+        result = await tool.execute(action="check", key="scratchpad")
+        assert "Error" not in result
+
+    @pytest.mark.asyncio
+    async def test_set_restricted_keys_with_validation(self):
+        """W2-1 #3: legal set paths keep working, including validation bounds."""
+        tool = _make_fake_tool()
+        result = await tool.execute(action="set", key="max_iterations", value=25)
+        assert "Set max_iterations = 25" in result
+        assert tool._runtime_state.max_iterations == 25
+        result = await tool.execute(action="set", key="model", value="fast-model")
+        assert "Set model" in result
+        assert tool._runtime_state.model == "fast-model"
+        assert "Error" in await tool.execute(action="set", key="max_iterations", value=0)
+        assert "Error" in await tool.execute(action="set", key="max_iterations", value=999)
+
+
+
+class TestWhitelistNegative:
+    @pytest.mark.asyncio
+    async def test_set_mcp_runtime_rejected_with_audit(self):
+        """W2-1 #6: _mcp_runtime can no longer be replaced via set."""
+        loop = _FakeLoop()
+        tool = MyTool(runtime_state=loop)
+        audits: list[str] = []
+        tool._audit = lambda action, detail: audits.append(detail)  # type: ignore[method-assign]
+        original = loop._mcp_runtime
+        result = await tool.execute(action="set", key="_mcp_runtime", value=object())
+        assert "Error" in result
+        assert loop._mcp_runtime is original
+        assert any("WHITELIST-DENY" in d and "_mcp_runtime" in d for d in audits)
+
+    @pytest.mark.asyncio
+    async def test_set_other_host_infra_attrs_rejected(self):
+        """W2-1 #7: cron_service / workspace_scopes / model_preset / snapshot loader."""
+        loop = _FakeLoop()
+        tool = MyTool(runtime_state=loop)
+        targets = (
+            "cron_service",
+            "workspace_scopes",
+            "model_preset",
+            "_provider_snapshot_loader",
+        )
+        for key in targets:
+            original = getattr(loop, key)
+            result = await tool.execute(action="set", key=key, value="hacked")
+            assert "Error" in result, key
+            assert getattr(loop, key) is original, key
+
+    @pytest.mark.asyncio
+    async def test_check_mcp_runtime_rejected(self):
+        """W2-1 #8: _mcp_runtime is not inspectable."""
+        tool = _make_fake_tool()
+        result = await tool.execute(action="check", key="_mcp_runtime")
+        assert "not accessible" in result
+
+    @pytest.mark.asyncio
+    async def test_set_exec_config_dotpath_rejected(self):
+        """W2-1 #9: dot-path set is only allowed in the scratchpad namespace."""
+        loop = _FakeLoop()
+        tool = MyTool(runtime_state=loop)
+        result = await tool.execute(action="set", key="exec_config.sandbox", value=True)
+        assert "Error" in result
+        assert loop.exec_config.sandbox == "none"
+
+    @pytest.mark.asyncio
+    async def test_set_subagents_rejected(self):
+        """W2-1 #10: subagents stays read-only under the whitelist."""
+        loop = _FakeLoop()
+        tool = MyTool(runtime_state=loop)
+        result = await tool.execute(action="set", key="subagents", value=object())
+        assert "read-only" in result
+
+    @pytest.mark.asyncio
+    async def test_defense_in_depth_still_enforced(self):
+        """W2-1 #11: dunder and sensitive-name denial still holds."""
+        tool = _make_fake_tool()
+        assert "not accessible" in await tool.execute(action="check", key="__class__")
+        result = await tool.execute(action="check", key="_runtime_vars.api_key")
+        assert "not accessible" in result
+
+    @pytest.mark.asyncio
+    async def test_allow_set_false_total_switch(self):
+        """W2-1 #12: allow_set=False keeps the total switch error."""
+        loop = _FakeLoop()
+        tool = MyTool(runtime_state=loop, modify_allowed=False)
+        result = await tool.execute(action="set", key="notes", value="x")
+        assert "disabled" in result
+        assert "notes" not in loop._runtime_vars
+
+
+class TestHostIntegrity:
+    @pytest.mark.asyncio
+    async def test_set_operations_do_not_pollute_host_dict(self):
+        """W2-1 #13: a round of set ops leaves loop.__dict__ keys unchanged."""
+        loop = _FakeLoop()
+        tool = MyTool(runtime_state=loop)
+        before = set(vars(loop))
+        await tool.execute(action="set", key="notes", value="hello")
+        await tool.execute(action="set", key="scratchpad.foo", value="bar")
+        await tool.execute(action="set", key="max_iterations", value=25)
+        await tool.execute(action="set", key="_mcp_runtime", value=object())
+        assert set(vars(loop)) == before
+        assert loop._runtime_vars == {"notes": "hello", "foo": "bar"}
+        assert loop.max_iterations == 25
+
