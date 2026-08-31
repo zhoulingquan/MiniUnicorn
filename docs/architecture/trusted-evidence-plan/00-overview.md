@@ -107,6 +107,6 @@ tests/agent/ 下审批门、tool_blocked、checkpoint 恢复、预算传播、�
 4. **中断续接**：Opencode 在批次中途静默挂断时（已知风险），先 `git status` + `git diff` 判断半成品范围，未完成的改动 `git checkout -- <files>` 回退后重新起批，不要在半成品上续写。
 5. **规模预估**（按代码接触面，供 token 预算参考）：小批次（05、06）通常一次可完成；中批次（02、03、07）一次或两次；大批次（04、08、09）建议拆成"代码改动"与"测试补齐"两次委托，两次之间跑一次全量测试确认中间态可用。
 
-## 七、W2 展望（本轮不实施，仅备忘）
+## 七、W2 展望（已另立方案）
 
-W1 稳定后的候选：TurnController 从 runner.py 抽取、ManagedPolicy 抽取、ToolContext Any 字段增量收窄、RuntimeState 白名单化。届时另立方案，不并入本系列。
+W1 稳定后的候选已裁决并另立为 `docs/architecture/w2-slim-plan/`（三批：MyTool 白名单化、主循环分段方法化、ToolContext 死字段删除；TurnController 类与 ManagedPolicy 抽取经评估否决）。本系列到此收官。
