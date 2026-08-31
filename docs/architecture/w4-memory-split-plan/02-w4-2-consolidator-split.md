@@ -23,7 +23,7 @@
 | Consolidator 与 Dream 共用 | `call_purpose`/`CallPurpose`、`render_template`、`re`、`logger` |
 | 仅 Dream/残留段用(留在 memory.py) | `dataclasses_replace`、`session_key_base`、`hashlib`(helpers 段用) |
 
-**守护面核查结论**(W4-1 教训,已验证):Consolidator 区段(96-632)**零** `StructuredMemoryRepository(` 实例化、**零** `journal.jsonl` 字符串——守护测试(白名单/扫描类)不受本批影响;`test_runtime_memory_imports_never_touch_vector_backends` 的 `memory_*.py` glob 自动覆盖新文件,其 import 根与原文件相同(tiktoken 不在禁止清单,现状已通过)。
+**守护面核查结论**(W4-1 教训,已验证):Consolidator 区段(96-632)**零** `StructuredMemoryRepository(` 实例化、零 legacy journal 文件名字符串——守护测试(白名单/扫描类)不受本批影响;`test_runtime_memory_imports_never_touch_vector_backends` 的 `memory_*.py` glob 自动覆盖新文件,其 import 根与原文件相同(tiktoken 不在禁止清单,现状已通过)。
 
 ## 二、变更方案
 

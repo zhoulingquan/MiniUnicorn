@@ -8,9 +8,11 @@ constants keep a single definition site.
 import importlib
 import importlib.util
 import sys
+from unittest.mock import MagicMock
 
 import miniunicorn.agent
 import miniunicorn.agent.memory as memory_facade
+import miniunicorn.agent.memory_consolidator as memory_consolidator
 import miniunicorn.agent.memory_store as memory_store
 
 
@@ -50,3 +52,61 @@ def test_memory_py_shrunk():
         store_lines = len(f.read().splitlines())
     assert facade_lines < 1150
     assert store_lines < 1000
+
+
+def test_facade_identity_consolidator():
+    """Facade re-export resolves to the exact class defined in memory_consolidator."""
+    assert memory_facade.Consolidator is memory_consolidator.Consolidator
+
+
+def test_shared_constant_single_definition():
+    """_RAW_ARCHIVE_MAX_CHARS is imported from memory_store, never redefined."""
+    assert memory_consolidator._RAW_ARCHIVE_MAX_CHARS is memory_store._RAW_ARCHIVE_MAX_CHARS
+
+
+def test_archive_summary_constant_identity():
+    """Archive-summary constant lives in memory_consolidator, visible via the facade."""
+    assert memory_consolidator._ARCHIVE_SUMMARY_MAX_CHARS == 8_000
+    assert (
+        memory_facade._ARCHIVE_SUMMARY_MAX_CHARS
+        is memory_consolidator._ARCHIVE_SUMMARY_MAX_CHARS
+    )
+
+
+def test_memory_py_shrunk_further():
+    """memory.py shrank again after the Consolidator extraction."""
+    facade_path = importlib.util.find_spec("miniunicorn.agent.memory").origin
+    with open(facade_path, encoding="utf-8") as f:
+        facade_lines = len(f.read().splitlines())
+    assert facade_lines < 620
+
+
+def test_consolidator_token_estimate_patchable_via_defining_module(monkeypatch):
+    """estimate_message_tokens is patchable through the memory_consolidator namespace."""
+    from types import SimpleNamespace
+
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        memory_consolidator,
+        "estimate_message_tokens",
+        lambda message: (calls.append(message), 999)[1],
+    )
+    consolidator = memory_consolidator.Consolidator(
+        store=MagicMock(),
+        provider=MagicMock(),
+        model="test-model",
+        sessions=MagicMock(),
+        context_window_tokens=200,
+        build_messages=lambda **kwargs: [],
+        get_tool_definitions=lambda: [],
+    )
+    session = SimpleNamespace(
+        messages=[
+            {"role": "user", "content": "u1"},
+            {"role": "user", "content": "u2"},
+        ],
+        last_consolidated=0,
+    )
+    boundary = consolidator.pick_consolidation_boundary(session, tokens_to_remove=1)
+    assert boundary == (1, 999)
+    assert len(calls) == 1
