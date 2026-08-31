@@ -11,8 +11,11 @@ import sys
 from unittest.mock import MagicMock
 
 import miniunicorn.agent
+import miniunicorn.agent.dream_trigger as dream_trigger
 import miniunicorn.agent.memory as memory_facade
 import miniunicorn.agent.memory_consolidator as memory_consolidator
+import miniunicorn.agent.memory_dream as memory_dream
+import miniunicorn.agent.memory_jsonl_import as memory_jsonl_import
 import miniunicorn.agent.memory_store as memory_store
 
 
@@ -110,3 +113,54 @@ def test_consolidator_token_estimate_patchable_via_defining_module(monkeypatch):
     boundary = consolidator.pick_consolidation_boundary(session, tokens_to_remove=1)
     assert boundary == (1, 999)
     assert len(calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# W4-3: Dream extraction + final pure-facade state
+# ---------------------------------------------------------------------------
+
+
+def test_final_facade_identity():
+    """All 11 facade symbols resolve to the modules that define them."""
+    assert memory_facade.MemoryStore is memory_store.MemoryStore
+    assert memory_facade.WorkspaceMemoryRegistry is memory_store.WorkspaceMemoryRegistry
+    assert memory_facade.Consolidator is memory_consolidator.Consolidator
+    assert memory_facade.Dream is memory_dream.Dream
+    assert memory_facade.count_pending_dream_entries is memory_dream.count_pending_dream_entries
+    assert memory_facade.reflection_evidence_id is memory_dream.reflection_evidence_id
+    assert memory_facade._dream_source_batch is memory_dream._dream_source_batch
+    assert memory_facade._parse_datetime_loose is memory_dream._parse_datetime_loose
+    assert memory_facade._HISTORY_ENTRY_HARD_CAP is memory_store._HISTORY_ENTRY_HARD_CAP
+    assert memory_facade._RAW_ARCHIVE_MAX_CHARS is memory_store._RAW_ARCHIVE_MAX_CHARS
+    assert (
+        memory_facade._ARCHIVE_SUMMARY_MAX_CHARS
+        is memory_consolidator._ARCHIVE_SUMMARY_MAX_CHARS
+    )
+
+
+def test_memory_py_is_pure_facade():
+    """memory.py is a pure facade: at most 60 lines and zero class definitions."""
+    from pathlib import Path
+
+    facade_path = Path(importlib.util.find_spec("miniunicorn.agent.memory").origin)
+    src = facade_path.read_text(encoding="utf-8")
+    assert len(src.splitlines()) <= 60
+    assert "class " not in src
+
+
+def test_jsonl_import_reexports():
+    """The facade keeps the baseline jsonl-import namespace re-exports alive."""
+    assert memory_facade.LegacyJournalImportError is memory_jsonl_import.LegacyJournalImportError
+    assert memory_facade.migrate_legacy_journal is memory_jsonl_import.migrate_legacy_journal
+
+
+def test_dream_helpers_moved_with_class():
+    """reflection_evidence_id lives in memory_dream and still validates ids."""
+    entry = {"reflection_id": "rfl_" + "a" * 32}
+    assert memory_dream.reflection_evidence_id(entry) == "rfl_" + "a" * 32
+
+
+def test_consumer_entry_points():
+    """agent package and dream_trigger resolve Dream symbols to memory_dream."""
+    assert miniunicorn.agent.Dream is memory_dream.Dream
+    assert dream_trigger.count_pending_dream_entries is memory_dream.count_pending_dream_entries
