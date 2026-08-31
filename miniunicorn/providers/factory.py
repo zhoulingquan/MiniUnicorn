@@ -79,8 +79,6 @@ def _make_provider_core(
     spec = find_by_name(provider_name) if provider_name else None
 
     # API key may be configured later via WebUI (Settings → BYOK); no warning at startup.
-    _ = spec  # kept for future startup-time diagnostics
-
     # Only openai_compat backend (DeepSeek + custom)
     from miniunicorn.providers.openai_compat_provider import OpenAICompatProvider
 
