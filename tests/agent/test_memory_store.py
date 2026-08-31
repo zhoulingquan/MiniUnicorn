@@ -796,7 +796,7 @@ class TestSQLiteStartupWiring:
     def test_startup_migration_invokes_migrator_with_correct_args(self, tmp_path, monkeypatch):
         """The startup decision runs BEFORE repository construction with the
         exact workspace and lock timeout."""
-        import miniunicorn.agent.memory as memory_module
+        import miniunicorn.agent.memory_store as memory_module
 
         _write_legacy_journal(tmp_path, [_record("a")])
         captured: dict[str, object] = {}

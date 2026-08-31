@@ -338,7 +338,7 @@ def test_read_stale_cursor_falls_back_to_all_physical_lines(workspace, store):
 def test_store_prune_file_rewrite_failure_resets_cursor_before_renumbering(
     workspace, store, monkeypatch
 ):
-    import miniunicorn.agent.memory as memory_module
+    import miniunicorn.agent.memory_store as memory_module
 
     path = workspace / "memory" / "reflections.jsonl"
     cursor_path = workspace / "memory" / ".reflections_cursor"

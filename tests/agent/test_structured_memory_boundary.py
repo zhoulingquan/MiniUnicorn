@@ -299,7 +299,8 @@ _FORBIDDEN_LEGACY_RUNTIME_TOKENS = (
 
 _REPOSITORY_INSTANTIATION_ALLOWED = {
     # Runtime wiring: constructs the single SQLite-backed repository.
-    "miniunicorn/agent/memory.py",
+    # Moved with MemoryStore in W4-1 (memory.py is now the facade).
+    "miniunicorn/agent/memory_store.py",
     # Migration-only: object.__new__ bound to a temporary SQLite database,
     # never used for runtime writes (see module docstring).
     "miniunicorn/agent/memory_jsonl_import.py",

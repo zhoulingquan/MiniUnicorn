@@ -48,12 +48,13 @@ from miniunicorn.agent.memory_store import (  # noqa: F401
 - 原 import 块中**仅被已搬出代码引用**的名字(如 `migrate_legacy_journal`、`_atomic_rewrite_lines`、`GitStore`、tiktoken/filelock 若 Consolidator/Dream 不用)从 memory.py 删除——以 ruff 未使用导入核实为准
 - 保留行数预期:约 1146 行(2018 - 872)
 
-### 2.3 测试 monkeypatch 目标调整(2 处,纯导入路径调整)
+### 2.3 测试 monkeypatch 目标调整(2 处 + 1 处守护白名单,纯导入路径调整)
 
 | 位置 | 现状 | 调整为 |
 |---|---|---|
 | tests/agent/test_memory_store.py:799-811 | `import miniunicorn.agent.memory as memory_module` + `monkeypatch.setattr(memory_module, "migrate_legacy_journal", spy_migrate, raising=False)` | import 目标改为 `miniunicorn.agent.memory_store`(变量名可留 `memory_module`,仅换导入路径),setattr 调用形式不变 |
 | tests/agent/test_reflection_structured.py:341-355 | `import miniunicorn.agent.memory as memory_module` + `monkeypatch.setattr(memory_module, "_atomic_rewrite_lines", fail_file_rewrite)` | 同上,导入路径改为 `miniunicorn.agent.memory_store` |
+| tests/agent/test_structured_memory_boundary.py:300-306(实施时发现,任务书设计时遗漏) | `_REPOSITORY_INSTANTIATION_ALLOWED` 白名单硬编码 `"miniunicorn/agent/memory.py"`——守护 `StructuredMemoryRepository(` 实例化点;MemoryStore 的 `_build_structured_stack` 随迁后,实例化点落入 `memory_store.py`,守护失败 | 白名单条目改为 `"miniunicorn/agent/memory_store.py"`(附注释 `# Moved with MemoryStore in W4-1`);守护语义(唯一 SQLite 仓库实例化点)零变更;`_EXPLICIT_RUNTIME_FILES`(166 行)不改——`memory_glob = agent.glob("memory_*.py")` 已自动覆盖新文件且 memory.py 仍存在 |
 
 **断言、测试逻辑、测试数据零修改**——只换被 patch 的模块对象。
 
