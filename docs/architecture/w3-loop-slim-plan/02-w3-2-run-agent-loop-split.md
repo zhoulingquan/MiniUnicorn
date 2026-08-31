@@ -1,21 +1,22 @@
 # W3-2:`_run_agent_loop` 分段方法化 + 闭包提取
 
-> 前置依赖:tag `baseline-pre-w3`。建议在 W3-1 之后实施(同文件串行,本批更大)。
+> 前置依赖:W3-1 已合并(`6a02fb8e`,`pytest tests/ -q` 4104 passed / 0 failed)。本批是 W3 系列末批。
+> 行号锚点已按 W3-1 合并后的 loop.py(共 1398 行)刷新;**行号仅为编写时参考值,定位以符号为准**。
 > 本批是**纯搬家重构**:语义逐句对应、零行为变更、零新抽象(`functools.partial` 回调绑定不算新抽象)。
 
 ## 一、问题(现状锚点)
 
-`miniunicorn/agent/loop.py` 的 `AgentLoop._run_agent_loop`(1025-1256,约 232 行)是 loop.py 内最大方法,混杂七类关注点:
+`miniunicorn/agent/loop.py` 的 `AgentLoop._run_agent_loop`(1077-1308,约 232 行)是 loop.py 内最大方法,混杂七类关注点:
 
 | 区段 | 行号(参考) | 内容 |
 |---|---|---|
-| hook 装配 | 1057-1076 | `_sync_subagent_runtime_limits`、AgentProgressHook 构造(11 个实参,含 on_iteration lambda)、turn_hooks 与 `_extra_hooks` 合并顺序(turn_hooks 在后)、CompositeHook |
-| 闭包×2 | 1078-1136 | `_checkpoint`(4 行,绑 session);`_drain_pending`(**58 行**,含 subagent 阻塞等待、media 预处理、limit 上限、超时 warning) |
-| 上下文绑定 | 1138-1161 | active_session_key、`workspace_scopes.for_turn`、RequestContext、file_state/request/workspace 三个 token 绑定、telemetry 复用或新建 |
-| override 解析 | 1162-1172 | agent_override 工具白名单过滤(`_filter_tools_for_override`)与模型选择 |
-| goal 提示 | 1173-1185 | `goal_state_runtime_lines` → 持续目标继续提示或 `SUSTAINED_GOAL_CONTINUE_PROMPT` |
-| spec 构建 | 1186-1229 | try: `runner.run(AgentRunSpec(...))`(30 个字段,含 llm_timeout_s 的 `runner_wall_llm_timeout_s`、goal_active_predicate lambda);finally: 三 token 复位 + telemetry 复位 |
-| 收尾 | 1236-1256 | `record_last_usage`、telemetry usage 写回、max_iterations 流式补推、error 日志、五元组返回 |
+| hook 装配 | 1109-1128 | `_sync_subagent_runtime_limits`、AgentProgressHook 构造(11 个实参,含 on_iteration lambda)、turn_hooks 与 `_extra_hooks` 合并顺序(turn_hooks 在后)、CompositeHook |
+| 闭包×2 | 1130-1188 | `_checkpoint`(1130-1133,绑 session);`_drain_pending`(1135-1188,**约 54 行**,含 subagent 阻塞等待、media 预处理、limit 上限、超时 warning) |
+| 上下文绑定 | 1190-1213 | active_session_key、`workspace_scopes.for_turn`、RequestContext、file_state/request/workspace 三个 token 绑定、telemetry 复用或新建 |
+| override 解析 | 1214-1224 | agent_override 工具白名单过滤(`_filter_tools_for_override`)与模型选择 |
+| goal 提示 | 1225-1237 | `goal_state_runtime_lines` → 持续目标继续提示或 `SUSTAINED_GOAL_CONTINUE_PROMPT` |
+| spec 构建 | 1238-1287 | try: `runner.run(AgentRunSpec(...))`(30 个字段,含 llm_timeout_s 的 `runner_wall_llm_timeout_s`、goal_active_predicate lambda);finally: 三 token 复位 + telemetry 复位 |
+| 收尾 | 1288-1308 | `record_last_usage`、telemetry usage 写回、max_iterations 流式补推、error 日志、五元组返回 |
 
 ### 1.1 回调契约锚点(本批最关键的不变量)
 
@@ -23,7 +24,7 @@ runner.py 438-449 对 `spec.injection_callback` 做 `inspect.signature` 检查:`
 
 ## 二、改动
 
-### 2.1 提取一:`_build_turn_hook`(hook 装配,1057-1076)
+### 2.1 提取一:`_build_turn_hook`(hook 装配,1109-1128)
 
 ```python
 def _build_turn_hook(
@@ -36,9 +37,9 @@ def _build_turn_hook(
     """单轮 hook 装配。turn_hooks 在 _extra_hooks 之后(per-run 优先)。"""
 ```
 
-要点:`on_iteration=lambda iteration: setattr(self, "_current_iteration", iteration)` lambda 保留在方法内;`extra = list(self._extra_hooks) + list(turn_hooks or [])` 合并顺序与注释(1072-1074)照搬;无 extra 时直接返回 `loop_hook`。
+要点:`on_iteration=lambda iteration: setattr(self, "_current_iteration", iteration)` lambda 保留在方法内;`extra = list(self._extra_hooks) + list(turn_hooks or [])` 合并顺序与注释(1124-1126)照搬;无 extra 时直接返回 `loop_hook`。
 
-### 2.2 提取二:`_drain_pending_messages`(58 行闭包 → 方法,1083-1136)
+### 2.2 提取二:`_drain_pending_messages`(约 54 行闭包 → 方法,1135-1188)
 
 ```python
 async def _drain_pending_messages(
@@ -53,10 +54,10 @@ async def _drain_pending_messages(
 
 要点:
 - 闭包体内的 `_to_user_message` 内嵌函数随方法整体搬入(含 `self._prepare_message_media` 与 `self.context._build_user_content` 调用、media 预处理顺序);
-- 阻塞分支(1114-1134):`get_running_count_by_session > 0` 判定、`asyncio.wait_for(pending_queue.get(), timeout=_SUBAGENT_DRAIN_WAIT_S)`、TimeoutError warning(含 session.key 文本)、二次 get_nowait 循环,逐句照搬;
+- 阻塞分支(1166-1186):`get_running_count_by_session > 0` 判定、`asyncio.wait_for(pending_queue.get(), timeout=_SUBAGENT_DRAIN_WAIT_S)`、TimeoutError warning(含 session.key 文本)、二次 get_nowait 循环,逐句照搬;
 - `pending_queue is None` 早退保留。
 
-### 2.3 提取三:`_emit_turn_checkpoint`(1078-1081)
+### 2.3 提取三:`_emit_turn_checkpoint`(1130-1133)
 
 ```python
 async def _emit_turn_checkpoint(
@@ -66,7 +67,7 @@ async def _emit_turn_checkpoint(
 
 原闭包逻辑:`session is None` 早退 + `self._set_runtime_checkpoint(session, payload)`。
 
-### 2.4 提取四:`_resolve_override_runtime`(1162-1172)
+### 2.4 提取四:`_resolve_override_runtime`(1214-1224)
 
 ```python
 def _resolve_override_runtime(
@@ -75,7 +76,7 @@ def _resolve_override_runtime(
     """agent_override 工具白名单与模型选择。返回 (tools, run_model)。"""
 ```
 
-### 2.5 提取五:`_build_goal_continue`(1173-1185)
+### 2.5 提取五:`_build_goal_continue`(1225-1237)
 
 ```python
 def _build_goal_continue(self, session: Session | None) -> str:
@@ -83,7 +84,7 @@ def _build_goal_continue(self, session: Session | None) -> str:
 
 `goal_state_runtime_lines(session.metadata ...)` 判定、f-string 拼接、`SUSTAINED_GOAL_CONTINUE_PROMPT` 回退,逐句照搬。
 
-### 2.6 提取六:`_build_agent_run_spec`(1188-1228)
+### 2.6 提取六:`_build_agent_run_spec`(1240-1280)
 
 ```python
 def _build_agent_run_spec(
@@ -103,12 +104,12 @@ def _build_agent_run_spec(
 ```
 
 要点:
-- 30 个 spec 字段逐一照搬,含两条注释(1209-1210 持续目标超时说明、1220 Plan-and-Execute 说明);
+- 30 个 spec 字段逐一照搬,含两条注释(1261-1262 持续目标超时说明、1272 Plan-and-Execute 说明);
 - `runner_wall_llm_timeout_s(self.sessions, ...)` 在方法内调用(经 `self.sessions`);
 - `goal_active_predicate` lambda 逐字保留;
 - 回调参数以形参传入,不在方法内构造 partial。
 
-### 2.7 提取七:`_record_turn_outcome`(1236-1249)
+### 2.7 提取七:`_record_turn_outcome`(1288-1301)
 
 ```python
 def _record_turn_outcome(self, result, on_stream, on_stream_end) -> None:
@@ -118,7 +119,7 @@ def _record_turn_outcome(self, result, on_stream, on_stream_end) -> None:
 
 ### 2.8 主方法骨架(拆分后形态)
 
-保留:签名(19 行)与 docstring、`_sync_subagent_runtime_limits`、hook/闭包替代品调用、上下文绑定区段(1138-1161,核心编排)、telemetry 绑定、try/finally 结构。目标形态:
+保留:签名(19 行)与 docstring、`_sync_subagent_runtime_limits`、hook/闭包替代品调用、上下文绑定区段(1190-1213,核心编排)、telemetry 绑定、try/finally 结构。目标形态:
 
 ```python
 self._sync_subagent_runtime_limits()
@@ -127,7 +128,7 @@ hook = self._build_turn_hook(...)
 injection_callback = functools.partial(self._drain_pending_messages, pending_queue, session)
 checkpoint_callback = functools.partial(self._emit_turn_checkpoint, session)
 
-# ...1138-1161 上下文绑定与 telemetry 原样保留...
+# ...1190-1213 上下文绑定与 telemetry 原样保留...
 tools, run_model = self._resolve_override_runtime(agent_override)
 goal_continue = self._build_goal_continue(session)
 try:
@@ -162,7 +163,7 @@ return (result.final_content, result.tools_used, result.messages, result.stop_re
 2. **回调契约**:`"limit" in inspect.signature(functools.partial(loop._drain_pending_messages, queue, session)).parameters` 为真(与 runner.py 438-449 的判定兼容——这是本批最关键的回归锁)。
 3. **结构断言**:`_run_agent_loop` 源码行数 < 130(`inspect.getsource` 统计)。
 4. **hook 合并顺序**:`turn_hooks` 在 `_extra_hooks` 之后(CompositeHook 展开 or monkeypatch 记录顺序,二选一)。
-5. **集成回归**:既有 4095 个测试通过即为此证(尤其 `tests/agent/test_runner_injections.py`),本条只补一个最小冒烟:直连 `_run_agent_loop` 或走既有 fake provider 设施完成一次带 pending_queue 的回合。
+5. **集成回归**:既有 4104 个测试通过即为此证(尤其 `tests/agent/test_runner_injections.py`),本条只补一个最小冒烟:直连 `_run_agent_loop` 或走既有 fake provider 设施完成一次带 pending_queue 的回合。
 
 ## 四、禁改清单
 

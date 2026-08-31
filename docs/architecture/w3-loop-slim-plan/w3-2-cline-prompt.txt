@@ -1,0 +1,69 @@
+# MiniUnicorn implementation task - Batch W3-2 (_run_agent_loop phase split + closure extraction, pure-move refactor)
+
+## Role and context
+
+You are a senior Python implementation engineer on the MiniUnicorn project. The project's purpose: a business-intelligence agent for long-term use by a small enterprise (single user), with core demands of efficiency, leanness, and maintainability. This task is the LAST batch of the two-batch loop-slimming plan (W3-1 is already committed as `6a02fb8e`): implement independently, verify independently, commit independently, then STOP.
+
+Working directory: D:\MyProject\MiniUnicorn
+
+Prerequisite: the working tree must be clean apart from untracked temp/analysis dirs (`.tmp-*`, `.workbuddy/`, `arch-eval-*`, `docs/miniunicorn-architecture-analysis/`, `.trae-html-share-packages/`). If tracked files are modified, stop and report instead of stashing or resetting anything.
+
+## Step 1: required reading (in order, before any implementation)
+
+1. `docs/architecture/w3-loop-slim-plan/00-overview.md` - plan overview and global constraints (focus on section 2 verdict table and section 4 global constraints)
+2. `docs/architecture/w3-loop-slim-plan/02-w3-2-run-agent-loop-split.md` - THE batch task book (sole implementation basis)
+
+The task book is self-contained: current-state anchors, change plan, test requirements, do-not-touch list, acceptance checklist. Line numbers in the task book were refreshed after the W3-1 merge but are reference values only - always locate by symbol. Your entire implementation scope is defined by the task book.
+
+## Implementation discipline (takes priority over any efficiency concern)
+
+### Four situations require immediate stop-and-report (never guess and continue)
+
+1. Any "current-state anchor" in the task book does not match the actual code (symbol not found, structure mismatch)
+2. Completing the task would require touching anything in the "do-not-touch list" (runner.py gets ZERO changes in this batch)
+3. Tests cannot pass and the cause is unclear - NEVER weaken assertions or delete/modify existing tests to make tests pass
+4. Suspicious behavior not mentioned in the task book (suspected bug, suspected security hole) - record it in the report only, do NOT fix it
+
+### Global red lines (full version in 00-overview.md section 4)
+
+1. Semantics of W0/W1/W2 protected achievements must not be touched: trusted evidence pipeline (ToolObservation/receipts/effective_evidence_level/verifier fuse), three-state approval gate, tool_blocked and runtime_checkpoint chains, LazyToolRegistry loading semantics, McpRuntime/SubagentManager composition-root ownership (the W1-2 injection-fallback dual path), activate_plan activator semantics, and the W2-2 main-loop phase-split shape of `AgentRunner._run_with_ledger` (runner.py gets ZERO changes in this batch)
+2. **THIS BATCH IS A PURE-MOVE REFACTOR of `AgentLoop._run_agent_loop` into seven extraction methods**: zero behavior change. Move statements VERBATIM in the ORIGINAL ORDER, each statement together with its leading comment (including the docstring of `_drain_pending` and the inner `_to_user_message` function). Do NOT change any condition, log text, binding/reset order, or the five-tuple return. ZERO existing test assertions may be modified - if any existing test fails after the refactor, you moved something wrong: roll back and re-move it correctly
+3. **The callback contract is the core invariant** (task book section 1.1): runner.py 438-449 inspects `injection_callback`'s signature - after switching the closure to `functools.partial(self._drain_pending_messages, pending_queue, session)`, `inspect.signature(...)` must still expose a `limit` parameter, otherwise injection draining silently degrades from batched to single-message pulls. Pin this with a dedicated assertion
+4. **W3-1 territory is off-limits**: do not modify the eight `_init_*` phase methods or any other part of `__init__`
+5. Use symbols (class names / function names / list names) for locating; line numbers in the task book are only reference values
+6. No new abstractions: no new classes, no new config options, no new events. The seven extraction methods are plain private methods on AgentLoop. `functools.partial` callback binding does NOT count as a new abstraction
+7. No out-of-scope work: no opportunistic refactoring, no fixing out-of-scope problems, no comments explaining "what changed"
+
+### Git discipline
+
+- One batch, one commit; NEVER `git add .`, only add explicit paths
+- Never include `.tmp-*`, temp reports, or unrelated files
+- Commit message: `refactor(w3-2): <one-line topic>`
+
+## Execution flow
+
+1. Read both files -> check each "current-state anchor" in the task book against the actual code, record the conclusion
+2. If consistent -> implement strictly per the task book's "changes" section in order: 2.1 `_build_turn_hook`, 2.2 `_drain_pending_messages` (the big one), 2.3 `_emit_turn_checkpoint`, 2.4 `_resolve_override_runtime`, 2.5 `_build_goal_continue`, 2.6 `_build_agent_run_spec`, 2.7 `_record_turn_outcome`, then 2.8 slim the main method. Keep the context-binding section (active_session_key / workspace_scopes.for_turn / RequestContext / three token binds / telemetry) inline in `_run_agent_loop` - it IS the remaining orchestration
+3. Implement ALL new tests in the task book's "test requirements" section (not one fewer): the four `_drain_pending_messages` unit cases, the callback-contract signature assertion, the structural line-count assertion (< 130), hook merge order, and the minimal pending_queue smoke
+4. Verification gate (all must pass before commit is allowed) - MUST use the project venv Python 3.12:
+   - `.venv\Scripts\python.exe -m pytest tests/ -q` -> 0 failed, passed >= 4104
+   - `.venv\Scripts\python.exe -m ruff check miniunicorn/` -> zero output
+   - `.venv\Scripts\python.exe -m ruff format --check miniunicorn/` -> zero output
+   - WARNING: do not use the system default python (3.10, missing typing.Self, causes 14 ImportErrors at collection - that is an environment problem, not a code problem)
+   - The full pytest run takes about 8-13 minutes. Run it in the background with output redirected to a file under $env:TEMP, then poll with long sleep intervals (30s+); do NOT give up on the full run
+5. As soon as the verification gate passes, `git add` the explicit paths (expected: `miniunicorn/agent/loop.py` + the new test file) and COMMIT IMMEDIATELY - commit first, then write the report. This ordering matters: if your session gets interrupted, the completed work must already be safely committed
+6. Output the batch report (format below)
+7. STOP after completion: do not start anything else, end without waiting for further questions
+
+If you cannot finish everything in one run: clearly report how far you got; if the verification gate has not passed, do not commit; do not leave an unclear half-finished state (always roll back half-finished work with `git checkout -- <files>` before reporting).
+
+## Batch report format (output last)
+
+## Batch report: W3-2
+1. Anchor check: all consistent / deviation on item N: <explanation>
+2. Changed files: <list each>
+3. New tests: <file names + case count>
+4. Verification gate: pytest <N passed / 0 failed>; ruff <zero warnings>
+5. Deviations from the task book: listed one by one / none
+6. Acceptance checklist: <check each item in the task book's final section, explain any not met>
+7. Incidental findings (recorded only, not acted on): <problem list / none>

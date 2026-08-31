@@ -59,7 +59,7 @@ W2 收官后,遗留的最大架构文档是 `docs/architecture/agent-core-tool-l
 ## 五、验证门(每批统一)
 
 ```
-.venv\Scripts\python.exe -m pytest tests/ -q        # 0 failed,passed >= 4095(新测试只增不减)
+.venv\Scripts\python.exe -m pytest tests/ -q        # 0 failed,passed >= 4104(新测试只增不减;W3-1 合并后基线)
 .venv\Scripts\python.exe -m ruff check miniunicorn/  # 零输出
 .venv\Scripts\python.exe -m ruff format --check miniunicorn/
 ```
