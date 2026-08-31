@@ -64,6 +64,21 @@ class PlanSnapshot:
             "digest": self.digest,
         }
 
+    def with_origin(self, origin: str) -> PlanSnapshot:
+        """Copy of this snapshot with a different origin (e.g. 'escalated')."""
+        return PlanSnapshot(
+            goal=self.goal,
+            steps=self.steps,
+            replan_count=self.replan_count,
+            max_replans=self.max_replans,
+            current_step_id=self.current_step_id,
+            turn_id=self.turn_id,
+            created_at=self.created_at,
+            stop_reason=self.stop_reason,
+            origin=origin,
+            digest=self.digest,
+        )
+
     @classmethod
     def from_plan(
         cls,

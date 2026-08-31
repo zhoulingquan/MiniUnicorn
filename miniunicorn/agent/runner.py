@@ -513,66 +513,19 @@ class AgentRunner:
                 break
 
             # T5: FAST -> MANAGED escalation check (before model request).
-            # Only in FAST mode (plan is None), not already escalated this turn,
-            # and after at least 2 consecutive non-tool iterations (stall).
-            if (
-                plan is None
-                and not state.escalated_this_turn
-                and spec.planning_policy is not None
-                and state.consecutive_nontool_iterations >= 2
-            ):
-                new_mode = spec.planning_policy.escalate(
-                    PlanningMode.FAST,
-                    stall_detected=True,
-                    already_escalated=state.escalated_this_turn,
-                )
-                if new_mode is PlanningMode.MANAGED:
-                    try:
-                        # Create a plan using the existing planner infrastructure
-                        (
-                            planner,
-                            new_plan,
-                            planner_task_text,
-                            planner_tools_summary,
-                        ) = await self._init_planner(spec)
-                        if new_plan is not None:
-                            plan = new_plan
-                            state.plan_snapshot = await self._emit_plan_snapshot(
-                                spec, plan, state.turn_id, stop_reason=None
-                            )
-                            # Update snapshot origin to "escalated"
-                            if state.plan_snapshot is not None:
-                                from miniunicorn.agent.plan_snapshot import PlanSnapshot
-
-                                state.plan_snapshot = PlanSnapshot(
-                                    goal=state.plan_snapshot.goal,
-                                    steps=state.plan_snapshot.steps,
-                                    replan_count=state.plan_snapshot.replan_count,
-                                    max_replans=state.plan_snapshot.max_replans,
-                                    current_step_id=state.plan_snapshot.current_step_id,
-                                    turn_id=state.plan_snapshot.turn_id,
-                                    created_at=state.plan_snapshot.created_at,
-                                    stop_reason=state.plan_snapshot.stop_reason,
-                                    origin="escalated",
-                                )
-                            from miniunicorn.agent.progress_policy import (
-                                ProgressPolicy,
-                                ProgressTracker,
-                            )
-
-                            state.progress_tracker = ProgressTracker(ProgressPolicy())
-                            state.escalated_this_turn = True
-                            state.consecutive_nontool_iterations = 0
-                            logger.info(
-                                "Escalated FAST -> MANAGED for turn {}",
-                                state.turn_id,
-                            )
-                    except Exception:
-                        logger.warning(
-                            "Escalation FAST->MANAGED failed; staying FAST",
-                            exc_info=True,
-                        )
-                        # Fall through to original FAST behavior
+            (
+                planner,
+                plan,
+                planner_task_text,
+                planner_tools_summary,
+            ) = await self._maybe_escalate_to_managed(
+                spec,
+                state,
+                planner,
+                plan,
+                planner_task_text,
+                planner_tools_summary,
+            )
 
             messages_for_model = await self._govern_messages(spec, messages, iteration)
             # Inject managed-plan guidance only after governance has repaired
@@ -637,331 +590,43 @@ class AgentRunner:
                 context.streamed_reasoning = True
 
             if response.should_execute_tools:
-                context.tool_calls = list(response.tool_calls)
-                if hook.wants_streaming():
-                    await hook.on_stream_end(context, resuming=True)
-
-                assistant_message = build_assistant_message(
-                    response.content or "",
-                    tool_calls=[tc.to_openai_tool_call() for tc in response.tool_calls],
-                    reasoning_content=response.reasoning_content,
-                    thinking_blocks=response.thinking_blocks,
-                )
-                messages.append(assistant_message)
-                state.tools_used.extend(tc.name for tc in response.tool_calls)
-                await self.emit_checkpoint(
+                action, plan = await self._execute_tool_iteration(
                     spec,
-                    {
-                        "phase": "awaiting_tools",
-                        "iteration": iteration,
-                        "model": spec.model,
-                        "assistant_message": assistant_message,
-                        "completed_tool_results": [],
-                        "pending_tool_calls": [
-                            tc.to_openai_tool_call() for tc in response.tool_calls
-                        ],
-                    },
-                )
-
-                await hook.before_execute_tools(context)
-
-                results, new_events, fatal_error = await self.execute_tools(
-                    spec,
-                    response.tool_calls,
-                    state.external_lookup_counts,
-                    state.workspace_violation_counts,
-                    step_id=(
-                        plan.current_step.id
-                        if plan is not None and plan.current_step is not None
-                        else None
-                    ),
-                )
-                # 先摘出观察（其中会 pop 掉 receipt），再把已清干净的事件入列，
-                # 保证 tool_events 任何时刻都不持有回执。
-                state.tool_observations.extend(
-                    self.tool_execution.build_observations(
-                        response.tool_calls,
-                        results,
-                        new_events,
-                        step_id=(
-                            plan.current_step.id
-                            if plan is not None and plan.current_step is not None
-                            else None
-                        ),
-                    )
-                )
-                state.tool_events.extend(new_events)
-                context.tool_results = list(results)
-                context.tool_events = list(new_events)
-                completed_tool_results = self.build_tool_result_messages(
-                    spec, response.tool_calls, results
-                )
-                messages.extend(completed_tool_results)
-                if fatal_error is not None:
-                    plan_before_error = plan
-                    action, plan = await self._handle_fatal_tool_error(
-                        spec,
-                        state,
-                        context,
-                        hook,
-                        messages,
-                        plan=plan,
-                        planner=planner,
-                        planner_task_text=planner_task_text,
-                        planner_tools_summary=planner_tools_summary,
-                        fatal_error=fatal_error,
-                        iteration=iteration,
-                        reflection=reflection,
-                    )
-                    if plan is not None and plan is not plan_before_error:
-                        # Successful replan returned a replacement plan.
-                        state.tool_observations.clear()
-                        state.plan_snapshot = await self._emit_plan_snapshot(
-                            spec, plan, state.turn_id
-                        )
-                    elif (
-                        plan is not None
-                        and plan_before_error is not None
-                        and state.stop_reason == "plan_failed"
-                    ):
-                        # Replans exhausted; the plan failed terminally.
-                        state.plan_snapshot = await self._emit_plan_snapshot(
-                            spec, plan, state.turn_id, stop_reason="plan_failed"
-                        )
-                    if action == "continue":
-                        continue
-                    break
-                await self.emit_checkpoint(
-                    spec,
-                    {
-                        "phase": "tools_completed",
-                        "iteration": iteration,
-                        "model": spec.model,
-                        "assistant_message": assistant_message,
-                        "completed_tool_results": completed_tool_results,
-                        "pending_tool_calls": [],
-                    },
-                )
-                state.empty_content_retries = 0
-                state.length_recovery_count = 0
-                # Checkpoint 1: drain injections after tools, before the next model call.
-                _drained, state.injection_cycles = await self.try_drain_injections(
-                    spec,
+                    state,
+                    hook,
                     messages,
-                    None,
-                    state.injection_cycles,
-                    phase="after tool execution",
+                    context,
+                    plan,
+                    planner,
+                    planner_task_text,
+                    planner_tools_summary,
+                    reflection,
+                    iteration,
+                    response,
                 )
-                if _drained:
-                    state.had_injections = True
-                await hook.after_iteration(context)
-                # T5: Reset FAST stall counter on tool execution.
-                state.consecutive_nontool_iterations = 0
-                # A tool batch may have activated a plan through ``activate_plan``;
-                # adopt it now so the next iteration's step guidance drives it.
-                from miniunicorn.agent.tools.activate_plan import take_pending_plan
-
-                activated = take_pending_plan()
-                if activated is not None:
-                    plan = await self._adopt_activated_plan(spec, state, plan, activated)
+                if action == "break":
+                    break
                 continue
 
-            if response.has_tool_calls:
-                logger.warning(
-                    "Ignoring tool calls under finish_reason='{}' for {}",
-                    response.finish_reason,
-                    spec.session_key or "default",
-                )
-
-            # T5: Track consecutive non-tool iterations in FAST mode for stall detection.
-            if plan is None:
-                state.consecutive_nontool_iterations += 1
-
-            clean = hook.finalize_content(context, response.content)
-            action, response, raw_usage, clean = await self._retry_empty_response(
+            action, plan = await self._finalize_nontool_iteration(
                 spec,
                 state,
-                context,
                 hook,
                 messages,
                 messages_for_model,
                 budget,
+                context,
+                plan,
+                planner,
+                planner_task_text,
+                planner_tools_summary,
+                reflection,
+                iteration,
                 response,
                 raw_usage,
-                clean,
-                iteration,
             )
-            if action == "continue":
-                continue
             if action == "break":
                 break
-
-            if response.finish_reason == "length" and not is_blank_text(clean):
-                if await self._handle_length_recovery(
-                    spec, state, context, hook, messages, response, clean, iteration
-                ):
-                    continue
-
-            assistant_message: dict[str, Any] | None = None
-            if response.finish_reason != "error" and not is_blank_text(clean):
-                assistant_message = build_assistant_message(
-                    clean,
-                    reasoning_content=response.reasoning_content,
-                    thinking_blocks=response.thinking_blocks,
-                )
-
-            # Drain mid-turn injections before stream-end notification so a
-            # resumed stream is not finalized prematurely by channel clients.
-            should_continue, state.injection_cycles = await self.try_drain_injections(
-                spec,
-                messages,
-                assistant_message,
-                state.injection_cycles,
-                phase="after final response",
-                iteration=iteration,
-                allow_goal_continue=True,
-            )
-            if should_continue:
-                state.had_injections = True
-
-            if hook.wants_streaming():
-                await hook.on_stream_end(context, resuming=should_continue)
-
-            if should_continue:
-                await hook.after_iteration(context)
-                continue
-
-            if response.finish_reason == "error":
-                if LLMProvider.is_arrearage_response(response):
-                    state.final_content = _ARREARAGE_ERROR_MESSAGE
-                else:
-                    state.final_content = clean or spec.error_message or _DEFAULT_ERROR_MESSAGE
-                state.stop_reason = "error"
-                state.error = state.final_content
-                self._append_model_error_placeholder(messages)
-                context.final_content = state.final_content
-                context.error = state.error
-                context.stop_reason = state.stop_reason
-                # Capture a failure lesson only when reflection is enabled.
-                if reflection is not None:
-                    await reflection.reflect(
-                        trigger="llm_error",
-                        iteration=iteration,
-                        context_summary=state.final_content or "LLM error",
-                        messages=messages,
-                        session_key=spec.session_key,
-                        user_key=spec.user_key,
-                    )
-                if (
-                    await self._end_turn_with_drain(
-                        spec, state, context, hook, messages, phase="after LLM error"
-                    )
-                    == "continue"
-                ):
-                    continue
-                break
-            if is_blank_text(clean):
-                state.final_content = EMPTY_FINAL_RESPONSE_MESSAGE
-                state.stop_reason = "empty_final_response"
-                state.error = state.final_content
-                self._append_final_message(messages, state.final_content)
-                context.final_content = state.final_content
-                context.error = state.error
-                context.stop_reason = state.stop_reason
-                if (
-                    await self._end_turn_with_drain(
-                        spec, state, context, hook, messages, phase="after empty response"
-                    )
-                    == "continue"
-                ):
-                    continue
-                break
-
-            messages.append(
-                assistant_message
-                or build_assistant_message(
-                    clean,
-                    reasoning_content=response.reasoning_content,
-                    thinking_blocks=response.thinking_blocks,
-                )
-            )
-            await self.emit_checkpoint(
-                spec,
-                {
-                    "phase": "final_response",
-                    "iteration": iteration,
-                    "model": spec.model,
-                    "assistant_message": messages[-1],
-                    "completed_tool_results": [],
-                    "pending_tool_calls": [],
-                },
-            )
-            # A non-tool response completes the current managed step. Continue
-            # through the ordinary ReAct loop until no pending plan step remains.
-            if plan is not None and plan.current_step is not None:
-                if await self._complete_plan_step(
-                    plan,
-                    context,
-                    hook,
-                    clean,
-                    state.stop_reason,
-                    spec=spec,
-                    turn_id=state.turn_id,
-                    tool_observations=[
-                        o for o in state.tool_observations if o.step_id == plan.current_step.id
-                    ],
-                ):
-                    # P1-T4: Check no-progress after step evidence evaluation.
-                    if state.progress_tracker is not None:
-                        verdict = self._planning.evaluate_step_progress(
-                            plan, state.progress_tracker
-                        )
-                        if verdict is not None:
-                            from miniunicorn.agent.progress_policy import (
-                                ProgressAction,
-                            )
-
-                            if verdict.action is ProgressAction.ABORT:
-                                state.stop_reason = "no_progress"
-                                state.final_content = _NO_PROGRESS_FINAL_MESSAGE
-                                context.stop_reason = state.stop_reason
-                                context.final_content = state.final_content
-                                await hook.after_iteration(context)
-                                break
-                            if verdict.action is ProgressAction.REPLAN:
-                                if plan.can_replan:
-                                    replan_result = await planner.replan(
-                                        plan,
-                                        plan.current_step,
-                                        f"ProgressPolicy: {verdict.reason}",
-                                        planner_task_text or "",
-                                        planner_tools_summary or "",
-                                    )
-                                    from miniunicorn.agent.planner import (
-                                        PlannerStatus as _PlannerStatus,
-                                    )
-
-                                    if replan_result.status is _PlannerStatus.VALID:
-                                        plan = replan_result.plan
-                                        state.tool_observations.clear()
-                                        state.plan_snapshot = await self._emit_plan_snapshot(
-                                            spec, plan, state.turn_id
-                                        )
-                                else:
-                                    state.stop_reason = "plan_failed"
-                                    state.final_content = (
-                                        "Plan failed: replans exhausted with no progress."
-                                    )
-                                    context.stop_reason = state.stop_reason
-                                    context.final_content = state.final_content
-                                    await hook.after_iteration(context)
-                                    break
-                    continue
-            state.final_content = clean
-            context.final_content = state.final_content
-            context.stop_reason = state.stop_reason
-            await hook.after_iteration(context)
-            break
         else:
             await self._finalize_max_iterations(spec, state, messages, reflection)
 
@@ -990,6 +655,419 @@ class AgentRunner:
         )
 
     # -- run() 阶段 helper (自 run 拆出, 语义与原内联实现逐句对应) ------------
+
+    async def _maybe_escalate_to_managed(
+        self,
+        spec: AgentRunSpec,
+        state: _TurnState,
+        planner: Any,
+        plan: Any,
+        planner_task_text: str | None,
+        planner_tools_summary: str | None,
+    ) -> tuple[Any, Any, str | None, str | None]:
+        """FAST 停滞检测 → MANAGED 升级。返回 (planner, plan, task_text, tools_summary)。
+
+        条件不满足或升级失败时原样返回入参（plan 不变即无升级）。
+        """
+        # Only in FAST mode (plan is None), not already escalated this turn,
+        # and after at least 2 consecutive non-tool iterations (stall).
+        if not (
+            plan is None
+            and not state.escalated_this_turn
+            and spec.planning_policy is not None
+            and state.consecutive_nontool_iterations >= 2
+        ):
+            return planner, plan, planner_task_text, planner_tools_summary
+        new_mode = spec.planning_policy.escalate(
+            PlanningMode.FAST,
+            stall_detected=True,
+            already_escalated=state.escalated_this_turn,
+        )
+        if new_mode is PlanningMode.MANAGED:
+            try:
+                # Create a plan using the existing planner infrastructure
+                (
+                    planner,
+                    new_plan,
+                    planner_task_text,
+                    planner_tools_summary,
+                ) = await self._init_planner(spec)
+                if new_plan is not None:
+                    plan = new_plan
+                    state.plan_snapshot = await self._emit_plan_snapshot(
+                        spec, plan, state.turn_id, stop_reason=None
+                    )
+                    # Update snapshot origin to "escalated"
+                    if state.plan_snapshot is not None:
+                        state.plan_snapshot = state.plan_snapshot.with_origin("escalated")
+                    from miniunicorn.agent.progress_policy import (
+                        ProgressPolicy,
+                        ProgressTracker,
+                    )
+
+                    state.progress_tracker = ProgressTracker(ProgressPolicy())
+                    state.escalated_this_turn = True
+                    state.consecutive_nontool_iterations = 0
+                    logger.info(
+                        "Escalated FAST -> MANAGED for turn {}",
+                        state.turn_id,
+                    )
+            except Exception:
+                logger.warning(
+                    "Escalation FAST->MANAGED failed; staying FAST",
+                    exc_info=True,
+                )
+                # Fall through to original FAST behavior
+        return planner, plan, planner_task_text, planner_tools_summary
+
+    async def _execute_tool_iteration(
+        self,
+        spec: AgentRunSpec,
+        state: _TurnState,
+        hook: AgentHook,
+        messages: list[dict[str, Any]],
+        context: AgentHookContext,
+        plan: Any,
+        planner: Any,
+        planner_task_text: str | None,
+        planner_tools_summary: str | None,
+        reflection: Any,
+        iteration: int,
+        response: Any,
+    ) -> tuple[str, Any]:
+        """工具响应迭代。返回 (action, plan)：action ∈ {"continue", "break"}。"""
+        context.tool_calls = list(response.tool_calls)
+        if hook.wants_streaming():
+            await hook.on_stream_end(context, resuming=True)
+
+        assistant_message = build_assistant_message(
+            response.content or "",
+            tool_calls=[tc.to_openai_tool_call() for tc in response.tool_calls],
+            reasoning_content=response.reasoning_content,
+            thinking_blocks=response.thinking_blocks,
+        )
+        messages.append(assistant_message)
+        state.tools_used.extend(tc.name for tc in response.tool_calls)
+        await self.emit_checkpoint(
+            spec,
+            {
+                "phase": "awaiting_tools",
+                "iteration": iteration,
+                "model": spec.model,
+                "assistant_message": assistant_message,
+                "completed_tool_results": [],
+                "pending_tool_calls": [tc.to_openai_tool_call() for tc in response.tool_calls],
+            },
+        )
+
+        await hook.before_execute_tools(context)
+
+        results, new_events, fatal_error = await self.execute_tools(
+            spec,
+            response.tool_calls,
+            state.external_lookup_counts,
+            state.workspace_violation_counts,
+            step_id=(
+                plan.current_step.id if plan is not None and plan.current_step is not None else None
+            ),
+        )
+        # 先摘出观察（其中会 pop 掉 receipt），再把已清干净的事件入列，
+        # 保证 tool_events 任何时刻都不持有回执。
+        state.tool_observations.extend(
+            self.tool_execution.build_observations(
+                response.tool_calls,
+                results,
+                new_events,
+                step_id=(
+                    plan.current_step.id
+                    if plan is not None and plan.current_step is not None
+                    else None
+                ),
+            )
+        )
+        state.tool_events.extend(new_events)
+        context.tool_results = list(results)
+        context.tool_events = list(new_events)
+        completed_tool_results = self.build_tool_result_messages(spec, response.tool_calls, results)
+        messages.extend(completed_tool_results)
+        if fatal_error is not None:
+            plan_before_error = plan
+            action, plan = await self._handle_fatal_tool_error(
+                spec,
+                state,
+                context,
+                hook,
+                messages,
+                plan=plan,
+                planner=planner,
+                planner_task_text=planner_task_text,
+                planner_tools_summary=planner_tools_summary,
+                fatal_error=fatal_error,
+                iteration=iteration,
+                reflection=reflection,
+            )
+            if plan is not None and plan is not plan_before_error:
+                # Successful replan returned a replacement plan.
+                state.tool_observations.clear()
+                state.plan_snapshot = await self._emit_plan_snapshot(spec, plan, state.turn_id)
+            elif (
+                plan is not None
+                and plan_before_error is not None
+                and state.stop_reason == "plan_failed"
+            ):
+                # Replans exhausted; the plan failed terminally.
+                state.plan_snapshot = await self._emit_plan_snapshot(
+                    spec, plan, state.turn_id, stop_reason="plan_failed"
+                )
+            return action, plan
+        await self.emit_checkpoint(
+            spec,
+            {
+                "phase": "tools_completed",
+                "iteration": iteration,
+                "model": spec.model,
+                "assistant_message": assistant_message,
+                "completed_tool_results": completed_tool_results,
+                "pending_tool_calls": [],
+            },
+        )
+        state.empty_content_retries = 0
+        state.length_recovery_count = 0
+        # Checkpoint 1: drain injections after tools, before the next model call.
+        _drained, state.injection_cycles = await self.try_drain_injections(
+            spec,
+            messages,
+            None,
+            state.injection_cycles,
+            phase="after tool execution",
+        )
+        if _drained:
+            state.had_injections = True
+        await hook.after_iteration(context)
+        # T5: Reset FAST stall counter on tool execution.
+        state.consecutive_nontool_iterations = 0
+        # A tool batch may have activated a plan through ``activate_plan``;
+        # adopt it now so the next iteration's step guidance drives it.
+        from miniunicorn.agent.tools.activate_plan import take_pending_plan
+
+        activated = take_pending_plan()
+        if activated is not None:
+            plan = await self._adopt_activated_plan(spec, state, plan, activated)
+        return "continue", plan
+
+    async def _finalize_nontool_iteration(
+        self,
+        spec: AgentRunSpec,
+        state: _TurnState,
+        hook: AgentHook,
+        messages: list[dict[str, Any]],
+        messages_for_model: list[dict[str, Any]],
+        budget: Any,
+        context: AgentHookContext,
+        plan: Any,
+        planner: Any,
+        planner_task_text: str | None,
+        planner_tools_summary: str | None,
+        reflection: Any,
+        iteration: int,
+        response: Any,
+        raw_usage: dict[str, int],
+    ) -> tuple[str, Any]:
+        """非工具响应迭代（含终止与验收）。返回 (action, plan)。"""
+        if response.has_tool_calls:
+            logger.warning(
+                "Ignoring tool calls under finish_reason='{}' for {}",
+                response.finish_reason,
+                spec.session_key or "default",
+            )
+
+        # T5: Track consecutive non-tool iterations in FAST mode for stall detection.
+        if plan is None:
+            state.consecutive_nontool_iterations += 1
+
+        clean = hook.finalize_content(context, response.content)
+        action, response, raw_usage, clean = await self._retry_empty_response(
+            spec,
+            state,
+            context,
+            hook,
+            messages,
+            messages_for_model,
+            budget,
+            response,
+            raw_usage,
+            clean,
+            iteration,
+        )
+        if action == "continue":
+            return "continue", plan
+        if action == "break":
+            return "break", plan
+
+        if response.finish_reason == "length" and not is_blank_text(clean):
+            if await self._handle_length_recovery(
+                spec, state, context, hook, messages, response, clean, iteration
+            ):
+                return "continue", plan
+
+        assistant_message: dict[str, Any] | None = None
+        if response.finish_reason != "error" and not is_blank_text(clean):
+            assistant_message = build_assistant_message(
+                clean,
+                reasoning_content=response.reasoning_content,
+                thinking_blocks=response.thinking_blocks,
+            )
+
+        # Drain mid-turn injections before stream-end notification so a
+        # resumed stream is not finalized prematurely by channel clients.
+        should_continue, state.injection_cycles = await self.try_drain_injections(
+            spec,
+            messages,
+            assistant_message,
+            state.injection_cycles,
+            phase="after final response",
+            iteration=iteration,
+            allow_goal_continue=True,
+        )
+        if should_continue:
+            state.had_injections = True
+
+        if hook.wants_streaming():
+            await hook.on_stream_end(context, resuming=should_continue)
+
+        if should_continue:
+            await hook.after_iteration(context)
+            return "continue", plan
+
+        if response.finish_reason == "error":
+            if LLMProvider.is_arrearage_response(response):
+                state.final_content = _ARREARAGE_ERROR_MESSAGE
+            else:
+                state.final_content = clean or spec.error_message or _DEFAULT_ERROR_MESSAGE
+            state.stop_reason = "error"
+            state.error = state.final_content
+            self._append_model_error_placeholder(messages)
+            context.final_content = state.final_content
+            context.error = state.error
+            context.stop_reason = state.stop_reason
+            # Capture a failure lesson only when reflection is enabled.
+            if reflection is not None:
+                await reflection.reflect(
+                    trigger="llm_error",
+                    iteration=iteration,
+                    context_summary=state.final_content or "LLM error",
+                    messages=messages,
+                    session_key=spec.session_key,
+                    user_key=spec.user_key,
+                )
+            if (
+                await self._end_turn_with_drain(
+                    spec, state, context, hook, messages, phase="after LLM error"
+                )
+                == "continue"
+            ):
+                return "continue", plan
+            return "break", plan
+        if is_blank_text(clean):
+            state.final_content = EMPTY_FINAL_RESPONSE_MESSAGE
+            state.stop_reason = "empty_final_response"
+            state.error = state.final_content
+            self._append_final_message(messages, state.final_content)
+            context.final_content = state.final_content
+            context.error = state.error
+            context.stop_reason = state.stop_reason
+            if (
+                await self._end_turn_with_drain(
+                    spec, state, context, hook, messages, phase="after empty response"
+                )
+                == "continue"
+            ):
+                return "continue", plan
+            return "break", plan
+
+        messages.append(
+            assistant_message
+            or build_assistant_message(
+                clean,
+                reasoning_content=response.reasoning_content,
+                thinking_blocks=response.thinking_blocks,
+            )
+        )
+        await self.emit_checkpoint(
+            spec,
+            {
+                "phase": "final_response",
+                "iteration": iteration,
+                "model": spec.model,
+                "assistant_message": messages[-1],
+                "completed_tool_results": [],
+                "pending_tool_calls": [],
+            },
+        )
+        # A non-tool response completes the current managed step. Continue
+        # through the ordinary ReAct loop until no pending plan step remains.
+        if plan is not None and plan.current_step is not None:
+            if await self._complete_plan_step(
+                plan,
+                context,
+                hook,
+                clean,
+                state.stop_reason,
+                spec=spec,
+                turn_id=state.turn_id,
+                tool_observations=[
+                    o for o in state.tool_observations if o.step_id == plan.current_step.id
+                ],
+            ):
+                # P1-T4: Check no-progress after step evidence evaluation.
+                if state.progress_tracker is not None:
+                    verdict = self._planning.evaluate_step_progress(plan, state.progress_tracker)
+                    if verdict is not None:
+                        from miniunicorn.agent.progress_policy import (
+                            ProgressAction,
+                        )
+
+                        if verdict.action is ProgressAction.ABORT:
+                            state.stop_reason = "no_progress"
+                            state.final_content = _NO_PROGRESS_FINAL_MESSAGE
+                            context.stop_reason = state.stop_reason
+                            context.final_content = state.final_content
+                            await hook.after_iteration(context)
+                            return "break", plan
+                        if verdict.action is ProgressAction.REPLAN:
+                            if plan.can_replan:
+                                replan_result = await planner.replan(
+                                    plan,
+                                    plan.current_step,
+                                    f"ProgressPolicy: {verdict.reason}",
+                                    planner_task_text or "",
+                                    planner_tools_summary or "",
+                                )
+                                from miniunicorn.agent.planner import (
+                                    PlannerStatus as _PlannerStatus,
+                                )
+
+                                if replan_result.status is _PlannerStatus.VALID:
+                                    plan = replan_result.plan
+                                    state.tool_observations.clear()
+                                    state.plan_snapshot = await self._emit_plan_snapshot(
+                                        spec, plan, state.turn_id
+                                    )
+                            else:
+                                state.stop_reason = "plan_failed"
+                                state.final_content = (
+                                    "Plan failed: replans exhausted with no progress."
+                                )
+                                context.stop_reason = state.stop_reason
+                                context.final_content = state.final_content
+                                await hook.after_iteration(context)
+                                return "break", plan
+                return "continue", plan
+        state.final_content = clean
+        context.final_content = state.final_content
+        context.stop_reason = state.stop_reason
+        await hook.after_iteration(context)
+        return "break", plan
 
     async def init_planner(self, spec: AgentRunSpec) -> tuple[Any, Any, str | None, str | None]:
         """Plan-and-Execute 初始化, 返回 (planner, plan, task_text, tools_summary)。
