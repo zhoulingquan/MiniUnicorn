@@ -45,7 +45,6 @@ def test_cold_import_regression() -> None:
 
 
 def test_registry_identity_via_new_path() -> None:
-    from miniunicorn.tools import ToolRegistry
-    from miniunicorn.tools import registry
+    from miniunicorn.tools import ToolRegistry, registry
 
     assert registry.ToolRegistry is ToolRegistry

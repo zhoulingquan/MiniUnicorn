@@ -2,6 +2,7 @@
 
 > 系列目的:完成 W0 时推迟的"Agent Core + Tool Library"拆分的最后一步——把 `miniunicorn/agent/tools/`(55 文件)物理外置为顶层包 `miniunicorn/tools/`,实现真正的"核心 + 库"形态。
 > 本方案取代 `docs/architecture/agent-core-tool-library-split-plan.md`(W0 时代的完整设想,其核心思想由本方案以更小步幅落地;该旧文档保留为历史记录)。
+> 状态:**已收官(2026-09-01)**:W5-0=`5cfe2225`、W5-1=`c670e608`,全量测试 **4135 passed / 0 failed**(4129 基线 + W5-0 新增 2 + W5-1 新增 4),`rg "miniunicorn\.agent\.tools"` 源码树零残留。
 > 基线:HEAD `a7763b8f`,全量测试 **4129 passed / 0 failed**,工作区干净。
 
 ## 一、现状侦察结论(2026-09-01,全部程序化核实)
