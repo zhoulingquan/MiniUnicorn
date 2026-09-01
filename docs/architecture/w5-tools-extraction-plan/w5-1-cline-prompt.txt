@@ -1,0 +1,72 @@
+# MiniUnicorn implementation task - Batch W5-1 (agent/tools -> miniunicorn/tools extraction, pure-move refactor)
+
+## Role and context
+
+You are a senior Python implementation engineer on the MiniUnicorn project. The project's purpose: a business-intelligence agent for long-term use by a small enterprise (single user), with core demands of efficiency, leanness, and maintainability. This task is the main batch of the W5 series: physically relocate the tools library from `miniunicorn/agent/tools/` (55 files) to the top-level package `miniunicorn/tools/` via `git mv`, then rewrite every reference. This completes the "Agent Core + Tool Library" layering. Implement independently, verify independently, commit independently, then STOP.
+
+Working directory: D:\MyProject\MiniUnicorn
+
+Prerequisite: batch W5-0 (RiskLevel -> security/risk.py) must already be merged (commit `refactor(w5-0): ...`). The working tree must be clean apart from untracked temp/analysis dirs. If tracked files are modified, stop and report.
+
+## Step 1: required reading (in order, before any implementation)
+
+1. `docs/architecture/w5-tools-extraction-plan/00-overview.md` - plan overview (focus: sections 1, 2, 4)
+2. `docs/architecture/w5-tools-extraction-plan/02-w5-1-tools-extraction.md` - THE batch task book (sole implementation basis)
+
+The task book is self-contained: the ordered change plan (git mv -> global prefix rewrite -> ONE authorized guard update -> new tests), reference tables for all four kinds of references that must be rewritten (imports, lazy-default string literals, test patch string targets, the loader default-package import), do-not-touch list, acceptance checklist.
+
+## Implementation discipline (takes priority over any efficiency concern)
+
+### Four situations require immediate stop-and-report (never guess and continue)
+
+1. Any "current-state anchor" in the task book does not match the actual code
+2. ANY architecture guard test fails. IMPORTANT: exactly ONE guard change is authorized (see red line 4). If a guard test fails for any OTHER reason, stop and report - do NOT edit guard whitelists or guard logic on your own initiative
+3. Tests cannot pass and the cause is unclear - NEVER weaken assertions or delete/modify existing test assertions
+4. Suspicious behavior not mentioned in the task book - record in the report only, do NOT fix
+
+### Global red lines
+
+1. **THIS IS A PURE-MOVE REFACTOR**: `git mv miniunicorn/agent/tools miniunicorn/tools` (MUST be git mv, never copy+delete - history preservation is an acceptance item), then the single string substitution `miniunicorn.agent.tools` -> `miniunicorn.tools` applied across ALL of `miniunicorn/` and `tests/`. The moved 55 files must be byte-identical apart from that prefix. The loader's discovery logic (`_SKIP_MODULES`, `pkgutil.iter_modules`, the relative `importlib.import_module(f".{module_name}", self._package.__name__)`), registration order, and the entry_points group name `miniunicorn.tools` are all self-adapting - do NOT touch them beyond the prefix rewrite
+2. **The rewrite must cover FOUR reference kinds - a pure import-statement rewrite is NOT enough**: (a) import statements in the moved package and in ~20 external consumer files; (b) EIGHT string literals in `miniunicorn/config/schema.py` used by `_lazy_default(...)` default factories (e.g. `_lazy_default("miniunicorn.agent.tools.web", "WebToolsConfig")`); (c) ~70 `patch("miniunicorn.agent.tools.shell._IS_WINDOWS", ...)` / `monkeypatch.setattr("miniunicorn.agent.tools.mcp.connect_mcp_servers", ...)` string targets across 63 test files; (d) the function-body default-package import in `miniunicorn/tools/loader.py` line ~35 (`import miniunicorn.agent.tools as _pkg`). Comments referencing the old path (known: `webui/web_search_api.py` line ~23, `tools/web_search/circuit_breaker.py` line ~3) are rewritten too. RECOMMENDED: write a one-shot Python script that walks miniunicorn/ and tests/ (.py files only, skip __pycache__) replacing the prefix with utf-8 encoding, run it, verify, then DELETE the script - determinism and completeness beat manual editing
+3. **Consumers and tests change ONLY import/patch paths** - zero logic changes, zero assertion changes, zero file moves (test files stay where they are; only their import/patch strings change)
+4. **Exactly ONE authorized guard update**: in `tests/architecture/test_dependency_direction.py`, remove the entry `("channels/websocket/channel", "miniunicorn.agent.tools.mcp")` from `AGENT_IMPORT_EXEMPTIONS` (the dependency dissolves because channels then imports `miniunicorn.tools.mcp`, which no longer matches the miniunicorn.agent prefix - the guard's stale-check forces this removal; it is an intended benefit). ALSO sync the corresponding exemption passage in `docs/architecture/module-boundaries.md` (the channels->agent exemption section) to note the dependency dissolved via the W5 tools extraction. Nothing else in the guard test or that doc changes
+5. **Zero-residue is the core acceptance criterion**: after the rewrite, `miniunicorn.agent.tools` must appear NOWHERE under `miniunicorn/` and `tests/` (docs/ historical files are exempt). This is enforced permanently by a new test (see red line 6, test 2)
+6. **Implement ALL 4 new tests** in a new file `tests/tools/test_tools_package_split.py`: (1) `miniunicorn/agent/tools` path does not exist and `miniunicorn/tools/__init__.py` exists; (2) zero-residue text scan over miniunicorn/**/*.py for the concatenated pattern `"miniunicorn" + ".agent" + ".tools"` (build the needle by concatenation so the test source itself cannot match); (3) cold-import regression: `subprocess.run([sys.executable, "-c", "import miniunicorn.tools.message; import miniunicorn.tools.self"])` with returncode == 0 (guards the W5-0 cycle fix); (4) `from miniunicorn.tools import ToolRegistry` identity smoke against `miniunicorn.tools.registry.ToolRegistry`
+7. No changes to: pyproject.toml (flat packaging auto-includes the new subpackage), composition/ structure, the W5-0 artifacts (security/risk.py, safety_policy re-export), loader discovery semantics, any existing re-export
+8. No new abstractions, no renaming, no fixing anything you notice along the way
+
+### Git discipline
+
+- One batch, one commit; NEVER `git add .`; add explicit paths: `git add miniunicorn/tools miniunicorn/agent tests/ docs/architecture/module-boundaries.md` (adjust to actual: after `git mv` the rename is already staged; the rewrite then modifies the staged files - re-add after rewriting). Do NOT include `.tmp-*` scripts or unrelated files
+- Commit message: `refactor(w5-1): extract agent/tools into top-level miniunicorn/tools package (pure move)`
+
+## Execution flow
+
+1. Read both files -> verify W5-0 is merged (`git log --oneline -3` must show the w5-0 commit) -> check anchors, record conclusions
+2. `git mv miniunicorn/agent/tools miniunicorn/tools`
+3. Run the prefix rewrite across `miniunicorn/` and `tests/` (script recommended; delete script after)
+4. Make the ONE authorized guard edit + module-boundaries.md sync
+5. Write the 4 new tests in `tests/tools/test_tools_package_split.py`
+6. Quick sanity BEFORE the full suite: `.venv\Scripts\python.exe -c "import miniunicorn.tools.message, miniunicorn.tools.self, miniunicorn.tools.registry; from miniunicorn.config.schema import Config; from miniunicorn.agent import AgentLoop"` (must exit 0), plus `.venv\Scripts\python.exe -m pytest tests/architecture/ tests/tools/test_tools_package_split.py -q` and `tests/agent/test_task_cancel.py -q` (fast smoke of both rewritten worlds)
+7. Verification gate (all must pass before commit is allowed) - MUST use the project venv Python 3.12:
+   - `.venv\Scripts\python.exe -m pytest tests/ -q` -> 0 failed, passed >= (W5-0 merged baseline + 4)
+   - `.venv\Scripts\python.exe -m ruff check miniunicorn/ tests/` -> zero output
+   - `.venv\Scripts\python.exe -m ruff format --check miniunicorn/ tests/` -> zero output
+   - WARNING: do not use the system default python (3.10, missing typing.Self - environment problem, not a code problem)
+   - The full pytest run takes about 7-8 minutes. Launch it as a DETACHED background process (`Start-Process -FilePath ".venv\Scripts\python.exe" -ArgumentList "-m","pytest","tests/","-q" -RedirectStandardOutput "$env:TEMP\w51_pytest.log" -RedirectStandardError "$env:TEMP\w51_pytest_err.log" -NoNewWindow -PassThru`) so it survives a session interruption, then poll the log with long sleep intervals (25s+); do NOT give up on the full run. If exactly one unrelated timing-sensitive test fails, rerun it in isolation to confirm flakiness, then rerun the full suite once; report honestly either way
+8. As soon as the verification gate passes, `git add` the explicit paths and COMMIT IMMEDIATELY - commit first, then write the report
+9. Output the batch report (format below)
+10. STOP after completion
+
+If you cannot finish everything in one run: clearly report how far you got; if the verification gate has not passed, do not commit; roll back half-finished work (`git mv miniunicorn/tools miniunicorn/agent/tools` reverses the move; `git checkout -- <files>` for edits) before reporting.
+
+## Batch report format (output last)
+
+## Batch report: W5-1
+1. Anchor check: all consistent / deviation on item N: <explanation>
+2. Changed files: <summary by area: moved 55 files / N consumer files / N test files / guard + doc / new test file - a full list of the moved package is not needed, list the non-moved files individually>
+3. New tests: <file + case count>
+4. Verification gate: pytest <N passed / 0 failed>; ruff <zero warnings>; zero-residue scan <0 hits>
+5. Deviations from the task book: listed one by one (the authorized guard removal counts) / none
+6. Acceptance checklist: <check each item, including `git log --follow miniunicorn/tools/filesystem.py` reaching the old path>
+7. Incidental findings (recorded only, not acted on): <problem list / none>

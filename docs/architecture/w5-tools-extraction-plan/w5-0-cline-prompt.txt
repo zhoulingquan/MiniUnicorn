@@ -1,0 +1,67 @@
+# MiniUnicorn implementation task - Batch W5-0 (RiskLevel -> security/risk.py leaf extraction, pre-batch for tools extraction)
+
+## Role and context
+
+You are a senior Python implementation engineer on the MiniUnicorn project. The project's purpose: a business-intelligence agent for long-term use by a small enterprise (single user), with core demands of efficiency, leanness, and maintainability. This task is a small, self-contained pre-batch of the W5 tools-extraction series: extract the RiskLevel enum into a leaf module so the later W5-1 batch (moving agent/tools out) cannot introduce a circular import. Implement independently, verify independently, commit independently, then STOP.
+
+Working directory: D:\MyProject\MiniUnicorn
+
+Prerequisite: the working tree must be clean apart from untracked temp/analysis dirs. If tracked files are modified, stop and report instead of stashing or resetting anything.
+
+## Step 1: required reading (in order, before any implementation)
+
+1. `docs/architecture/w5-tools-extraction-plan/00-overview.md` - plan overview (focus: sections 2 and 4)
+2. `docs/architecture/w5-tools-extraction-plan/01-w5-0-risklevel-leaf.md` - THE batch task book (sole implementation basis), including the WHY (the cold-import cycle that W5-1 would otherwise introduce)
+
+The task book is self-contained: current-state anchors, the exact new-module content, the change plan, test requirements, do-not-touch list, acceptance checklist. Line numbers are reference values only - always locate by symbol.
+
+## Implementation discipline (takes priority over any efficiency concern)
+
+### Four situations require immediate stop-and-report (never guess and continue)
+
+1. Any "current-state anchor" in the task book does not match the actual code
+2. Completing the task would require touching anything in the "do-not-touch list", especially: `SafetyVerdict`, `SafetyPolicy`, other tools files' safety_policy imports, or adding any miniunicorn import inside risk.py
+3. Tests cannot pass and the cause is unclear - NEVER weaken assertions or delete/modify existing tests
+4. Suspicious behavior not mentioned in the task book - record in the report only, do NOT fix
+
+### Global red lines
+
+1. This is a vocabulary extraction, not a redesign: the new `miniunicorn/security/risk.py` contains EXACTLY the docstring and the RiskLevel class shown in the task book (a 4-member str enum: LOW/MEDIUM/HIGH with values "low"/"medium"/"high") plus `from __future__ import annotations` and `from enum import Enum`. Nothing else
+2. `miniunicorn/agent/safety_policy.py`: delete ONLY the RiskLevel class definition (lines ~13-16) and add `from miniunicorn.security.risk import RiskLevel` in the import block. RiskLevel must remain importable from safety_policy (compat for all 17 existing consumers) - the import itself provides this. SafetyVerdict and SafetyPolicy stay byte-identical
+3. `miniunicorn/agent/tools/message.py` line ~7 and `miniunicorn/agent/tools/self.py` line ~10: switch their import source to `from miniunicorn.security.risk import RiskLevel`. NOTHING else in these two files changes
+4. Do NOT touch any other tools file's `from miniunicorn.agent.safety_policy import RiskLevel` (they are not in the agent/__init__ import closure; changing them is out of scope and would inflate the diff)
+5. Zero changes to: security's existing modules (network.py, workspace_access.py, workspace_policy.py), safety_policy's TYPE_CHECKING block, any test file's existing assertions
+6. No new abstractions, no renaming, no visibility fixes
+
+### Git discipline
+
+- One batch, one commit; NEVER `git add .`, only add explicit paths (expected: `miniunicorn/security/risk.py`, `miniunicorn/agent/safety_policy.py`, `miniunicorn/agent/tools/message.py`, `miniunicorn/agent/tools/self.py`, `tests/security/test_risk_level.py`)
+- Commit message: `refactor(w5-0): extract RiskLevel into security/risk.py leaf (pre-batch for tools extraction)`
+
+## Execution flow
+
+1. Read both files -> check each "current-state anchor" in the task book against the actual code, record the conclusion
+2. If consistent -> implement strictly per the task book's change plan: create `miniunicorn/security/risk.py` (exact content in task book), edit safety_policy.py (remove enum + add import), switch the import source in message.py and self.py
+3. Implement BOTH new tests in `tests/security/test_risk_level.py` (identity + values regression; leaf-property text scan)
+4. Verification gate (all must pass before commit is allowed) - MUST use the project venv Python 3.12:
+   - `.venv\Scripts\python.exe -m pytest tests/ -q` -> 0 failed, passed >= 4129
+   - `.venv\Scripts\python.exe -m ruff check miniunicorn/` -> zero output
+   - `.venv\Scripts\python.exe -m ruff format --check miniunicorn/` -> zero output
+   - WARNING: do not use the system default python (3.10, missing typing.Self, causes 14 ImportErrors at collection - that is an environment problem, not a code problem)
+   - The full pytest run takes about 7-8 minutes. Launch it as a DETACHED background process (`Start-Process -FilePath ".venv\Scripts\python.exe" -ArgumentList "-m","pytest","tests/","-q" -RedirectStandardOutput "$env:TEMP\w50_pytest.log" -RedirectStandardError "$env:TEMP\w50_pytest_err.log" -NoNewWindow -PassThru`) so it survives a session interruption, then poll the log with long sleep intervals (25s+); do NOT give up on the full run. If exactly one unrelated timing-sensitive test fails, rerun that single test in isolation to confirm flakiness, then rerun the full suite once; report honestly either way
+5. As soon as the verification gate passes, `git add` the explicit paths and COMMIT IMMEDIATELY - commit first, then write the report
+6. Output the batch report (format below)
+7. STOP after completion: do not start anything else, end without waiting for further questions
+
+If you cannot finish everything in one run: clearly report how far you got; if the verification gate has not passed, do not commit; roll back half-finished work with `git checkout -- <files>` before reporting.
+
+## Batch report format (output last)
+
+## Batch report: W5-0
+1. Anchor check: all consistent / deviation on item N: <explanation>
+2. Changed files: <list each>
+3. New tests: <file names + case count>
+4. Verification gate: pytest <N passed / 0 failed>; ruff <zero warnings>
+5. Deviations from the task book: listed one by one / none
+6. Acceptance checklist: <check each item, explain any not met>
+7. Incidental findings (recorded only, not acted on): <problem list / none>
