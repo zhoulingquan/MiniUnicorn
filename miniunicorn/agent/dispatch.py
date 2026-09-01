@@ -32,8 +32,8 @@ if TYPE_CHECKING:
     from miniunicorn.agent.response import ResponseAssembler
     from miniunicorn.agent.runtime_resources import RuntimeResourceRegistry
     from miniunicorn.agent.session_turn import SessionTurnService
-    from miniunicorn.agent.tools.registry import ToolRegistry
     from miniunicorn.session.webui_turns import WebuiTurnCoordinator
+    from miniunicorn.tools.registry import ToolRegistry
 
 UNIFIED_SESSION_KEY = "unified:default"
 

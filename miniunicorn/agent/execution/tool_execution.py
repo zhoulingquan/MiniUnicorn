@@ -25,8 +25,8 @@ from loguru import logger
 from miniunicorn.agent.safety_policy import RiskLevel, SafetyPolicy
 from miniunicorn.agent.step_acceptance import ToolObservation
 from miniunicorn.agent.tool_checkpoint import ToolCheckpoint
-from miniunicorn.agent.tools.receipts import take_receipt
 from miniunicorn.providers.base import ToolCallRequest
+from miniunicorn.tools.receipts import take_receipt
 from miniunicorn.utils.file_edit_events import (
     build_file_edit_end_event,
     build_file_edit_error_event,

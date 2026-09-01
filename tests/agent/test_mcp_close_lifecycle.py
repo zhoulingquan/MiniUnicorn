@@ -41,7 +41,7 @@ def _fake_connect():
 @pytest.mark.asyncio
 async def test_close_mcp_clears_stacks_and_can_reconnect(tmp_path, monkeypatch):
     loop = _make_loop(tmp_path, {"test": object()})
-    monkeypatch.setattr("miniunicorn.agent.tools.mcp.connect_mcp_servers", _fake_connect())
+    monkeypatch.setattr("miniunicorn.tools.mcp.connect_mcp_servers", _fake_connect())
 
     await loop._connect_mcp()
     assert loop._mcp_connected is True
@@ -58,7 +58,7 @@ async def test_close_mcp_clears_stacks_and_can_reconnect(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_close_mcp_resets_connected_flag(tmp_path, monkeypatch):
     loop = _make_loop(tmp_path, {"test": object()})
-    monkeypatch.setattr("miniunicorn.agent.tools.mcp.connect_mcp_servers", _fake_connect())
+    monkeypatch.setattr("miniunicorn.tools.mcp.connect_mcp_servers", _fake_connect())
 
     await loop._connect_mcp()
     assert loop._mcp_connected is True

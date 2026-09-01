@@ -13,10 +13,10 @@ from typing import Any
 
 import pytest
 
-from miniunicorn.agent.tools.context import ToolContext
-from miniunicorn.agent.tools.loader import ToolLoader
-from miniunicorn.agent.tools.registry import ToolRegistry
 from miniunicorn.config.schema import Config, ToolsConfig
+from miniunicorn.tools.context import ToolContext
+from miniunicorn.tools.loader import ToolLoader
+from miniunicorn.tools.registry import ToolRegistry
 
 
 def _config(enabled: bool) -> Config:
@@ -49,7 +49,7 @@ def test_cli_apps_tool_registered_when_enabled(tmp_path) -> None:
 
 
 def test_cli_apps_enabled_classmethod_follows_config(tmp_path) -> None:
-    from miniunicorn.agent.tools.cli_apps import CliAppsTool
+    from miniunicorn.tools.cli_apps import CliAppsTool
 
     assert CliAppsTool.enabled(_ctx(tmp_path, enabled=False)) is False
     assert CliAppsTool.enabled(_ctx(tmp_path, enabled=True)) is True

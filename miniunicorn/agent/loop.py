@@ -31,13 +31,6 @@ from miniunicorn.agent.runtime_resources import RuntimeResourceRegistry
 from miniunicorn.agent.session_turn import SessionTurnService
 from miniunicorn.agent.subagent import SubagentManager
 from miniunicorn.agent.subagent_registry import SubagentDefinition, SubagentRegistry
-from miniunicorn.agent.tools.context import (
-    RequestContext,
-    bind_request_context,
-    reset_request_context,
-)
-from miniunicorn.agent.tools.file_state import FileStateStore, bind_file_states, reset_file_states
-from miniunicorn.agent.tools.registry import LazyToolRegistry, ToolRegistry
 from miniunicorn.agent.turn_orchestrator import (
     StateMixin,
     StateTraceEntry,
@@ -74,6 +67,13 @@ from miniunicorn.session.webui_turns import (
     WebuiTurnCoordinator,
     build_bus_progress_callback,
 )
+from miniunicorn.tools.context import (
+    RequestContext,
+    bind_request_context,
+    reset_request_context,
+)
+from miniunicorn.tools.file_state import FileStateStore, bind_file_states, reset_file_states
+from miniunicorn.tools.registry import LazyToolRegistry, ToolRegistry
 from miniunicorn.utils.callback_types import ProgressCallback
 from miniunicorn.utils.document import extract_documents  # re-export for tests/extensions
 from miniunicorn.utils.llm_runtime import LLMRuntime
@@ -858,7 +858,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         session_key: str | None = None,
     ) -> None:
         """Update context for all tools that need routing info."""
-        from miniunicorn.agent.tools.context import ContextAware
+        from miniunicorn.tools.context import ContextAware
 
         if session_key is not None:
             effective_key = session_key

@@ -24,9 +24,9 @@ from miniunicorn.agent.step_acceptance import (
     ToolObservation,
     observations_digest,
 )
-from miniunicorn.agent.tools.filesystem import WriteFileTool
-from miniunicorn.agent.tools.registry import ToolRegistry
 from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from miniunicorn.tools.filesystem import WriteFileTool
+from miniunicorn.tools.registry import ToolRegistry
 
 _MAX_RESULT_CHARS = 10000
 

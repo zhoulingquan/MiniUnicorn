@@ -105,8 +105,8 @@ class TestHandleStop:
 
 class TestDispatch:
     def test_exec_tool_not_registered_when_disabled(self):
-        from miniunicorn.agent.tools.shell import ExecToolConfig
         from miniunicorn.config.schema import ToolsConfig
+        from miniunicorn.tools.shell import ExecToolConfig
 
         loop, _bus = _make_loop(tools_config=ToolsConfig(exec=ExecToolConfig(enable=False)))
 
@@ -274,7 +274,7 @@ class TestSubagentCancellation:
         async def fake_execute(self, **kwargs):
             return "tool result"
 
-        monkeypatch.setattr("miniunicorn.agent.tools.filesystem.ListDirTool.execute", fake_execute)
+        monkeypatch.setattr("miniunicorn.tools.filesystem.ListDirTool.execute", fake_execute)
 
         from miniunicorn.agent.subagent import SubagentStatus
 
@@ -299,9 +299,9 @@ class TestSubagentCancellation:
     @pytest.mark.asyncio
     async def test_subagent_exec_tool_not_registered_when_disabled(self, tmp_path):
         from miniunicorn.agent.subagent import SubagentManager
-        from miniunicorn.agent.tools.shell import ExecToolConfig
         from miniunicorn.bus.queue import MessageBus
         from miniunicorn.config.schema import ToolsConfig
+        from miniunicorn.tools.shell import ExecToolConfig
 
         bus = MessageBus()
         provider = MagicMock()
@@ -369,7 +369,7 @@ class TestSubagentCancellation:
                 return "first result"
             raise RuntimeError("boom")
 
-        monkeypatch.setattr("miniunicorn.agent.tools.filesystem.ListDirTool.execute", fake_execute)
+        monkeypatch.setattr("miniunicorn.tools.filesystem.ListDirTool.execute", fake_execute)
 
         from miniunicorn.agent.subagent import SubagentStatus
 
@@ -422,7 +422,7 @@ class TestSubagentCancellation:
                 cancelled.set()
                 raise
 
-        monkeypatch.setattr("miniunicorn.agent.tools.filesystem.ListDirTool.execute", fake_execute)
+        monkeypatch.setattr("miniunicorn.tools.filesystem.ListDirTool.execute", fake_execute)
 
         task = asyncio.create_task(
             mgr._run_subagent(

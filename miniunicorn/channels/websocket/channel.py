@@ -30,7 +30,6 @@ from websockets.http11 import Request as WsRequest
 from websockets.http11 import Response
 
 from miniunicorn import __version__
-from miniunicorn.agent.tools.mcp import request_mcp_reload
 from miniunicorn.bus.events import OUTBOUND_META_AGENT_UI, OutboundMessage
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.channels.base import BaseChannel
@@ -41,6 +40,7 @@ from miniunicorn.security.workspace_access import (
 )
 from miniunicorn.session.goal_state import goal_state_ws_blob
 from miniunicorn.session.webui_turns import websocket_turn_wall_started_at
+from miniunicorn.tools.mcp import request_mcp_reload
 from miniunicorn.utils.media_decode import (
     FileSizeExceededError,
     save_base64_data_url,

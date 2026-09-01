@@ -12,11 +12,11 @@ from typing import Any
 from unittest.mock import MagicMock
 
 from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.agent.tools.base import Tool
-from miniunicorn.agent.tools.registry import LazyToolRegistry, ToolRegistry
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.config.schema import Config
 from miniunicorn.providers.base import LLMResponse
+from miniunicorn.tools.base import Tool
+from miniunicorn.tools.registry import LazyToolRegistry, ToolRegistry
 
 
 class _FakeTool(Tool):

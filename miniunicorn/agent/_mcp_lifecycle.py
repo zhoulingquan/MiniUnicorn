@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from miniunicorn.agent.tools.self import MyTool
+from miniunicorn.tools.self import MyTool
 
 if TYPE_CHECKING:
     from miniunicorn.agent.loop import AgentLoop
@@ -32,8 +32,8 @@ class McpLifecycleMixin:
 
     def _register_default_tools(self: "AgentLoop") -> None:
         """Register the default set of tools via plugin loader."""
-        from miniunicorn.agent.tools.context import ToolContext
-        from miniunicorn.agent.tools.loader import ToolLoader
+        from miniunicorn.tools.context import ToolContext
+        from miniunicorn.tools.loader import ToolLoader
 
         ctx = ToolContext(
             config=self.tools_config,

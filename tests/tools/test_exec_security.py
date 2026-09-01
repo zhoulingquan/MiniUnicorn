@@ -8,12 +8,12 @@ from unittest.mock import patch
 
 import pytest
 
-from miniunicorn.agent.tools.shell import ExecTool
 from miniunicorn.security.workspace_access import (
     bind_workspace_scope,
     build_workspace_scope,
     reset_workspace_scope,
 )
+from miniunicorn.tools.shell import ExecTool
 
 
 def _fake_resolve_private(hostname, port, family=0, type_=0):

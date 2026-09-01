@@ -28,9 +28,9 @@ from loguru import logger
 
 from miniunicorn.agent import turn_telemetry
 from miniunicorn.agent.call_ledger import CallLedger, bind_call_ledger
-from miniunicorn.agent.tools.message import MessageTool
 from miniunicorn.bus.events import InboundMessage, OutboundMessage
 from miniunicorn.session.webui_turns import mark_webui_session
+from miniunicorn.tools.message import MessageTool
 from miniunicorn.utils.document import extract_documents, reference_non_image_attachments
 from miniunicorn.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
 
@@ -42,12 +42,12 @@ if TYPE_CHECKING:
     from miniunicorn.agent.runtime_resources import RuntimeResourceRegistry
     from miniunicorn.agent.session_turn import SessionTurnService
     from miniunicorn.agent.subagent_registry import SubagentDefinition
-    from miniunicorn.agent.tools.registry import ToolRegistry
     from miniunicorn.agent.turn_budget import TurnBudget
     from miniunicorn.config.schema import ChannelsConfig
     from miniunicorn.security.workspace_access import WorkspaceScope
     from miniunicorn.session.manager import Session, SessionManager
     from miniunicorn.session.webui_turns import WebuiTurnCoordinator
+    from miniunicorn.tools.registry import ToolRegistry
     from miniunicorn.utils.callback_types import ProgressCallback
     from miniunicorn.utils.llm_runtime import LLMRuntime
 

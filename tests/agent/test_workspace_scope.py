@@ -5,11 +5,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from miniunicorn.agent.tools.cli_apps import CliAppsTool
-from miniunicorn.agent.tools.filesystem import ReadFileTool
-from miniunicorn.agent.tools.message import MessageTool
-from miniunicorn.agent.tools.shell import ExecTool
-from miniunicorn.agent.tools.spawn import SpawnTool
 from miniunicorn.apps.cli.service import CliAppManager, CliAppsRuntimeConfig
 from miniunicorn.security.workspace_access import (
     WORKSPACE_SCOPE_METADATA_KEY,
@@ -20,6 +15,11 @@ from miniunicorn.security.workspace_access import (
     validate_workspace_scope_payload,
     workspace_scope_from_metadata,
 )
+from miniunicorn.tools.cli_apps import CliAppsTool
+from miniunicorn.tools.filesystem import ReadFileTool
+from miniunicorn.tools.message import MessageTool
+from miniunicorn.tools.shell import ExecTool
+from miniunicorn.tools.spawn import SpawnTool
 
 PNG_BYTES = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"

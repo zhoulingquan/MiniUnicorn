@@ -230,9 +230,9 @@ async def _handle_reminder_job(
     ``evaluate_response``) are now either passed explicitly or resolved
     through ``commands.evaluate_response`` for patch compatibility.
     """
-    from miniunicorn.agent.tools.cron import CronTool
-    from miniunicorn.agent.tools.message import MessageTool
     from miniunicorn.cli import commands
+    from miniunicorn.tools.cron import CronTool
+    from miniunicorn.tools.message import MessageTool
 
     async def _silent(*_args, **_kwargs):
         pass

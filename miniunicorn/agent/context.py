@@ -16,12 +16,12 @@ from miniunicorn.agent.persist_tags import RUNTIME_CONTEXT_TAG
 from miniunicorn.agent.runtime_view import RuntimeStateView
 from miniunicorn.agent.skills import SkillsLoader
 from miniunicorn.agent.subagent_registry import SubagentDefinition
-from miniunicorn.agent.tools import mcp as mcp_tools
-from miniunicorn.agent.tools.registry import ToolRegistry
 from miniunicorn.apps.cli import utils as cli_app_utils
 from miniunicorn.bus.events import InboundMessage
 from miniunicorn.config.schema import StructuredMemoryConfig
 from miniunicorn.session.goal_state import goal_state_runtime_lines
+from miniunicorn.tools import mcp as mcp_tools
+from miniunicorn.tools.registry import ToolRegistry
 from miniunicorn.utils.helpers import (
     current_time_str,
     detect_image_mime,

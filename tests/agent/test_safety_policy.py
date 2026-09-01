@@ -11,8 +11,8 @@ import pytest
 from miniunicorn.agent.execution.tool_execution import ToolExecutionCoordinator
 from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 from miniunicorn.agent.safety_policy import RiskLevel, SafetyPolicy
-from miniunicorn.agent.tools.base import Tool
 from miniunicorn.providers.base import LLMProvider, ToolCallRequest
+from miniunicorn.tools.base import Tool
 
 
 def _spec(

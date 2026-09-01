@@ -6,8 +6,8 @@ import subprocess
 import time
 from pathlib import Path
 
-from miniunicorn.agent.tools.cli_apps import CliAppsTool
 from miniunicorn.apps.cli.service import CliAppManager, CliAppsRuntimeConfig
+from miniunicorn.tools.cli_apps import CliAppsTool
 
 
 def _write_cache(path: Path, registry: dict) -> None:

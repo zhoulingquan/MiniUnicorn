@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
-from miniunicorn.agent.tools import file_state
-from miniunicorn.agent.tools.filesystem import ReadFileTool, WriteFileTool
+from miniunicorn.tools import file_state
+from miniunicorn.tools.filesystem import ReadFileTool, WriteFileTool
 
 
 @pytest.fixture(autouse=True)

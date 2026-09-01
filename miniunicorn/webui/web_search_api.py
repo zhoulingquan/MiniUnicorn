@@ -20,7 +20,7 @@ from ._runtime import WebUISettingsError, _mask_secret_hint
 
 # === 常量 ===
 
-# web_search 后端选项,必须与 miniunicorn/agent/tools/web_search/backends/__init__.py
+# web_search 后端选项,必须与 miniunicorn/tools/web_search/backends/__init__.py
 # 中的 BACKEND_REGISTRY 保持一致。auto 模式会并发调用所有后端,这里仅列出可在
 # 单后端模式显式选择的 provider。credential 字段告诉 UI 是否需要 api_key/base_url。
 # 精简为以 SearXNG 为主力的三层架构(2026-07-23):

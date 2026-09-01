@@ -4,11 +4,11 @@ import asyncio
 
 import pytest
 
-from miniunicorn.agent.tools.context import RequestContext
-from miniunicorn.agent.tools.cron import CronTool
-from miniunicorn.agent.tools.message import MessageTool
-from miniunicorn.agent.tools.spawn import SpawnTool
 from miniunicorn.cron.service import CronService
+from miniunicorn.tools.context import RequestContext
+from miniunicorn.tools.cron import CronTool
+from miniunicorn.tools.message import MessageTool
+from miniunicorn.tools.spawn import SpawnTool
 
 
 @pytest.mark.asyncio

@@ -34,7 +34,7 @@
 |---|---|---|
 | 业务模块 `import miniunicorn.composition` | 避免业务代码自举装配、破坏单一组合根 | ✅ 现状无 |
 | `session` import `agent` | 会话层不依赖代理执行细节 | ✅ 现状经 bus 解耦 |
-| `channels` import `agent` | 通道层经 bus 解耦,不直接持有 agent | ✅ 现状无 |
+| `channels` import `agent` | 通道层经 bus 解耦,不直接持有 agent | ✅ 现状无(原过渡期豁免 `channels/websocket/channel → agent.tools.mcp` 随 W5 工具库外置 `miniunicorn/tools` 后消解,channel.py 不再 import agent) |
 | 模块间读取对方下划线私有属性 | 模块边界 = 公开 API 边界 | ⚠️ 已知例外见 §4 |
 | 业务模块反向 import `cli/*`(除 `cli` 作为入口的调用方向) | 保持入口 → 业务单向 | ⚠️ 组合根内为测试兼容保留的 late-binding 例外,见 §4.1 |
 

@@ -57,7 +57,6 @@ BUSINESS_PACKAGES = frozenset(
 # 长期应改为依赖注入(bus 事件或注入服务),届时移除对应豁免条目。
 AGENT_IMPORT_EXEMPTIONS = frozenset(
     {
-        ("channels/websocket/channel", "miniunicorn.agent.tools.mcp"),
         ("channels/websocket/handlers/agents", "miniunicorn.agent.routes_agents"),
         ("channels/websocket/handlers/skills", "miniunicorn.agent.skills"),
     }

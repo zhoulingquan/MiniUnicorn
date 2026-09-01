@@ -12,14 +12,14 @@ from pydantic_settings import BaseSettings
 from miniunicorn.cron.types import CronSchedule
 
 if TYPE_CHECKING:
-    from miniunicorn.agent.tools.cli_apps import CliAppsToolConfig
-    from miniunicorn.agent.tools.deep_research.config import DeepResearchConfig
-    from miniunicorn.agent.tools.exec_session import ExecSessionToolConfig
-    from miniunicorn.agent.tools.image_generation.config import ImageGenerationConfig
-    from miniunicorn.agent.tools.self import MyToolConfig
-    from miniunicorn.agent.tools.shell import ExecToolConfig
-    from miniunicorn.agent.tools.web import WebToolsConfig
-    from miniunicorn.agent.tools.web_search.config import WebSearchConfig
+    from miniunicorn.tools.cli_apps import CliAppsToolConfig
+    from miniunicorn.tools.deep_research.config import DeepResearchConfig
+    from miniunicorn.tools.exec_session import ExecSessionToolConfig
+    from miniunicorn.tools.image_generation.config import ImageGenerationConfig
+    from miniunicorn.tools.self import MyToolConfig
+    from miniunicorn.tools.shell import ExecToolConfig
+    from miniunicorn.tools.web import WebToolsConfig
+    from miniunicorn.tools.web_search.config import WebSearchConfig
 
 
 class Base(BaseModel):
@@ -548,37 +548,35 @@ class ToolsConfig(Base, metaclass=_lazy_rebuild_meta(type(Base))):
     """
 
     web: WebToolsConfig = Field(
-        default_factory=lambda: _lazy_default("miniunicorn.agent.tools.web", "WebToolsConfig")
+        default_factory=lambda: _lazy_default("miniunicorn.tools.web", "WebToolsConfig")
     )
     exec: ExecToolConfig = Field(
-        default_factory=lambda: _lazy_default("miniunicorn.agent.tools.shell", "ExecToolConfig")
+        default_factory=lambda: _lazy_default("miniunicorn.tools.shell", "ExecToolConfig")
     )
     exec_session: ExecSessionToolConfig = Field(
         default_factory=lambda: _lazy_default(
-            "miniunicorn.agent.tools.exec_session", "ExecSessionToolConfig"
+            "miniunicorn.tools.exec_session", "ExecSessionToolConfig"
         )
     )
     cli_apps: CliAppsToolConfig = Field(
-        default_factory=lambda: _lazy_default(
-            "miniunicorn.agent.tools.cli_apps", "CliAppsToolConfig"
-        )
+        default_factory=lambda: _lazy_default("miniunicorn.tools.cli_apps", "CliAppsToolConfig")
     )
     my: MyToolConfig = Field(
-        default_factory=lambda: _lazy_default("miniunicorn.agent.tools.self", "MyToolConfig")
+        default_factory=lambda: _lazy_default("miniunicorn.tools.self", "MyToolConfig")
     )
     web_search: WebSearchConfig = Field(
         default_factory=lambda: _lazy_default(
-            "miniunicorn.agent.tools.web_search.config", "WebSearchConfig"
+            "miniunicorn.tools.web_search.config", "WebSearchConfig"
         )
     )
     deep_research: "DeepResearchConfig" = Field(
         default_factory=lambda: _lazy_default(
-            "miniunicorn.agent.tools.deep_research.config", "DeepResearchConfig"
+            "miniunicorn.tools.deep_research.config", "DeepResearchConfig"
         )
     )
     image_generation: "ImageGenerationConfig" = Field(
         default_factory=lambda: _lazy_default(
-            "miniunicorn.agent.tools.image_generation.config", "ImageGenerationConfig"
+            "miniunicorn.tools.image_generation.config", "ImageGenerationConfig"
         )
     )
     # 默认开启工作区隔离,避免工具越权访问工作区外路径;已有 config.json 中的显式值会覆盖此默认
@@ -825,14 +823,14 @@ def _resolve_tool_config_refs() -> None:
     """
     import sys
 
-    from miniunicorn.agent.tools.cli_apps import CliAppsToolConfig
-    from miniunicorn.agent.tools.deep_research.config import DeepResearchConfig
-    from miniunicorn.agent.tools.exec_session import ExecSessionToolConfig
-    from miniunicorn.agent.tools.image_generation.config import ImageGenerationConfig
-    from miniunicorn.agent.tools.self import MyToolConfig
-    from miniunicorn.agent.tools.shell import ExecToolConfig
-    from miniunicorn.agent.tools.web import WebFetchConfig, WebToolsConfig
-    from miniunicorn.agent.tools.web_search.config import WebSearchConfig
+    from miniunicorn.tools.cli_apps import CliAppsToolConfig
+    from miniunicorn.tools.deep_research.config import DeepResearchConfig
+    from miniunicorn.tools.exec_session import ExecSessionToolConfig
+    from miniunicorn.tools.image_generation.config import ImageGenerationConfig
+    from miniunicorn.tools.self import MyToolConfig
+    from miniunicorn.tools.shell import ExecToolConfig
+    from miniunicorn.tools.web import WebFetchConfig, WebToolsConfig
+    from miniunicorn.tools.web_search.config import WebSearchConfig
 
     # Re-export into this module's namespace
     mod = sys.modules[__name__]

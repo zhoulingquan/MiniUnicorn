@@ -22,9 +22,9 @@ from miniunicorn.agent.step_acceptance import (
     StepEvidence,
     ToolObservation,
 )
-from miniunicorn.agent.tools.base import Tool
-from miniunicorn.agent.tools.registry import ToolRegistry
 from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from miniunicorn.tools.base import Tool
+from miniunicorn.tools.registry import ToolRegistry
 
 
 def _coordinator() -> ToolExecutionCoordinator:

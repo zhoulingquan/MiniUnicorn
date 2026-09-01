@@ -4,9 +4,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.agent.tools.context import RequestContext
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.providers.base import LLMResponse, ToolCallRequest
+from miniunicorn.tools.context import RequestContext
 
 
 class _ContextRecordingTool:

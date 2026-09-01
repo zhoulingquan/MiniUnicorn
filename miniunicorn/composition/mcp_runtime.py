@@ -4,7 +4,7 @@ Normally the long-lived services (cron, subagents, MCP connections) are created
 by the composition root in ``miniunicorn/composition/`` rather than by
 :class:`AgentLoop`. This module is the composition-root-owned owner of the live
 MCP connection stacks. It natively satisfies the ``RuntimeState`` protocol from
-``miniunicorn.agent.tools.mcp``, so ``connect_missing_servers`` / ``reload``
+``miniunicorn.tools.mcp``, so ``connect_missing_servers`` / ``reload``
 can take it directly as their ``state`` argument with no change to tools/mcp.py.
 """
 
@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 
 if TYPE_CHECKING:
-    from miniunicorn.agent.tools.registry import ToolRegistry
+    from miniunicorn.tools.registry import ToolRegistry
 
 
 class McpRuntime:
@@ -40,7 +40,7 @@ class McpRuntime:
 
     async def connect_missing(self, registry: "ToolRegistry") -> None:
         """Connect any configured servers that do not yet have a live stack."""
-        from miniunicorn.agent.tools.mcp import connect_missing_servers
+        from miniunicorn.tools.mcp import connect_missing_servers
 
         await connect_missing_servers(self, registry)
 

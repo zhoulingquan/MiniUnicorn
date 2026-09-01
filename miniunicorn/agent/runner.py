@@ -30,8 +30,8 @@ from miniunicorn.agent.hook import AgentHook, AgentHookContext
 from miniunicorn.agent.planning_policy import PlanningMode, PlanningPolicy
 from miniunicorn.agent.provider_registry import ProviderRegistry
 from miniunicorn.agent.step_acceptance import ToolObservation
-from miniunicorn.agent.tools.registry import ToolRegistry
 from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from miniunicorn.tools.registry import ToolRegistry
 from miniunicorn.utils.file_edit_events import (
     prepare_file_edit_tracker as _prepare_file_edit_tracker,
 )
@@ -848,7 +848,7 @@ class AgentRunner:
         state.consecutive_nontool_iterations = 0
         # A tool batch may have activated a plan through ``activate_plan``;
         # adopt it now so the next iteration's step guidance drives it.
-        from miniunicorn.agent.tools.activate_plan import take_pending_plan
+        from miniunicorn.tools.activate_plan import take_pending_plan
 
         activated = take_pending_plan()
         if activated is not None:

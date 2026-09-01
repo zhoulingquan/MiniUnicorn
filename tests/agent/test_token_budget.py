@@ -178,7 +178,7 @@ class TestTokenBudgetConfig:
         """RED pressure halves the effective tool result budget (chars halved)."""
         from miniunicorn.agent.context_governor import PressureLevel
         from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
-        from miniunicorn.agent.tools.registry import ToolRegistry
+        from miniunicorn.tools.registry import ToolRegistry
 
         provider = _FakeProvider()
         runner = AgentRunner(provider)

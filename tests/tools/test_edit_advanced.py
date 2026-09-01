@@ -12,8 +12,8 @@ import time
 
 import pytest
 
-from miniunicorn.agent.tools import file_state
-from miniunicorn.agent.tools.filesystem import EditFileTool, ReadFileTool, _find_match
+from miniunicorn.tools import file_state
+from miniunicorn.tools.filesystem import EditFileTool, ReadFileTool, _find_match
 
 
 @pytest.fixture(autouse=True)

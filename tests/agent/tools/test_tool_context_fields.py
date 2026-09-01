@@ -2,7 +2,7 @@
 
 import dataclasses
 
-from miniunicorn.agent.tools.context import ToolContext
+from miniunicorn.tools.context import ToolContext
 
 
 def test_tool_context_field_set_is_exact():

@@ -25,11 +25,11 @@ from miniunicorn.agent.memory import Consolidator, Dream, MemoryStore
 
 if TYPE_CHECKING:
     from miniunicorn.agent.context import ContextBuilder
-    from miniunicorn.agent.tools.registry import ToolRegistry
     from miniunicorn.config.schema import DreamConfig
     from miniunicorn.providers.base import LLMProvider
     from miniunicorn.security.workspace_access import WorkspaceScopeResolver
     from miniunicorn.session.manager import SessionManager
+    from miniunicorn.tools.registry import ToolRegistry
 
 
 class RuntimeResourceRegistry:

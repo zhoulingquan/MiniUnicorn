@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from miniunicorn.agent.tools.base import Tool
-from miniunicorn.agent.tools.registry import ToolRegistry
+from miniunicorn.tools.base import Tool
+from miniunicorn.tools.registry import ToolRegistry
 
 
 class _FakeTool(Tool):

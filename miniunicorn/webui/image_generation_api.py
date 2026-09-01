@@ -18,7 +18,7 @@ from miniunicorn.config.loader import load_config
 from ._query import QueryParams, _query_first, _query_first_alias
 from ._runtime import WebUISettingsError
 
-# 与 miniunicorn.agent.tools.image_generation.providers.SUPPORTED_API_TYPES 保持一致
+# 与 miniunicorn.tools.image_generation.providers.SUPPORTED_API_TYPES 保持一致
 _SUPPORTED_API_TYPES: tuple[str, ...] = (
     "images_generations",
     "chat_completions",

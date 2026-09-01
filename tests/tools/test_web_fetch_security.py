@@ -9,14 +9,14 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from miniunicorn.agent.tools import web as web_module
-from miniunicorn.agent.tools.web import WebFetchTool
 from miniunicorn.config.schema import WebFetchConfig
 from miniunicorn.security.workspace_access import (
     bind_workspace_scope,
     build_workspace_scope,
     reset_workspace_scope,
 )
+from miniunicorn.tools import web as web_module
+from miniunicorn.tools.web import WebFetchTool
 
 _REAL_GETADDRINFO = socket.getaddrinfo
 
@@ -158,7 +158,7 @@ async def test_web_fetch_can_skip_jina_and_use_custom_user_agent(monkeypatch):
             return FakeResponse()
 
     monkeypatch.setattr(tool, "_fetch_jina", _fail_jina)
-    monkeypatch.setattr("miniunicorn.agent.tools.web.httpx.AsyncClient", FakeClient)
+    monkeypatch.setattr("miniunicorn.tools.web.httpx.AsyncClient", FakeClient)
 
     with patch("miniunicorn.security.network.socket.getaddrinfo", _fake_resolve_public):
         result = await tool.execute(url="https://example.com/page")
@@ -261,7 +261,7 @@ async def test_web_fetch_blocks_private_redirect_before_returning_image(monkeypa
             kwargs.pop("proxy", None)
             super().__init__(*args, transport=transport, **kwargs)
 
-    monkeypatch.setattr("miniunicorn.agent.tools.web.httpx.AsyncClient", TransportAsyncClient)
+    monkeypatch.setattr("miniunicorn.tools.web.httpx.AsyncClient", TransportAsyncClient)
 
     def resolve_public_start_only(hostname, port, family=0, type_=0):
         if hostname == "example.com":

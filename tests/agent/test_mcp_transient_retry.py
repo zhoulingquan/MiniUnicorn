@@ -9,7 +9,7 @@ from mcp import types as mcp_types
 from mcp.shared.exceptions import McpError
 from mcp.types import ErrorData
 
-from miniunicorn.agent.tools.mcp import (
+from miniunicorn.tools.mcp import (
     MCPPromptWrapper,
     MCPResourceWrapper,
     MCPToolWrapper,
@@ -95,7 +95,7 @@ async def test_tool_retries_on_transient_error():
 
     wrapper = MCPToolWrapper(session, "test_server", _make_tool_def(), tool_timeout=5)
 
-    with patch("miniunicorn.agent.tools.mcp.asyncio.sleep", new_callable=AsyncMock):
+    with patch("miniunicorn.tools.mcp.asyncio.sleep", new_callable=AsyncMock):
         output = await wrapper.execute(foo="bar")
 
     assert output == "ok"
@@ -112,7 +112,7 @@ async def test_tool_fails_after_retry_exhausted():
 
     wrapper = MCPToolWrapper(session, "test_server", _make_tool_def(), tool_timeout=5)
 
-    with patch("miniunicorn.agent.tools.mcp.asyncio.sleep", new_callable=AsyncMock):
+    with patch("miniunicorn.tools.mcp.asyncio.sleep", new_callable=AsyncMock):
         output = await wrapper.execute()
 
     assert "failed after retry" in output
@@ -177,7 +177,7 @@ async def test_tool_does_not_retry_on_cancelled_error():
 
     wrapper = MCPToolWrapper(session, "test_server", _make_tool_def(), tool_timeout=5)
 
-    with patch("miniunicorn.agent.tools.mcp.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+    with patch("miniunicorn.tools.mcp.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
         output = await wrapper.execute()
 
     assert "cancelled" in output
@@ -194,7 +194,7 @@ async def test_tool_retry_on_connection_reset():
 
     wrapper = MCPToolWrapper(session, "test_server", _make_tool_def(), tool_timeout=5)
 
-    with patch("miniunicorn.agent.tools.mcp.asyncio.sleep", new_callable=AsyncMock):
+    with patch("miniunicorn.tools.mcp.asyncio.sleep", new_callable=AsyncMock):
         output = await wrapper.execute()
 
     assert output == "recovered"
@@ -210,7 +210,7 @@ async def test_tool_retry_on_end_of_stream():
 
     wrapper = MCPToolWrapper(session, "test_server", _make_tool_def(), tool_timeout=5)
 
-    with patch("miniunicorn.agent.tools.mcp.asyncio.sleep", new_callable=AsyncMock):
+    with patch("miniunicorn.tools.mcp.asyncio.sleep", new_callable=AsyncMock):
         output = await wrapper.execute()
 
     assert output == "back"
@@ -244,7 +244,7 @@ async def test_resource_retries_on_transient_error():
 
     wrapper = MCPResourceWrapper(session, "test_server", _make_resource_def())
 
-    with patch("miniunicorn.agent.tools.mcp.asyncio.sleep", new_callable=AsyncMock):
+    with patch("miniunicorn.tools.mcp.asyncio.sleep", new_callable=AsyncMock):
         output = await wrapper.execute()
 
     assert output == "data"
@@ -260,7 +260,7 @@ async def test_resource_fails_after_retry_exhausted():
 
     wrapper = MCPResourceWrapper(session, "test_server", _make_resource_def())
 
-    with patch("miniunicorn.agent.tools.mcp.asyncio.sleep", new_callable=AsyncMock):
+    with patch("miniunicorn.tools.mcp.asyncio.sleep", new_callable=AsyncMock):
         output = await wrapper.execute()
 
     assert "failed after retry" in output
@@ -313,7 +313,7 @@ async def test_prompt_retries_on_transient_error():
 
     wrapper = MCPPromptWrapper(session, "test_server", _make_prompt_def())
 
-    with patch("miniunicorn.agent.tools.mcp.asyncio.sleep", new_callable=AsyncMock):
+    with patch("miniunicorn.tools.mcp.asyncio.sleep", new_callable=AsyncMock):
         output = await wrapper.execute()
 
     assert output == "prompt text"
@@ -329,7 +329,7 @@ async def test_prompt_fails_after_retry_exhausted():
 
     wrapper = MCPPromptWrapper(session, "test_server", _make_prompt_def())
 
-    with patch("miniunicorn.agent.tools.mcp.asyncio.sleep", new_callable=AsyncMock):
+    with patch("miniunicorn.tools.mcp.asyncio.sleep", new_callable=AsyncMock):
         output = await wrapper.execute()
 
     assert "failed after retry" in output

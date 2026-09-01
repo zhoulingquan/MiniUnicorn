@@ -20,12 +20,12 @@ import pytest
 from miniunicorn.agent.planner import Plan, PlanStep, StepStatus
 from miniunicorn.agent.planning_policy import PlanningMode, PlanningPolicy
 from miniunicorn.agent.runner import AgentRunner, AgentRunSpec, _TurnState
-from miniunicorn.agent.tools.activate_plan import ActivatePlanTool, take_pending_plan
-from miniunicorn.agent.tools.context import ToolContext
-from miniunicorn.agent.tools.filesystem import WriteFileTool
-from miniunicorn.agent.tools.loader import ToolLoader
-from miniunicorn.agent.tools.registry import ToolRegistry
 from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from miniunicorn.tools.activate_plan import ActivatePlanTool, take_pending_plan
+from miniunicorn.tools.context import ToolContext
+from miniunicorn.tools.filesystem import WriteFileTool
+from miniunicorn.tools.loader import ToolLoader
+from miniunicorn.tools.registry import ToolRegistry
 
 _MAX_RESULT_CHARS = 10000
 
@@ -457,7 +457,7 @@ async def test_managed_turn_activation_emits_activated_snapshot(tmp_path) -> Non
 
 
 def test_delegate_plan_alias_unchanged() -> None:
-    from miniunicorn.agent.tools.execute_plan import ExecutePlanTool
+    from miniunicorn.tools.execute_plan import ExecutePlanTool
 
     tool = ExecutePlanTool(manager=MagicMock())
     assert tool.name == "delegate_plan"

@@ -311,7 +311,7 @@ async def test_subagent_max_iterations_announces_existing_fallback(tmp_path, mon
     async def fake_execute(self, **kwargs):
         return "tool result"
 
-    monkeypatch.setattr("miniunicorn.agent.tools.filesystem.ListDirTool.execute", fake_execute)
+    monkeypatch.setattr("miniunicorn.tools.filesystem.ListDirTool.execute", fake_execute)
 
     status = SubagentStatus(
         task_id="sub-1", label="label", task_description="do task", started_at=time.monotonic()

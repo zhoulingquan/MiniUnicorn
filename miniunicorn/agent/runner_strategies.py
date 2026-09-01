@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Any
 
 from miniunicorn.agent.context_governor import GovernanceContext, PressureLevel
-from miniunicorn.agent.tools.registry import ToolRegistry
+from miniunicorn.tools.registry import ToolRegistry
 
 # ---------------------------------------------------------------------------
 # Governance constants (moved here from runner.py to keep governance logic

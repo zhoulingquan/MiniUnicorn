@@ -16,9 +16,9 @@ _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 async def test_subagent_exec_tool_receives_allowed_env_keys(tmp_path):
     """allowed_env_keys from ExecToolConfig must be forwarded to the subagent's ExecTool."""
     from miniunicorn.agent.subagent import SubagentManager, SubagentStatus
-    from miniunicorn.agent.tools.shell import ExecToolConfig
     from miniunicorn.bus.queue import MessageBus
     from miniunicorn.config.schema import ToolsConfig
+    from miniunicorn.tools.shell import ExecToolConfig
 
     bus = MessageBus()
     provider = MagicMock()
@@ -134,8 +134,8 @@ async def test_spawn_forwards_temperature_to_run_spec(tmp_path):
 async def test_spawn_tool_rejects_when_at_concurrency_limit(tmp_path):
     """SpawnTool should return an error string when the concurrency limit is reached."""
     from miniunicorn.agent.subagent import SubagentManager
-    from miniunicorn.agent.tools.spawn import SpawnTool
     from miniunicorn.bus.queue import MessageBus
+    from miniunicorn.tools.spawn import SpawnTool
 
     bus = MessageBus()
     provider = MagicMock()
@@ -162,7 +162,7 @@ async def test_spawn_tool_rejects_when_at_concurrency_limit(tmp_path):
 
     mgr.runner.run = AsyncMock(side_effect=fake_run)
 
-    from miniunicorn.agent.tools.context import RequestContext
+    from miniunicorn.tools.context import RequestContext
 
     tool = SpawnTool(mgr)
     tool.set_context(RequestContext(channel="test", chat_id="c1", session_key="test:c1"))

@@ -16,11 +16,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Mapping
 
-from miniunicorn.agent.tools.registry import ToolRegistry
 from miniunicorn.apps.protocol import app_manifest, compact_dict
 from miniunicorn.config.loader import load_config, resolve_config_env_vars, save_config
 from miniunicorn.config.paths import get_runtime_subdir
 from miniunicorn.config.schema import MCPServerConfig
+from miniunicorn.tools.registry import ToolRegistry
 from miniunicorn.utils.helpers import ensure_dir
 
 from ._query import _clip_ws_string, _query_first
@@ -864,7 +864,7 @@ async def _close_mcp_stacks(stacks: Mapping[str, Any]) -> None:
 
 async def mcp_presets_test_action(query: QueryParams) -> dict[str, Any]:
     """Connect to an enabled MCP preset and report its tool surface."""
-    from miniunicorn.agent.tools.mcp import connect_mcp_servers
+    from miniunicorn.tools.mcp import connect_mcp_servers
 
     name = (_query_first(query, "name") or "").strip()
     if not name:

@@ -205,7 +205,7 @@ def test_test_mcp_preset_connects_and_reports_tools(
         registry.register(FakeTool())
         return {"playwright": FakeStack()}
 
-    monkeypatch.setattr("miniunicorn.agent.tools.mcp.connect_mcp_servers", fake_connect)
+    monkeypatch.setattr("miniunicorn.tools.mcp.connect_mcp_servers", fake_connect)
 
     payload = asyncio.run(mcp_presets_test_action({"name": ["playwright"]}))
 
@@ -233,7 +233,7 @@ def test_test_mcp_preset_scrubs_connection_errors(
             "failed https://example.invalid/mcp?token=bb_live_secret"
         )
 
-    monkeypatch.setattr("miniunicorn.agent.tools.mcp.connect_mcp_servers", fake_connect)
+    monkeypatch.setattr("miniunicorn.tools.mcp.connect_mcp_servers", fake_connect)
 
     payload = asyncio.run(mcp_presets_test_action({"name": ["custom-remote"]}))
 

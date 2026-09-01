@@ -7,10 +7,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.tools.base import Tool
-from miniunicorn.agent.tools.registry import ToolRegistry
 from miniunicorn.config.schema import AgentDefaults
 from miniunicorn.providers.base import LLMResponse, ToolCallRequest
+from miniunicorn.tools.base import Tool
+from miniunicorn.tools.registry import ToolRegistry
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 

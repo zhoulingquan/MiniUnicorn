@@ -16,11 +16,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.tools.deep_research.config import DeepResearchConfig
-from miniunicorn.agent.tools.deep_research.tool import DeepResearchTool
-from miniunicorn.agent.tools.web_search.backends.base import BackendResponse, SearchResult
-from miniunicorn.agent.tools.web_search.config import WebSearchConfig
 from miniunicorn.providers.base import LLMResponse
+from miniunicorn.tools.deep_research.config import DeepResearchConfig
+from miniunicorn.tools.deep_research.tool import DeepResearchTool
+from miniunicorn.tools.web_search.backends.base import BackendResponse, SearchResult
+from miniunicorn.tools.web_search.config import WebSearchConfig
 
 # ---------------------------------------------------------------------------
 # 测试辅助

@@ -8,14 +8,14 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.agent.tools.context import RequestContext
-from miniunicorn.agent.tools.long_task import (
-    CompleteGoalTool,
-    LongTaskTool,
-)
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.session.goal_state import GOAL_STATE_KEY
 from miniunicorn.session.manager import SessionManager
+from miniunicorn.tools.context import RequestContext
+from miniunicorn.tools.long_task import (
+    CompleteGoalTool,
+    LongTaskTool,
+)
 
 
 def _tools(sm: SessionManager) -> tuple[LongTaskTool, CompleteGoalTool]:

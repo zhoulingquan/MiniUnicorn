@@ -55,7 +55,6 @@ class GatewayApplication:
         # Late imports: tests patch these names on their own modules, and
         # ``commands``/``_gateway_runner`` must not be imported at module load
         # (circular with the CLI entry modules).
-        from miniunicorn.agent.tools.message import MessageTool
         from miniunicorn.bus.queue import MessageBus
         from miniunicorn.channels.manager import ChannelManager
         from miniunicorn.channels.websocket import publish_runtime_model_update
@@ -67,6 +66,7 @@ class GatewayApplication:
         from miniunicorn.cron.service import CronService
         from miniunicorn.providers.factory import build_provider_snapshot, load_provider_snapshot
         from miniunicorn.session.manager import SessionManager
+        from miniunicorn.tools.message import MessageTool
 
         self.config = config
         self._open_browser_url = open_browser_url

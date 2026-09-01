@@ -21,12 +21,12 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from loguru import logger
 
-from miniunicorn.agent.tools.message import MessageTool
 from miniunicorn.bus.events import InboundMessage, OutboundMessage
+from miniunicorn.tools.message import MessageTool
 
 if TYPE_CHECKING:
-    from miniunicorn.agent.tools.registry import ToolRegistry
     from miniunicorn.bus.queue import MessageBus
+    from miniunicorn.tools.registry import ToolRegistry
 
 
 class ResponseAssembler:

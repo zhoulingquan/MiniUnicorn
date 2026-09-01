@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 import pytest
 from pydantic import BaseModel
 
-from miniunicorn.agent.tools.self import MyTool
+from miniunicorn.tools.self import MyTool
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1099,7 +1099,7 @@ class TestLastUsageInSummary:
 
 class TestSetContext:
     def test_set_context_stores_channel_and_chat_id(self):
-        from miniunicorn.agent.tools.context import RequestContext
+        from miniunicorn.tools.context import RequestContext
 
         tool = _make_tool()
         tool.set_context(RequestContext(channel="feishu", chat_id="oc_abc123"))

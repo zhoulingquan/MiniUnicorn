@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import pytest
 
-from miniunicorn.agent.tools.context import RequestContext
-from miniunicorn.agent.tools.cron import CronTool
-from miniunicorn.agent.tools.registry import ToolRegistry
+from miniunicorn.tools.context import RequestContext
+from miniunicorn.tools.cron import CronTool
+from miniunicorn.tools.registry import ToolRegistry
 
 
 class _SvcStub:

@@ -13,10 +13,6 @@ from loguru import logger
 
 from miniunicorn.agent.hook import AgentHook, AgentHookContext
 from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
-from miniunicorn.agent.tools.context import ToolContext
-from miniunicorn.agent.tools.file_state import FileStates
-from miniunicorn.agent.tools.loader import ToolLoader
-from miniunicorn.agent.tools.registry import ToolRegistry
 from miniunicorn.bus.events import InboundMessage, OutboundMessage, make_session_key
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.config.schema import AgentDefaults, ToolsConfig
@@ -26,6 +22,10 @@ from miniunicorn.security.workspace_access import (
     bind_workspace_scope,
     reset_workspace_scope,
 )
+from miniunicorn.tools.context import ToolContext
+from miniunicorn.tools.file_state import FileStates
+from miniunicorn.tools.loader import ToolLoader
+from miniunicorn.tools.registry import ToolRegistry
 from miniunicorn.utils.prompt_templates import render_template
 
 # 子代理递归深度跟踪：主代理 depth=0，子代理 depth=1，孙代理 depth=2。

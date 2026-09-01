@@ -7,8 +7,9 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
-import miniunicorn.agent.tools.mcp as mcp_mod
-from miniunicorn.agent.tools.mcp import (
+import miniunicorn.tools.mcp as mcp_mod
+from miniunicorn.config.schema import MCPServerConfig
+from miniunicorn.tools.mcp import (
     MCPPromptWrapper,
     MCPResourceWrapper,
     MCPToolWrapper,
@@ -16,8 +17,7 @@ from miniunicorn.agent.tools.mcp import (
     _sanitize_name,
     connect_mcp_servers,
 )
-from miniunicorn.agent.tools.registry import ToolRegistry
-from miniunicorn.config.schema import MCPServerConfig
+from miniunicorn.tools.registry import ToolRegistry
 
 
 class _FakeTextContent:
@@ -443,7 +443,7 @@ async def test_connect_mcp_servers_enabled_tools_warns_on_unknown_entries(
     def _warning(message: str, *args: object) -> None:
         warnings.append(message.format(*args))
 
-    monkeypatch.setattr("miniunicorn.agent.tools.mcp.logger.warning", _warning)
+    monkeypatch.setattr("miniunicorn.tools.mcp.logger.warning", _warning)
 
     stacks = await connect_mcp_servers(
         {"test": MCPServerConfig(command="fake", enabled_tools=["unknown"])},
@@ -474,7 +474,7 @@ async def test_connect_mcp_servers_logs_stdio_pollution_hint(
         yield  # pragma: no cover
 
     monkeypatch.setattr(sys.modules["mcp.client.stdio"], "stdio_client", _broken_stdio_client)
-    monkeypatch.setattr("miniunicorn.agent.tools.mcp.logger.exception", _error)
+    monkeypatch.setattr("miniunicorn.tools.mcp.logger.exception", _error)
 
     registry = ToolRegistry()
     stacks = await connect_mcp_servers({"gh": MCPServerConfig(command="github-mcp")}, registry)

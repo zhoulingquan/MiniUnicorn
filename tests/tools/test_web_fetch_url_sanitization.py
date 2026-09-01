@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from miniunicorn.agent.tools.web import WebFetchTool, _validate_url
+from miniunicorn.tools.web import WebFetchTool, _validate_url
 
 
 def _fake_resolve_public(hostname, port, family=0, type_=0):
@@ -59,7 +59,7 @@ class FakeClient:
 
 def _patch_env():
     return patch("miniunicorn.security.network.socket.getaddrinfo", _fake_resolve_public), patch(
-        "miniunicorn.agent.tools.web.httpx.AsyncClient", FakeClient
+        "miniunicorn.tools.web.httpx.AsyncClient", FakeClient
     )
 
 

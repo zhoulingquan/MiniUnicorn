@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from miniunicorn.agent.tools.execute_plan import ExecutePlanTool
-from miniunicorn.agent.tools.registry import ToolRegistry
+from miniunicorn.tools.execute_plan import ExecutePlanTool
+from miniunicorn.tools.registry import ToolRegistry
 
 
 def test_tool_primary_name() -> None:

@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 from miniunicorn.security.risk import RiskLevel
 
 if TYPE_CHECKING:
-    from miniunicorn.agent.tools.base import Tool
+    from miniunicorn.tools.base import Tool
 
 
 @dataclass(frozen=True, slots=True)

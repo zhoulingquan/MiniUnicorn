@@ -1,8 +1,8 @@
-from miniunicorn.agent.tools.apply_patch import ApplyPatchTool
-from miniunicorn.agent.tools.exec_session import ListExecSessionsTool, WriteStdinTool
-from miniunicorn.agent.tools.filesystem import EditFileTool, ReadFileTool, WriteFileTool
-from miniunicorn.agent.tools.search import FindFilesTool, GrepTool
-from miniunicorn.agent.tools.shell import ExecTool
+from miniunicorn.tools.apply_patch import ApplyPatchTool
+from miniunicorn.tools.exec_session import ListExecSessionsTool, WriteStdinTool
+from miniunicorn.tools.filesystem import EditFileTool, ReadFileTool, WriteFileTool
+from miniunicorn.tools.search import FindFilesTool, GrepTool
+from miniunicorn.tools.shell import ExecTool
 
 
 def test_coding_tool_descriptions_steer_editing_priority() -> None:

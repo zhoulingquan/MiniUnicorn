@@ -17,7 +17,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from loguru import logger
 
-from miniunicorn.agent.tools.registry import ToolRegistry
+from miniunicorn.tools.registry import ToolRegistry
 
 
 class PressureLevel(str, Enum):

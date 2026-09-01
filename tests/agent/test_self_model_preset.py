@@ -4,10 +4,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.agent.tools.self import MyTool
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.config.schema import ModelPresetConfig
 from miniunicorn.providers.factory import ProviderSnapshot
+from miniunicorn.tools.self import MyTool
 
 
 def _provider(default_model: str, max_tokens: int = 123) -> MagicMock:
