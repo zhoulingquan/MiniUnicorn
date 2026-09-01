@@ -7,11 +7,11 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from miniunicorn.agent.safety_policy import RiskLevel
 from miniunicorn.agent.tools.base import Tool
 from miniunicorn.agent.tools.context import ContextAware, RequestContext
 from miniunicorn.agent.tools.runtime_state import RuntimeState
 from miniunicorn.config.schema import Base
+from miniunicorn.security.risk import RiskLevel
 
 if TYPE_CHECKING:
     from miniunicorn.agent.subagent import SubagentStatus

@@ -4,13 +4,13 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-from miniunicorn.agent.safety_policy import RiskLevel
 from miniunicorn.agent.tools.base import Tool, tool_parameters
 from miniunicorn.agent.tools.context import ContextAware, RequestContext
 from miniunicorn.agent.tools.path_utils import resolve_workspace_path
 from miniunicorn.agent.tools.schema import ArraySchema, StringSchema, tool_parameters_schema
 from miniunicorn.bus.events import OutboundMessage
 from miniunicorn.config.paths import get_workspace_path
+from miniunicorn.security.risk import RiskLevel
 from miniunicorn.security.workspace_access import current_tool_workspace
 
 

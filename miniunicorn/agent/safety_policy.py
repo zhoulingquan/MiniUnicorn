@@ -11,17 +11,12 @@ Pure functional policy; can be overridden by spec (like PlanningPolicy).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
 from typing import TYPE_CHECKING
+
+from miniunicorn.security.risk import RiskLevel
 
 if TYPE_CHECKING:
     from miniunicorn.agent.tools.base import Tool
-
-
-class RiskLevel(str, Enum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
 
 
 @dataclass(frozen=True, slots=True)
