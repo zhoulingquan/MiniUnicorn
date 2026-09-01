@@ -73,8 +73,5 @@ def test_benchmark_preserves_required_fields_for_all_tools() -> None:
     cropped = crop_tool_definitions(definitions)
     for original, cropped_schema in zip(definitions, cropped):
         assert cropped_schema["function"]["parameters"]["required"] == ["target"]
-        assert (
-            cropped_schema["function"]["parameters"]["properties"]["target"]["type"]
-            == "string"
-        )
+        assert cropped_schema["function"]["parameters"]["properties"]["target"]["type"] == "string"
         assert original["function"]["name"] == cropped_schema["function"]["name"]

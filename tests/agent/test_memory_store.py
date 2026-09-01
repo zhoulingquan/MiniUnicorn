@@ -810,9 +810,7 @@ class TestSQLiteStartupWiring:
 
         monkeypatch.setattr(memory_module, "migrate_legacy_journal", spy_migrate, raising=False)
 
-        store = MemoryStore(
-            tmp_path, structured_config=StructuredMemoryConfig(lock_timeout_s=2.5)
-        )
+        store = MemoryStore(tmp_path, structured_config=StructuredMemoryConfig(lock_timeout_s=2.5))
 
         assert captured == {"workspace": tmp_path, "lock_timeout_s": 2.5}
         assert store.structured_repository.health.state == "healthy"
@@ -911,4 +909,3 @@ class TestSQLiteStartupWiring:
         assert open_segment.exists()
         assert open_segment.read_text(encoding="utf-8").strip()
         assert store.structured_repository.health.state == "healthy"
-

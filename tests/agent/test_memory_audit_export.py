@@ -119,7 +119,11 @@ def repository(workspace: Path) -> StructuredMemoryRepository:
 
 def seed_transactions(repository: StructuredMemoryRepository, count: int):
     transactions = [
-        make_transaction(_record(index)) for index in range(repository.storage_stats().transaction_count, repository.storage_stats().transaction_count + count)
+        make_transaction(_record(index))
+        for index in range(
+            repository.storage_stats().transaction_count,
+            repository.storage_stats().transaction_count + count,
+        )
     ]
     for transaction in transactions:
         repository.append_transaction(transaction)
@@ -201,12 +205,12 @@ def test_small_segment_export_matches_exact_files(workspace, repository):
         "manifest.json",
     ]
     lines = [canonical_line(tx) for tx in transactions]
-    sealed1 = (audit / "journal-000000000001-000000000003.jsonl").read_text(
-        encoding="utf-8"
-    ).splitlines()
-    sealed2 = (audit / "journal-000000000004-000000000006.jsonl").read_text(
-        encoding="utf-8"
-    ).splitlines()
+    sealed1 = (
+        (audit / "journal-000000000001-000000000003.jsonl").read_text(encoding="utf-8").splitlines()
+    )
+    sealed2 = (
+        (audit / "journal-000000000004-000000000006.jsonl").read_text(encoding="utf-8").splitlines()
+    )
     open_tail = (audit / "journal-open.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(sealed1) == len(sealed2) == 3
     assert len(open_tail) == 2
@@ -338,6 +342,7 @@ def test_export_failure_keeps_db_and_old_audit_and_rebuild_restores(
 
         monkeypatch.setattr(builtins, "open", flaky_open)
     else:
+
         def flaky_fsync(fd):
             raise OSError("injected fsync failure")
 
@@ -438,9 +443,7 @@ def test_rebuild_swaps_audit_and_preserves_old_in_recovery(workspace, repository
     assert result.last_tx_seq == 8
 
 
-def test_rebuild_failure_keeps_db_and_recoverable_old_dir(
-    workspace, repository, monkeypatch
-):
+def test_rebuild_failure_keeps_db_and_recoverable_old_dir(workspace, repository, monkeypatch):
     import miniunicorn.agent.memory_audit_export as audit_export
 
     seed_transactions(repository, 8)
@@ -534,9 +537,7 @@ def test_default_segment_size_is_ten_thousand():
 # ---------------------------------------------------------------------------
 
 
-def test_divergent_max_snapshot_race_leaves_complete_audit(
-    workspace, repository, monkeypatch
-):
+def test_divergent_max_snapshot_race_leaves_complete_audit(workspace, repository, monkeypatch):
     """A stale-max exporter must never shrink the durable audit.
 
     Exporter A snapshots max_seq=16 and completes its pass; exporter B
@@ -631,9 +632,7 @@ def test_export_replace_failure_at_every_write_point_self_heals(
     )
 
 
-def test_rebuild_twice_same_minute_keeps_unique_recovery_audit(
-    workspace, repository, monkeypatch
-):
+def test_rebuild_twice_same_minute_keeps_unique_recovery_audit(workspace, repository, monkeypatch):
     """Two rebuilds within the same UTC minute must not collide on the
     ``recovery/<UTC>/audit`` target: each previous audit stays recoverable."""
     import miniunicorn.agent.memory_audit_export as audit_export

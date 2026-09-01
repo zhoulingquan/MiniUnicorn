@@ -5,16 +5,15 @@ Tests that turn end outputs a log line with prompt component tokens and pressure
 
 from __future__ import annotations
 
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from loguru import logger
 
+from miniunicorn.agent import turn_telemetry
 from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
 from miniunicorn.agent.turn_telemetry import PromptComponentTokens, TurnTelemetry
-from miniunicorn.agent import turn_telemetry
-from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from miniunicorn.providers.base import LLMProvider, LLMResponse
 
 
 def _spec(context_window_tokens: int | None = 1000) -> AgentRunSpec:
@@ -59,7 +58,9 @@ class TestPromptTelemetryConsumer:
     """Turn end should log prompt telemetry summary."""
 
     @pytest.mark.asyncio
-    async def test_turn_end_logs_prompt_telemetry_summary(self, mock_provider, bound_telemetry, caplog):
+    async def test_turn_end_logs_prompt_telemetry_summary(
+        self, mock_provider, bound_telemetry, caplog
+    ):
         """When turn completes, loguru.info emits prompt telemetry line."""
         # Set up telemetry with prompt components (simulating governance)
         bound_telemetry.prompt_components = PromptComponentTokens(
@@ -75,9 +76,7 @@ class TestPromptTelemetryConsumer:
         bound_telemetry.governance_pressure.level = "green"
 
         # Use loguru's built-in capture instead of caplog
-        from loguru import logger
         import io
-        import sys
 
         # Capture loguru logs
         captured_logs = io.StringIO()
@@ -86,10 +85,15 @@ class TestPromptTelemetryConsumer:
         try:
             # Trigger the log as turn_orchestrator would
             from miniunicorn.agent import turn_telemetry as tt
+
             telemetry = tt.current()
             if telemetry is not None and telemetry.prompt_components is not None:
                 pc = telemetry.prompt_components
-                pressure_level = telemetry.governance_pressure.level if telemetry.governance_pressure else "unknown"
+                pressure_level = (
+                    telemetry.governance_pressure.level
+                    if telemetry.governance_pressure
+                    else "unknown"
+                )
                 logger.info(
                     "prompt telemetry: sys={} tools={} history={} compacted={} total={} pressure={}",
                     pc.system_prompt,
@@ -119,7 +123,7 @@ class TestPromptTelemetryConsumer:
         token = turn_telemetry.bind(telemetry)
         try:
             runner = AgentRunner(mock_provider)
-            result = await runner.run(_spec(context_window_tokens=None))
+            await runner.run(_spec(context_window_tokens=None))
 
             log_output = caplog.text
             assert "prompt telemetry:" not in log_output
@@ -142,7 +146,6 @@ class TestPromptTelemetryConsumer:
         bound_telemetry.governance_pressure.level = "yellow"
 
         # Use loguru's built-in capture
-        from loguru import logger
         import io
 
         captured_logs = io.StringIO()
@@ -150,10 +153,15 @@ class TestPromptTelemetryConsumer:
 
         try:
             from miniunicorn.agent import turn_telemetry as tt
+
             telemetry = tt.current()
             if telemetry is not None and telemetry.prompt_components is not None:
                 pc = telemetry.prompt_components
-                pressure_level = telemetry.governance_pressure.level if telemetry.governance_pressure else "unknown"
+                pressure_level = (
+                    telemetry.governance_pressure.level
+                    if telemetry.governance_pressure
+                    else "unknown"
+                )
                 logger.info(
                     "prompt telemetry: sys={} tools={} history={} compacted={} total={} pressure={}",
                     pc.system_prompt,
@@ -168,4 +176,7 @@ class TestPromptTelemetryConsumer:
 
         log_output = captured_logs.getvalue()
         # Single line, space-separated key=value
-        assert "prompt telemetry: sys=100 tools=200 history=300 compacted=10 total=685 pressure=yellow" in log_output
+        assert (
+            "prompt telemetry: sys=100 tools=200 history=300 compacted=10 total=685 pressure=yellow"
+            in log_output
+        )

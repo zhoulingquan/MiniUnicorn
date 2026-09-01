@@ -18,6 +18,7 @@ from miniunicorn.tools.registry import ToolRegistry
 @pytest.mark.asyncio
 async def test_probe_returns_true_for_open_port(tmp_path):
     """Start a trivial TCP server, probe should return True."""
+
     async def _close_handler(reader, writer):
         writer.close()
 

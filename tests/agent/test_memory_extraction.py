@@ -68,7 +68,9 @@ def valid_batch(*proposals):
     return {"schema_version": 1, "proposals": list(proposals)}
 
 
-@pytest.mark.parametrize("raw", ["nothing new", "{}", '{"schema_version":1,"proposals":[],"extra":1}'])
+@pytest.mark.parametrize(
+    "raw", ["nothing new", "{}", '{"schema_version":1,"proposals":[],"extra":1}']
+)
 def test_extraction_rejects_non_contract_output(raw, evidence_catalog, tag_catalog):
     with pytest.raises(MemoryExtractionError):
         parse_extraction_batch(raw, evidence_catalog, tag_catalog)
@@ -80,7 +82,9 @@ def test_extraction_rejects_malformed_json(evidence_catalog, tag_catalog):
 
 
 def test_valid_empty_batch_is_accepted(evidence_catalog, tag_catalog):
-    parsed = parse_extraction_batch('{"schema_version":1,"proposals":[]}', evidence_catalog, tag_catalog)
+    parsed = parse_extraction_batch(
+        '{"schema_version":1,"proposals":[]}', evidence_catalog, tag_catalog
+    )
     assert parsed.proposals == ()
 
 
@@ -161,6 +165,8 @@ def test_user_and_session_scope_hints_allowed_when_batch_supplies_them(
 
 
 def test_duplicate_proposal_indices_rejected(evidence_catalog, tag_catalog):
-    raw = json.dumps(valid_batch(valid_proposal(proposal_index=0), valid_proposal(proposal_index=0)))
+    raw = json.dumps(
+        valid_batch(valid_proposal(proposal_index=0), valid_proposal(proposal_index=0))
+    )
     with pytest.raises(MemoryExtractionError, match="contract"):
         parse_extraction_batch(raw, evidence_catalog, tag_catalog)

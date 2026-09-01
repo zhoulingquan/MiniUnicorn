@@ -242,9 +242,7 @@ async def test_managed_run_replans_stalling_step_and_tracks_progress(monkeypatch
     plan_payload = json.dumps(
         {
             "goal": "prove theorem",
-            "steps": [
-                {"id": 1, "action": "attempt proof", "done_criteria": "QED-XYZZY"}
-            ],
+            "steps": [{"id": 1, "action": "attempt proof", "done_criteria": "QED-XYZZY"}],
         }
     )
     provider = MagicMock(spec=LLMProvider)

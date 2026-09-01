@@ -232,8 +232,16 @@ class TestCallLedgerTurnBudgetIntegration:
         ledger = CallLedger()
         budget = TurnBudget(max_cost_usd=1.0, max_input_tokens=1000, max_output_tokens=500)
 
-        ledger.record(model="gpt-4o", usage={"prompt_tokens": 100, "completion_tokens": 50}, finish_reason="stop")
-        ledger.record(model="gpt-4o-mini", usage={"prompt_tokens": 200, "completion_tokens": 100}, finish_reason="stop")
+        ledger.record(
+            model="gpt-4o",
+            usage={"prompt_tokens": 100, "completion_tokens": 50},
+            finish_reason="stop",
+        )
+        ledger.record(
+            model="gpt-4o-mini",
+            usage={"prompt_tokens": 200, "completion_tokens": 100},
+            finish_reason="stop",
+        )
         # Trigger accumulation
         reason = ledger.check_budget(budget)
 
@@ -249,7 +257,11 @@ class TestCallLedgerTurnBudgetIntegration:
         ledger = CallLedger()
         budget = TurnBudget(max_cost_usd=1.0, max_input_tokens=1000, max_output_tokens=500)
 
-        ledger.record(model="gpt-4o", usage={"prompt_tokens": 100, "completion_tokens": 50}, finish_reason="stop")
+        ledger.record(
+            model="gpt-4o",
+            usage={"prompt_tokens": 100, "completion_tokens": 50},
+            finish_reason="stop",
+        )
 
         # First check
         reason1 = ledger.check_budget(budget)
@@ -271,11 +283,19 @@ class TestCallLedgerTurnBudgetIntegration:
         ledger = CallLedger()
         budget = TurnBudget(max_input_tokens=150, max_output_tokens=500, max_cost_usd=None)
 
-        ledger.record(model="gpt-4o", usage={"prompt_tokens": 100, "completion_tokens": 50}, finish_reason="stop")
+        ledger.record(
+            model="gpt-4o",
+            usage={"prompt_tokens": 100, "completion_tokens": 50},
+            finish_reason="stop",
+        )
         reason = ledger.check_budget(budget)
         assert reason is None  # 100 < 150
 
-        ledger.record(model="gpt-4o", usage={"prompt_tokens": 60, "completion_tokens": 30}, finish_reason="stop")
+        ledger.record(
+            model="gpt-4o",
+            usage={"prompt_tokens": 60, "completion_tokens": 30},
+            finish_reason="stop",
+        )
         reason = ledger.check_budget(budget)
         assert reason == "input_tokens_exceeded (160 > 150)"
 
@@ -286,11 +306,19 @@ class TestCallLedgerTurnBudgetIntegration:
         ledger = CallLedger()
         budget = TurnBudget(max_input_tokens=1000, max_output_tokens=100, max_cost_usd=None)
 
-        ledger.record(model="gpt-4o", usage={"prompt_tokens": 50, "completion_tokens": 40}, finish_reason="stop")
+        ledger.record(
+            model="gpt-4o",
+            usage={"prompt_tokens": 50, "completion_tokens": 40},
+            finish_reason="stop",
+        )
         reason = ledger.check_budget(budget)
         assert reason is None  # 40 < 100
 
-        ledger.record(model="gpt-4o", usage={"prompt_tokens": 50, "completion_tokens": 70}, finish_reason="stop")
+        ledger.record(
+            model="gpt-4o",
+            usage={"prompt_tokens": 50, "completion_tokens": 70},
+            finish_reason="stop",
+        )
         reason = ledger.check_budget(budget)
         assert reason == "output_tokens_exceeded (110 > 100)"
 
@@ -319,11 +347,17 @@ class TestCallLedgerTurnBudgetIntegration:
         pricing = {"gpt-4o-mini": (0.15 / 1000, 0.60 / 1000)}
 
         ledger = CallLedger()
-        budget = TurnBudget(max_cost_usd=0.01, max_input_tokens=None, max_output_tokens=None, pricing=pricing)
+        budget = TurnBudget(
+            max_cost_usd=0.01, max_input_tokens=None, max_output_tokens=None, pricing=pricing
+        )
 
         # 1000 input tokens * $0.15/1M = $0.00015, 1000 output * $0.60/1M = $0.0006
         # Total = $0.00075
-        ledger.record(model="gpt-4o-mini", usage={"prompt_tokens": 1000, "completion_tokens": 1000}, finish_reason="stop")
+        ledger.record(
+            model="gpt-4o-mini",
+            usage={"prompt_tokens": 1000, "completion_tokens": 1000},
+            finish_reason="stop",
+        )
 
         reason = ledger.check_budget(budget)
         assert reason is None  # $0.00075 < $0.01
@@ -336,10 +370,16 @@ class TestCallLedgerTurnBudgetIntegration:
         pricing = {"gpt-4o": (10.0 / 1000, 30.0 / 1000)}  # High pricing
 
         ledger = CallLedger()
-        budget = TurnBudget(max_cost_usd=0.5, max_input_tokens=None, max_output_tokens=None, pricing=pricing)
+        budget = TurnBudget(
+            max_cost_usd=0.5, max_input_tokens=None, max_output_tokens=None, pricing=pricing
+        )
 
         # Explicit cost_usd=0.1 should be used, not calculated from pricing
-        ledger.record(model="gpt-4o", usage={"prompt_tokens": 1000, "completion_tokens": 1000, "cost_usd": 0.1}, finish_reason="stop")
+        ledger.record(
+            model="gpt-4o",
+            usage={"prompt_tokens": 1000, "completion_tokens": 1000, "cost_usd": 0.1},
+            finish_reason="stop",
+        )
 
         reason = ledger.check_budget(budget)
         assert reason is None

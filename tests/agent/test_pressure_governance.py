@@ -130,7 +130,9 @@ def test_microcompact_runs_on_red() -> None:
     strategy = MicrocompactStrategy()
     result = strategy.apply(messages, ctx)
     # On RED, microcompact should compact old results
-    compacted = [m for m in result if m.get("role") == "tool" and "omitted" in str(m.get("content", ""))]
+    compacted = [
+        m for m in result if m.get("role") == "tool" and "omitted" in str(m.get("content", ""))
+    ]
     assert len(compacted) > 0
 
 
@@ -158,7 +160,9 @@ def test_microcompact_runs_when_no_pressure() -> None:
 
     strategy = MicrocompactStrategy()
     result = strategy.apply(messages, ctx)
-    compacted = [m for m in result if m.get("role") == "tool" and "omitted" in str(m.get("content", ""))]
+    compacted = [
+        m for m in result if m.get("role") == "tool" and "omitted" in str(m.get("content", ""))
+    ]
     assert len(compacted) > 0
 
 
@@ -172,7 +176,13 @@ def test_apply_tool_result_budget_tightens_on_red() -> None:
     long_result = "x" * 2000
     messages = [
         {"role": "user", "content": "hi"},
-        {"role": "assistant", "content": "ok", "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "test", "arguments": "{}"}}]},
+        {
+            "role": "assistant",
+            "content": "ok",
+            "tool_calls": [
+                {"id": "c1", "type": "function", "function": {"name": "test", "arguments": "{}"}}
+            ],
+        },
         {"role": "tool", "tool_call_id": "c1", "name": "test", "content": long_result},
     ]
 
@@ -210,7 +220,13 @@ def test_apply_tool_result_budget_normal_on_green() -> None:
     long_result = "x" * 2000
     messages = [
         {"role": "user", "content": "hi"},
-        {"role": "assistant", "content": "ok", "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "test", "arguments": "{}"}}]},
+        {
+            "role": "assistant",
+            "content": "ok",
+            "tool_calls": [
+                {"id": "c1", "type": "function", "function": {"name": "test", "arguments": "{}"}}
+            ],
+        },
         {"role": "tool", "tool_call_id": "c1", "name": "test", "content": long_result},
     ]
 

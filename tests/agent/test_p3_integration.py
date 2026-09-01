@@ -138,16 +138,20 @@ async def test_fast_escalation_end_to_end(bound_telemetry: TurnTelemetry) -> Non
     # 6: Plan completed
     responses = [
         LLMResponse(content="thinking...", tool_calls=[], usage={}),  # iter 0
-        LLMResponse(content="still thinking...", tool_calls=[], usage={}),  # iter 1 - stall detected (2 consecutive)
+        LLMResponse(
+            content="still thinking...", tool_calls=[], usage={}
+        ),  # iter 1 - stall detected (2 consecutive)
         # On iter 2, escalation should trigger planner.create_plan
         LLMResponse(
-            content=json.dumps({
-                "goal": "escalated goal",
-                "steps": [
-                    {"id": 1, "action": "escalated step 1"},
-                    {"id": 2, "action": "escalated step 2"},
-                ],
-            }),
+            content=json.dumps(
+                {
+                    "goal": "escalated goal",
+                    "steps": [
+                        {"id": 1, "action": "escalated step 1"},
+                        {"id": 2, "action": "escalated step 2"},
+                    ],
+                }
+            ),
             tool_calls=[],
             usage={},
         ),  # planner response
@@ -194,10 +198,12 @@ async def test_delegate_plan_alias_end_to_end(bound_telemetry: TurnTelemetry) ->
 
     # Model returns execute_plan (legacy name) tool call
     # The tool expects a 'plan' parameter which is a JSON string
-    plan_json = json.dumps({
-        "goal": "test delegation",
-        "steps": [{"id": 1, "action": "sub step 1"}, {"id": 2, "action": "sub step 2"}],
-    })
+    plan_json = json.dumps(
+        {
+            "goal": "test delegation",
+            "steps": [{"id": 1, "action": "sub step 1"}, {"id": 2, "action": "sub step 2"}],
+        }
+    )
     responses = [
         LLMResponse(
             content="",
@@ -294,9 +300,7 @@ async def test_high_risk_tool_leaves_checkpoint_trail(
     _ = await runner.run(spec)
 
     # Find the tool_completed checkpoint
-    tool_checkpoints = [
-        c for c in checkpoints if c.get("phase") == "tools_completed"
-    ]
+    tool_checkpoints = [c for c in checkpoints if c.get("phase") == "tools_completed"]
     assert len(tool_checkpoints) >= 1
 
     # The checkpoint should contain tool_checkpoint with risk_level="high"
@@ -457,4 +461,3 @@ async def test_high_risk_checkpoint_has_risk_level_and_intent(
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

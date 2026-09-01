@@ -102,7 +102,8 @@ def test_discover_enabled_raises_when_module_import_fails(monkeypatch):
         return object()  # preflight passes; failure happens at import time
 
     monkeypatch.setattr(
-        _REGISTRY_IMPORTLIB, _make_fake_importlib(import_module=_recording_import, find_spec=_present)
+        _REGISTRY_IMPORTLIB,
+        _make_fake_importlib(import_module=_recording_import, find_spec=_present),
     )
 
     with patch(_EP_TARGET, return_value=[]):

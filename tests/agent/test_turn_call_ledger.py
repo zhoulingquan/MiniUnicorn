@@ -100,8 +100,7 @@ class TestTurnCallLedger:
         responses = [
             LLMResponse(
                 content=(
-                    '{"goal":"do task","steps":['
-                    '{"id":1,"action":"do task","tool_hint":null}]}'
+                    '{"goal":"do task","steps":[{"id":1,"action":"do task","tool_hint":null}]}'
                 ),
                 tool_calls=[],
                 usage=_usage(100, 20, 0.002),
@@ -118,9 +117,11 @@ class TestTurnCallLedger:
             use_planner=True,
             planner_model="test-model",
         )
-        loop.tools.get_definitions = MagicMock(return_value=[
-            {"type": "function", "function": {"name": "list_dir", "description": "List dir"}}
-        ])
+        loop.tools.get_definitions = MagicMock(
+            return_value=[
+                {"type": "function", "function": {"name": "list_dir", "description": "List dir"}}
+            ]
+        )
         loop.tools.execute = AsyncMock(return_value="tool result")
 
         auto_compact = loop._turn_orchestrator._deps.resources.auto_compact
@@ -173,8 +174,7 @@ class TestTurnCallLedger:
         responses = [
             LLMResponse(
                 content=(
-                    '{"goal":"do task","steps":['
-                    '{"id":1,"action":"do task","tool_hint":null}]}'
+                    '{"goal":"do task","steps":[{"id":1,"action":"do task","tool_hint":null}]}'
                 ),
                 tool_calls=[],
                 usage=_usage(100, 20, 0.05),
@@ -191,9 +191,11 @@ class TestTurnCallLedger:
             planner_model="test-model",
             max_cost_per_turn_usd=0.03,
         )
-        loop.tools.get_definitions = MagicMock(return_value=[
-            {"type": "function", "function": {"name": "list_dir", "description": "List dir"}}
-        ])
+        loop.tools.get_definitions = MagicMock(
+            return_value=[
+                {"type": "function", "function": {"name": "list_dir", "description": "List dir"}}
+            ]
+        )
         loop.tools.execute = AsyncMock(return_value="tool result")
 
         auto_compact = loop._turn_orchestrator._deps.resources.auto_compact
@@ -221,9 +223,9 @@ class TestTurnCallLedger:
     @pytest.mark.asyncio
     async def test_direct_runner_run_creates_local_ledger(self, tmp_path: Path) -> None:
         """Direct AgentRunner.run() should create and bind a local ledger when none exists."""
-        provider = _ScriptedProvider([
-            LLMResponse(content="done", tool_calls=[], usage=_usage(10, 5, 0.001))
-        ])
+        provider = _ScriptedProvider(
+            [LLMResponse(content="done", tool_calls=[], usage=_usage(10, 5, 0.001))]
+        )
 
         tools = MagicMock()
         tools.get_definitions.return_value = []
@@ -250,10 +252,12 @@ class TestTurnCallLedger:
         self,
         tmp_path: Path,
     ) -> None:
-        provider = _ScriptedProvider([
-            LLMResponse(content="", tool_calls=[], usage=_usage(10, 1)),
-            LLMResponse(content="done", tool_calls=[], usage={}),
-        ])
+        provider = _ScriptedProvider(
+            [
+                LLMResponse(content="", tool_calls=[], usage=_usage(10, 1)),
+                LLMResponse(content="done", tool_calls=[], usage={}),
+            ]
+        )
         tools = MagicMock()
         tools.get_definitions.return_value = []
         runner = AgentRunner(provider)
@@ -276,9 +280,9 @@ class TestTurnCallLedger:
         """Concurrent AgentRunner.run() invocations should not share ledger totals."""
 
         async def run_task(task_id: int, usage: dict):
-            prov = _ScriptedProvider([
-                LLMResponse(content=f"response-{task_id}", tool_calls=[], usage=usage)
-            ])
+            prov = _ScriptedProvider(
+                [LLMResponse(content=f"response-{task_id}", tool_calls=[], usage=usage)]
+            )
             tools = MagicMock()
             tools.get_definitions.return_value = []
             tools.execute = AsyncMock(return_value="tool result")
@@ -400,7 +404,9 @@ class TestTurnCallLedger:
         assert current_call_ledger() is None
 
     @pytest.mark.asyncio
-    async def test_executor_call_purpose_records_usage_not_unclassified(self, tmp_path: Path) -> None:
+    async def test_executor_call_purpose_records_usage_not_unclassified(
+        self, tmp_path: Path
+    ) -> None:
         """ModelRequestExecutor.request_model should record usage under EXECUTOR purpose, not UNCLASSIFIED."""
         ledger = CallLedger()
 
@@ -409,7 +415,16 @@ class TestTurnCallLedger:
                 super().__init__()
                 self._default_model = "test-model"
 
-            async def chat(self, messages, tools=None, model=None, max_tokens=4096, temperature=0.7, reasoning_effort=None, tool_choice=None):
+            async def chat(
+                self,
+                messages,
+                tools=None,
+                model=None,
+                max_tokens=4096,
+                temperature=0.7,
+                reasoning_effort=None,
+                tool_choice=None,
+            ):
                 return LLMResponse(content="done", tool_calls=[], usage=_usage(10, 5, 0.001))
 
             def get_default_model(self) -> str:
@@ -435,7 +450,9 @@ class TestTurnCallLedger:
         context = AgentHookContext(iteration=0, messages=[{"role": "user", "content": "hello"}])
 
         async with bind_call_ledger(ledger):
-            response = await executor.request_model(spec, [{"role": "user", "content": "hello"}], hook, context)
+            response = await executor.request_model(
+                spec, [{"role": "user", "content": "hello"}], hook, context
+            )
 
         assert response.content == "done"
         # Usage should be recorded under EXECUTOR purpose
@@ -443,7 +460,10 @@ class TestTurnCallLedger:
         assert ledger.purpose_usage["executor"]["prompt_tokens"] == 10
         assert ledger.purpose_usage["executor"]["completion_tokens"] == 5
         # UNCLASSIFIED should not have the executor usage
-        assert "unclassified" not in ledger.purpose_usage or ledger.purpose_usage["unclassified"].get("prompt_tokens", 0) == 0
+        assert (
+            "unclassified" not in ledger.purpose_usage
+            or ledger.purpose_usage["unclassified"].get("prompt_tokens", 0) == 0
+        )
 
     @pytest.mark.asyncio
     async def test_executor_accounting_survives_python311_wait_for_task_hop(
@@ -452,9 +472,9 @@ class TestTurnCallLedger:
         monkeypatch,
     ) -> None:
         ledger = CallLedger()
-        provider = _ScriptedProvider([
-            LLMResponse(content="done", tool_calls=[], usage=_usage(10, 5))
-        ])
+        provider = _ScriptedProvider(
+            [LLMResponse(content="done", tool_calls=[], usage=_usage(10, 5))]
+        )
         runner = AgentRunner(provider)
         tools = MagicMock()
         tools.get_definitions.return_value = []
@@ -494,13 +514,15 @@ class TestTurnCallLedger:
         tmp_path: Path,
     ) -> None:
         ledger = CallLedger()
-        provider = _ScriptedProvider([
-            LLMResponse(
-                content='{"lesson":"learned"}',
-                tool_calls=[],
-                usage=_usage(4, 2),
-            )
-        ])
+        provider = _ScriptedProvider(
+            [
+                LLMResponse(
+                    content='{"lesson":"learned"}',
+                    tool_calls=[],
+                    usage=_usage(4, 2),
+                )
+            ]
+        )
         runner = AgentRunner(provider)
         tools = MagicMock()
         tools.get_definitions.return_value = []

@@ -78,7 +78,11 @@ async def test_component_estimates_sum_to_total(bound_telemetry) -> None:
             "role": "assistant",
             "content": "ok",
             "tool_calls": [
-                {"id": "c1", "type": "function", "function": {"name": "read_file", "arguments": "{}"}}
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": "{}"},
+                }
             ],
         },
         {
@@ -117,7 +121,11 @@ async def test_compacted_context_tracked_separately(bound_telemetry) -> None:
             "role": "assistant",
             "content": "ok",
             "tool_calls": [
-                {"id": "c1", "type": "function", "function": {"name": "read_file", "arguments": "{}"}}
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": "{}"},
+                }
             ],
         },
         {

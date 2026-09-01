@@ -21,6 +21,7 @@ class FakeProvider:
 
     async def chat_with_retry(self, **kwargs):
         from miniunicorn.providers.base import LLMResponse
+
         return LLMResponse(
             content="",
             usage={"prompt_tokens": 5, "completion_tokens": 3},
@@ -30,6 +31,7 @@ class FakeProvider:
 
     async def chat_stream_with_retry(self, **kwargs):
         from miniunicorn.providers.base import LLMResponse
+
         return LLMResponse(
             content="",
             usage={"prompt_tokens": 5, "completion_tokens": 3},

@@ -60,7 +60,12 @@ def dt(iso: str) -> datetime:
     return datetime.fromisoformat(iso.replace("Z", "+00:00"))
 
 
-def make_evidence(kind: str = "manual", ref: str = "command:msg-42", excerpt: str = "Use deterministic structured recall.", sha256: str | None = None):
+def make_evidence(
+    kind: str = "manual",
+    ref: str = "command:msg-42",
+    excerpt: str = "Use deterministic structured recall.",
+    sha256: str | None = None,
+):
     return {
         "kind": kind,
         "ref": ref,
@@ -117,7 +122,9 @@ def record_data(
     }
 
 
-def make_transaction(*records, actor="dream", reason="test", source_batch="", expected_revisions=None):
+def make_transaction(
+    *records, actor="dream", reason="test", source_batch="", expected_revisions=None
+):
     expected = expected_revisions or {rec.id: rec.revision - 1 for rec in records}
     tx = MemoryTransaction(
         schema_version=SCHEMA_VERSION,
@@ -144,7 +151,9 @@ def workspace(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def policy() -> LifecyclePolicy:
-    return LifecyclePolicy(auto_promote_verified=True, min_repeated_evidence=2, candidate_ttl_days=30)
+    return LifecyclePolicy(
+        auto_promote_verified=True, min_repeated_evidence=2, candidate_ttl_days=30
+    )
 
 
 @pytest.fixture
@@ -169,12 +178,34 @@ def file_evidence(excerpt: str, ref: str = "pyproject.toml#L1") -> EvidenceRef:
 
 @pytest.fixture
 def evidence_catalog() -> dict[str, EvidenceRef]:
-    tool = EvidenceRef(kind=EvidenceKind.TOOL_RESULT, ref="tool:ls", excerpt="pyproject.toml present", observed_at=dt("2026-08-11T08:29:00Z"))
+    tool = EvidenceRef(
+        kind=EvidenceKind.TOOL_RESULT,
+        ref="tool:ls",
+        excerpt="pyproject.toml present",
+        observed_at=dt("2026-08-11T08:29:00Z"),
+    )
     return {
-        "history:1": EvidenceRef(kind=EvidenceKind.HISTORY, ref="history:1", excerpt="First observation", observed_at=dt("2026-08-11T08:29:00Z")),
-        "history:2": EvidenceRef(kind=EvidenceKind.HISTORY, ref="history:2", excerpt="Second observation", observed_at=dt("2026-08-11T08:29:30Z")),
-        "command:msg-42": EvidenceRef(kind=EvidenceKind.MANUAL, ref="command:msg-42", excerpt="Use deterministic structured recall.", observed_at=dt("2026-08-11T08:28:00Z")),
-        "tool:ls": tool.model_copy(update={"sha256": hashlib.sha256(tool.excerpt.encode("utf-8")).hexdigest()}),
+        "history:1": EvidenceRef(
+            kind=EvidenceKind.HISTORY,
+            ref="history:1",
+            excerpt="First observation",
+            observed_at=dt("2026-08-11T08:29:00Z"),
+        ),
+        "history:2": EvidenceRef(
+            kind=EvidenceKind.HISTORY,
+            ref="history:2",
+            excerpt="Second observation",
+            observed_at=dt("2026-08-11T08:29:30Z"),
+        ),
+        "command:msg-42": EvidenceRef(
+            kind=EvidenceKind.MANUAL,
+            ref="command:msg-42",
+            excerpt="Use deterministic structured recall.",
+            observed_at=dt("2026-08-11T08:28:00Z"),
+        ),
+        "tool:ls": tool.model_copy(
+            update={"sha256": hashlib.sha256(tool.excerpt.encode("utf-8")).hexdigest()}
+        ),
     }
 
 
@@ -244,7 +275,9 @@ def inferred_proposal() -> CandidateProposal:
     return proposal()
 
 
-def seed_active_decision(repository, statement="Main uses deterministic structured recall.") -> MemoryRecord:
+def seed_active_decision(
+    repository, statement="Main uses deterministic structured recall."
+) -> MemoryRecord:
     record = MemoryRecord.model_validate(
         record_data(
             statement=statement,
@@ -349,7 +382,10 @@ def test_ingest_rejects_unknown_tag(lifecycle, context):
 
 def test_ingest_rejects_file_hash_mismatch(lifecycle, file_context):
     bad = file_context.evidence_catalog["file:pyproject"].model_copy(
-        update={"sha256": hashlib.sha256(b"different content").hexdigest(), "excerpt": "name = miniunicorn-ai"}
+        update={
+            "sha256": hashlib.sha256(b"different content").hexdigest(),
+            "excerpt": "name = miniunicorn-ai",
+        }
     )
     context = IngestContext(
         actor=file_context.actor,
@@ -359,15 +395,15 @@ def test_ingest_rejects_file_hash_mismatch(lifecycle, file_context):
         evidence_catalog={"file:pyproject": bad},
         now=file_context.now,
     )
-    verified = proposal(evidence_refs=("file:pyproject",), tags=("project.fact",), speech_act="verified")
+    verified = proposal(
+        evidence_refs=("file:pyproject",), tags=("project.fact",), speech_act="verified"
+    )
     with pytest.raises(MemoryEvidenceUnresolved):
         lifecycle.ingest(verified, context)
     assert lifecycle.repository.current_records() == ()
 
 
-def test_ingest_rejects_excerpt_not_present_in_referenced_workspace_file(
-    lifecycle, file_context
-):
+def test_ingest_rejects_excerpt_not_present_in_referenced_workspace_file(lifecycle, file_context):
     source = lifecycle.repository.workspace / "evidence.txt"
     source.write_text("actual durable content", encoding="utf-8")
     claimed = file_evidence("fabricated excerpt", ref="evidence.txt#L1")
@@ -397,7 +433,9 @@ def test_ingest_normalizes_tags_and_aliases(lifecycle, context):
 
 def test_ingest_rejects_non_atomic_missing_fields(lifecycle, context):
     with pytest.raises(ValidationError):
-        CandidateProposal.model_validate({"proposal_index": 0, "kind": "fact", "subject": "MiniUnicorn"})
+        CandidateProposal.model_validate(
+            {"proposal_index": 0, "kind": "fact", "subject": "MiniUnicorn"}
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -405,7 +443,9 @@ def test_ingest_rejects_non_atomic_missing_fields(lifecycle, context):
 # ---------------------------------------------------------------------------
 
 
-def test_retry_same_source_batch_and_content_returns_existing_candidate(lifecycle, inferred_proposal, context):
+def test_retry_same_source_batch_and_content_returns_existing_candidate(
+    lifecycle, inferred_proposal, context
+):
     first = lifecycle.ingest(inferred_proposal, context)
     second = lifecycle.ingest(inferred_proposal, context)
     assert second.candidate_id == first.candidate_id
@@ -424,7 +464,7 @@ def test_retry_after_promotion_write_failure_resumes_promotion(
         evidence_refs=("file:pyproject",),
         speech_act="verified",
         confidence=0.9,
-)
+    )
     real_append = lifecycle.repository.append_transaction
     calls = {"count": 0}
 
@@ -447,9 +487,7 @@ def test_retry_after_promotion_write_failure_resumes_promotion(
     assert len(lifecycle.repository.current_records()) == 1
 
 
-def test_retry_after_completed_auto_promotion_returns_existing_active(
-    lifecycle, file_context
-):
+def test_retry_after_completed_auto_promotion_returns_existing_active(lifecycle, file_context):
     verified = proposal(
         evidence_refs=("file:pyproject",),
         speech_act="verified",
@@ -469,8 +507,12 @@ def test_retry_after_completed_auto_promotion_returns_existing_active(
 def test_different_source_batch_creates_separate_candidate(lifecycle, inferred_proposal, context):
     first = lifecycle.ingest(inferred_proposal, context)
     later = IngestContext(
-        actor=context.actor, reason=context.reason, source_batch="history:50",
-        scope=context.scope, evidence_catalog=context.evidence_catalog, now=context.now,
+        actor=context.actor,
+        reason=context.reason,
+        source_batch="history:50",
+        scope=context.scope,
+        evidence_catalog=context.evidence_catalog,
+        now=context.now,
     )
     second = lifecycle.ingest(inferred_proposal, later)
     assert second.candidate_id != first.candidate_id
@@ -504,12 +546,20 @@ def test_confirmed_decision_threshold(lifecycle, context, confidence, expected):
 
 @pytest.mark.parametrize(
     ("auto_promote", "confidence", "expected"),
-    [(True, 0.8, MemoryStatus.ACTIVE), (True, 0.79, MemoryStatus.CANDIDATE), (False, 0.95, MemoryStatus.CANDIDATE)],
+    [
+        (True, 0.8, MemoryStatus.ACTIVE),
+        (True, 0.79, MemoryStatus.CANDIDATE),
+        (False, 0.95, MemoryStatus.CANDIDATE),
+    ],
 )
 def test_verified_threshold(lifecycle, file_context, auto_promote, confidence, expected):
-    strict = LifecyclePolicy(auto_promote_verified=auto_promote, min_repeated_evidence=2, candidate_ttl_days=30)
+    strict = LifecyclePolicy(
+        auto_promote_verified=auto_promote, min_repeated_evidence=2, candidate_ttl_days=30
+    )
     strict_lifecycle = StructuredMemoryLifecycle(lifecycle.repository, strict)
-    verified = proposal(evidence_refs=("file:pyproject",), speech_act="verified", confidence=confidence)
+    verified = proposal(
+        evidence_refs=("file:pyproject",), speech_act="verified", confidence=confidence
+    )
     result = strict_lifecycle.ingest(verified, file_context)
     assert result.final_status == expected
 
@@ -523,12 +573,16 @@ def test_verified_threshold(lifecycle, file_context, auto_promote, confidence, e
     ],
 )
 def test_repeated_experience_threshold(lifecycle, context, evidence_refs, confidence, expected):
-    repeated = proposal(evidence_refs=evidence_refs, speech_act="repeated_experience", confidence=confidence)
+    repeated = proposal(
+        evidence_refs=evidence_refs, speech_act="repeated_experience", confidence=confidence
+    )
     result = lifecycle.ingest(repeated, context)
     assert result.final_status == expected
 
 
-def test_correction_promotes_immediately_with_manual_evidence(lifecycle, correction_proposal, context):
+def test_correction_promotes_immediately_with_manual_evidence(
+    lifecycle, correction_proposal, context
+):
     result = lifecycle.ingest(correction_proposal, context)
     assert result.final_status == MemoryStatus.ACTIVE
     assert lifecycle.repository.get(result.candidate_id).status == MemoryStatus.ACTIVE
@@ -555,7 +609,9 @@ def test_correction_without_manual_evidence_stays_candidate(lifecycle, context):
 # ---------------------------------------------------------------------------
 
 
-def test_identical_content_merges_into_active_in_one_transaction(lifecycle, active_decision, context):
+def test_identical_content_merges_into_active_in_one_transaction(
+    lifecycle, active_decision, context
+):
     duplicate = proposal(
         statement=active_decision.statement,
         kind="decision",
@@ -578,7 +634,9 @@ def test_identical_content_merges_into_active_in_one_transaction(lifecycle, acti
     assert duplicate_record.replacement_id == active_decision.id
 
 
-def test_higher_rank_replaces_lower_rank_in_one_transaction(lifecycle, active_decision, correction_proposal, context):
+def test_higher_rank_replaces_lower_rank_in_one_transaction(
+    lifecycle, active_decision, correction_proposal, context
+):
     result = lifecycle.ingest(correction_proposal, context)
     old = lifecycle.repository.get(active_decision.id)
     new = lifecycle.repository.get(result.candidate_id)
@@ -607,14 +665,18 @@ def test_lower_rank_is_blocked(lifecycle, active_decision, context):
     assert result.reason_code == REASON_BLOCKED_LOWER_RANK
 
 
-def test_same_rank_conflict_stays_candidate_without_replace(lifecycle, active_decision, competing_decision, context):
+def test_same_rank_conflict_stays_candidate_without_replace(
+    lifecycle, active_decision, competing_decision, context
+):
     result = lifecycle.ingest(competing_decision, context)
     assert result.reason_code == REASON_SAME_RANK
     assert result.final_status == MemoryStatus.CANDIDATE
     assert lifecycle.repository.get(result.candidate_id).blocked_by == (active_decision.id,)
 
 
-def test_correction_conflict_requires_explicit_replace(lifecycle, active_decision, correction_proposal, context):
+def test_correction_conflict_requires_explicit_replace(
+    lifecycle, active_decision, correction_proposal, context
+):
     first = lifecycle.ingest(correction_proposal, context)
     first_active = lifecycle.repository.get(first.candidate_id)
     later_correction = proposal(
@@ -635,10 +697,15 @@ def test_correction_conflict_requires_explicit_replace(lifecycle, active_decisio
     assert result.reason_code == REASON_CORRECTION_CONFLICT
 
 
-def test_explicit_promote_with_replace_overcomes_same_rank(lifecycle, active_decision, competing_decision, context):
+def test_explicit_promote_with_replace_overcomes_same_rank(
+    lifecycle, active_decision, competing_decision, context
+):
     result = lifecycle.ingest(competing_decision, context)
     promoted = lifecycle.promote(
-        result.candidate_id, actor=ActorKind.USER, reason="user confirmed", replace_id=active_decision.id
+        result.candidate_id,
+        actor=ActorKind.USER,
+        reason="user confirmed",
+        replace_id=active_decision.id,
     )
     old = lifecycle.repository.get(active_decision.id)
     new = lifecycle.repository.get(promoted.candidate_id)
@@ -652,7 +719,9 @@ def test_promote_without_candidate_id_fails(lifecycle):
         lifecycle.promote("mem_" + "f" * 32, actor=ActorKind.USER, reason="none")
 
 
-def test_promote_on_blocked_candidate_without_replace_fails(lifecycle, active_decision, competing_decision, context):
+def test_promote_on_blocked_candidate_without_replace_fails(
+    lifecycle, active_decision, competing_decision, context
+):
     result = lifecycle.ingest(competing_decision, context)
     with pytest.raises(MemoryLifecycleError):
         lifecycle.promote(result.candidate_id, actor=ActorKind.USER, reason="user confirmed")
@@ -738,7 +807,9 @@ def test_promotion_write_failure_leaves_candidate_intact(lifecycle, context, mon
         raise MemoryWriteError("disk full")
 
     monkeypatch.setattr(lifecycle.repository, "append_transaction", flaky)
-    confirmed = proposal(speech_act="confirmed_decision", evidence_refs=("command:msg-42",), confidence=0.95)
+    confirmed = proposal(
+        speech_act="confirmed_decision", evidence_refs=("command:msg-42",), confidence=0.95
+    )
     with pytest.raises(MemoryWriteError, match="disk full"):
         lifecycle.ingest(confirmed, context)
     records = lifecycle.repository.current_records(MemoryStatus.CANDIDATE)
@@ -760,7 +831,9 @@ def test_can_auto_promote_never_for_inferred():
     record = MemoryRecord.model_validate(
         record_data(source_level="inferred", confidence=1.0, importance=5)
     )
-    policy = LifecyclePolicy(auto_promote_verified=True, min_repeated_evidence=2, candidate_ttl_days=30)
+    policy = LifecyclePolicy(
+        auto_promote_verified=True, min_repeated_evidence=2, candidate_ttl_days=30
+    )
     assert can_auto_promote(record, policy) is False
 
 
@@ -904,9 +977,7 @@ def _concurrent_ingest(
     return results["a"], results["b"]
 
 
-def test_concurrent_auto_promotion_reconciles_to_single_lineage(
-    workspace, policy, file_context
-):
+def test_concurrent_auto_promotion_reconciles_to_single_lineage(workspace, policy, file_context):
     verified = proposal(
         evidence_refs=("file:pyproject",),
         speech_act="verified",
@@ -1145,9 +1216,7 @@ def test_candidate_blocked_by_accumulates_new_active_conflict(lifecycle, active_
     assert retry.final_status is MemoryStatus.CANDIDATE
 
 
-def test_reingest_against_existing_blocker_is_zero_write(
-    lifecycle, active_decision, context
-):
+def test_reingest_against_existing_blocker_is_zero_write(lifecycle, active_decision, context):
     weak = proposal(
         statement="A weaker claim",
         kind="decision",

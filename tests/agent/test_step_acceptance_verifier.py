@@ -15,8 +15,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from miniunicorn.agent.execution.planning import PlanningReflectionService
-from miniunicorn.agent.planner import Plan, PlanStep, StepStatus
-from miniunicorn.agent.step_acceptance import StepAcceptancePolicy, StepEvidence
+from miniunicorn.agent.planner import PlanStep
+from miniunicorn.agent.step_acceptance import StepAcceptancePolicy
 
 
 def _step(**overrides: Any) -> PlanStep:

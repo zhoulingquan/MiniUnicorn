@@ -31,4 +31,3 @@ def test_default_governor_executes_exact_declared_builtin_pipeline(monkeypatch) 
     governor.govern([], context)
 
     assert calls == list(ContextGovernor.BUILTIN_PIPELINE)
-

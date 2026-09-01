@@ -53,9 +53,7 @@ def read_jsonl(path) -> list[dict]:
 @pytest.mark.asyncio
 async def test_structured_reflection_persists_program_generated_id(workspace):
     provider = make_provider('{"lesson":"Verify exact evidence IDs."}')
-    reflection = Reflection(
-        provider=provider, model="m", workspace=workspace
-    )
+    reflection = Reflection(provider=provider, model="m", workspace=workspace)
 
     returned = await reflection.reflect(
         trigger="tool_error",
@@ -71,9 +69,7 @@ async def test_structured_reflection_persists_program_generated_id(workspace):
     persisted_id = entries[0]["reflection_id"]
     assert _REFLECTION_ID_RE.match(persisted_id), persisted_id
     assert entries[0]["lesson"] == "Verify exact evidence IDs."
-    system_prompt = provider.chat_with_retry.await_args_list[0].kwargs["messages"][0][
-        "content"
-    ]
+    system_prompt = provider.chat_with_retry.await_args_list[0].kwargs["messages"][0]["content"]
     assert "reflection_id" not in system_prompt
     assert "line" not in system_prompt.lower()
 
@@ -81,9 +77,7 @@ async def test_structured_reflection_persists_program_generated_id(workspace):
 @pytest.mark.asyncio
 async def test_reflection_ids_stable_across_prune_and_append(workspace, store):
     first_provider = make_provider('{"lesson":"Lesson one."}')
-    first = Reflection(
-        provider=first_provider, model="m", workspace=workspace
-    )
+    first = Reflection(provider=first_provider, model="m", workspace=workspace)
     first_result = await first.reflect(
         trigger="tool_error",
         iteration=1,
@@ -97,14 +91,13 @@ async def test_reflection_ids_stable_across_prune_and_append(workspace, store):
     store.set_last_reflections_cursor(1)
     pruned = store.prune_reflections_after_cursor()
     assert pruned == 1
-    assert not (workspace / "memory" / "reflections.jsonl").exists() or not (
-        workspace / "memory" / "reflections.jsonl"
-    ).read_text(encoding="utf-8").strip()
+    assert (
+        not (workspace / "memory" / "reflections.jsonl").exists()
+        or not (workspace / "memory" / "reflections.jsonl").read_text(encoding="utf-8").strip()
+    )
 
     second_provider = make_provider('{"lesson":"Lesson two."}')
-    second = Reflection(
-        provider=second_provider, model="m", workspace=workspace
-    )
+    second = Reflection(provider=second_provider, model="m", workspace=workspace)
     await second.reflect(
         trigger="periodic",
         iteration=2,
@@ -140,10 +133,7 @@ def test_valid_reflection_id_is_used_directly():
         "reflection": "Keep it exact.",
         "timestamp": "2026-08-11 08:30",
     }
-    assert (
-        reflection_evidence_id(entry)
-        == "rfl_0123456789abcdef0123456789abcdef"
-    )
+    assert reflection_evidence_id(entry) == "rfl_0123456789abcdef0123456789abcdef"
 
 
 def test_new_reflection_id_format():
@@ -184,9 +174,7 @@ async def test_rotation_with_full_consumed_cursor_keeps_new_reflection(workspace
     store.set_last_reflections_cursor(500)
 
     provider = make_provider('{"lesson":"New lesson."}')
-    reflection = Reflection(
-        provider=provider, model="m", workspace=workspace
-    )
+    reflection = Reflection(provider=provider, model="m", workspace=workspace)
     await reflection.reflect(
         trigger="periodic",
         iteration=500,
@@ -211,9 +199,7 @@ async def test_rotation_never_drops_unconsumed_entries(workspace, store):
     _write_entries(path, 501)
 
     provider = make_provider('{"lesson":"Fresh lesson."}')
-    reflection = Reflection(
-        provider=provider, model="m", workspace=workspace
-    )
+    reflection = Reflection(provider=provider, model="m", workspace=workspace)
     await reflection.reflect(
         trigger="periodic",
         iteration=501,
@@ -235,9 +221,7 @@ async def test_rotation_prunes_consumed_prefix_and_resets_cursor(workspace, stor
     store.set_last_reflections_cursor(200)
 
     provider = make_provider('{"lesson":"Prefix lesson."}')
-    reflection = Reflection(
-        provider=provider, model="m", workspace=workspace
-    )
+    reflection = Reflection(provider=provider, model="m", workspace=workspace)
     await reflection.reflect(
         trigger="periodic",
         iteration=501,
@@ -379,9 +363,7 @@ def test_store_prune_file_rewrite_failure_resets_cursor_before_renumbering(
 )
 async def test_structured_reflect_rejects_invalid_payload(workspace, payload):
     provider = make_provider(payload)
-    reflection = Reflection(
-        provider=provider, model="m", workspace=workspace
-    )
+    reflection = Reflection(provider=provider, model="m", workspace=workspace)
 
     result = await reflection.reflect(
         trigger="tool_error",
@@ -402,9 +384,7 @@ async def test_structured_reflect_rejects_invalid_payload(workspace, payload):
     ],
 )
 def test_structured_parser_accepts_exact_lesson_object(payload, expected):
-    reflection = Reflection(
-        provider=MagicMock(), model="m", workspace=None
-    )
+    reflection = Reflection(provider=MagicMock(), model="m", workspace=None)
     assert reflection._parse_structured_response(payload) == expected
 
 

@@ -46,6 +46,7 @@ async def test_chat_with_retry_records_once_per_turn(monkeypatch) -> None:
     )
 
     delays: list[int] = []
+
     async def _fake_sleep(delay: int) -> None:
         delays.append(delay)
 
@@ -78,6 +79,7 @@ async def test_chat_stream_with_retry_records_once(monkeypatch) -> None:
     )
 
     delays: list[int] = []
+
     async def _fake_sleep(delay: int) -> None:
         delays.append(delay)
 
@@ -107,6 +109,7 @@ async def test_chat_with_retry_budget_accumulation(monkeypatch) -> None:
     )
 
     delays: list[int] = []
+
     async def _fake_sleep(delay: int) -> None:
         delays.append(delay)
 
@@ -130,6 +133,7 @@ async def test_chat_with_retry_budget_accumulation(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_chat_stream_with_retry_fallback_no_double_record(monkeypatch) -> None:
     """When chat_stream_with_retry uses default stream fallback to chat(), only one record should be made."""
+
     # Provider that uses default chat_stream (falls back to chat) but overrides chat to succeed
     class FallbackProvider(LLMProvider):
         def __init__(self):
@@ -147,6 +151,7 @@ async def test_chat_stream_with_retry_fallback_no_double_record(monkeypatch) -> 
     provider = FallbackProvider()
 
     delays: list[int] = []
+
     async def _fake_sleep(delay: int) -> None:
         delays.append(delay)
 
@@ -195,14 +200,15 @@ async def test_purpose_scope_separation(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_concurrent_ledger_isolation(monkeypatch) -> None:
     """Concurrent tasks should have isolated ledger state."""
+
     async def run_task(task_id: int, usage: dict):
-        provider = ScriptedProvider([
-            LLMResponse(content=f"response-{task_id}", usage=usage)
-        ])
+        provider = ScriptedProvider([LLMResponse(content=f"response-{task_id}", usage=usage)])
         ledger = CallLedger()
         async with bind_call_ledger(ledger):
             async with call_purpose(CallPurpose.EXECUTOR):
-                await provider.chat_with_retry(messages=[{"role": "user", "content": f"task-{task_id}"}])
+                await provider.chat_with_retry(
+                    messages=[{"role": "user", "content": f"task-{task_id}"}]
+                )
         return ledger
 
     ledger1, ledger2 = await asyncio.gather(

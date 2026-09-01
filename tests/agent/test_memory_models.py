@@ -196,7 +196,9 @@ def test_active_cannot_return_to_candidate(new):
         assert_transition("active", new)
 
 
-@pytest.mark.parametrize("old,new", [("superseded", "revoked"), ("superseded", "expired"), ("revoked", "expired")])
+@pytest.mark.parametrize(
+    "old,new", [("superseded", "revoked"), ("superseded", "expired"), ("revoked", "expired")]
+)
 def test_terminal_statuses_cannot_move_between_terminals(old, new):
     with pytest.raises(InvalidMemoryTransition):
         assert_transition(old, new)
@@ -209,14 +211,18 @@ def test_terminal_statuses_cannot_move_between_terminals(old, new):
 
 def test_active_same_status_revision_cannot_change_statement(record_data):
     previous = MemoryRecord.model_validate(record_data | {"status": "active", "revision": 2})
-    current = previous.model_copy(update={"statement": "Different statement", "updated_at": dt("2026-08-11T08:32:00Z")})
+    current = previous.model_copy(
+        update={"statement": "Different statement", "updated_at": dt("2026-08-11T08:32:00Z")}
+    )
     with pytest.raises(InvalidMemoryTransition):
         validate_same_status_revision(previous, current)
 
 
 def test_active_same_status_revision_cannot_change_slot(record_data):
     previous = MemoryRecord.model_validate(record_data | {"status": "active", "revision": 2})
-    current = previous.model_copy(update={"slot": "other.slot", "updated_at": dt("2026-08-11T08:32:00Z")})
+    current = previous.model_copy(
+        update={"slot": "other.slot", "updated_at": dt("2026-08-11T08:32:00Z")}
+    )
     with pytest.raises(InvalidMemoryTransition):
         validate_same_status_revision(previous, current)
 
@@ -230,13 +236,17 @@ def test_active_same_status_revision_can_merge_evidence(record_data):
         sha256="d" * 64,
         observed_at=dt("2026-08-11T08:32:00Z"),
     )
-    current = previous.model_copy(update={"evidence": previous.evidence + (extra,), "updated_at": dt("2026-08-11T08:32:00Z")})
+    current = previous.model_copy(
+        update={"evidence": previous.evidence + (extra,), "updated_at": dt("2026-08-11T08:32:00Z")}
+    )
     validate_same_status_revision(previous, current)
 
 
 def test_candidate_same_status_revision_can_add_blocked_by(record_data):
     previous = MemoryRecord.model_validate(record_data)
-    current = previous.model_copy(update={"blocked_by": ("mem_" + "e" * 32,), "updated_at": dt("2026-08-11T08:32:00Z")})
+    current = previous.model_copy(
+        update={"blocked_by": ("mem_" + "e" * 32,), "updated_at": dt("2026-08-11T08:32:00Z")}
+    )
     validate_same_status_revision(previous, current)
 
 
@@ -248,7 +258,9 @@ def test_candidate_same_status_revision_cannot_remove_evidence(record_data):
 
 
 def test_terminal_record_cannot_revise(record_data):
-    previous = MemoryRecord.model_validate(record_data | {"status": "superseded", "replacement_id": "mem_" + "e" * 32})
+    previous = MemoryRecord.model_validate(
+        record_data | {"status": "superseded", "replacement_id": "mem_" + "e" * 32}
+    )
     current = previous.model_copy(update={"updated_at": dt("2026-08-11T08:32:00Z")})
     with pytest.raises(InvalidMemoryTransition):
         validate_same_status_revision(previous, current)
@@ -321,7 +333,9 @@ def test_record_computes_content_hash_from_canonical_fields(record_data):
 
 
 def test_record_normalizes_tags_and_aliases_sorted_deduped(record_data):
-    record = MemoryRecord.model_validate(record_data | {"tags": ["project.decision", "architecture.memory", "project.decision"]})
+    record = MemoryRecord.model_validate(
+        record_data | {"tags": ["project.decision", "architecture.memory", "project.decision"]}
+    )
     assert record.tags == ("architecture.memory", "project.decision")
 
 
@@ -395,7 +409,9 @@ def test_evidence_requires_sha256_for_file_tool_git(kind):
         EvidenceRef(kind=kind, ref="ref", excerpt="x", sha256=None)
 
 
-@pytest.mark.parametrize("kind", [EvidenceKind.MANUAL, EvidenceKind.USER_MESSAGE, EvidenceKind.HISTORY])
+@pytest.mark.parametrize(
+    "kind", [EvidenceKind.MANUAL, EvidenceKind.USER_MESSAGE, EvidenceKind.HISTORY]
+)
 def test_evidence_allows_null_sha256_for_soft_kinds(kind):
     EvidenceRef(kind=kind, ref="ref", excerpt="x", sha256=None)
 
@@ -412,7 +428,13 @@ def test_evidence_merges_by_kind_ref_sha256_and_sorts(record_data):
         | {
             "evidence": [
                 first,
-                {"kind": "history", "ref": "history:1", "excerpt": "a", "sha256": None, "observed_at": "2026-08-11T08:30:00Z"},
+                {
+                    "kind": "history",
+                    "ref": "history:1",
+                    "excerpt": "a",
+                    "sha256": None,
+                    "observed_at": "2026-08-11T08:30:00Z",
+                },
                 first,
             ]
         }
@@ -422,12 +444,16 @@ def test_evidence_merges_by_kind_ref_sha256_and_sorts(record_data):
 
 def test_replacement_id_only_when_superseded(record_data):
     with pytest.raises(ValidationError):
-        MemoryRecord.model_validate(record_data | {"status": "active", "replacement_id": "mem_" + "e" * 32})
+        MemoryRecord.model_validate(
+            record_data | {"status": "active", "replacement_id": "mem_" + "e" * 32}
+        )
 
 
 def test_blocked_by_only_when_candidate(record_data):
     with pytest.raises(ValidationError):
-        MemoryRecord.model_validate(record_data | {"status": "active", "blocked_by": ("mem_" + "e" * 32,)})
+        MemoryRecord.model_validate(
+            record_data | {"status": "active", "blocked_by": ("mem_" + "e" * 32,)}
+        )
 
 
 def test_datetimes_require_timezone(record_data):
@@ -541,8 +567,24 @@ def test_repository_health_healthy_defaults():
 
 def test_extraction_batch_proposal_indices_must_be_unique():
     proposals = [
-        {"proposal_index": 0, "kind": "fact", "subject": "a", "slot": "a.b", "statement": "one", "tags": ["project.fact"], "evidence_refs": ["history:1"]},
-        {"proposal_index": 0, "kind": "fact", "subject": "b", "slot": "a.b", "statement": "two", "tags": ["project.fact"], "evidence_refs": ["history:1"]},
+        {
+            "proposal_index": 0,
+            "kind": "fact",
+            "subject": "a",
+            "slot": "a.b",
+            "statement": "one",
+            "tags": ["project.fact"],
+            "evidence_refs": ["history:1"],
+        },
+        {
+            "proposal_index": 0,
+            "kind": "fact",
+            "subject": "b",
+            "slot": "a.b",
+            "statement": "two",
+            "tags": ["project.fact"],
+            "evidence_refs": ["history:1"],
+        },
     ]
     with pytest.raises(ValidationError):
         MemoryExtractionBatch(proposals=proposals)

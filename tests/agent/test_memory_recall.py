@@ -43,7 +43,9 @@ def dt(iso):
     return datetime.fromisoformat(iso.replace("Z", "+00:00"))
 
 
-def make_evidence(kind="manual", ref="command:msg-42", excerpt="Use deterministic structured recall.", sha256=None):
+def make_evidence(
+    kind="manual", ref="command:msg-42", excerpt="Use deterministic structured recall.", sha256=None
+):
     return {
         "kind": kind,
         "ref": ref,
@@ -157,10 +159,19 @@ def project_decision(repository):
     return record
 
 
-def make_query(text="请分析全局记忆架构决定", *, allowed_scopes=None, now="2026-08-11T08:30:00Z", token_budget=2500, max_hits=20, **overrides):
+def make_query(
+    text="请分析全局记忆架构决定",
+    *,
+    allowed_scopes=None,
+    now="2026-08-11T08:30:00Z",
+    token_budget=2500,
+    max_hits=20,
+    **overrides,
+):
     return RecallQuery(
         query_text=text,
-        allowed_scopes=allowed_scopes or (MemoryScope(kind=ScopeKind.PROJECT, key="project:6b5ec7b29e32"),),
+        allowed_scopes=allowed_scopes
+        or (MemoryScope(kind=ScopeKind.PROJECT, key="project:6b5ec7b29e32"),),
         now=dt(now),
         token_budget=token_budget,
         max_hits=max_hits,
@@ -212,7 +223,10 @@ def test_score_and_reason_are_exact(recall, project_decision):
 
 def test_ascii_word_boundaries(recall, repository):
     record = active_record(
-        statement="Use deterministic recall.", kind="fact", slot="db.primary", tags=("architecture.memory",)
+        statement="Use deterministic recall.",
+        kind="fact",
+        slot="db.primary",
+        tags=("architecture.memory",),
     )
     seed(repository, [record])
     result = recall.recall(make_query(text="use architecture memory today", explicit_tags=()))
@@ -224,7 +238,10 @@ def test_ascii_word_boundaries(recall, repository):
 
 def test_cjk_substring_matches_catalog_alias(recall, repository):
     record = active_record(
-        statement="Use deterministic recall.", kind="fact", slot="db.primary", tags=("architecture.memory",)
+        statement="Use deterministic recall.",
+        kind="fact",
+        slot="db.primary",
+        tags=("architecture.memory",),
     )
     seed(repository, [record])
     result = recall.recall(make_query(text="请分析全局记忆设计"))
@@ -255,7 +272,12 @@ def test_canonical_tag_vs_catalog_alias_vs_record_alias(recall, repository):
         statement="B.", kind="fact", slot="db.b", tags=("architecture.memory",), importance=4
     )
     record_alias = active_record(
-        statement="C.", kind="fact", slot="db.c", tags=("architecture.memory",), aliases=("记忆库",), importance=4
+        statement="C.",
+        kind="fact",
+        slot="db.c",
+        tags=("architecture.memory",),
+        aliases=("记忆库",),
+        importance=4,
     )
     seed(repository, [canonical, catalog_hit, record_alias])
 
@@ -328,13 +350,19 @@ def test_insertion_order_does_not_change_recall(repository, tmp_path):
         structured = workspace / "memory" / "structured"
         structured.mkdir(parents=True, exist_ok=True)
         shutil.copy(
-            Path(__file__).resolve().parents[2] / "miniunicorn" / "templates" / "memory" / "TAGS.json",
+            Path(__file__).resolve().parents[2]
+            / "miniunicorn"
+            / "templates"
+            / "memory"
+            / "TAGS.json",
             structured / "tags.json",
         )
         repo = StructuredMemoryRepository(workspace, lock_timeout_s=0.1)
         for index, record in enumerate(records):
             repo.append_transaction(
-                make_transaction(record.model_copy(update={"updated_at": dt(f"2026-08-11T0{index + 1}:00:00Z")}))
+                make_transaction(
+                    record.model_copy(update={"updated_at": dt(f"2026-08-11T0{index + 1}:00:00Z")})
+                )
             )
         return StructuredMemoryRecall(repo, repo.tag_catalog)
 
@@ -358,7 +386,9 @@ def test_insertion_order_does_not_change_recall(repository, tmp_path):
         )
     ]
     forward = make_recall(records, "f").recall(make_query(text="architecture.memory"))
-    reverse = make_recall(list(reversed(records)), "r").recall(make_query(text="architecture.memory"))
+    reverse = make_recall(list(reversed(records)), "r").recall(
+        make_query(text="architecture.memory")
+    )
     assert [h.record.id for h in forward.hits] == [h.record.id for h in reverse.hits]
 
 
@@ -369,7 +399,9 @@ def test_recall_never_calls_provider(recall, project_decision):
 
 
 def test_expired_at_query_time_excluded(recall, repository):
-    live = active_record(statement="Live.", kind="fact", slot="db.live", tags=("architecture.memory",))
+    live = active_record(
+        statement="Live.", kind="fact", slot="db.live", tags=("architecture.memory",)
+    )
     expired = active_record(
         statement="Expired.",
         kind="fact",
@@ -385,20 +417,33 @@ def test_expired_at_query_time_excluded(recall, repository):
 
 
 def test_explicit_id_routes_without_other_route_scores(recall, project_decision, repository):
-    other = active_record(statement="Other.", kind="fact", slot="db.other", tags=("architecture.memory",))
+    other = active_record(
+        statement="Other.", kind="fact", slot="db.other", tags=("architecture.memory",)
+    )
     seed(repository, [other])
-    result = recall.recall(make_query(text="unrelated nothing", explicit_ids=(project_decision.id,)))
+    result = recall.recall(
+        make_query(text="unrelated nothing", explicit_ids=(project_decision.id,))
+    )
     hit = next(h for h in result.hits if h.record.id == project_decision.id)
     assert hit.score == 160
     assert hit.reasons[0] == f"id={project_decision.id}(+100)"
-    assert not any(r.startswith("tag=") or r.startswith("subject") or r.startswith("alias=") for r in hit.reasons)
+    assert not any(
+        r.startswith("tag=") or r.startswith("subject") or r.startswith("alias=")
+        for r in hit.reasons
+    )
     assert all(h.record.id != other.id for h in result.hits)
 
 
 def test_requested_kind_filters_and_scores(recall, repository):
-    fact = active_record(statement="Fact.", kind="fact", slot="db.fact", tags=("architecture.memory",), importance=4)
+    fact = active_record(
+        statement="Fact.", kind="fact", slot="db.fact", tags=("architecture.memory",), importance=4
+    )
     decision = active_record(
-        statement="Decision.", kind="decision", slot="db.decision", tags=("architecture.memory",), importance=4
+        statement="Decision.",
+        kind="decision",
+        slot="db.decision",
+        tags=("architecture.memory",),
+        importance=4,
     )
     seed(repository, [fact, decision])
     result = recall.recall(make_query(requested_kinds=(MemoryKind.FACT,)))
@@ -460,7 +505,11 @@ def test_budget_accounts_for_prompt_header_and_separators(recall, repository):
 def test_max_hits_limits_results(recall, repository):
     records = [
         active_record(
-            statement=f"F{index}.", kind="fact", slot=f"db.{index}", tags=("architecture.memory",), importance=4
+            statement=f"F{index}.",
+            kind="fact",
+            slot=f"db.{index}",
+            tags=("architecture.memory",),
+            importance=4,
         )
         for index in range(5)
     ]
@@ -484,7 +533,10 @@ def test_render_prompt_format(recall, project_decision):
     result = recall.recall(make_query(explicit_tags=("architecture.memory",)))
     prompt = recall.render_prompt(result)
     assert prompt.startswith("# Recalled Memory (Deterministic)")
-    assert f"- [{project_decision.id} | decision | project] Main uses deterministic structured recall." in prompt
+    assert (
+        f"- [{project_decision.id} | decision | project] Main uses deterministic structured recall."
+        in prompt
+    )
     assert (
         "  Why: tag=architecture.memory(+45), source=confirmed_decision(+20), scope=project(+10), "
         "importance=5(+20), freshness<=7d(+10), total=105" in prompt
@@ -525,7 +577,9 @@ def test_freshness_buckets(recall, repository):
 
 def test_recall_result_counts(recall, repository):
     seed_records = [
-        active_record(statement=f"F{index}.", kind="fact", slot=f"db.{index}", tags=("architecture.memory",))
+        active_record(
+            statement=f"F{index}.", kind="fact", slot=f"db.{index}", tags=("architecture.memory",)
+        )
         for index in range(3)
     ]
     seed(repository, seed_records)
@@ -646,17 +700,38 @@ def _assert_same_recall(actual, baseline, recall):
 _BASELINE_CASES = (
     (
         "cjk_catalog_alias",
-        [active_record(statement="Use deterministic recall.", kind="fact", slot="db.primary", tags=("architecture.memory",))],
+        [
+            active_record(
+                statement="Use deterministic recall.",
+                kind="fact",
+                slot="db.primary",
+                tags=("architecture.memory",),
+            )
+        ],
         make_query(text="请分析全局记忆设计"),
     ),
     (
         "ascii_word_boundary_miss",
-        [active_record(statement="Use deterministic recall.", kind="fact", slot="db.primary", tags=("architecture.memory",))],
+        [
+            active_record(
+                statement="Use deterministic recall.",
+                kind="fact",
+                slot="db.primary",
+                tags=("architecture.memory",),
+            )
+        ],
         make_query(text="use architecture memory today", explicit_tags=()),
     ),
     (
         "ascii_word_boundary_hit",
-        [active_record(statement="Use deterministic recall.", kind="fact", slot="db.primary", tags=("architecture.memory",))],
+        [
+            active_record(
+                statement="Use deterministic recall.",
+                kind="fact",
+                slot="db.primary",
+                tags=("architecture.memory",),
+            )
+        ],
         make_query(text="review architecture.memory design", explicit_tags=()),
     ),
     (
@@ -679,13 +754,23 @@ _BASELINE_CASES = (
     ),
     (
         "record_alias",
-        [active_record(statement="C.", kind="fact", slot="db.c", tags=("architecture.memory",), aliases=("记忆库",))],
+        [
+            active_record(
+                statement="C.",
+                kind="fact",
+                slot="db.c",
+                tags=("architecture.memory",),
+                aliases=("记忆库",),
+            )
+        ],
         make_query(text="记忆库"),
     ),
     (
         "expired_excluded",
         [
-            active_record(statement="Live.", kind="fact", slot="db.live", tags=("architecture.memory",)),
+            active_record(
+                statement="Live.", kind="fact", slot="db.live", tags=("architecture.memory",)
+            ),
             active_record(
                 statement="Expired.",
                 kind="fact",
@@ -699,7 +784,9 @@ _BASELINE_CASES = (
     (
         "candidate_status_excluded",
         [
-            active_record(statement="Live.", kind="fact", slot="db.live", tags=("architecture.memory",)),
+            active_record(
+                statement="Live.", kind="fact", slot="db.live", tags=("architecture.memory",)
+            ),
             active_record(
                 statement="Candidate.",
                 kind="fact",
@@ -713,7 +800,9 @@ _BASELINE_CASES = (
     (
         "terminal_status_excluded",
         [
-            active_record(statement="Live.", kind="fact", slot="db.live", tags=("architecture.memory",)),
+            active_record(
+                statement="Live.", kind="fact", slot="db.live", tags=("architecture.memory",)
+            ),
             active_record(
                 statement="Revoked.",
                 kind="fact",
@@ -726,16 +815,25 @@ _BASELINE_CASES = (
     ),
     (
         "unauthorized_scope_excluded",
-        [active_record(statement="Other user.", kind="fact", slot="db.other", tags=("architecture.memory",))],
-        make_query(
-            allowed_scopes=(MemoryScope(kind=ScopeKind.USER, key="user:someone-else"),)
-        ),
+        [
+            active_record(
+                statement="Other user.", kind="fact", slot="db.other", tags=("architecture.memory",)
+            )
+        ],
+        make_query(allowed_scopes=(MemoryScope(kind=ScopeKind.USER, key="user:someone-else"),)),
     ),
     (
         "requested_kinds",
         [
-            active_record(statement="Fact.", kind="fact", slot="db.fact", tags=("architecture.memory",)),
-            active_record(statement="Decision.", kind="decision", slot="db.decision", tags=("architecture.memory",)),
+            active_record(
+                statement="Fact.", kind="fact", slot="db.fact", tags=("architecture.memory",)
+            ),
+            active_record(
+                statement="Decision.",
+                kind="decision",
+                slot="db.decision",
+                tags=("architecture.memory",),
+            ),
         ],
         make_query(requested_kinds=(MemoryKind.FACT,)),
     ),
@@ -772,7 +870,9 @@ def test_recall_matches_python_baseline(repository, recall, case):
 
 
 def test_recall_result_counts_count_only_db_authorized_candidates(recall, repository):
-    live = active_record(statement="Live.", kind="fact", slot="db.live", tags=("architecture.memory",))
+    live = active_record(
+        statement="Live.", kind="fact", slot="db.live", tags=("architecture.memory",)
+    )
     decision = active_record(
         statement="Decision.", kind="decision", slot="db.decision", tags=("architecture.memory",)
     )

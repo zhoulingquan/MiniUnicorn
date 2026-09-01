@@ -67,9 +67,7 @@ async def test_cross_session_messages_execute_concurrently(tmp_path):
     release.set()
     await asyncio.wait_for(asyncio.gather(task_a, task_b), timeout=5)
 
-    assert overlap["detected"] is True, (
-        "Two different sessions must be allowed to run concurrently"
-    )
+    assert overlap["detected"] is True, "Two different sessions must be allowed to run concurrently"
 
 
 @pytest.mark.asyncio

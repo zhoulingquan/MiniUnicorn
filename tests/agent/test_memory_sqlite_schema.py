@@ -38,8 +38,7 @@ EXPLICIT_INDEXES = {
 
 def _table_names(connection: sqlite3.Connection) -> set[str]:
     return {
-        row[0]
-        for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
     }
 
 

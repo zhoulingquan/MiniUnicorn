@@ -39,7 +39,12 @@ def dt(iso: str) -> datetime:
     return datetime.fromisoformat(iso.replace("Z", "+00:00"))
 
 
-def make_evidence(kind: str = "manual", ref: str = "command:msg-1", excerpt: str = "evidence excerpt", sha256: str | None = None):
+def make_evidence(
+    kind: str = "manual",
+    ref: str = "command:msg-1",
+    excerpt: str = "evidence excerpt",
+    sha256: str | None = None,
+):
     return {
         "kind": kind,
         "ref": ref,
@@ -279,7 +284,9 @@ def test_invalid_json_on_second_line_fails_cleanly(workspace: Path) -> None:
     with pytest.raises(LegacyJournalImportError) as excinfo:
         migrate_legacy_journal(workspace, lock_timeout_s=0.1)
 
-    assert_failure_no_trace(workspace, excinfo.value, original_bytes, code="invalid_transaction", line_number=2)
+    assert_failure_no_trace(
+        workspace, excinfo.value, original_bytes, code="invalid_transaction", line_number=2
+    )
 
 
 def test_checksum_mismatch_on_second_line_fails_cleanly(workspace: Path) -> None:
@@ -293,7 +300,9 @@ def test_checksum_mismatch_on_second_line_fails_cleanly(workspace: Path) -> None
     with pytest.raises(LegacyJournalImportError) as excinfo:
         migrate_legacy_journal(workspace, lock_timeout_s=0.1)
 
-    assert_failure_no_trace(workspace, excinfo.value, original_bytes, code="checksum_mismatch", line_number=2)
+    assert_failure_no_trace(
+        workspace, excinfo.value, original_bytes, code="checksum_mismatch", line_number=2
+    )
 
 
 def test_revision_skip_on_second_line_fails_cleanly(workspace: Path) -> None:
@@ -308,7 +317,9 @@ def test_revision_skip_on_second_line_fails_cleanly(workspace: Path) -> None:
     with pytest.raises(LegacyJournalImportError) as excinfo:
         migrate_legacy_journal(workspace, lock_timeout_s=0.1)
 
-    assert_failure_no_trace(workspace, excinfo.value, original_bytes, code="revision_conflict", line_number=2)
+    assert_failure_no_trace(
+        workspace, excinfo.value, original_bytes, code="revision_conflict", line_number=2
+    )
 
 
 def test_unknown_tag_on_second_line_fails_cleanly(workspace: Path) -> None:
@@ -322,7 +333,10 @@ def test_unknown_tag_on_second_line_fails_cleanly(workspace: Path) -> None:
             tags=("not.registered",),
         )
     )
-    lines = [canonical_line(transactions[0]), canonical_line(make_transaction(unknown, source_batch="history:1-2"))]
+    lines = [
+        canonical_line(transactions[0]),
+        canonical_line(make_transaction(unknown, source_batch="history:1-2")),
+    ]
     journal = journal_path(workspace)
     journal.write_text("\n".join(lines) + "\n", encoding="utf-8")
     original_bytes = journal.read_bytes()
@@ -330,7 +344,9 @@ def test_unknown_tag_on_second_line_fails_cleanly(workspace: Path) -> None:
     with pytest.raises(LegacyJournalImportError) as excinfo:
         migrate_legacy_journal(workspace, lock_timeout_s=0.1)
 
-    assert_failure_no_trace(workspace, excinfo.value, original_bytes, code="unknown_tag", line_number=2)
+    assert_failure_no_trace(
+        workspace, excinfo.value, original_bytes, code="unknown_tag", line_number=2
+    )
 
 
 def test_replace_failure_cleans_temporary_files(workspace: Path, monkeypatch) -> None:
@@ -344,7 +360,9 @@ def test_replace_failure_cleans_temporary_files(workspace: Path, monkeypatch) ->
     with pytest.raises(LegacyJournalImportError) as excinfo:
         migrate_legacy_journal(workspace, lock_timeout_s=0.1)
 
-    assert_failure_no_trace(workspace, excinfo.value, original_bytes, code="replace_failed", line_number=None)
+    assert_failure_no_trace(
+        workspace, excinfo.value, original_bytes, code="replace_failed", line_number=None
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -166,6 +166,7 @@ def _seed(workspace):
         ScopeKind,
         SourceLevel,
     )
+
     now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
     evidence = EvidenceRef(
         kind=EvidenceKind.FILE,
@@ -426,7 +427,9 @@ class TestPromote:
             SourceLevel,
         )
 
-        evidence = EvidenceRef(kind=EvidenceKind.MODEL_INFERENCE, ref="dream#L9", excerpt="不同内容")
+        evidence = EvidenceRef(
+            kind=EvidenceKind.MODEL_INFERENCE, ref="dream#L9", excerpt="不同内容"
+        )
         proposal = CandidateProposal(
             proposal_index=0,
             kind=MemoryKind.DECISION,
@@ -456,7 +459,9 @@ class TestPromote:
         assert "--replace" in content
         assert active.id in content
         # 显式 --replace 成功
-        content = await _dispatch(router, store, f"/memory-promote {result.candidate_id} --replace {active.id}")
+        content = await _dispatch(
+            router, store, f"/memory-promote {result.candidate_id} --replace {active.id}"
+        )
         assert "Promoted" in content
 
     async def test_promote_usage(self, workspace):
@@ -581,7 +586,9 @@ class TestScopeAuthorization:
         assert "FACT B ONLY" in content
         assert "FACT A ONLY" not in content
 
-        content = await _dispatch_loop(router, loop, session, "/memory-correct 用户偏好|general|英文交流")
+        content = await _dispatch_loop(
+            router, loop, session, "/memory-correct 用户偏好|general|英文交流"
+        )
         assert "Corrected" in content
         assert any(
             "英文交流" in record.statement
@@ -611,9 +618,17 @@ class TestScopeAuthorization:
     async def test_list_and_status_do_not_reveal_other_identity_records(self, workspace):
         store = _store(workspace)
         _seed_scope(store, _project_scope(store), "PROJECT FACT", promote=True)
-        _seed_scope(store, MemoryScope(kind=ScopeKind.USER, key="user:other"), "OTHER USER FACT", promote=True)
         _seed_scope(
-            store, MemoryScope(kind=ScopeKind.SESSION, key="session:other-session"), "OTHER SESSION FACT", promote=True
+            store,
+            MemoryScope(kind=ScopeKind.USER, key="user:other"),
+            "OTHER USER FACT",
+            promote=True,
+        )
+        _seed_scope(
+            store,
+            MemoryScope(kind=ScopeKind.SESSION, key="session:other-session"),
+            "OTHER SESSION FACT",
+            promote=True,
         )
         router = _router()
 
@@ -666,7 +681,9 @@ class TestScopeAuthorization:
                 "revision": candidate.revision + 1,
                 "status": MemoryStatus.ACTIVE,
                 "scope": _project_scope(store),
-                "evidence": (EvidenceRef(kind=EvidenceKind.HISTORY, ref="clean", excerpt="CLEAN EVIDENCE"),),
+                "evidence": (
+                    EvidenceRef(kind=EvidenceKind.HISTORY, ref="clean", excerpt="CLEAN EVIDENCE"),
+                ),
                 "blocked_by": (),
                 "updated_at": now,
                 "status_reason": "corrupt history",
@@ -697,7 +714,9 @@ class TestScopeAuthorization:
     async def test_promote_and_revoke_cannot_mutate_other_identity_records(self, workspace):
         store = _store(workspace)
         other_candidate = _seed_scope(
-            store, MemoryScope(kind=ScopeKind.SESSION, key="session:other-session"), "OTHER CANDIDATE"
+            store,
+            MemoryScope(kind=ScopeKind.SESSION, key="session:other-session"),
+            "OTHER CANDIDATE",
         )
         other_active = _seed_scope(
             store, MemoryScope(kind=ScopeKind.USER, key="user:other"), "OTHER ACTIVE", promote=True
@@ -743,9 +762,18 @@ class TestScopeAuthorization:
     async def test_project_user_session_and_shared_scopes_remain_accessible(self, workspace):
         store = _store(workspace)
         _seed_scope(store, _project_scope(store), "PROJECT FACT", promote=True)
-        _seed_scope(store, MemoryScope(kind=ScopeKind.USER, key="user:u1"), "MY USER FACT", promote=True)
-        _seed_scope(store, MemoryScope(kind=ScopeKind.SESSION, key="session:k1"), "MY SESSION FACT", promote=True)
-        _seed_scope(store, MemoryScope(kind=ScopeKind.SHARED, key="shared:*"), "SHARED FACT", promote=True)
+        _seed_scope(
+            store, MemoryScope(kind=ScopeKind.USER, key="user:u1"), "MY USER FACT", promote=True
+        )
+        _seed_scope(
+            store,
+            MemoryScope(kind=ScopeKind.SESSION, key="session:k1"),
+            "MY SESSION FACT",
+            promote=True,
+        )
+        _seed_scope(
+            store, MemoryScope(kind=ScopeKind.SHARED, key="shared:*"), "SHARED FACT", promote=True
+        )
         router = _router()
 
         content = await _dispatch(router, store, "/memory-list")
@@ -755,8 +783,18 @@ class TestScopeAuthorization:
 
     async def test_forked_session_key_canonicalizes_like_recall(self, workspace):
         store = _store(workspace)
-        _seed_scope(store, MemoryScope(kind=ScopeKind.SESSION, key="session:base"), "CANONICAL SESSION FACT", promote=True)
-        _seed_scope(store, MemoryScope(kind=ScopeKind.SESSION, key="session:base#fork"), "FORKED SESSION FACT", promote=True)
+        _seed_scope(
+            store,
+            MemoryScope(kind=ScopeKind.SESSION, key="session:base"),
+            "CANONICAL SESSION FACT",
+            promote=True,
+        )
+        _seed_scope(
+            store,
+            MemoryScope(kind=ScopeKind.SESSION, key="session:base#fork"),
+            "FORKED SESSION FACT",
+            promote=True,
+        )
         router = _router()
 
         content = await _dispatch(router, store, "/memory-list", session_key="base#fork")
@@ -767,7 +805,10 @@ class TestScopeAuthorization:
     async def test_missing_and_unauthorized_ids_have_identical_not_found(self, workspace):
         store = _store(workspace)
         other = _seed_scope(
-            store, MemoryScope(kind=ScopeKind.SESSION, key="session:other-session"), "OTHER FACT", promote=True
+            store,
+            MemoryScope(kind=ScopeKind.SESSION, key="session:other-session"),
+            "OTHER FACT",
+            promote=True,
         )
         router = _router()
 
@@ -951,17 +992,12 @@ class TestMemoryBackup:
         assert len(files) == 1
         with sqlite3.connect(files[0]) as connection:
             assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
-            assert (
-                connection.execute("SELECT COUNT(*) FROM memory_transactions").fetchone()[0]
-                == 2
-            )
+            assert connection.execute("SELECT COUNT(*) FROM memory_transactions").fetchone()[0] == 2
 
     async def test_backup_when_loop_missing_is_friendly(self, workspace):
         store = _seed(workspace)
         loop = SimpleNamespace(context=SimpleNamespace(memory=store))
-        msg = InboundMessage(
-            channel="test", sender_id="u1", chat_id="c1", content="/memory-backup"
-        )
+        msg = InboundMessage(channel="test", sender_id="u1", chat_id="c1", content="/memory-backup")
         ctx = CommandContext(msg=msg, session=None, key="k1", raw="/memory-backup", loop=loop)
         result = await _router().dispatch(ctx)
         assert result is not None
@@ -1029,7 +1065,10 @@ class TestMemoryExportAudit:
                 encoding="utf-8"
             )
         )
-        assert manifest["database_last_tx_seq"] == store.structured_repository.storage_stats().last_transaction_seq
+        assert (
+            manifest["database_last_tx_seq"]
+            == store.structured_repository.storage_stats().last_transaction_seq
+        )
 
     async def test_export_audit_usage(self, workspace):
         store = _seed(workspace)

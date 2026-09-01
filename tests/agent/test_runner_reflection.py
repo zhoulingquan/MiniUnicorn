@@ -22,9 +22,7 @@ def _reflections(tmp_path: Path) -> list[dict]:
     if not path.exists():
         return []
     return [
-        json.loads(line)
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
     ]
 
 
@@ -40,9 +38,7 @@ class _ReflectionProvider:
         if self.calls == 1:
             return LLMResponse(
                 content="working",
-                tool_calls=[
-                    ToolCallRequest(id="call_1", name="list_dir", arguments={"path": "."})
-                ],
+                tool_calls=[ToolCallRequest(id="call_1", name="list_dir", arguments={"path": "."})],
                 usage={},
             )
         return LLMResponse(content=self.reflection_content, tool_calls=[], usage={})

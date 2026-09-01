@@ -199,7 +199,17 @@ class TestTokenBudgetConfig:
         long_result = "x" * 2000
         messages = [
             {"role": "user", "content": "hi"},
-            {"role": "assistant", "content": "ok", "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "test", "arguments": "{}"}}]},
+            {
+                "role": "assistant",
+                "content": "ok",
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "test", "arguments": "{}"},
+                    }
+                ],
+            },
             {"role": "tool", "tool_call_id": "c1", "name": "test", "content": long_result},
         ]
 

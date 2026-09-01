@@ -66,7 +66,10 @@ def test_enable_github_writes_scrubbed_config_payload(
     assert preset["configured"] is True
     assert "ghp_test_token_value" not in str(payload)
     config = load_config()
-    assert config.tools.mcp_servers["github"].env["GITHUB_PERSONAL_ACCESS_TOKEN"] == "ghp_test_token_value"
+    assert (
+        config.tools.mcp_servers["github"].env["GITHUB_PERSONAL_ACCESS_TOKEN"]
+        == "ghp_test_token_value"
+    )
 
 
 def test_enable_requires_missing_secret(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -229,9 +232,7 @@ def test_test_mcp_preset_scrubs_connection_errors(
     )
 
     async def fake_connect(_servers, _registry):
-        raise RuntimeError(
-            "failed https://example.invalid/mcp?token=bb_live_secret"
-        )
+        raise RuntimeError("failed https://example.invalid/mcp?token=bb_live_secret")
 
     monkeypatch.setattr("miniunicorn.tools.mcp.connect_mcp_servers", fake_connect)
 

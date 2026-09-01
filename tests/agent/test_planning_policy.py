@@ -80,9 +80,7 @@ def test_from_use_planner_false_maps_to_fast() -> None:
 
 
 def test_from_use_planner_preserves_model_and_replans() -> None:
-    policy = PlanningPolicy.from_use_planner(
-        True, planner_model="planner-x", planner_max_replans=5
-    )
+    policy = PlanningPolicy.from_use_planner(True, planner_model="planner-x", planner_max_replans=5)
     assert policy.mode == PlanningMode.MANAGED
     assert policy.planner_model == "planner-x"
     assert policy.planner_max_replans == 5

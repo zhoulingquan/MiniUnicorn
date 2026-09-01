@@ -1,4 +1,4 @@
-﻿"""Backup and restore safety tests for the SQLite memory database (design section 13).
+"""Backup and restore safety tests for the SQLite memory database (design section 13).
 
 A backup is a consistent, integrity-verified snapshot created with the SQLite
 online backup API; a restore validates the snapshot first, keeps a
@@ -84,9 +84,7 @@ def test_backup_is_integrity_checked_snapshot(tmp_path: Path) -> None:
     assert hashlib.sha256(result.path.read_bytes()).hexdigest() == result.sha256
     with sqlite3.connect(result.path) as connection:
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
-        assert (
-            connection.execute("SELECT COUNT(*) FROM memory_transactions").fetchone()[0] == 1
-        )
+        assert connection.execute("SELECT COUNT(*) FROM memory_transactions").fetchone()[0] == 1
 
 
 def test_restore_roundtrip_replaces_database_and_rebuilds_audit(tmp_path: Path) -> None:
@@ -103,12 +101,12 @@ def test_restore_roundtrip_replaces_database_and_rebuilds_audit(tmp_path: Path) 
     recovery = structured_dir(tmp_path) / "recovery"
     safety_files = list(recovery.glob("*/memory-before-restore.db"))
     assert len(safety_files) == 1
-    assert result.safety_backup_id == safety_files[0].relative_to(structured_dir(tmp_path)).as_posix()
+    assert (
+        result.safety_backup_id == safety_files[0].relative_to(structured_dir(tmp_path)).as_posix()
+    )
     with sqlite3.connect(safety_files[0]) as connection:
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
-        assert (
-            connection.execute("SELECT COUNT(*) FROM memory_transactions").fetchone()[0] == 2
-        )
+        assert connection.execute("SELECT COUNT(*) FROM memory_transactions").fetchone()[0] == 2
 
     assert repository.health.state == "healthy"
     stats = repository.storage_stats()
@@ -203,9 +201,7 @@ def test_restore_failure_keeps_database_and_safety_backup(
         assert connection.execute("SELECT COUNT(*) FROM memory_transactions").fetchone()[0] == 2
 
 
-def test_restore_twice_same_minute_keeps_unique_recovery_dirs(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_restore_twice_same_minute_keeps_unique_recovery_dirs(tmp_path: Path, monkeypatch) -> None:
     """Two restores within the same UTC minute must not collide on the
     ``recovery/<UTC>/`` targets: neither the safety database copy nor the
     pre-restore audit swap may overwrite an existing recovery entry."""

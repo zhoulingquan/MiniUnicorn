@@ -88,9 +88,7 @@ def test_build_agent_application_forwards_extra_overrides(tmp_path, monkeypatch)
 
     config = _make_config(tmp_path)
     provider = _fake_provider()
-    monkeypatch.setattr(
-        "miniunicorn.providers.factory.make_provider", lambda _config: provider
-    )
+    monkeypatch.setattr("miniunicorn.providers.factory.make_provider", lambda _config: provider)
 
     sentinel_session_manager = object()
 

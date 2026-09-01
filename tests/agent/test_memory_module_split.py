@@ -71,8 +71,7 @@ def test_archive_summary_constant_identity():
     """Archive-summary constant lives in memory_consolidator, visible via the facade."""
     assert memory_consolidator._ARCHIVE_SUMMARY_MAX_CHARS == 8_000
     assert (
-        memory_facade._ARCHIVE_SUMMARY_MAX_CHARS
-        is memory_consolidator._ARCHIVE_SUMMARY_MAX_CHARS
+        memory_facade._ARCHIVE_SUMMARY_MAX_CHARS is memory_consolidator._ARCHIVE_SUMMARY_MAX_CHARS
     )
 
 
@@ -133,8 +132,7 @@ def test_final_facade_identity():
     assert memory_facade._HISTORY_ENTRY_HARD_CAP is memory_store._HISTORY_ENTRY_HARD_CAP
     assert memory_facade._RAW_ARCHIVE_MAX_CHARS is memory_store._RAW_ARCHIVE_MAX_CHARS
     assert (
-        memory_facade._ARCHIVE_SUMMARY_MAX_CHARS
-        is memory_consolidator._ARCHIVE_SUMMARY_MAX_CHARS
+        memory_facade._ARCHIVE_SUMMARY_MAX_CHARS is memory_consolidator._ARCHIVE_SUMMARY_MAX_CHARS
     )
 
 

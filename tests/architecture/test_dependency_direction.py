@@ -132,9 +132,7 @@ def test_business_modules_do_not_import_composition() -> None:
         for lineno, target in _import_targets(tree):
             if target.split(".")[0] == "composition":
                 violations.append(f"{rel}:{lineno} imports {target}")
-    assert not violations, "business modules must not import composition:\n" + "\n".join(
-        violations
-    )
+    assert not violations, "business modules must not import composition:\n" + "\n".join(violations)
 
 
 def test_session_and_channels_do_not_import_agent() -> None:

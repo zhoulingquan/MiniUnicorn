@@ -131,9 +131,7 @@ def test_digest_changes_with_step_status() -> None:
 def test_digest_ignores_emission_metadata() -> None:
     plan = _plan()
     base = PlanSnapshot.from_plan(plan, "t1")
-    terminal = PlanSnapshot.from_plan(
-        plan, "t2", stop_reason="plan_completed", origin="escalated"
-    )
+    terminal = PlanSnapshot.from_plan(plan, "t2", stop_reason="plan_completed", origin="escalated")
 
     assert base.digest == terminal.digest
 

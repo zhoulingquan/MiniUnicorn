@@ -134,9 +134,7 @@ class TestStructuredMemoryContext:
         builder = make_builder(workspace)
         seed_active_record(builder.memory, "Main uses deterministic structured recall.")
 
-        prompt = builder.build_system_prompt(
-            recall_query="architecture.memory recall strategy"
-        )
+        prompt = builder.build_system_prompt(recall_query="architecture.memory recall strategy")
 
         assert RECALL_HEADER in prompt
         assert "deterministic structured recall" in prompt
@@ -220,7 +218,9 @@ class TestStructuredMemoryContext:
         )
 
         messages = builder.build_messages(
-            history=[], current_message="MiniUnicorn default user language", session_key="cli:direct"
+            history=[],
+            current_message="MiniUnicorn default user language",
+            session_key="cli:direct",
         )
 
         assert "Default user prefers Chinese" in messages[0]["content"]

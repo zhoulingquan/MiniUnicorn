@@ -23,9 +23,7 @@ def _valid_provider() -> MagicMock:
     provider = MagicMock(spec=LLMProvider)
     provider.chat_with_retry = AsyncMock(
         return_value=LLMResponse(
-            content=json.dumps(
-                {"goal": "ship", "steps": [{"id": 1, "action": "new approach"}]}
-            ),
+            content=json.dumps({"goal": "ship", "steps": [{"id": 1, "action": "new approach"}]}),
             tool_calls=[],
             usage={},
         )

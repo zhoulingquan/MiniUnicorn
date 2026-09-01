@@ -8,7 +8,6 @@ lock both directions: the three contract tools emit, everything else does not.
 from __future__ import annotations
 
 import hashlib
-import json
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock

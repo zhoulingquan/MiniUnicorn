@@ -561,9 +561,7 @@ async def test_full_chain_mock(tmp_path):
         )
     )
     planner = Planner(provider=planner_provider, model="test-model")
-    result = await planner.create_plan(
-        task="ship feature", tools_summary="read_file, write_file"
-    )
+    result = await planner.create_plan(task="ship feature", tools_summary="read_file, write_file")
     plan = result.plan
     assert plan.all_done is False
     assert len(plan.steps) == 3

@@ -114,9 +114,7 @@ def gate_config(monkeypatch):
     return _install
 
 
-def test_webui_payload_reports_disabled_without_service(
-    tmp_path, gate_config
-) -> None:
+def test_webui_payload_reports_disabled_without_service(tmp_path, gate_config) -> None:
     from miniunicorn.webui import cli_apps_api
 
     gate_config(False)
@@ -128,9 +126,7 @@ def test_webui_payload_reports_disabled_without_service(
     assert payload["installed_count"] == 0
 
 
-def test_webui_action_returns_403_when_disabled(
-    tmp_path, gate_config
-) -> None:
+def test_webui_action_returns_403_when_disabled(tmp_path, gate_config) -> None:
     from miniunicorn.apps.cli.service import CliAppError
     from miniunicorn.webui import cli_apps_api
 

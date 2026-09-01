@@ -101,7 +101,9 @@ async def test_fast_stall_triggers_planner(monkeypatch: pytest.MonkeyPatch) -> N
     # Second call: same
     # Third call: should trigger planner.create_plan
     call_count = {"n": 0}
-    plan_payload = json.dumps({"goal": "escalated goal", "steps": [{"id": 1, "action": "escalated step"}]})
+    plan_payload = json.dumps(
+        {"goal": "escalated goal", "steps": [{"id": 1, "action": "escalated step"}]}
+    )
 
     async def chat_with_retry(**kwargs: Any) -> LLMResponse:
         call_count["n"] += 1
@@ -157,7 +159,9 @@ async def test_escalate_at_most_once_per_turn(monkeypatch: pytest.MonkeyPatch) -
     """After escalation, further stalls do not re-trigger planner.create_plan."""
     provider = FakeProvider()
 
-    plan_payload = json.dumps({"goal": "escalated goal", "steps": [{"id": 1, "action": "escalated step"}]})
+    plan_payload = json.dumps(
+        {"goal": "escalated goal", "steps": [{"id": 1, "action": "escalated step"}]}
+    )
 
     async def chat_with_retry(**kwargs: Any) -> LLMResponse:
         return LLMResponse(content=plan_payload, tool_calls=[], usage={})
@@ -237,11 +241,15 @@ def test_managed_mode_never_escalates() -> None:
 
 
 @pytest.mark.asyncio
-async def test_progress_stall_verdict_triggers_escalation_check(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_progress_stall_verdict_triggers_escalation_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """When ProgressPolicy returns ABORT (stall), runner calls escalate."""
     provider = FakeProvider()
 
-    plan_payload = json.dumps({"goal": "escalated goal", "steps": [{"id": 1, "action": "escalated step"}]})
+    plan_payload = json.dumps(
+        {"goal": "escalated goal", "steps": [{"id": 1, "action": "escalated step"}]}
+    )
 
     async def chat_with_retry(**kwargs: Any) -> LLMResponse:
         return LLMResponse(content=plan_payload, tool_calls=[], usage={})
@@ -253,7 +261,9 @@ async def test_progress_stall_verdict_triggers_escalation_check(monkeypatch: pyt
     # Create a plan manually to simulate MANAGED mode with stalled step
     _plan = Plan(
         goal="original goal",
-        steps=[PlanStep(id=1, action="stalled step", status=StepStatus.IN_PROGRESS, iterations_used=6)],
+        steps=[
+            PlanStep(id=1, action="stalled step", status=StepStatus.IN_PROGRESS, iterations_used=6)
+        ],
         max_replans=1,
     )
 
@@ -271,4 +281,3 @@ async def test_progress_stall_verdict_triggers_escalation_check(monkeypatch: pyt
     result = await runner.run(spec)
 
     assert result is not None
-

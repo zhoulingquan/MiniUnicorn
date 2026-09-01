@@ -117,9 +117,7 @@ async def test_no_periodic_reflection_during_loop(monkeypatch) -> None:
 
     runner._planning.init_reflection = _init
 
-    await runner.run(
-        _spec(max_iterations=5, reflection_interval=1, workspace=None)
-    )
+    await runner.run(_spec(max_iterations=5, reflection_interval=1, workspace=None))
 
     # No periodic reflections during the loop; only one terminal.
     periodic = [r for r in reflect_calls if r.get("trigger") == "periodic"]

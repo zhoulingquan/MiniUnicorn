@@ -101,7 +101,9 @@ def write_reflection_entry(store, entry: dict):
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
-def reflection_entry(lesson: str, ref_id: str, *, session_key="test", user_key=None, timestamp="2026-08-11 08:30"):
+def reflection_entry(
+    lesson: str, ref_id: str, *, session_key="test", user_key=None, timestamp="2026-08-11 08:30"
+):
     entry = {
         "timestamp": timestamp,
         "trigger": "tool_error",
@@ -128,6 +130,7 @@ def seed_record(store, scope_kind: ScopeKind, scope_key: str, statement: str) ->
         EvidenceRef,
         MemoryScope,
     )
+
     now = datetime.now(timezone.utc)
     evidence_catalog = {
         "history:seed": EvidenceRef(
@@ -138,7 +141,11 @@ def seed_record(store, scope_kind: ScopeKind, scope_key: str, statement: str) ->
         )
     }
     extracted = parse_extraction_batch(
-        raw_batch(proposal(scope_hint=scope_kind.value, statement=statement, evidence_refs=["history:seed"])),
+        raw_batch(
+            proposal(
+                scope_hint=scope_kind.value, statement=statement, evidence_refs=["history:seed"]
+            )
+        ),
         evidence_catalog,
         store.structured_repository.tag_catalog,
         allowed_scope_hints={ScopeKind.PROJECT, ScopeKind.SHARED, scope_kind},
@@ -235,12 +242,8 @@ class TestStructuredBatchIngest:
     async def test_partitioned_identity_scope_hint_uses_first_partition(
         self, store, dream, mock_provider
     ):
-        store.append_history(
-            "Alice fact.", session_key="web:chat-7", user_key="user:alice"
-        )
-        store.append_history(
-            "Bob fact.", session_key="web:chat-8", user_key="user:bob"
-        )
+        store.append_history("Alice fact.", session_key="web:chat-7", user_key="user:alice")
+        store.append_history("Bob fact.", session_key="web:chat-8", user_key="user:bob")
         set_provider_response(mock_provider, raw_batch(proposal(scope_hint="user")))
 
         assert await dream.run() is True
@@ -339,9 +342,7 @@ class TestFailClosedCursors:
 
 
 class TestReflectionOnlyBatches:
-    async def test_reflection_only_batch_consumes_reflections(
-        self, store, dream, mock_provider
-    ):
+    async def test_reflection_only_batch_consumes_reflections(self, store, dream, mock_provider):
         write_reflections(store, ["Lesson one.", "Lesson two."])
         set_provider_response(mock_provider, '{"schema_version":1,"proposals":[]}')
 
@@ -562,9 +563,7 @@ class TestDynamicIdentityScopes:
                 return line.strip().lstrip("-").strip()
         raise AssertionError("allowed scope_hint line missing from system prompt")
 
-    async def test_consistent_identity_opens_all_fine_scopes(
-        self, store, dream, mock_provider
-    ):
+    async def test_consistent_identity_opens_all_fine_scopes(self, store, dream, mock_provider):
         store.append_history(
             "Alice prefers compact answers.",
             session_key="web:chat-7",
@@ -658,9 +657,7 @@ class TestDynamicIdentityScopes:
         assert record.scope.kind is ScopeKind.SESSION
         assert record.scope.key == "session:web:chat"
 
-    async def test_different_parent_sessions_are_partitioned(
-        self, store, dream, mock_provider
-    ):
+    async def test_different_parent_sessions_are_partitioned(self, store, dream, mock_provider):
         store.append_history("Chat A subagent fact.", session_key="web:chat#sub:a")
         store.append_history("Chat B subagent fact.", session_key="web:other#sub:a")
         set_provider_response(mock_provider, '{"schema_version":1,"proposals":[]}')
@@ -722,15 +719,9 @@ class TestDynamicIdentityScopes:
 
 
 class TestPartitionedBatches:
-    async def test_mixed_user_batches_drain_by_partition(
-        self, store, dream, mock_provider
-    ):
-        store.append_history(
-            "Alice fact.", session_key="web:chat-7", user_key="user:alice"
-        )
-        store.append_history(
-            "Bob fact.", session_key="web:chat-8", user_key="user:bob"
-        )
+    async def test_mixed_user_batches_drain_by_partition(self, store, dream, mock_provider):
+        store.append_history("Alice fact.", session_key="web:chat-7", user_key="user:alice")
+        store.append_history("Bob fact.", session_key="web:chat-8", user_key="user:bob")
         set_provider_response(mock_provider, '{"schema_version":1,"proposals":[]}')
 
         assert await dream.run() is True
@@ -752,15 +743,9 @@ class TestPartitionedBatches:
     async def test_interleaved_partitions_drain_exactly_once_across_runs(
         self, store, dream, mock_provider
     ):
-        store.append_history(
-            "Alice fact one.", session_key="web:chat-7", user_key="user:alice"
-        )
-        store.append_history(
-            "Bob fact.", session_key="web:chat-8", user_key="user:bob"
-        )
-        store.append_history(
-            "Alice fact two.", session_key="web:chat-7", user_key="user:alice"
-        )
+        store.append_history("Alice fact one.", session_key="web:chat-7", user_key="user:alice")
+        store.append_history("Bob fact.", session_key="web:chat-8", user_key="user:bob")
+        store.append_history("Alice fact two.", session_key="web:chat-7", user_key="user:alice")
         set_provider_response(mock_provider, '{"schema_version":1,"proposals":[]}')
 
         prompts = []
@@ -783,8 +768,12 @@ class TestPartitionedBatches:
         self, store, dream, mock_provider
     ):
         write_history_direct(
-            store, 1, "2026-08-10 08:00", "Alice fact.",
-            session_key="web:chat-7", user_key="user:alice",
+            store,
+            1,
+            "2026-08-10 08:00",
+            "Alice fact.",
+            session_key="web:chat-7",
+            user_key="user:alice",
         )
         write_reflection_entry(
             store,
@@ -809,8 +798,12 @@ class TestPartitionedBatches:
         self, store, dream, mock_provider
     ):
         write_history_direct(
-            store, 1, "2026-08-10 08:00", "Alice fact.",
-            session_key="web:chat-7", user_key="user:alice",
+            store,
+            1,
+            "2026-08-10 08:00",
+            "Alice fact.",
+            session_key="web:chat-7",
+            user_key="user:alice",
         )
         write_reflection_entry(
             store,
@@ -839,12 +832,14 @@ class TestPartitionedBatches:
         assert "Alice fact." not in second
         assert store.get_last_reflections_cursor() == 0  # consumed then pruned
 
-    async def test_oldest_pending_partition_wins(
-        self, store, dream, mock_provider
-    ):
+    async def test_oldest_pending_partition_wins(self, store, dream, mock_provider):
         write_history_direct(
-            store, 1, "2026-08-10 08:00", "Alice fact.",
-            session_key="web:chat-7", user_key="user:alice",
+            store,
+            1,
+            "2026-08-10 08:00",
+            "Alice fact.",
+            session_key="web:chat-7",
+            user_key="user:alice",
         )
         write_reflection_entry(
             store,
@@ -870,14 +865,16 @@ class TestPartitionedBatches:
         assert "Alice fact." in second
         assert "Bob lesson." not in second
 
-    async def test_max_batch_size_caps_total_evidence_across_sources(
-        self, store, mock_provider
-    ):
+    async def test_max_batch_size_caps_total_evidence_across_sources(self, store, mock_provider):
         dream = Dream(store=store, provider=mock_provider, model="test-model", max_batch_size=5)
         for i in range(1, 5):
             write_history_direct(
-                store, i, f"2026-08-10 08:0{i}", f"History fact {i}.",
-                session_key="web:chat-7", user_key="user:alice",
+                store,
+                i,
+                f"2026-08-10 08:0{i}",
+                f"History fact {i}.",
+                session_key="web:chat-7",
+                user_key="user:alice",
             )
         for i in range(1, 5):
             write_reflection_entry(
@@ -907,8 +904,12 @@ class TestPartitionedBatches:
         self, store, dream, mock_provider
     ):
         write_history_direct(
-            store, 1, "2026-08-10 08:00", "Alice fact.",
-            session_key="web:chat-7", user_key="user:alice",
+            store,
+            1,
+            "2026-08-10 08:00",
+            "Alice fact.",
+            session_key="web:chat-7",
+            user_key="user:alice",
         )
         write_reflection_entry(
             store,
@@ -970,9 +971,7 @@ class TestDreamBounds:
             max_completion_tokens=64,
         )
         history = store.read_unprocessed_history(since_cursor=0)
-        allowed_scopes = {
-            MemoryScope(kind=ScopeKind.PROJECT, key=store.project_scope_key)
-        }
+        allowed_scopes = {MemoryScope(kind=ScopeKind.PROJECT, key=store.project_scope_key)}
         minimum_one_evidence_prompt = dream._render_user_prompt(
             store.structured_repository,
             history[:1],
@@ -999,18 +998,14 @@ class TestDreamBounds:
         async def respond_with_visible_evidence(**kwargs):
             user_prompt = kwargs["messages"][1]["content"]
             visible_refs = re.findall(r"\[(history:\d+)\s*\|", user_prompt)
-            return MagicMock(
-                content=raw_batch(proposal(evidence_refs=[visible_refs[0]]))
-            )
+            return MagicMock(content=raw_batch(proposal(evidence_refs=[visible_refs[0]])))
 
         monkeypatch.setattr(store.structured_lifecycle, "ingest", capture_ingest)
         mock_provider.chat_with_retry.side_effect = respond_with_visible_evidence
 
         assert await dream.run() is True
 
-        sent_prompt = mock_provider.chat_with_retry.await_args.kwargs["messages"][1][
-            "content"
-        ]
+        sent_prompt = mock_provider.chat_with_retry.await_args.kwargs["messages"][1]["content"]
         sent_refs = re.findall(r"\[(history:\d+)\s*\|", sent_prompt)
         assert sent_refs == ["history:1"]
         assert store.get_last_dream_cursor() == 1
@@ -1036,9 +1031,7 @@ class TestDreamBounds:
         assert store.get_last_dream_cursor() == 0
         assert store.get_last_reflections_cursor() == 0
 
-    async def test_budget_too_small_for_evidence_body_defers_batch(
-        self, store, mock_provider
-    ):
+    async def test_budget_too_small_for_evidence_body_defers_batch(self, store, mock_provider):
         from miniunicorn.agent.memory_models import MemoryScope
         from miniunicorn.utils.helpers import estimate_message_tokens
 
@@ -1050,9 +1043,7 @@ class TestDreamBounds:
             max_completion_tokens=64,
         )
         history = store.read_unprocessed_history(since_cursor=0)
-        allowed_scopes = {
-            MemoryScope(kind=ScopeKind.PROJECT, key=store.project_scope_key)
-        }
+        allowed_scopes = {MemoryScope(kind=ScopeKind.PROJECT, key=store.project_scope_key)}
         empty_body_prompt = dream._render_user_prompt(
             store.structured_repository,
             history,
@@ -1062,13 +1053,9 @@ class TestDreamBounds:
             reflection_preview=0,
             include_summaries=False,
         )
-        empty_body_budget = estimate_message_tokens(
-            {"role": "user", "content": empty_body_prompt}
-        )
+        empty_body_budget = estimate_message_tokens({"role": "user", "content": empty_body_prompt})
         dream.context_window_tokens = (
-            dream.max_completion_tokens
-            + dream._PROMPT_SAFETY_TOKENS
-            + empty_body_budget
+            dream.max_completion_tokens + dream._PROMPT_SAFETY_TOKENS + empty_body_budget
         )
 
         assert await dream.run() is False
@@ -1132,9 +1119,7 @@ class TestDreamBounds:
             reflection_preview=128,
             include_summaries=False,
         )
-        prompt_budget = estimate_message_tokens(
-            {"role": "user", "content": minimum_history_prompt}
-        )
+        prompt_budget = estimate_message_tokens({"role": "user", "content": minimum_history_prompt})
         dream.context_window_tokens = (
             dream.max_completion_tokens + dream._PROMPT_SAFETY_TOKENS + prompt_budget
         )
@@ -1142,16 +1127,12 @@ class TestDreamBounds:
 
         assert await dream.run() is True
 
-        sent_prompt = mock_provider.chat_with_retry.await_args.kwargs["messages"][1][
-            "content"
-        ]
+        sent_prompt = mock_provider.chat_with_retry.await_args.kwargs["messages"][1]["content"]
         assert "history:1" in sent_prompt
         assert valid_reflection_id not in sent_prompt
         assert store.get_last_dream_cursor() == 1
         remaining = store.read_unprocessed_reflections(since_cursor=0)
-        assert [entry.get("reflection_id") for entry in remaining] == [
-            valid_reflection_id
-        ]
+        assert [entry.get("reflection_id") for entry in remaining] == [valid_reflection_id]
 
     async def test_evidence_excerpt_truncated_to_1000_chars(self, store, dream, mock_provider):
         store.append_history("A" * 5000)
@@ -1163,9 +1144,7 @@ class TestDreamBounds:
         assert record.evidence[0].ref == "history:1"
         assert len(record.evidence[0].excerpt) <= 1000
 
-    async def test_oversized_reflection_excerpt_truncated(
-        self, store, dream, mock_provider
-    ):
+    async def test_oversized_reflection_excerpt_truncated(self, store, dream, mock_provider):
         ref_id = "rfl_0123456789abcdef0123456789abcdef"
         write_reflection_entry(
             store,
@@ -1209,9 +1188,7 @@ class TestDreamBounds:
         assert estimate_message_tokens({"role": "user", "content": prompt}) <= budget
         assert store.get_last_dream_cursor() == 1
 
-    async def test_token_budget_not_enforced_when_window_unknown(
-        self, store, dream, mock_provider
-    ):
+    async def test_token_budget_not_enforced_when_window_unknown(self, store, dream, mock_provider):
         store.append_history("A" * 4000)
         set_provider_response(mock_provider, raw_batch(proposal()))
 
@@ -1223,9 +1200,7 @@ class TestDreamBounds:
     async def test_summary_excludes_other_user_records(self, store, dream, mock_provider):
         seed_record(store, ScopeKind.USER, "user:alice", "ALICE USER FACT")
         seed_record(store, ScopeKind.USER, "user:bob", "BOB USER FACT")
-        store.append_history(
-            "Alice fact.", session_key="web:chat-7", user_key="user:alice"
-        )
+        store.append_history("Alice fact.", session_key="web:chat-7", user_key="user:alice")
         set_provider_response(mock_provider, '{"schema_version":1,"proposals":[]}')
 
         assert await dream.run() is True

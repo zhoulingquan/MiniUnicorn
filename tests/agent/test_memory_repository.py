@@ -54,7 +54,12 @@ def dt(iso: str) -> datetime:
     return datetime.fromisoformat(iso.replace("Z", "+00:00"))
 
 
-def make_evidence(kind: str = "manual", ref: str = "command:msg-1", excerpt: str = "evidence excerpt", sha256: str | None = None):
+def make_evidence(
+    kind: str = "manual",
+    ref: str = "command:msg-1",
+    excerpt: str = "evidence excerpt",
+    sha256: str | None = None,
+):
     return {
         "kind": kind,
         "ref": ref,
@@ -180,21 +185,32 @@ def update_transaction(
             "status": status or previous.status,
         }
     )
-    return make_transaction(record, expected_revisions={record.id: expected_revision}, actor=actor, reason=reason, source_batch=source_batch)
+    return make_transaction(
+        record,
+        expected_revisions={record.id: expected_revision},
+        actor=actor,
+        reason=reason,
+        source_batch=source_batch,
+    )
 
 
 @pytest.fixture
 def replacement_tx(repository) -> MemoryTransaction:
-    active = MemoryRecord.model_validate(record_data(status="active", revision=1, memory_id="mem_" + "a" * 32))
+    active = MemoryRecord.model_validate(
+        record_data(status="active", revision=1, memory_id="mem_" + "a" * 32)
+    )
     candidate = MemoryRecord.model_validate(
-        record_data(statement=active.statement, status="candidate", revision=1, memory_id="mem_" + "b" * 32)
+        record_data(
+            statement=active.statement, status="candidate", revision=1, memory_id="mem_" + "b" * 32
+        )
     )
     repository.append_transaction(make_transaction(active))
     repository.append_transaction(make_transaction(candidate))
     active_merge = active.model_copy(
         update={
             "revision": 2,
-            "evidence": active.evidence + (EvidenceRef(kind=EvidenceKind.HISTORY, ref="history:9", excerpt="dup"),),
+            "evidence": active.evidence
+            + (EvidenceRef(kind=EvidenceKind.HISTORY, ref="history:9", excerpt="dup"),),
             "updated_at": dt("2026-08-11T08:33:00Z"),
         }
     )
@@ -258,7 +274,9 @@ def test_revisions_are_ordered(repository, create_tx):
 
 def test_current_records_ordering_is_stable(repository):
     first = MemoryRecord.model_validate(record_data(statement="zebra", memory_id="mem_" + "a" * 32))
-    second = MemoryRecord.model_validate(record_data(statement="apple", memory_id="mem_" + "b" * 32))
+    second = MemoryRecord.model_validate(
+        record_data(statement="apple", memory_id="mem_" + "b" * 32)
+    )
     repository.append_transaction(make_transaction(second))
     repository.append_transaction(make_transaction(first))
     ids = [r.id for r in repository.current_records()]
@@ -308,7 +326,9 @@ def test_skipped_revision_rejected_atomically(repository):
 def test_illegal_status_transition_keeps_first_transaction(repository):
     active = MemoryRecord.model_validate(record_data(status="active", revision=1))
     repository.append_transaction(make_transaction(active))
-    invalid = MemoryRecord.model_validate(record_data(status="candidate", revision=2, memory_id=active.id))
+    invalid = MemoryRecord.model_validate(
+        record_data(status="candidate", revision=2, memory_id=active.id)
+    )
     with pytest.raises(InvalidMemoryTransition):
         repository.append_transaction(make_transaction(invalid, expected_revisions={active.id: 1}))
     assert len(repository.transaction_log(limit=10)) == 1
@@ -356,7 +376,9 @@ def test_append_commit_failure_leaves_no_rows_and_degrades(repository, transacti
     assert repository.health.state == "degraded"
     assert repository.health.error_code == "sqlite_operational_error"
     with real_connect(repository.database_path, lock_timeout_s=0.1) as connection:
-        transaction_count = connection.execute("SELECT COUNT(*) FROM memory_transactions").fetchone()[0]
+        transaction_count = connection.execute(
+            "SELECT COUNT(*) FROM memory_transactions"
+        ).fetchone()[0]
         revision_count = connection.execute("SELECT COUNT(*) FROM memory_revisions").fetchone()[0]
     assert transaction_count == 0
     assert revision_count == 0
@@ -374,9 +396,7 @@ def test_same_status_active_revision_cannot_change_fact_fields(repository):
     )
 
     with pytest.raises(InvalidMemoryTransition, match="same-status revision"):
-        repository.append_transaction(
-            make_transaction(changed, expected_revisions={active.id: 1})
-        )
+        repository.append_transaction(make_transaction(changed, expected_revisions={active.id: 1}))
 
 
 def test_transaction_rejects_two_active_records_for_same_conflict_key(repository):
@@ -444,7 +464,9 @@ def test_append_rejects_unknown_tag(repository):
 def test_append_rejects_illegal_transition(repository):
     active = MemoryRecord.model_validate(record_data(status="active", revision=1))
     repository.append_transaction(make_transaction(active))
-    invalid = MemoryRecord.model_validate(record_data(status="candidate", revision=2, memory_id=active.id))
+    invalid = MemoryRecord.model_validate(
+        record_data(status="candidate", revision=2, memory_id=active.id)
+    )
     tx = make_transaction(invalid, expected_revisions={active.id: 1})
     with pytest.raises(InvalidMemoryTransition):
         repository.append_transaction(tx)
@@ -491,7 +513,9 @@ def test_active_for_conflict_key_tracks_only_active(repository):
     record = MemoryRecord.model_validate(record_data(status="active", revision=1))
     repository.append_transaction(make_transaction(record))
     assert repository.active_for_conflict_key(record.conflict_key) == record
-    candidate = MemoryRecord.model_validate(record_data(status="candidate", revision=1, slot="other.slot"))
+    candidate = MemoryRecord.model_validate(
+        record_data(status="candidate", revision=1, slot="other.slot")
+    )
     repository.append_transaction(make_transaction(candidate))
     assert repository.active_for_conflict_key(candidate.conflict_key) is None
 
@@ -508,8 +532,16 @@ def test_candidate_ids_for_source(repository):
 def test_candidate_ids_do_not_include_promoted(repository):
     record = MemoryRecord.model_validate(record_data(status="candidate", revision=1))
     repository.append_transaction(make_transaction(record, source_batch="history:1-2"))
-    promoted = record.model_copy(update={"revision": 2, "status": MemoryStatus.ACTIVE, "updated_at": dt("2026-08-11T08:32:00Z")})
-    repository.append_transaction(make_transaction(promoted, expected_revisions={record.id: 1}, source_batch="history:1-2"))
+    promoted = record.model_copy(
+        update={
+            "revision": 2,
+            "status": MemoryStatus.ACTIVE,
+            "updated_at": dt("2026-08-11T08:32:00Z"),
+        }
+    )
+    repository.append_transaction(
+        make_transaction(promoted, expected_revisions={record.id: 1}, source_batch="history:1-2")
+    )
     assert repository.candidate_ids_for_source("history:1-2") == frozenset()
 
 
@@ -683,11 +715,10 @@ def test_append_create_if_absent_real_multiprocess(workspace):
                 proc.terminate()
                 proc.join(timeout=5)
 
+
 class TestBlockedByMonotonicity:
     def test_candidate_revision_cannot_clear_blocked_by(self, repository):
-        created = MemoryRecord.model_validate(
-            record_data(blocked_by=("mem_" + "a" * 32,))
-        )
+        created = MemoryRecord.model_validate(record_data(blocked_by=("mem_" + "a" * 32,)))
         repository.append_transaction(make_transaction(created, source_batch="dream:batch-a"))
 
         cleared = created.model_copy(
@@ -704,9 +735,7 @@ class TestBlockedByMonotonicity:
         assert len(repository.revisions(created.id)) == 1
 
     def test_candidate_revision_cannot_replace_blocked_by(self, repository):
-        created = MemoryRecord.model_validate(
-            record_data(blocked_by=("mem_" + "a" * 32,))
-        )
+        created = MemoryRecord.model_validate(record_data(blocked_by=("mem_" + "a" * 32,)))
         repository.append_transaction(make_transaction(created, source_batch="dream:batch-a"))
 
         replaced = created.model_copy(
@@ -850,9 +879,7 @@ def test_reads_from_sqlite_return_validated_records(repository) -> None:
 
 
 def test_reads_current_records_sorted_by_memory_id(repository) -> None:
-    first = MemoryRecord.model_validate(
-        record_data(statement="zebra", memory_id="mem_" + "a" * 32)
-    )
+    first = MemoryRecord.model_validate(record_data(statement="zebra", memory_id="mem_" + "a" * 32))
     second = MemoryRecord.model_validate(
         record_data(statement="apple", memory_id="mem_" + "b" * 32)
     )
@@ -864,9 +891,7 @@ def test_reads_current_records_sorted_by_memory_id(repository) -> None:
 
 def test_reads_revisions_ascending_by_revision(repository) -> None:
     original = MemoryRecord.model_validate(record_data(memory_id="mem_" + "a" * 32))
-    revised = original.model_copy(
-        update={"revision": 2, "updated_at": dt("2026-08-11T08:32:00Z")}
-    )
+    revised = original.model_copy(update={"revision": 2, "updated_at": dt("2026-08-11T08:32:00Z")})
     with connect_memory_db(repository.database_path, lock_timeout_s=0.1) as connection:
         _seed_transaction(connection, make_transaction(original), is_current=False)
         _seed_transaction(connection, make_transaction(revised))
@@ -883,7 +908,9 @@ def test_reads_candidate_source_queries(repository) -> None:
         record_data(status="candidate", statement="two", memory_id="mem_" + "b" * 32)
     )
     active = MemoryRecord.model_validate(
-        record_data(status="active", statement="three", slot="other.slot", memory_id="mem_" + "c" * 32)
+        record_data(
+            status="active", statement="three", slot="other.slot", memory_id="mem_" + "c" * 32
+        )
     )
     with connect_memory_db(repository.database_path, lock_timeout_s=0.1) as connection:
         _seed_transaction(connection, make_transaction(first, source_batch="history:1-2"))
@@ -899,9 +926,7 @@ def test_reads_candidate_source_queries(repository) -> None:
 
 def test_reads_source_batches_cumulative(repository) -> None:
     created = MemoryRecord.model_validate(record_data(memory_id="mem_" + "a" * 32))
-    revised = created.model_copy(
-        update={"revision": 2, "updated_at": dt("2026-08-11T08:32:00Z")}
-    )
+    revised = created.model_copy(update={"revision": 2, "updated_at": dt("2026-08-11T08:32:00Z")})
     with connect_memory_db(repository.database_path, lock_timeout_s=0.1) as connection:
         _seed_transaction(
             connection, make_transaction(created, source_batch="dream:batch-a"), is_current=False
@@ -913,9 +938,7 @@ def test_reads_source_batches_cumulative(repository) -> None:
 
 
 def test_reads_transaction_log_recent_first(repository) -> None:
-    first = MemoryRecord.model_validate(
-        record_data(statement="first", memory_id="mem_" + "a" * 32)
-    )
+    first = MemoryRecord.model_validate(record_data(statement="first", memory_id="mem_" + "a" * 32))
     second = MemoryRecord.model_validate(
         record_data(statement="second", memory_id="mem_" + "b" * 32)
     )
@@ -966,11 +989,11 @@ def test_reads_storage_stats_reads_audit_exported_seq(repository) -> None:
 
 
 def test_reads_recall_candidates_filters_scope_kind_expiry(repository) -> None:
-    active = MemoryRecord.model_validate(
-        record_data(status="active", memory_id="mem_" + "a" * 32)
-    )
+    active = MemoryRecord.model_validate(record_data(status="active", memory_id="mem_" + "a" * 32))
     decision = MemoryRecord.model_validate(
-        record_data(status="active", kind="decision", statement="use sqlite", memory_id="mem_" + "d" * 32)
+        record_data(
+            status="active", kind="decision", statement="use sqlite", memory_id="mem_" + "d" * 32
+        )
     )
     candidate = MemoryRecord.model_validate(
         record_data(status="candidate", statement="different", memory_id="mem_" + "b" * 32)
@@ -1024,9 +1047,12 @@ def test_reads_recall_candidates_boundary_excludes_expiring_at_now(repository) -
         _seed_transaction(connection, make_transaction(expiring_now))
 
     now = dt("2026-08-11T09:00:00Z")
-    assert repository.recall_candidates(
-        allowed_scopes=(expiring_now.scope,), requested_kinds=(), now=now
-    ) == ()
+    assert (
+        repository.recall_candidates(
+            allowed_scopes=(expiring_now.scope,), requested_kinds=(), now=now
+        )
+        == ()
+    )
 
 
 def test_reads_recall_candidates_boundary_includes_expiring_after_now(repository) -> None:
@@ -1090,8 +1116,12 @@ def test_atomic_revision_update_preserves_history(repository, create_tx):
 
 
 def test_atomic_multi_operation_replacement_in_one_transaction(repository):
-    active = MemoryRecord.model_validate(record_data(status="active", revision=1, memory_id="mem_" + "a" * 32))
-    candidate = MemoryRecord.model_validate(record_data(status="candidate", revision=1, memory_id="mem_" + "b" * 32))
+    active = MemoryRecord.model_validate(
+        record_data(status="active", revision=1, memory_id="mem_" + "a" * 32)
+    )
+    candidate = MemoryRecord.model_validate(
+        record_data(status="candidate", revision=1, memory_id="mem_" + "b" * 32)
+    )
     repository.append_transaction(make_transaction(active))
     repository.append_transaction(make_transaction(candidate))
     active_merge = active.model_copy(
@@ -1142,7 +1172,9 @@ def test_atomic_append_rejects_wrong_expected_revision(repository, create_tx):
 def test_atomic_append_rejects_illegal_status(repository):
     active = MemoryRecord.model_validate(record_data(status="active", revision=1))
     repository.append_transaction(make_transaction(active))
-    invalid = MemoryRecord.model_validate(record_data(status="candidate", revision=2, memory_id=active.id))
+    invalid = MemoryRecord.model_validate(
+        record_data(status="candidate", revision=2, memory_id=active.id)
+    )
     with pytest.raises(InvalidMemoryTransition):
         repository.append_transaction(make_transaction(invalid, expected_revisions={active.id: 1}))
     assert repository.storage_stats().transaction_count == 1
@@ -1216,7 +1248,9 @@ def test_db_creation_key_unique_accepts_exactly_one_mapping(repository):
     with connect_memory_db(repository.database_path, lock_timeout_s=0.1) as connection:
         _seed_transaction(connection, make_transaction(first, source_batch="dream:stable-batch"))
         with pytest.raises(sqlite3.IntegrityError):
-            _seed_transaction(connection, make_transaction(second, source_batch="dream:stable-batch"))
+            _seed_transaction(
+                connection, make_transaction(second, source_batch="dream:stable-batch")
+            )
     assert repository.record_created_for("dream:stable-batch", first.content_hash) == first
 
 
@@ -1242,13 +1276,17 @@ def test_same_creation_key_returns_same_id(repository):
 # ---------------------------------------------------------------------------
 
 
-def _worker_create_distinct(workspace: str, source_batch: str, worker_index: int, count: int, start, queue) -> None:
+def _worker_create_distinct(
+    workspace: str, source_batch: str, worker_index: int, count: int, start, queue
+) -> None:
     repo = StructuredMemoryRepository(Path(workspace), lock_timeout_s=15.0)
     start.wait()
     created_ids: list[str] = []
     for i in range(count):
         record = MemoryRecord.model_validate(
-            record_data(statement=f"parallel statement {worker_index}-{i}", memory_id=new_memory_id())
+            record_data(
+                statement=f"parallel statement {worker_index}-{i}", memory_id=new_memory_id()
+            )
         )
         current, created = repo.append_create_if_absent(
             make_transaction(record, source_batch=f"{source_batch}:{worker_index}-{i}")
@@ -1258,13 +1296,17 @@ def _worker_create_distinct(workspace: str, source_batch: str, worker_index: int
     queue.put({"created_ids": created_ids, "exit": 0})
 
 
-def _worker_create_same_key(workspace: str, source_batch: str, memory_id: str, count: int, start, queue) -> None:
+def _worker_create_same_key(
+    workspace: str, source_batch: str, memory_id: str, count: int, start, queue
+) -> None:
     repo = StructuredMemoryRepository(Path(workspace), lock_timeout_s=15.0)
     record = MemoryRecord.model_validate(record_data(memory_id=memory_id))
     start.wait()
     outcomes: list[tuple[str, bool]] = []
     for _ in range(count):
-        current, created = repo.append_create_if_absent(make_transaction(record, source_batch=source_batch))
+        current, created = repo.append_create_if_absent(
+            make_transaction(record, source_batch=source_batch)
+        )
         outcomes.append((current.id, created))
     queue.put({"outcomes": outcomes, "exit": 0})
 
@@ -1283,7 +1325,9 @@ def _worker_update_expected(workspace: str, memory_id: str, start, queue) -> Non
 
 def _worker_activate_conflict(workspace: str, slot: str, memory_id: str, start, queue) -> None:
     repo = StructuredMemoryRepository(Path(workspace), lock_timeout_s=15.0)
-    record = MemoryRecord.model_validate(record_data(status="active", slot=slot, memory_id=memory_id))
+    record = MemoryRecord.model_validate(
+        record_data(status="active", slot=slot, memory_id=memory_id)
+    )
     start.wait()
     try:
         repo.append_transaction(make_transaction(record))
@@ -1315,7 +1359,9 @@ def _run_workers(target, args_list, *, timeout: float = 120.0) -> list:
 
 def test_four_processes_100_distinct_creates_all_exist(workspace):
     StructuredMemoryRepository(workspace, lock_timeout_s=15.0)
-    results = _run_workers(_worker_create_distinct, [(str(workspace), "dream:parallel", i, 25) for i in range(4)])
+    results = _run_workers(
+        _worker_create_distinct, [(str(workspace), "dream:parallel", i, 25) for i in range(4)]
+    )
     ids = [record_id for result in results for record_id in result["created_ids"]]
     assert len(ids) == 100
     assert len(set(ids)) == 100
@@ -1328,7 +1374,8 @@ def test_four_processes_20_same_key_creates_one_memory_id(workspace):
     StructuredMemoryRepository(workspace, lock_timeout_s=15.0)
     memory_id = "mem_" + "c" * 32
     results = _run_workers(
-        _worker_create_same_key, [(str(workspace), "dream:contended", memory_id, 5) for _ in range(4)]
+        _worker_create_same_key,
+        [(str(workspace), "dream:contended", memory_id, 5) for _ in range(4)],
     )
     outcomes = [item for result in results for item in result["outcomes"]]
     assert len(outcomes) == 20
@@ -1343,7 +1390,9 @@ def test_two_processes_racing_one_expected_revision_only_one_wins(workspace):
     repo = StructuredMemoryRepository(workspace, lock_timeout_s=15.0)
     record = MemoryRecord.model_validate(record_data(memory_id="mem_" + "d" * 32))
     repo.append_transaction(make_transaction(record))
-    results = _run_workers(_worker_update_expected, [(str(workspace), record.id), (str(workspace), record.id)])
+    results = _run_workers(
+        _worker_update_expected, [(str(workspace), record.id), (str(workspace), record.id)]
+    )
     assert sorted(result["outcome"] for result in results) == ["lost", "won"]
     fresh = StructuredMemoryRepository(workspace, lock_timeout_s=15.0)
     assert fresh.get(record.id).revision == 2
@@ -1462,7 +1511,9 @@ def test_startup_existing_database_ignores_completed_manifest(workspace):
 def test_startup_completed_manifest_without_database_degrades(workspace):
     manifest = workspace / "memory" / "structured" / "storage-migration-v2.json"
     manifest.write_text(json.dumps({"status": "completed"}), encoding="utf-8")
-    _write_journal(workspace, _canonical_line(make_transaction(MemoryRecord.model_validate(record_data()))))
+    _write_journal(
+        workspace, _canonical_line(make_transaction(MemoryRecord.model_validate(record_data())))
+    )
 
     repository = StructuredMemoryRepository(workspace, lock_timeout_s=0.1)
 
@@ -1504,9 +1555,7 @@ def test_startup_removes_importing_residue_then_migrates(workspace):
 # ---------------------------------------------------------------------------
 
 
-def test_startup_existing_database_journal_reader_raises_still_succeeds(
-    workspace, monkeypatch
-):
+def test_startup_existing_database_journal_reader_raises_still_succeeds(workspace, monkeypatch):
     first = StructuredMemoryRepository(workspace, lock_timeout_s=0.1)
     record = MemoryRecord.model_validate(record_data(memory_id="mem_" + "a" * 32))
     first.append_transaction(make_transaction(record))
@@ -1547,9 +1596,7 @@ def _seed_repository_history(workspace: Path, count: int) -> StructuredMemoryRep
     return repository
 
 
-def test_append_sql_statement_count_bounded_across_history_scale(
-    workspace, tmp_path, monkeypatch
-):
+def test_append_sql_statement_count_bounded_across_history_scale(workspace, tmp_path, monkeypatch):
     from miniunicorn.agent import memory_repository as repo_module
 
     large_workspace = tmp_path / "large-workspace"
@@ -1616,9 +1663,11 @@ def test_recall_query_plan_uses_partial_index_with_multi_scope_and_kind(reposito
     )
     now = dt("2026-08-11T08:30:00Z")
     params = [value for scope in scopes for value in (scope.kind.value, scope.key)]
-    sql = SQL_RECALL_SELECT + " OR ".join(
-        "(scope_kind = ? AND scope_key = ?)" for _ in scopes
-    ) + SQL_RECALL_SUFFIX
+    sql = (
+        SQL_RECALL_SELECT
+        + " OR ".join("(scope_kind = ? AND scope_key = ?)" for _ in scopes)
+        + SQL_RECALL_SUFFIX
+    )
     params.append(now.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"))
     sql += " AND kind IN (?, ?)"
     params.extend((MemoryKind.FACT.value, MemoryKind.PREFERENCE.value))
@@ -1725,9 +1774,7 @@ def test_benchmark_report_structure_and_required_metrics():
         "integrity_ok": True,
         "foreign_keys_ok": True,
     }
-    report = module.build_report(
-        "--workspace override --transactions 100000", dataset, results
-    )
+    report = module.build_report("--workspace override --transactions 100000", dataset, results)
     assert json.loads(json.dumps(report)) == report
     assert set(report) >= {
         "schema_version",

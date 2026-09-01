@@ -85,10 +85,7 @@ def test_recall_audit_is_redacted_rotated_and_not_git_tracked(tmp_path):
 
 
 def test_recall_audit_concurrent_writers_do_not_lose_rows(tmp_path):
-    stores = [
-        MemoryStore(tmp_path, structured_config=StructuredMemoryConfig())
-        for _ in range(4)
-    ]
+    stores = [MemoryStore(tmp_path, structured_config=StructuredMemoryConfig()) for _ in range(4)]
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = [
@@ -160,6 +157,7 @@ def declared_package_names(dependencies: list[str]) -> set[str]:
             raise AssertionError(f"unparseable declared dependency: {spec!r}: {exc}")
     return names
 
+
 _EXPLICIT_RUNTIME_FILES = (
     "miniunicorn/agent/context.py",
     "miniunicorn/agent/loop.py",
@@ -217,9 +215,9 @@ def test_runtime_config_and_dependencies_expose_no_vector_memory_entrypoint():
         "vector_database",
         "vector_backend",
     }
-    schema_text = (root / "miniunicorn" / "config" / "schema.py").read_text(
-        encoding="utf-8"
-    ).lower()
+    schema_text = (
+        (root / "miniunicorn" / "config" / "schema.py").read_text(encoding="utf-8").lower()
+    )
 
     with (root / "pyproject.toml").open("rb") as stream:
         pyproject = tomllib.load(stream)
@@ -229,16 +227,12 @@ def test_runtime_config_and_dependencies_expose_no_vector_memory_entrypoint():
         dependency_lists.append(project["dependencies"])
     optional = project.get("optional-dependencies", {})
     if isinstance(optional, dict):
-        dependency_lists.extend(
-            spec for spec in optional.values() if isinstance(spec, list)
-        )
+        dependency_lists.extend(spec for spec in optional.values() if isinstance(spec, list))
 
     declared = set().union(*(declared_package_names(deps) for deps in dependency_lists))
 
     assert all(name not in schema_text for name in forbidden_config_names)
-    assert declared.isdisjoint(_FORBIDDEN_CANONICAL), sorted(
-        declared & _FORBIDDEN_CANONICAL
-    )
+    assert declared.isdisjoint(_FORBIDDEN_CANONICAL), sorted(declared & _FORBIDDEN_CANONICAL)
     assert len(dependency_lists) >= 2  # both regular and optional tables scanned
 
 
@@ -288,7 +282,7 @@ _JOURNAL_LEGACY_LINE_HINTS = ("migration", "migrate", "legacy", "迁移", "旧�
 
 _FORBIDDEN_LEGACY_RUNTIME_TOKENS = (
     'journal_path.open("a',
-    "open(journal_path, \"a",
+    'open(journal_path, "a',
     "_synchronize_locked",
     "_replay_line",
     "_clear_index",
@@ -310,16 +304,16 @@ _REPOSITORY_INSTANTIATION_ALLOWED = {
 def _journal_jsonl_violations(root: Path) -> list[tuple[str, int, str]]:
     """Every ``journal.jsonl`` mention that is not a legacy-migration context."""
     violations: list[tuple[str, int, str]] = []
-    for path in sorted((*root.joinpath("miniunicorn").rglob("*.py"), *root.joinpath("tests").rglob("*.py"))):
+    for path in sorted(
+        (*root.joinpath("miniunicorn").rglob("*.py"), *root.joinpath("tests").rglob("*.py"))
+    ):
         rel = path.relative_to(root).as_posix()
         allowed_file = (
             rel in _JOURNAL_MIGRATOR_SOURCES
             or rel in _JOURNAL_MIGRATION_TEST_FILES
             or rel in _JOURNAL_SCANNER_SOURCES
         )
-        for lineno, line in enumerate(
-            path.read_text(encoding="utf-8").splitlines(), start=1
-        ):
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             if "journal.jsonl" in line and not allowed_file:
                 violations.append((rel, lineno, line.strip()))
     for path in sorted(
@@ -332,9 +326,7 @@ def _journal_jsonl_violations(root: Path) -> list[tuple[str, int, str]]:
         rel = path.relative_to(root).as_posix()
         if rel.startswith("docs/superpowers/"):
             continue  # historical design/plan records documenting the migration
-        for lineno, line in enumerate(
-            path.read_text(encoding="utf-8").splitlines(), start=1
-        ):
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             if "journal.jsonl" not in line:
                 continue
             if not any(hint in line for hint in _JOURNAL_LEGACY_LINE_HINTS):
@@ -354,9 +346,7 @@ def test_no_legacy_journal_write_protocol_residue():
         rel = path.relative_to(root).as_posix()
         if rel in _JOURNAL_MIGRATOR_SOURCES:
             continue
-        for lineno, line in enumerate(
-            path.read_text(encoding="utf-8").splitlines(), start=1
-        ):
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             if any(token in line for token in _FORBIDDEN_LEGACY_RUNTIME_TOKENS):
                 violations.append((rel, lineno, line.strip()))
     assert not violations, violations
@@ -367,11 +357,12 @@ def test_only_sqlite_backed_repository_instances_exist():
     violations: list[tuple[str, int, str]] = []
     for path in sorted(root.joinpath("miniunicorn").rglob("*.py")):
         rel = path.relative_to(root).as_posix()
-        if rel in _REPOSITORY_INSTANTIATION_ALLOWED or rel == "miniunicorn/agent/memory_repository.py":
-            continue
-        for lineno, line in enumerate(
-            path.read_text(encoding="utf-8").splitlines(), start=1
+        if (
+            rel in _REPOSITORY_INSTANTIATION_ALLOWED
+            or rel == "miniunicorn/agent/memory_repository.py"
         ):
+            continue
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             if re.search(r"StructuredMemoryRepository\(", line):
                 violations.append((rel, lineno, line.strip()))
             if re.search(r"object\.__new__\(StructuredMemoryRepository\)", line):
@@ -387,9 +378,7 @@ def test_structured_memory_config_has_no_mode_backend_or_fallback():
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == "StructuredMemoryConfig":
             for statement in node.body:
-                if isinstance(statement, ast.AnnAssign) and isinstance(
-                    statement.target, ast.Name
-                ):
+                if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
                     fields.add(statement.target.id)
             break
     assert {"mode", "backend", "fallback"}.isdisjoint(fields)
@@ -488,9 +477,7 @@ def test_governed_prompt_never_injects_candidate_record(tmp_path):
             actor=ActorKind.DREAM,
             reason="boundary test",
             source_batch="boundary:candidate",
-            scope=MemoryScope(
-                kind=ScopeKind.PROJECT, key=builder.memory.project_scope_key
-            ),
+            scope=MemoryScope(kind=ScopeKind.PROJECT, key=builder.memory.project_scope_key),
             evidence_catalog={"history:1": evidence},
             now=datetime(2026, 8, 12, 9, 0, tzinfo=UTC),
         ),

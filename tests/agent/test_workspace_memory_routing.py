@@ -308,9 +308,7 @@ async def test_run_all_dreams_covers_non_default_workspaces(tmp_path: Path) -> N
     loop = _make_loop(MessageBus(), _webui_provider(), a)
 
     store_b = loop.memory_for(b)
-    store_b.append_history(
-        "B-only history for dream.", session_key="websocket:chat-b"
-    )
+    store_b.append_history("B-only history for dream.", session_key="websocket:chat-b")
     _write_reflection(store_b, "B-only lesson.", "rfl_11111111111111111111111111111111")
     loop.provider.chat_with_retry = AsyncMock(
         return_value=MagicMock(content='{"schema_version":1,"proposals":[]}')
@@ -371,9 +369,9 @@ async def test_agent_loop_routes_consolidation_and_file_cap_to_workspace_b(
     assert on_archive is not None
     on_archive([{"role": "user", "content": "B TURN PAYLOAD", "session_key": "websocket:chat-b"}])
 
-    assert any(
-        "B TURN PAYLOAD" in entry["content"] for entry in store_b._read_entries()
-    ), "file-cap archive must land in B's history"
+    assert any("B TURN PAYLOAD" in entry["content"] for entry in store_b._read_entries()), (
+        "file-cap archive must land in B's history"
+    )
     assert not any(
         "B TURN PAYLOAD" in entry["content"] for entry in loop.context.memory._read_entries()
     ), "file-cap archive must not leak into A's history"
@@ -408,9 +406,7 @@ async def test_auto_compact_routes_expired_workspace_b_session_to_b_consolidator
     session.updated_at = datetime.now() - timedelta(minutes=30)
     loop.sessions.save(session)
 
-    fake_b_consolidator = SimpleNamespace(
-        compact_idle_session=AsyncMock(return_value="B summary.")
-    )
+    fake_b_consolidator = SimpleNamespace(compact_idle_session=AsyncMock(return_value="B summary."))
     loop._workspace_consolidators[b_root] = fake_b_consolidator
     loop.consolidator.compact_idle_session = AsyncMock(  # type: ignore[method-assign]
         return_value="A summary."

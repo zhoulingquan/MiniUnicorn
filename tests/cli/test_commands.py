@@ -832,7 +832,9 @@ def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
         def __init__(self, manager: _FakeSessionManager) -> None:
             self._manager = manager
 
-        def record_message(self, session: _FakeSession, role: str, content: str, **extra: object) -> None:
+        def record_message(
+            self, session: _FakeSession, role: str, content: str, **extra: object
+        ) -> None:
             session.add_message(role, content, **extra)
             self._manager.save(session)
 

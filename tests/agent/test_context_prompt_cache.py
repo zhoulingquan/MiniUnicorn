@@ -369,6 +369,8 @@ def test_removed_memory_file_is_ignored_without_mutation(tmp_path) -> None:
     prompt = builder.build_system_prompt()
 
     assert "Developer data" not in prompt
-    assert (workspace / "memory" / "MEMORY.md").read_text(encoding="utf-8").endswith(
-        "Developer data.\n"
+    assert (
+        (workspace / "memory" / "MEMORY.md")
+        .read_text(encoding="utf-8")
+        .endswith("Developer data.\n")
     )

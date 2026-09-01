@@ -1187,7 +1187,6 @@ class TestWhitelistPositive:
         assert "Error" in await tool.execute(action="set", key="max_iterations", value=999)
 
 
-
 class TestWhitelistNegative:
     @pytest.mark.asyncio
     async def test_set_mcp_runtime_rejected_with_audit(self):
@@ -1275,4 +1274,3 @@ class TestHostIntegrity:
         assert set(vars(loop)) == before
         assert loop._runtime_vars == {"notes": "hello", "foo": "bar"}
         assert loop.max_iterations == 25
-

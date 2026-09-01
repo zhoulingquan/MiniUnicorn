@@ -57,12 +57,8 @@ def _patch_provider_factory(monkeypatch, provider):
     def _load_snapshot(_config_path=None, **kwargs) -> ProviderSnapshot:
         return _snapshot(provider)
 
-    monkeypatch.setattr(
-        "miniunicorn.providers.factory.build_provider_snapshot", _build_snapshot
-    )
-    monkeypatch.setattr(
-        "miniunicorn.providers.factory.load_provider_snapshot", _load_snapshot
-    )
+    monkeypatch.setattr("miniunicorn.providers.factory.build_provider_snapshot", _build_snapshot)
+    monkeypatch.setattr("miniunicorn.providers.factory.load_provider_snapshot", _load_snapshot)
     monkeypatch.setattr("miniunicorn.providers.factory.make_provider", lambda _config: provider)
     return _load_snapshot
 
@@ -101,9 +97,7 @@ async def test_stop_shuts_down_in_reverse_order(tmp_path, monkeypatch):
     agent = MagicMock()
     agent.close_mcp = AsyncMock(side_effect=lambda: order.append("agent.close_mcp"))
     agent.stop = MagicMock(side_effect=lambda: order.append("agent.stop"))
-    agent._resources.shutdown = AsyncMock(
-        side_effect=lambda: order.append("registry.shutdown")
-    )
+    agent._resources.shutdown = AsyncMock(side_effect=lambda: order.append("registry.shutdown"))
     agent.sessions.flush_all = MagicMock(
         return_value=0, side_effect=lambda: order.append("sessions.flush_all")
     )

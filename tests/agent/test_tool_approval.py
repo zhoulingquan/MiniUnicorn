@@ -83,9 +83,7 @@ def _spec(
         model="test-model",
         max_iterations=2,
         max_tool_result_chars=1000,
-        checkpoint_callback=_make_collector(checkpoints)
-        if checkpoints is not None
-        else None,
+        checkpoint_callback=_make_collector(checkpoints) if checkpoints is not None else None,
         **overrides,
     )
 
@@ -249,9 +247,7 @@ async def test_low_risk_skips_callback_and_start_checkpoint() -> None:
     spec = _spec(FakeRegistry(tool), checkpoints, approval_callback=approve)
 
     coord = _coordinator()
-    result, event, error = await coord.run_tool(
-        spec, _tool_call("fake_low"), {}, {}
-    )
+    result, event, error = await coord.run_tool(spec, _tool_call("fake_low"), {}, {})
 
     assert error is None
     assert event["status"] == "ok"
@@ -288,6 +284,7 @@ async def test_approval_callback_exception_fail_closed() -> None:
 # 7. fail_on_tool_error=True + callback 拒绝 → error 是 RuntimeError 且消息含
 #    "blocked before execution"。
 
+
 @pytest.mark.asyncio
 async def test_fail_on_tool_error_denied_raises_runtime_error() -> None:
     checkpoints: list[dict[str, Any]] = []
@@ -316,6 +313,7 @@ async def test_fail_on_tool_error_denied_raises_runtime_error() -> None:
 # 8. 同步（非 async）approval_callback 返回 True → 正常执行（修复 4：
 #    此前直接 await 同步回调会 TypeError 被 suppress 吞掉而静默拒绝）。
 
+
 @pytest.mark.asyncio
 async def test_sync_approval_callback_returning_true_executes() -> None:
     checkpoints: list[dict[str, Any]] = []
@@ -339,6 +337,7 @@ async def test_sync_approval_callback_returning_true_executes() -> None:
 
 
 # 9. 非法 high_risk_policy 在 AgentRunSpec 构造期即抛 ValueError（修复 5）。
+
 
 def test_invalid_high_risk_policy_rejected_at_construction() -> None:
     with pytest.raises(ValueError):
