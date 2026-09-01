@@ -1,0 +1,65 @@
+# MiniUnicorn implementation task - Lint debt cleanup (tests-only, single batch)
+
+## Role and context
+
+You are a senior Python implementation engineer on the MiniUnicorn project. The project's purpose: a business-intelligence agent for long-term use by a small enterprise, with core demands of efficiency, leanness, and maintainability. This task clears the historical ruff lint debt that accumulated across earlier batches: 16 check errors in 3 test files plus 52 test files needing reformatting. All of it lives under tests/ - zero production code is touched. Implement independently, verify independently, commit independently, then STOP.
+
+Working directory: D:\MyProject\MiniUnicorn
+
+Prerequisite: HEAD must be `7a83f6b4` (or newer on main, nothing unpushed besides). The working tree must be clean apart from untracked temp/analysis dirs. If tracked files are modified, stop and report.
+
+## Step 1: required reading (before any implementation)
+
+1. `docs/lint-debt-cleanup/00-taskbook.md` - THE task book (sole implementation basis). It contains the exact debt inventory (file/line/rule), red lines, the one manual edit, the verification gate, and git discipline.
+
+## Implementation discipline (takes priority over any efficiency concern)
+
+### Three situations require immediate stop-and-report (never guess and continue)
+
+1. Any "current-state anchor" in the task book does not match the actual code
+2. Tests cannot pass after the mechanical fixes - NEVER weaken assertions or delete/modify existing test assertions; roll back the offending file with `git checkout -- <file>` and report
+3. If after fixes `git status` shows ANY change outside tests/, stop and report
+
+### Global red lines
+
+1. **TESTS-ONLY, PURELY MECHANICAL**: the 16 errors live in `tests/agent/test_prompt_telemetry_consumer.py` (12), `tests/agent/test_step_acceptance_verifier.py` (3), `tests/agent/test_tool_receipts.py` (1); the 52 format files are all under tests/ as well. Zero logic changes, zero assertion changes, zero test deletions, zero new tests
+2. **Fix order**: (a) `.venv\Scripts\python.exe -m ruff check tests/ --fix` (safe fixes only); (b) ONE manual edit - `tests/agent/test_prompt_telemetry_consumer.py` line ~122, `result = await runner.run(_spec(context_window_tokens=None))` becomes `await runner.run(_spec(context_window_tokens=None))` (keep the await call - it has side effects; only the unused assignment goes). Do NOT use `--unsafe-fixes`; (c) `.venv\Scripts\python.exe -m ruff format miniunicorn/ tests/` (whole tree - it only rewrites files that need it)
+3. F811 semantics you will see: ruff removes the unused module-level `from loguru import logger` at line ~12; the function-local imports at lines ~78 and ~145 stay (ruff reorders those local blocks too - that is expected)
+4. Do not touch pyproject.toml ruff config, do not change the ruff version (0.15.21, already aligned with uv.lock), do not "fix" anything you notice along the way that is not in the inventory
+5. Use ONLY the project venv Python: `.venv\Scripts\python.exe` (3.12). The system default Python is 3.10 and fails at collection with 14 ImportErrors - environment problem, not code problem
+
+### Git discipline
+
+- One batch, one commit; NEVER `git add .`. After the gate passes: `git add tests/` then commit immediately (commit first, report after)
+- Commit message: `chore(lint): clear historical ruff debt in tests (16 errors + 52 format files)`
+
+## Execution flow
+
+1. Read the task book -> verify HEAD (`git log --oneline -3`) and clean tree -> run `.venv\Scripts\python.exe -m ruff check miniunicorn/ tests/ --output-format concise` and confirm it matches the 16-error inventory in the task book. If the counts/locations differ, stop and report
+2. Apply fix order from red line 2 (a -> b -> c)
+3. Quick sanity BEFORE the full suite: `.venv\Scripts\python.exe -m pytest tests/agent/test_prompt_telemetry_consumer.py tests/agent/test_step_acceptance_verifier.py tests/agent/test_tool_receipts.py -q` (the 3 directly-edited files must pass)
+4. Verification gate (all must pass before commit is allowed):
+   - `.venv\Scripts\python.exe -m pytest tests/ -q` -> exactly 4135 passed / 0 failed (same count as baseline - no tests added or removed)
+   - `.venv\Scripts\python.exe -m ruff check miniunicorn/ tests/` -> zero output
+   - `.venv\Scripts\python.exe -m ruff format --check miniunicorn/ tests/` -> zero output
+   - `git status` -> only tests/ paths changed
+   - If exactly one unrelated timing-sensitive test fails, rerun it in isolation to confirm flakiness, then rerun the full suite once; report honestly either way
+5. As soon as the gate passes, `git add tests/` and COMMIT IMMEDIATELY - commit first, then write the report
+
+### Session-survival rules (MANDATORY - a previous session was killed by violating these)
+
+- The full pytest run takes about 7-8 minutes. Launch it as a DETACHED background process (`Start-Process -FilePath ".venv\Scripts\python.exe" -ArgumentList "-m","pytest","tests/","-q" -RedirectStandardOutput "$env:TEMP\lint_pytest.log" -RedirectStandardError "$env:TEMP\lint_pytest_err.log" -NoNewWindow -PassThru`) so it survives a session interruption, then poll the log
+- **NEVER send the same polling command twice in a row - the runtime aborts the session after 5 identical tool calls.** Vary EVERY poll: alternate `Get-Content ... -Tail 2` / `-Tail 5` / `-Last 3`, or embed a counter or timestamp in the command (e.g. `$i=1; ...; "poll $i"`), so each command string is unique
+- Keep every single shell command under 25 seconds (the per-command timeout is ~30s; a timed-out command also counts as a mistake)
+- Commit the moment the gate passes - do not batch verification and commit together
+
+## Batch report format (output last)
+
+## Batch report: lint debt cleanup
+1. Anchor check: 16-error inventory matched / deviation: <explanation>
+2. Changed files: <count of files touched by check --fix / the 1 manual edit / count of files rewritten by format>
+3. Verification gate: pytest <N passed / 0 failed>; ruff check <zero>; ruff format --check <zero>; git status <tests-only>
+4. Deviations from the task book: listed one by one / none
+5. Incidental findings (recorded only, not acted on): <problem list / none>
+
+STOP after completion.
