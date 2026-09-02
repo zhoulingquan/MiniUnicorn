@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+from loguru import logger
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 from pydantic_settings import BaseSettings
@@ -848,10 +849,37 @@ def _resolve_tool_config_refs() -> None:
     Config.model_rebuild()
 
 
+def _is_circular_import_error(exc: BaseException) -> bool:
+    """True when *exc* is the expected schema↔tools re-entry failure.
+
+    Circular imports surface as ``cannot import name 'X' from partially
+    initialized module 'Y'``; anything else (missing module, broken name in
+    a fully-loaded module) is real breakage and must propagate.
+    """
+    text = str(exc)
+    return "partially initialized module" in text or "circular import" in text
+
+
+def _try_eager_resolve_tool_config_refs() -> None:
+    """Run the eager resolution, deferring only circular-import failures.
+
+    Real ImportErrors raise immediately (fail loud at the source instead of
+    surfacing later as an unattached config class); circular ones fall back
+    to the lazy ``_LazyRebuildMeta`` path with a visible log line.
+    """
+    try:
+        _resolve_tool_config_refs()
+    except ImportError as exc:
+        if not _is_circular_import_error(exc):
+            raise
+        logger.warning(
+            "config.schema: eager tool-config resolution hit a circular import; "
+            "deferring to lazy rebuild on first Config/ToolsConfig use ({})",
+            exc,
+        )
+
+
 # Eagerly resolve when the import chain allows it (no circular deps at this
 # point).  If it fails (first import triggers a cycle), the rebuild will
 # happen lazily when Config/ToolsConfig is first used at runtime.
-try:
-    _resolve_tool_config_refs()
-except ImportError:
-    pass
+_try_eager_resolve_tool_config_refs()
