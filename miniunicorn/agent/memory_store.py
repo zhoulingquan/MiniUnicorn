@@ -19,9 +19,9 @@ from miniunicorn.agent.memory_jsonl_import import (
     LegacyJournalImportError,
     migrate_legacy_journal,
 )
-from miniunicorn.agent.reflection import _atomic_rewrite_lines
 from miniunicorn.utils.gitstore import GOVERNED_MEMORY_TRACKED_FILES, GitStore
 from miniunicorn.utils.helpers import (
+    atomic_rewrite_lines,
     ensure_dir,
     strip_think,
     truncate_text,
@@ -471,7 +471,7 @@ class MemoryStore:
         if cursor > len(lines):
             # The physical-line cursor is stale; no current line is proven
             # consumed. Reset and retain all entries for safe reprocessing.
-            _atomic_rewrite_lines(self._reflections_cursor_file, ["0\n"])
+            atomic_rewrite_lines(self._reflections_cursor_file, ["0\n"])
             return 0
         # cursor 是 1-based 行号，保留 cursor 之后（未处理）的行
         kept = lines[cursor:]
@@ -481,9 +481,9 @@ class MemoryStore:
         # Reset before renumbering. A failed file rewrite may cause harmless
         # duplicate processing, while the reverse order can permanently skip
         # unconsumed entries under the old physical-line cursor.
-        if not _atomic_rewrite_lines(self._reflections_cursor_file, ["0\n"]):
+        if not atomic_rewrite_lines(self._reflections_cursor_file, ["0\n"]):
             return 0
-        if not _atomic_rewrite_lines(rf, kept):
+        if not atomic_rewrite_lines(rf, kept):
             return 0
         pruned = len(lines) - len(kept)
         logger.info(

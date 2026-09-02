@@ -273,14 +273,14 @@ def test_rotation_cursor_reset_failure_does_not_renumber_file(workspace, store, 
     _write_entries(path, 501)
     store.set_last_reflections_cursor(200)
     original = path.read_text(encoding="utf-8")
-    real_rewrite = reflection_module._atomic_rewrite_lines
+    real_rewrite = reflection_module.atomic_rewrite_lines
 
     def fail_cursor_reset(target, lines):
         if target == cursor_path:
             return False
         return real_rewrite(target, lines)
 
-    monkeypatch.setattr(reflection_module, "_atomic_rewrite_lines", fail_cursor_reset)
+    monkeypatch.setattr(reflection_module, "atomic_rewrite_lines", fail_cursor_reset)
     reflection = Reflection(
         provider=make_provider('{"lesson":"Ignored."}'),
         model="m",
@@ -329,14 +329,14 @@ def test_store_prune_file_rewrite_failure_resets_cursor_before_renumbering(
     _write_entries(path, 3)
     store.set_last_reflections_cursor(2)
     original = path.read_text(encoding="utf-8")
-    real_rewrite = memory_module._atomic_rewrite_lines
+    real_rewrite = memory_module.atomic_rewrite_lines
 
     def fail_file_rewrite(target, lines):
         if target == path:
             return False
         return real_rewrite(target, lines)
 
-    monkeypatch.setattr(memory_module, "_atomic_rewrite_lines", fail_file_rewrite)
+    monkeypatch.setattr(memory_module, "atomic_rewrite_lines", fail_file_rewrite)
 
     assert store.prune_reflections_after_cursor() == 0
     assert path.read_text(encoding="utf-8") == original

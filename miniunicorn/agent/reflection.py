@@ -23,6 +23,7 @@ from typing import Any
 from loguru import logger
 
 from miniunicorn.ledger import CallPurpose, call_purpose
+from miniunicorn.utils.helpers import atomic_rewrite_lines
 from miniunicorn.utils.prompt_templates import render_template
 
 # Hard cap on reflection text length to keep reflections.jsonl compact.
@@ -37,28 +38,6 @@ _REFLECTION_ID_RE = re.compile(r"^rfl_[0-9a-f]{32}$")
 def new_reflection_id() -> str:
     """Return a program-generated stable reflection id (never line-number based)."""
     return f"rfl_{uuid.uuid4().hex}"
-
-
-def _atomic_rewrite_lines(path: Path, lines: list[str]) -> bool:
-    """Rewrite a text file with a unique sibling temp, fsync, and atomic replace.
-
-    Returns True only when the canonical file was durably replaced.
-    """
-    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    try:
-        with open(tmp, "w", encoding="utf-8") as f:
-            f.writelines(lines)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, path)
-        return True
-    except Exception:
-        logger.exception("Atomic rewrite failed for {}", path)
-        try:
-            tmp.unlink(missing_ok=True)
-        except Exception:
-            pass
-        return False
 
 
 class Reflection:
@@ -262,7 +241,7 @@ class Reflection:
             if cursor > len(lines):
                 # A stale physical-line cursor cannot safely prove that any
                 # current entry was consumed. Reset it and retain everything.
-                _atomic_rewrite_lines(cursor_path, ["0\n"])
+                atomic_rewrite_lines(cursor_path, ["0\n"])
                 return
             kept = lines[cursor:]
             if len(kept) == len(lines):
@@ -272,9 +251,9 @@ class Reflection:
             # already-consumed entries again, but no unconsumed entry can be
             # skipped. The opposite order can permanently skip the new prefix
             # when the cursor reset fails after a successful file rewrite.
-            if not _atomic_rewrite_lines(cursor_path, ["0\n"]):
+            if not atomic_rewrite_lines(cursor_path, ["0\n"]):
                 return
-            _atomic_rewrite_lines(self._reflections_file, kept)
+            atomic_rewrite_lines(self._reflections_file, kept)
         except Exception:
             logger.exception("Reflection rotation failed")
 

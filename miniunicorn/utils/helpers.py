@@ -2,6 +2,7 @@
 
 import base64
 import json
+import os
 import re
 import shutil
 import time
@@ -13,6 +14,28 @@ from typing import Any
 
 import tiktoken
 from loguru import logger
+
+
+def atomic_rewrite_lines(path: Path, lines: list[str]) -> bool:
+    """Rewrite a text file with a unique sibling temp, fsync, and atomic replace.
+
+    Returns True only when the canonical file was durably replaced.
+    """
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+        return True
+    except Exception:
+        logger.exception("Atomic rewrite failed for {}", path)
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return False
 
 
 def strip_think(text: str) -> str:
