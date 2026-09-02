@@ -1,10 +1,12 @@
-"""W4-1 split acceptance tests: memory.py facade vs memory_store.py module.
+"""W4-1 split acceptance tests, extended by W7-1: memory package at top level.
 
-Guards the pure-move refactor: the facade re-export keeps every original
-symbol path working, the new module imports standalone, and the shared
-constants keep a single definition site.
+Guards the pure-move refactors: the package facade re-export keeps every
+original symbol path working, the store module imports standalone, the shared
+constants keep a single definition site, and (since W7-1) the package lives at
+``miniunicorn/memory/`` with zero ``miniunicorn.agent`` dependencies.
 """
 
+import ast
 import importlib
 import importlib.util
 import sys
@@ -12,11 +14,11 @@ from unittest.mock import MagicMock
 
 import miniunicorn.agent
 import miniunicorn.agent.dream_trigger as dream_trigger
-import miniunicorn.agent.memory as memory_facade
-import miniunicorn.agent.memory_consolidator as memory_consolidator
-import miniunicorn.agent.memory_dream as memory_dream
-import miniunicorn.agent.memory_jsonl_import as memory_jsonl_import
-import miniunicorn.agent.memory_store as memory_store
+import miniunicorn.memory as memory_facade
+import miniunicorn.memory.consolidator as memory_consolidator
+import miniunicorn.memory.dream as memory_dream
+import miniunicorn.memory.jsonl_import as memory_jsonl_import
+import miniunicorn.memory.store as memory_store
 
 
 def test_facade_identity_store():
@@ -27,9 +29,9 @@ def test_facade_identity_store():
 
 def test_memory_store_standalone_import():
     """memory_store.py imports standalone without circular-import symptoms."""
-    module = importlib.import_module("miniunicorn.agent.memory_store")
+    module = importlib.import_module("miniunicorn.memory.store")
     assert module is not None
-    assert "miniunicorn.agent.memory_store" in sys.modules
+    assert "miniunicorn.memory.store" in sys.modules
 
 
 def test_constants_live_in_store_module():
@@ -41,14 +43,15 @@ def test_constants_live_in_store_module():
 
 
 def test_agent_package_reexport_identity():
-    """agent/__init__.py re-export chain through the facade stays intact."""
-    assert miniunicorn.agent.MemoryStore is memory_store.MemoryStore
+    """Since W7-1, agent/__init__.py no longer re-exports memory symbols."""
+    assert not hasattr(miniunicorn.agent, "MemoryStore")
+    assert "MemoryStore" not in miniunicorn.agent.__all__
 
 
 def test_memory_py_shrunk():
     """memory.py shrank to near-facade size; memory_store.py stayed bounded."""
-    facade_path = importlib.util.find_spec("miniunicorn.agent.memory").origin
-    store_path = importlib.util.find_spec("miniunicorn.agent.memory_store").origin
+    facade_path = importlib.util.find_spec("miniunicorn.memory").origin
+    store_path = importlib.util.find_spec("miniunicorn.memory.store").origin
     with open(facade_path, encoding="utf-8") as f:
         facade_lines = len(f.read().splitlines())
     with open(store_path, encoding="utf-8") as f:
@@ -77,7 +80,7 @@ def test_archive_summary_constant_identity():
 
 def test_memory_py_shrunk_further():
     """memory.py shrank again after the Consolidator extraction."""
-    facade_path = importlib.util.find_spec("miniunicorn.agent.memory").origin
+    facade_path = importlib.util.find_spec("miniunicorn.memory").origin
     with open(facade_path, encoding="utf-8") as f:
         facade_lines = len(f.read().splitlines())
     assert facade_lines < 620
@@ -140,7 +143,7 @@ def test_memory_py_is_pure_facade():
     """memory.py is a pure facade: at most 60 lines and zero class definitions."""
     from pathlib import Path
 
-    facade_path = Path(importlib.util.find_spec("miniunicorn.agent.memory").origin)
+    facade_path = Path(importlib.util.find_spec("miniunicorn.memory").origin)
     src = facade_path.read_text(encoding="utf-8")
     assert len(src.splitlines()) <= 60
     assert "class " not in src
@@ -160,5 +163,47 @@ def test_dream_helpers_moved_with_class():
 
 def test_consumer_entry_points():
     """agent package and dream_trigger resolve Dream symbols to memory_dream."""
-    assert miniunicorn.agent.Dream is memory_dream.Dream
+    assert not hasattr(miniunicorn.agent, "Dream")
     assert dream_trigger.count_pending_dream_entries is memory_dream.count_pending_dream_entries
+
+
+def test_cold_import_loads_no_agent_modules():
+    """Cold-importing the memory package must not pull in any agent module."""
+    import subprocess
+
+    code = (
+        "import sys\n"
+        "import miniunicorn.memory\n"
+        "bad = [m for m in sys.modules if m == 'miniunicorn.agent' or m.startswith('miniunicorn.agent.')]\n"
+        "print('\\n'.join(bad))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert result.stdout.strip() == ""
+
+
+def test_memory_package_is_agent_free():
+    """AST scan: no module in miniunicorn/memory/ imports miniunicorn.agent."""
+    from pathlib import Path
+
+    package_root = Path(importlib.util.find_spec("miniunicorn.memory").origin).parent
+    offenders: list[str] = []
+    for path in sorted(package_root.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                names = [node.module]
+            else:
+                continue
+            if any(
+                name == "miniunicorn.agent" or name.startswith("miniunicorn.agent.")
+                for name in names
+            ):
+                offenders.append(path.name)
+    assert offenders == []

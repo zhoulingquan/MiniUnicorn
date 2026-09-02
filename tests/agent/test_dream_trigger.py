@@ -12,8 +12,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from miniunicorn.agent.dream_trigger import DreamIdleTrigger
-from miniunicorn.agent.memory import Dream, MemoryStore, count_pending_dream_entries
 from miniunicorn.config.schema import StructuredMemoryConfig
+from miniunicorn.memory import Dream, MemoryStore, count_pending_dream_entries
 
 
 @pytest.fixture

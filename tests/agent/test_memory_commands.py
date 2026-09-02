@@ -10,10 +10,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniunicorn.agent.memory_models import MemoryKind, MemoryScope, MemoryStatus, ScopeKind
 from miniunicorn.bus.events import InboundMessage
 from miniunicorn.command.router import CommandContext, CommandRouter
 from miniunicorn.config.schema import StructuredMemoryConfig
+from miniunicorn.memory.models import MemoryKind, MemoryScope, MemoryStatus, ScopeKind
 
 
 @pytest.fixture
@@ -22,7 +22,7 @@ def workspace(tmp_path):
 
 
 def _store(workspace):
-    from miniunicorn.agent.memory import MemoryStore
+    from miniunicorn.memory import MemoryStore
 
     return MemoryStore(workspace, structured_config=StructuredMemoryConfig())
 
@@ -70,8 +70,8 @@ def _seed_scope(
     excerpt=None,
 ):
     """Ingest a record in an explicit scope; optionally promote it to active."""
-    from miniunicorn.agent.memory_lifecycle import IngestContext
-    from miniunicorn.agent.memory_models import (
+    from miniunicorn.memory.lifecycle import IngestContext
+    from miniunicorn.memory.models import (
         ActorKind,
         CandidateProposal,
         EvidenceKind,
@@ -155,8 +155,8 @@ async def _dispatch_loop(router, loop, session, raw: str) -> str:
 
 def _seed(workspace):
     store = _store(workspace)
-    from miniunicorn.agent.memory_lifecycle import IngestContext
-    from miniunicorn.agent.memory_models import (
+    from miniunicorn.memory.lifecycle import IngestContext
+    from miniunicorn.memory.models import (
         ActorKind,
         CandidateProposal,
         EvidenceKind,
@@ -248,8 +248,8 @@ class TestList:
         assert "Usage:" in content
 
     async def test_list_caps_at_20(self, workspace):
-        from miniunicorn.agent.memory_lifecycle import IngestContext
-        from miniunicorn.agent.memory_models import (
+        from miniunicorn.memory.lifecycle import IngestContext
+        from miniunicorn.memory.models import (
             ActorKind,
             CandidateProposal,
             EvidenceKind,
@@ -322,8 +322,8 @@ class TestShow:
         store = _store(workspace)
         router = _router()
         long = "x" * 500
-        from miniunicorn.agent.memory_lifecycle import IngestContext
-        from miniunicorn.agent.memory_models import (
+        from miniunicorn.memory.lifecycle import IngestContext
+        from miniunicorn.memory.models import (
             ActorKind,
             CandidateProposal,
             EvidenceKind,
@@ -369,8 +369,8 @@ class TestPromote:
     async def test_promote_candidate(self, workspace):
         store = _store(workspace)
         router = _router()
-        from miniunicorn.agent.memory_lifecycle import IngestContext
-        from miniunicorn.agent.memory_models import (
+        from miniunicorn.memory.lifecycle import IngestContext
+        from miniunicorn.memory.models import (
             ActorKind,
             CandidateProposal,
             EvidenceKind,
@@ -415,8 +415,8 @@ class TestPromote:
         store = _seed(workspace)
         router = _router()
         active = store.structured_repository.current_records()[0]
-        from miniunicorn.agent.memory_lifecycle import IngestContext
-        from miniunicorn.agent.memory_models import (
+        from miniunicorn.memory.lifecycle import IngestContext
+        from miniunicorn.memory.models import (
             ActorKind,
             CandidateProposal,
             EvidenceKind,
@@ -658,7 +658,7 @@ class TestScopeAuthorization:
         assert "OTHER SESSION FACT" not in content
 
     async def test_show_skips_revisions_from_a_different_scope(self, workspace):
-        from miniunicorn.agent.memory_models import (
+        from miniunicorn.memory.models import (
             ActorKind,
             EvidenceKind,
             EvidenceRef,
@@ -889,8 +889,8 @@ class TestMemoryLog:
         assert "excerpt=" in content
 
     async def test_log_evidence_excerpt_truncated_to_200_chars(self, workspace):
-        from miniunicorn.agent.memory_lifecycle import IngestContext
-        from miniunicorn.agent.memory_models import (
+        from miniunicorn.memory.lifecycle import IngestContext
+        from miniunicorn.memory.models import (
             ActorKind,
             CandidateProposal,
             EvidenceKind,
@@ -1006,7 +1006,7 @@ class TestMemoryBackup:
 
 class TestMemoryRestore:
     async def test_restore_replaces_database_and_reports_safety_backup(self, workspace):
-        from miniunicorn.agent.memory_backup import MemoryBackupManager
+        from miniunicorn.memory.backup import MemoryBackupManager
 
         store = _seed(workspace)
         manager = MemoryBackupManager(store.structured_repository)
@@ -1078,7 +1078,7 @@ class TestMemoryExportAudit:
 
 class TestDiagnosticScopeIsolation:
     async def test_restore_cannot_target_another_workspace_backup(self, tmp_path):
-        from miniunicorn.agent.memory_backup import MemoryBackupManager
+        from miniunicorn.memory.backup import MemoryBackupManager
 
         a = tmp_path / "A"
         b = tmp_path / "B"

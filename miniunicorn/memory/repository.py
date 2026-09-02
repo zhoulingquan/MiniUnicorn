@@ -29,11 +29,11 @@ from typing import Any
 from loguru import logger
 from pydantic import ValidationError
 
-from miniunicorn.agent.memory_jsonl_import import (
+from miniunicorn.memory.jsonl_import import (
     LegacyJournalImportError,
     migrate_legacy_journal,
 )
-from miniunicorn.agent.memory_models import (
+from miniunicorn.memory.models import (
     DuplicateMemoryIdempotencyKey,
     InvalidMemoryTransition,
     MemoryKind,
@@ -53,7 +53,7 @@ from miniunicorn.agent.memory_models import (
     transaction_checksum,
     validate_same_status_revision,
 )
-from miniunicorn.agent.memory_sqlite_schema import (
+from miniunicorn.memory.sqlite_schema import (
     SCHEMA_VERSION,
     SQL_ACTIVE_BY_CONFLICT_KEY,
     SQL_ACTIVE_CONFLICT_OTHER,

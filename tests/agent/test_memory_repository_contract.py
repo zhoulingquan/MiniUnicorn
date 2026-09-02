@@ -21,6 +21,6 @@ REQUIRED_METHODS = {
 
 
 def test_repository_public_contract() -> None:
-    from miniunicorn.agent.memory_repository import StructuredMemoryRepository
+    from miniunicorn.memory.repository import StructuredMemoryRepository
 
     assert REQUIRED_METHODS <= set(dir(StructuredMemoryRepository))

@@ -29,7 +29,6 @@ from typing import Any
 
 from loguru import logger
 
-from miniunicorn.agent.memory import count_pending_dream_entries
 from miniunicorn.bus.events import OutboundMessage
 from miniunicorn.cli._heartbeat import (
     _HEARTBEAT_LIGHT_PREAMBLE,
@@ -40,6 +39,7 @@ from miniunicorn.cli._heartbeat import (
 )
 from miniunicorn.config.schema import Config
 from miniunicorn.cron.types import CronJob
+from miniunicorn.memory import count_pending_dream_entries
 
 # ---------------------------------------------------------------------------
 # Module-level helpers extracted from the body of _run_gateway

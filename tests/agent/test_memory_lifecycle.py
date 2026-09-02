@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from miniunicorn.agent.memory_lifecycle import (
+from miniunicorn.memory.lifecycle import (
     REASON_BLOCKED_LOWER_RANK,
     REASON_CORRECTION_CONFLICT,
     REASON_CREATED,
@@ -28,7 +28,7 @@ from miniunicorn.agent.memory_lifecycle import (
     StructuredMemoryLifecycle,
     can_auto_promote,
 )
-from miniunicorn.agent.memory_models import (
+from miniunicorn.memory.models import (
     SCHEMA_VERSION,
     ActorKind,
     CandidateProposal,
@@ -48,10 +48,10 @@ from miniunicorn.agent.memory_models import (
     new_transaction_id,
     transaction_checksum,
 )
-from miniunicorn.agent.memory_models import (
+from miniunicorn.memory.models import (
     MemoryError as StructuredMemoryError,
 )
-from miniunicorn.agent.memory_repository import StructuredMemoryRepository
+from miniunicorn.memory.repository import StructuredMemoryRepository
 
 UTC = timezone.utc
 

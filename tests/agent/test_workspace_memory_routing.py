@@ -19,17 +19,17 @@ import pytest
 
 from miniunicorn.agent._state_machine import TurnContext, TurnState
 from miniunicorn.agent.context import ContextBuilder
-from miniunicorn.agent.memory_lifecycle import IngestContext
-from miniunicorn.agent.memory_models import (
+from miniunicorn.bus.events import InboundMessage
+from miniunicorn.bus.queue import MessageBus
+from miniunicorn.config.schema import StructuredMemoryConfig
+from miniunicorn.memory.lifecycle import IngestContext
+from miniunicorn.memory.models import (
     ActorKind,
     EvidenceKind,
     EvidenceRef,
     MemoryScope,
     ScopeKind,
 )
-from miniunicorn.bus.events import InboundMessage
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.config.schema import StructuredMemoryConfig
 
 UTC = timezone.utc
 
@@ -60,7 +60,7 @@ def _proposal(statement: str, *, subject: str):
 
 def _seed_active_fact(store, statement: str, *, subject: str) -> None:
     """Ingest and promote an ACTIVE project-scope record via the lifecycle."""
-    from miniunicorn.agent.memory_extraction import parse_extraction_batch
+    from miniunicorn.memory.extraction import parse_extraction_batch
 
     evidence_catalog = {
         "history:1": EvidenceRef(
@@ -429,7 +429,7 @@ async def test_auto_compact_routes_expired_workspace_b_session_to_b_consolidator
 
 
 def test_consolidator_token_probe_uses_workspace_b_prompt(tmp_path: Path) -> None:
-    from miniunicorn.agent.memory import Consolidator
+    from miniunicorn.memory import Consolidator
     from miniunicorn.session.manager import Session
 
     a = tmp_path / "A"

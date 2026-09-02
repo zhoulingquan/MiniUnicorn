@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
-from miniunicorn.agent.memory_models import (
+from miniunicorn.memory.models import (
     MemoryRecord,
     RecallHit,
     RecallQuery,
@@ -21,7 +21,7 @@ from miniunicorn.agent.memory_models import (
     TagCatalog,
     normalize_match_text,
 )
-from miniunicorn.agent.memory_repository import StructuredMemoryRepository
+from miniunicorn.memory.repository import StructuredMemoryRepository
 
 SCOPE_SCORE = {
     ScopeKind.SESSION: 12,

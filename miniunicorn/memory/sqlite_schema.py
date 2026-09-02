@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from miniunicorn.agent.memory_models import MemoryRecord, RepositoryDegradedError
+from miniunicorn.memory.models import MemoryRecord, RepositoryDegradedError
 
 if TYPE_CHECKING:
     from typing import TypeAlias

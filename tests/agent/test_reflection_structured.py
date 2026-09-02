@@ -11,9 +11,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.memory import MemoryStore, reflection_evidence_id
 from miniunicorn.agent.reflection import Reflection, new_reflection_id
 from miniunicorn.config.schema import StructuredMemoryConfig
+from miniunicorn.memory import MemoryStore, reflection_evidence_id
 
 _REFLECTION_ID_RE = re.compile(r"^rfl_[0-9a-f]{32}$")
 
@@ -322,7 +322,7 @@ def test_read_stale_cursor_falls_back_to_all_physical_lines(workspace, store):
 def test_store_prune_file_rewrite_failure_resets_cursor_before_renumbering(
     workspace, store, monkeypatch
 ):
-    import miniunicorn.agent.memory_store as memory_module
+    import miniunicorn.memory.store as memory_module
 
     path = workspace / "memory" / "reflections.jsonl"
     cursor_path = workspace / "memory" / ".reflections_cursor"

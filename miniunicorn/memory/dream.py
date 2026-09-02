@@ -18,8 +18,8 @@ from miniunicorn.utils.helpers import (
 from miniunicorn.utils.prompt_templates import render_template
 
 if TYPE_CHECKING:
-    from miniunicorn.agent.memory_models import MemoryStatus
-    from miniunicorn.agent.memory_store import MemoryStore
+    from miniunicorn.memory.models import MemoryStatus
+    from miniunicorn.memory.store import MemoryStore
     from miniunicorn.providers.base import LLMProvider
 
 
@@ -198,7 +198,7 @@ class Dream:
         reflection_preview: int,
         include_summaries: bool,
     ) -> str:
-        from miniunicorn.agent.memory_models import MemoryStatus
+        from miniunicorn.memory.models import MemoryStatus
 
         history_lines = [self._history_prompt_line(entry, history_preview) for entry in history]
         reflection_lines = [
@@ -331,12 +331,12 @@ class Dream:
         cycle retries the same batch; re-ingest is safe because lifecycle
         deduplicates by source_batch + content hash.
         """
-        from miniunicorn.agent.memory_extraction import (
+        from miniunicorn.memory.extraction import (
             MemoryExtractionError,
             parse_extraction_batch,
         )
-        from miniunicorn.agent.memory_lifecycle import IngestContext
-        from miniunicorn.agent.memory_models import (
+        from miniunicorn.memory.lifecycle import IngestContext
+        from miniunicorn.memory.models import (
             ActorKind,
             EvidenceKind,
             EvidenceRef,

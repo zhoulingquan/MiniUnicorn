@@ -37,8 +37,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from miniunicorn.agent.memory_audit_export import MemoryAuditExporter
-from miniunicorn.agent.memory_models import (
+from miniunicorn.memory.audit_export import MemoryAuditExporter
+from miniunicorn.memory.models import (
     SCHEMA_VERSION,
     ActorKind,
     MemoryKind,
@@ -50,8 +50,8 @@ from miniunicorn.agent.memory_models import (
     ScopeKind,
     transaction_checksum,
 )
-from miniunicorn.agent.memory_repository import StructuredMemoryRepository
-from miniunicorn.agent.memory_sqlite_schema import (
+from miniunicorn.memory.repository import StructuredMemoryRepository
+from miniunicorn.memory.sqlite_schema import (
     SQL_ORDER_BY_ID,
     SQL_RECALL_SELECT,
     SQL_RECALL_SUFFIX,
@@ -116,7 +116,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="workspace to benchmark in (must be fresh); defaults to a temp dir",
     )
     parser.add_argument(
-        "--transactions", type=int, default=100_000, help="total transactions generated (default: 100000)"
+        "--transactions",
+        type=int,
+        default=100_000,
+        help="total transactions generated (default: 100000)",
     )
     parser.add_argument(
         "--active-per-scope",
@@ -125,7 +128,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=10_000,
         help="active records created in the benchmark scope (default: 10000)",
     )
-    parser.add_argument("--writers", type=int, default=4, help="concurrency phase processes (default: 4)")
+    parser.add_argument(
+        "--writers", type=int, default=4, help="concurrency phase processes (default: 4)"
+    )
     parser.add_argument(
         "--json-output",
         dest="json_output",
@@ -239,7 +244,9 @@ def _base_record(
     )
 
 
-def _create_transaction(record: MemoryRecord, index: int, *, source_batch: str) -> MemoryTransaction:
+def _create_transaction(
+    record: MemoryRecord, index: int, *, source_batch: str
+) -> MemoryTransaction:
     tx = MemoryTransaction(
         schema_version=SCHEMA_VERSION,
         tx_id=_tx_id(index),
@@ -282,8 +289,13 @@ def iter_bench_transactions(active: int, seed: int = _SEED):
     for record_index in range(active):
         slot = f"db.bench.{record_index}"
         statement = f"benchmark fact {record_index} about subject {rng.randint(0, 999)}"
-        record = _base_record(record_index, scope=_BENCH_SCOPE, slot=slot, statement=statement, rng=rng)
-        yield record_index * 2, _create_transaction(record, record_index * 2, source_batch=f"bench:{record_index}")
+        record = _base_record(
+            record_index, scope=_BENCH_SCOPE, slot=slot, statement=statement, rng=rng
+        )
+        yield (
+            record_index * 2,
+            _create_transaction(record, record_index * 2, source_batch=f"bench:{record_index}"),
+        )
         yield record_index * 2 + 1, _promote_transaction(record, record_index * 2 + 1)
 
 
@@ -315,7 +327,13 @@ def _prepare_workspace(workspace: Path) -> None:
     structured.mkdir(parents=True, exist_ok=True)
     tags_path = structured / "tags.json"
     if not tags_path.exists():
-        bundled = Path(__file__).resolve().parent.parent / "miniunicorn" / "templates" / "memory" / "TAGS.json"
+        bundled = (
+            Path(__file__).resolve().parent.parent
+            / "miniunicorn"
+            / "templates"
+            / "memory"
+            / "TAGS.json"
+        )
         shutil.copy(bundled, tags_path)
 
 
@@ -361,7 +379,9 @@ def _writer_main(workspace: str, writer_index: int, queue) -> None:
         )
         for i in range(_CONCURRENT_CONTENDED_PER_WRITER):
             _, created = repository.append_create_if_absent(
-                _create_transaction(contended, 2_000_001 + writer_index * 100 + i, source_batch="conc:shared")
+                _create_transaction(
+                    contended, 2_000_001 + writer_index * 100 + i, source_batch="conc:shared"
+                )
             )
             contended_created += 1 if created else 0
             contended_outcomes.append((contended.id, created))
@@ -378,7 +398,9 @@ def _writer_main(workspace: str, writer_index: int, queue) -> None:
         queue.put({"writer": writer_index, "error": str(exc), "exit": 1})
 
 
-def run_benchmark(workspace: Path, transactions: int, active_per_scope: int, writers: int) -> dict[str, Any]:
+def run_benchmark(
+    workspace: Path, transactions: int, active_per_scope: int, writers: int
+) -> dict[str, Any]:
     migrate = min(2 * active_per_scope, transactions)
     append = transactions - migrate
     print(
@@ -387,7 +409,9 @@ def run_benchmark(workspace: Path, transactions: int, active_per_scope: int, wri
         flush=True,
     )
     if migrate == 0:
-        print("  warning: no migrated transactions (transactions < 2 * active_per_scope)", flush=True)
+        print(
+            "  warning: no migrated transactions (transactions < 2 * active_per_scope)", flush=True
+        )
 
     journal = workspace / "memory" / "structured" / "journal.jsonl"
     journal_bytes = _write_journal(journal, iter_bench_transactions(active_per_scope))
@@ -402,7 +426,9 @@ def run_benchmark(workspace: Path, transactions: int, active_per_scope: int, wri
         raise RuntimeError(f"migration imported {migrated_count} transactions, expected {migrate}")
 
     insert_start = time.perf_counter()
-    append_times = _import_into(repository, iter_append_transactions(append, migrate), label="append")
+    append_times = _import_into(
+        repository, iter_append_transactions(append, migrate), label="append"
+    )
     insert_seconds = time.perf_counter() - insert_start
 
     concurrency_start = time.perf_counter()
@@ -426,14 +452,20 @@ def run_benchmark(workspace: Path, transactions: int, active_per_scope: int, wri
     concurrency_elapsed = time.perf_counter() - concurrency_start
     created_total = sum(report["created"] for report in worker_reports)
     contended_created_total = sum(report["contended_created"] for report in worker_reports)
-    contended_ids = {memory_id for report in worker_reports for memory_id, _ in report["contended_outcomes"]}
+    contended_ids = {
+        memory_id for report in worker_reports for memory_id, _ in report["contended_outcomes"]
+    }
 
     expected_tx = migrate + append + created_total + contended_created_total
     actual_tx = repository.storage_stats().transaction_count
     if actual_tx != expected_tx:
-        raise RuntimeError(f"transaction count {actual_tx} != expected {expected_tx} after concurrency")
+        raise RuntimeError(
+            f"transaction count {actual_tx} != expected {expected_tx} after concurrency"
+        )
     if created_total != writers * _CONCURRENT_CREATES_PER_WRITER:
-        raise RuntimeError(f"lost {writers * _CONCURRENT_CREATES_PER_WRITER - created_total} concurrent creates")
+        raise RuntimeError(
+            f"lost {writers * _CONCURRENT_CREATES_PER_WRITER - created_total} concurrent creates"
+        )
     if contended_created_total != 1:
         raise RuntimeError(f"contended create duplicated: {contended_created_total} creations")
     contended_id = next(iter(contended_ids)) if contended_ids else None
@@ -463,7 +495,9 @@ def run_benchmark(workspace: Path, transactions: int, active_per_scope: int, wri
             rows = connection.execute(recall_sql, params).fetchall()
             sql_times.append(time.perf_counter() - start)
             if len(rows) != active_per_scope:
-                raise RuntimeError(f"recall SQL returned {len(rows)} rows, expected {active_per_scope}")
+                raise RuntimeError(
+                    f"recall SQL returned {len(rows)} rows, expected {active_per_scope}"
+                )
     recall_full_times: list[float] = []
     for _ in range(_RECALL_SAMPLES):
         start = time.perf_counter()
@@ -472,7 +506,9 @@ def run_benchmark(workspace: Path, transactions: int, active_per_scope: int, wri
         )
         recall_full_times.append(time.perf_counter() - start)
         if len(candidates) != active_per_scope:
-            raise RuntimeError(f"recall returned {len(candidates)} records, expected {active_per_scope}")
+            raise RuntimeError(
+                f"recall returned {len(candidates)} records, expected {active_per_scope}"
+            )
 
     exporter = MemoryAuditExporter(repository)
     audit_start = time.perf_counter()
@@ -559,9 +595,7 @@ def main(argv: list[str] | None = None) -> int:
             "writers": args.writers,
             "seed": _SEED,
         }
-        results = run_benchmark(
-            workspace, args.transactions, args.active_per_scope, args.writers
-        )
+        results = run_benchmark(workspace, args.transactions, args.active_per_scope, args.writers)
         dataset["journal_bytes"] = results.pop("journal_bytes")
         report = build_report(" ".join(args_list), dataset, results)
         if args.json_output is not None:

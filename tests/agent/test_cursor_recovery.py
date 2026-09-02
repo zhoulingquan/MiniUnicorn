@@ -8,7 +8,7 @@ history.jsonl (e.g. ``"cursor": "abc"``).  The original ``_next_cursor`` and
 
 import pytest
 
-from miniunicorn.agent.memory import MemoryStore
+from miniunicorn.memory import MemoryStore
 
 
 @pytest.fixture

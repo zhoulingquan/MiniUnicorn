@@ -16,9 +16,10 @@ from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 
 from miniunicorn.agent.context import ContextBuilder
-from miniunicorn.agent.memory import MemoryStore
-from miniunicorn.agent.memory_lifecycle import IngestContext
-from miniunicorn.agent.memory_models import (
+from miniunicorn.config.schema import StructuredMemoryConfig
+from miniunicorn.memory import MemoryStore
+from miniunicorn.memory.lifecycle import IngestContext
+from miniunicorn.memory.models import (
     ActorKind,
     CandidateProposal,
     EvidenceKind,
@@ -30,7 +31,6 @@ from miniunicorn.agent.memory_models import (
     ScopeKind,
     SourceLevel,
 )
-from miniunicorn.config.schema import StructuredMemoryConfig
 
 UTC = timezone.utc
 
@@ -161,7 +161,6 @@ def declared_package_names(dependencies: list[str]) -> set[str]:
 _EXPLICIT_RUNTIME_FILES = (
     "miniunicorn/agent/context.py",
     "miniunicorn/agent/loop.py",
-    "miniunicorn/agent/memory.py",
     "miniunicorn/agent/reflection.py",
     "miniunicorn/command/memory.py",
     "miniunicorn/config/schema.py",
@@ -169,9 +168,8 @@ _EXPLICIT_RUNTIME_FILES = (
 
 
 def _runtime_memory_files(root: Path) -> list[Path]:
-    agent = root / "miniunicorn" / "agent"
     explicit = [root / relative for relative in _EXPLICIT_RUNTIME_FILES]
-    memory_glob = sorted(agent.glob("memory_*.py"))
+    memory_glob = sorted((root / "miniunicorn" / "memory").glob("*.py"))
     return [*explicit, *memory_glob]
 
 
@@ -265,7 +263,7 @@ def test_unparseable_declared_dependency_fails_loudly():
 # Legacy JSONL runtime residue boundaries (design 2026-08-14: single SQLite path)
 # ---------------------------------------------------------------------------
 
-_JOURNAL_MIGRATOR_SOURCES = ("miniunicorn/agent/memory_jsonl_import.py",)
+_JOURNAL_MIGRATOR_SOURCES = ("miniunicorn/memory/jsonl_import.py",)
 
 _JOURNAL_MIGRATION_TEST_FILES = (
     "tests/agent/test_memory_jsonl_import.py",
@@ -293,11 +291,12 @@ _FORBIDDEN_LEGACY_RUNTIME_TOKENS = (
 
 _REPOSITORY_INSTANTIATION_ALLOWED = {
     # Runtime wiring: constructs the single SQLite-backed repository.
-    # Moved with MemoryStore in W4-1 (memory.py is now the facade).
-    "miniunicorn/agent/memory_store.py",
+    # Moved with MemoryStore in W4-1 (memory.py is now the facade);
+    # relocated to miniunicorn/memory/ in W7-1.
+    "miniunicorn/memory/store.py",
     # Migration-only: object.__new__ bound to a temporary SQLite database,
     # never used for runtime writes (see module docstring).
-    "miniunicorn/agent/memory_jsonl_import.py",
+    "miniunicorn/memory/jsonl_import.py",
 }
 
 
@@ -357,10 +356,7 @@ def test_only_sqlite_backed_repository_instances_exist():
     violations: list[tuple[str, int, str]] = []
     for path in sorted(root.joinpath("miniunicorn").rglob("*.py")):
         rel = path.relative_to(root).as_posix()
-        if (
-            rel in _REPOSITORY_INSTANTIATION_ALLOWED
-            or rel == "miniunicorn/agent/memory_repository.py"
-        ):
+        if rel in _REPOSITORY_INSTANTIATION_ALLOWED or rel == "miniunicorn/memory/repository.py":
             continue
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             if re.search(r"StructuredMemoryRepository\(", line):

@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING, Any, Callable
 import tiktoken
 from loguru import logger
 
-from miniunicorn.agent.memory_store import _RAW_ARCHIVE_MAX_CHARS, MemoryStore
 from miniunicorn.ledger import CallPurpose, call_purpose
+from miniunicorn.memory.store import _RAW_ARCHIVE_MAX_CHARS, MemoryStore
 from miniunicorn.session.manager import Session
 from miniunicorn.utils.helpers import (
     estimate_message_tokens,

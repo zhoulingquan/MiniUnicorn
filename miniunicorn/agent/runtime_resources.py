@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 from miniunicorn.agent.autocompact import AutoCompact
-from miniunicorn.agent.memory import Consolidator, Dream, MemoryStore
+from miniunicorn.memory import Consolidator, Dream, MemoryStore
 
 if TYPE_CHECKING:
     from miniunicorn.agent.context import ContextBuilder

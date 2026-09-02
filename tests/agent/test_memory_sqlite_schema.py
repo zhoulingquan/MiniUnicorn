@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from miniunicorn.agent.memory_models import RepositoryDegradedError
-from miniunicorn.agent.memory_sqlite_schema import (
+from miniunicorn.memory.models import RepositoryDegradedError
+from miniunicorn.memory.sqlite_schema import (
     SCHEMA_VERSION,
     check_schema,
     connect_memory_db,

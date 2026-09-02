@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from miniunicorn.agent.memory_audit_export import AuditExportError, MemoryAuditExporter
-from miniunicorn.agent.memory_models import (
+from miniunicorn.memory.audit_export import AuditExportError, MemoryAuditExporter
+from miniunicorn.memory.models import (
     SCHEMA_VERSION,
     ActorKind,
     MemoryOperation,
@@ -25,7 +25,7 @@ from miniunicorn.agent.memory_models import (
     new_transaction_id,
     transaction_checksum,
 )
-from miniunicorn.agent.memory_repository import StructuredMemoryRepository
+from miniunicorn.memory.repository import StructuredMemoryRepository
 
 UTC = timezone.utc
 
@@ -171,7 +171,7 @@ def _audit_claims_consistent(audit: Path) -> bool:
 
 def clean_twin_snapshot(monkeypatch, tmp_path_factory, transactions) -> dict[str, bytes]:
     """Byte-identical reference audit for a fresh export of ``transactions``."""
-    import miniunicorn.agent.memory_audit_export as audit_export
+    import miniunicorn.memory.audit_export as audit_export
 
     twin = tmp_path_factory.mktemp("twin")
     structured = twin / "memory" / "structured"
@@ -320,7 +320,7 @@ def test_export_pending_is_idempotent(workspace, repository):
 def test_export_failure_keeps_db_and_old_audit_and_rebuild_restores(
     workspace, repository, monkeypatch, tmp_path_factory, failure
 ):
-    import miniunicorn.agent.memory_audit_export as audit_export
+    import miniunicorn.memory.audit_export as audit_export
 
     transactions = seed_transactions(repository, 8)
     exporter = MemoryAuditExporter(repository, segment_size=3)
@@ -371,7 +371,7 @@ def test_export_failure_keeps_db_and_old_audit_and_rebuild_restores(
 
 
 def test_watermark_never_regresses_below_stored(workspace, repository):
-    from miniunicorn.agent.memory_sqlite_schema import connect_memory_db
+    from miniunicorn.memory.sqlite_schema import connect_memory_db
 
     seed_transactions(repository, 10)
     exporter = MemoryAuditExporter(repository, segment_size=3)
@@ -444,7 +444,7 @@ def test_rebuild_swaps_audit_and_preserves_old_in_recovery(workspace, repository
 
 
 def test_rebuild_failure_keeps_db_and_recoverable_old_dir(workspace, repository, monkeypatch):
-    import miniunicorn.agent.memory_audit_export as audit_export
+    import miniunicorn.memory.audit_export as audit_export
 
     seed_transactions(repository, 8)
     exporter = MemoryAuditExporter(repository, segment_size=3)
@@ -507,8 +507,8 @@ def test_transaction_rows_in_range_returns_ordered_raw_rows(workspace, repositor
 
 
 def test_startup_trigger_exports_pending_lag(workspace, repository):
-    from miniunicorn.agent.memory import MemoryStore
     from miniunicorn.config.schema import StructuredMemoryConfig
+    from miniunicorn.memory import MemoryStore
 
     seed_transactions(repository, 5)
     assert repository.storage_stats().audit_lag == 5
@@ -527,7 +527,7 @@ def test_negative_segment_size_rejected(repository):
 
 
 def test_default_segment_size_is_ten_thousand():
-    from miniunicorn.agent.memory_audit_export import SEGMENT_SIZE
+    from miniunicorn.memory.audit_export import SEGMENT_SIZE
 
     assert SEGMENT_SIZE == 10_000
 
@@ -589,7 +589,7 @@ def test_export_replace_failure_at_every_write_point_self_heals(
     every failure keeps ``audit_exported_seq`` behind, and the next clean
     pass restores a byte-identical audit.
     """
-    import miniunicorn.agent.memory_audit_export as audit_export
+    import miniunicorn.memory.audit_export as audit_export
 
     monkeypatch.setattr(audit_export, "_utc_now", lambda: FIXED_GENERATED_AT)
     transactions = seed_transactions(repository, 16)
@@ -635,7 +635,7 @@ def test_export_replace_failure_at_every_write_point_self_heals(
 def test_rebuild_twice_same_minute_keeps_unique_recovery_audit(workspace, repository, monkeypatch):
     """Two rebuilds within the same UTC minute must not collide on the
     ``recovery/<UTC>/audit`` target: each previous audit stays recoverable."""
-    import miniunicorn.agent.memory_audit_export as audit_export
+    import miniunicorn.memory.audit_export as audit_export
 
     seed_transactions(repository, 5)
     monkeypatch.setattr(audit_export, "_utc_stamp", lambda: "2026-08-15T12-00-00Z")
@@ -657,7 +657,7 @@ def test_rebuild_watermark_commit_failure_leaves_new_audit_and_heals(
     workspace, repository, monkeypatch
 ):
     """A failed storage_meta commit after the rebuild swap keeps lag > 0."""
-    import miniunicorn.agent.memory_audit_export as audit_export
+    import miniunicorn.memory.audit_export as audit_export
 
     seed_transactions(repository, 8)
     exporter = MemoryAuditExporter(repository, segment_size=3)

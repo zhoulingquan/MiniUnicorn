@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.memory import (
+from miniunicorn.memory import (
     _ARCHIVE_SUMMARY_MAX_CHARS,
     Consolidator,
     MemoryStore,
@@ -501,7 +501,7 @@ class TestConsolidatorSessionRefresh:
     @pytest.mark.asyncio
     async def test_reloads_before_empty_session_guard(self, tmp_path):
         """A stale empty reference must not skip a non-empty cached session."""
-        from miniunicorn.agent.memory import Consolidator, MemoryStore
+        from miniunicorn.memory import Consolidator, MemoryStore
         from miniunicorn.session.manager import Session, SessionManager
 
         store = MemoryStore(tmp_path)
@@ -544,7 +544,7 @@ class TestConsolidatorSessionRefresh:
         """After compact_idle_session replaces the session, a concurrent
         maybe_consolidate_by_tokens with the old reference should use the
         fresh session from cache instead of overwriting."""
-        from miniunicorn.agent.memory import Consolidator, MemoryStore
+        from miniunicorn.memory import Consolidator, MemoryStore
         from miniunicorn.session.manager import SessionManager
 
         store = MemoryStore(tmp_path)

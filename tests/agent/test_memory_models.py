@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from miniunicorn.agent.memory_models import (
+from miniunicorn.memory.models import (
     SCHEMA_VERSION,
     ActorKind,
     EvidenceKind,
@@ -591,7 +591,7 @@ def test_extraction_batch_proposal_indices_must_be_unique():
 
 
 def test_recall_result_hits_have_score_and_reasons(record_data):
-    from miniunicorn.agent.memory_models import RecallHit
+    from miniunicorn.memory.models import RecallHit
 
     record = MemoryRecord.model_validate(record_data)
     result = RecallResult(

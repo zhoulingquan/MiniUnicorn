@@ -12,7 +12,7 @@ from loguru import logger
 from miniunicorn.session.manager import Session, SessionManager
 
 if TYPE_CHECKING:
-    from miniunicorn.agent.memory import Consolidator
+    from miniunicorn.memory import Consolidator
 
 
 class AutoCompact:

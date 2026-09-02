@@ -40,8 +40,8 @@ from filelock import FileLock
 from filelock import Timeout as FileLockTimeout
 from pydantic import BaseModel, ConfigDict
 
-from miniunicorn.agent.memory_models import MemoryError, RepositoryDegradedError
-from miniunicorn.agent.memory_sqlite_schema import connect_memory_db
+from miniunicorn.memory.models import MemoryError, RepositoryDegradedError
+from miniunicorn.memory.sqlite_schema import connect_memory_db
 from miniunicorn.utils.helpers import ensure_dir
 
 SEGMENT_SIZE = 10_000

@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, Iterator
 from filelock import FileLock
 from loguru import logger
 
-from miniunicorn.agent.memory_jsonl_import import (
+from miniunicorn.memory.jsonl_import import (
     LegacyJournalImportError,
     migrate_legacy_journal,
 )
@@ -28,9 +28,9 @@ from miniunicorn.utils.helpers import (
 )
 
 if TYPE_CHECKING:
-    from miniunicorn.agent.memory_models import RecallQuery, RecallResult
-    from miniunicorn.agent.memory_repository import StructuredMemoryRepository
     from miniunicorn.config.schema import StructuredMemoryConfig
+    from miniunicorn.memory.models import RecallQuery, RecallResult
+    from miniunicorn.memory.repository import StructuredMemoryRepository
 
 
 class MemoryStore:
@@ -175,13 +175,13 @@ class MemoryStore:
         repository construction, so the stack never replays the legacy
         journal at runtime (design section 11).
         """
-        from miniunicorn.agent.memory_audit_export import MemoryAuditExporter
-        from miniunicorn.agent.memory_lifecycle import (
+        from miniunicorn.memory.audit_export import MemoryAuditExporter
+        from miniunicorn.memory.lifecycle import (
             LifecyclePolicy,
             StructuredMemoryLifecycle,
         )
-        from miniunicorn.agent.memory_recall import StructuredMemoryRecall
-        from miniunicorn.agent.memory_repository import StructuredMemoryRepository
+        from miniunicorn.memory.recall import StructuredMemoryRecall
+        from miniunicorn.memory.repository import StructuredMemoryRepository
 
         self._run_startup_decision()
         repository = StructuredMemoryRepository(

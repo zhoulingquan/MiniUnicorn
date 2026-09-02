@@ -16,9 +16,10 @@ from pathlib import Path
 
 import pytest
 
-from miniunicorn.agent.memory import MemoryStore
-from miniunicorn.agent.memory_backup import MemoryBackupError, MemoryBackupManager
-from miniunicorn.agent.memory_models import (
+from miniunicorn.config.schema import StructuredMemoryConfig
+from miniunicorn.memory import MemoryStore
+from miniunicorn.memory.backup import MemoryBackupError, MemoryBackupManager
+from miniunicorn.memory.models import (
     ActorKind,
     CandidateProposal,
     EvidenceKind,
@@ -28,12 +29,11 @@ from miniunicorn.agent.memory_models import (
     ScopeKind,
     SourceLevel,
 )
-from miniunicorn.config.schema import StructuredMemoryConfig
 
 
 def _ingest_once(store: MemoryStore, statement: str, subject: str) -> None:
     """Commit exactly one transaction (a non-verified fact stays candidate)."""
-    from miniunicorn.agent.memory_lifecycle import IngestContext
+    from miniunicorn.memory.lifecycle import IngestContext
 
     now = datetime.now(timezone.utc)
     evidence = EvidenceRef(kind=EvidenceKind.MODEL_INFERENCE, ref="seed", excerpt=statement)
@@ -205,8 +205,8 @@ def test_restore_twice_same_minute_keeps_unique_recovery_dirs(tmp_path: Path, mo
     """Two restores within the same UTC minute must not collide on the
     ``recovery/<UTC>/`` targets: neither the safety database copy nor the
     pre-restore audit swap may overwrite an existing recovery entry."""
-    import miniunicorn.agent.memory_audit_export as audit_export
-    import miniunicorn.agent.memory_backup as memory_backup
+    import miniunicorn.memory.audit_export as audit_export
+    import miniunicorn.memory.backup as memory_backup
 
     store = seeded_store(tmp_path)
     repository = store.structured_repository

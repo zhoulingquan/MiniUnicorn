@@ -44,9 +44,9 @@ from filelock import Timeout as FileLockTimeout
 from loguru import logger
 from pydantic import BaseModel, ConfigDict
 
-from miniunicorn.agent.memory_audit_export import MemoryAuditExporter
-from miniunicorn.agent.memory_models import MemoryError
-from miniunicorn.agent.memory_sqlite_schema import SCHEMA_VERSION, connect_memory_db
+from miniunicorn.memory.audit_export import MemoryAuditExporter
+from miniunicorn.memory.models import MemoryError
+from miniunicorn.memory.sqlite_schema import SCHEMA_VERSION, connect_memory_db
 from miniunicorn.utils.helpers import ensure_dir
 
 _BACKUP_DIR = "backups"

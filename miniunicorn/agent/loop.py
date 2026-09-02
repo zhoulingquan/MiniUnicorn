@@ -21,7 +21,6 @@ from miniunicorn.agent.autocompact import AutoCompact
 from miniunicorn.agent.context import ContextBuilder
 from miniunicorn.agent.dispatch import UNIFIED_SESSION_KEY, MessageDispatcher
 from miniunicorn.agent.hook import AgentHook, CompositeHook
-from miniunicorn.agent.memory import Consolidator, Dream, MemoryStore
 from miniunicorn.agent.planning_policy import PlanningMode, PlanningPolicy
 from miniunicorn.agent.progress_hook import AgentProgressHook
 from miniunicorn.agent.provider_registry import ProviderRegistry
@@ -49,6 +48,7 @@ from miniunicorn.command import (
 )
 from miniunicorn.composition.mcp_runtime import McpRuntime
 from miniunicorn.config.schema import AgentDefaults, ModelPresetConfig, StructuredMemoryConfig
+from miniunicorn.memory import Consolidator, Dream, MemoryStore
 from miniunicorn.providers.base import LLMProvider
 from miniunicorn.providers.factory import ProviderSnapshot
 from miniunicorn.security.workspace_access import (

@@ -85,6 +85,8 @@
   `_pending_turn_latency_ms`)——归 `ResponseAssembler`(AgentLoop 保留读写委托,
   `_current_iteration` 仍为 loop 自有)。
 - 生命周期所有者:`composition`(Phase 2 起逐步迁往各应用服务)。
+- 注:memory 家族已于 W7-1 外置为顶层 `miniunicorn/memory/` 包(见 §2.19),
+  `agent/__init__.py` 不再 re-export `MemoryStore` / `Dream`。
 - 已知反向依赖(Phase 3 处理):`agent/context.py:45-46` 读 `_mcp_servers/_mcp_stacks`;
   `agent/tools/mcp.py:935` 写 `state._mcp_servers`;`agent/tools/runtime_state.py` Protocol。
 
@@ -273,6 +275,29 @@
 - 依赖方向:叶子包,**不 import `miniunicorn.agent.*`**(W6-1b 自 agent 外置,
   依赖单向:agent / providers / utils / tools → ledger,永不反向);守护规则见
   `tests/architecture/test_dependency_direction.py`(sink 包零 agent import)。
+
+### 2.19 memory(词法叶子包,W7-1)
+
+- 位置:`miniunicorn/memory/`(W7-1 自 `miniunicorn/agent/` 外置;13 个模块
+  同步瘦身改名:store / models / repository / recall / lifecycle / extraction /
+  jsonl_import / audit_export / consolidator / dream / backup / sqlite_schema)。
+- 公开 API(门面 `__init__` re-export):`MemoryStore` /
+  `WorkspaceMemoryRegistry` / `Consolidator` / `Dream` /
+  `count_pending_dream_entries` / `reflection_evidence_id` /
+  `LegacyJournalImportError` / `migrate_legacy_journal`,以及私有名
+  `_HISTORY_ENTRY_HARD_CAP` / `_RAW_ARCHIVE_MAX_CHARS` /
+  `_ARCHIVE_SUMMARY_MAX_CHARS` / `_dream_source_batch` /
+  `_parse_datetime_loose`(测试契约)。
+- 拥有的状态:SQLite 结构化记忆库(memory.db)、recall 审计文件、备份/导出产物;
+  无进程级全局单例(实例由消费方持有)。
+- 生命周期所有者:`agent`(`RuntimeResourceRegistry` 持有 Consolidator / Dream /
+  MemoryStore 实例;`agent/context.py` 构造 MemoryStore 注入 prompt 装配)。
+- 依赖方向:叶子包,依赖仅 `utils` / `config` / `session` / `bus` /
+  `providers` / `ledger`,**零 `miniunicorn.agent` 依赖**(W7-0 实证,W7-1 由
+  `tests/architecture/test_dependency_direction.py` sink 集合固化 + 包结构守护
+  `tests/memory/test_memory_package_split.py` 冷导入/AST 双重锁定)。
+- `agent/__init__.py` 门面收窄:不再 re-export `MemoryStore` / `Dream`;消费方
+  一律从 `miniunicorn.memory` 门面或具名子模块导入。
 
 ---
 

@@ -14,7 +14,7 @@ import re
 
 from pydantic import ValidationError
 
-from miniunicorn.agent.memory_models import (
+from miniunicorn.memory.models import (
     CandidateProposal,
     MemoryExtractionBatch,
     ScopeKind,

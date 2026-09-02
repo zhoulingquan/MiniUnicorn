@@ -51,6 +51,7 @@ BUSINESS_PACKAGES = frozenset(
         "utils",
         "cron",
         "config",
+        "memory",
     }
 )
 
@@ -162,14 +163,22 @@ def test_sink_packages_do_not_import_agent() -> None:
     found: set[tuple[str, str]] = set()
     for path in _iter_source_files():
         rel = _rel_module(path)
-        if _package_of(rel) not in {"providers", "utils", "security", "config", "bus", "ledger"}:
+        if _package_of(rel) not in {
+            "providers",
+            "utils",
+            "security",
+            "config",
+            "bus",
+            "ledger",
+            "memory",
+        }:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8-sig"))
         for _, target in _import_targets(tree):
             if target == "miniunicorn.agent" or target.startswith("miniunicorn.agent."):
                 found.add((rel, target))
     assert found == set(), (
-        "providers/utils/security/config/bus/ledger must not import agent; "
+        "providers/utils/security/config/bus/ledger/memory must not import agent; "
         f"violations:\n  {sorted(found)}"
     )
 

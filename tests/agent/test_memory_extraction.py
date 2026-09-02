@@ -7,11 +7,11 @@ from datetime import datetime, timezone
 
 import pytest
 
-from miniunicorn.agent.memory_extraction import (
+from miniunicorn.memory.extraction import (
     MemoryExtractionError,
     parse_extraction_batch,
 )
-from miniunicorn.agent.memory_models import EvidenceKind, EvidenceRef, ScopeKind, TagCatalog
+from miniunicorn.memory.models import EvidenceKind, EvidenceRef, ScopeKind, TagCatalog
 
 UTC = timezone.utc
 

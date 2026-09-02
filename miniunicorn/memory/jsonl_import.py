@@ -27,7 +27,7 @@ from pathlib import Path
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from miniunicorn.agent.memory_models import (
+from miniunicorn.memory.models import (
     DuplicateMemoryIdempotencyKey,
     InvalidMemoryTransition,
     MemoryRevisionConflict,
@@ -37,7 +37,7 @@ from miniunicorn.agent.memory_models import (
     UnknownMemoryTag,
     transaction_checksum,
 )
-from miniunicorn.agent.memory_sqlite_schema import connect_memory_db, initialize_schema
+from miniunicorn.memory.sqlite_schema import connect_memory_db, initialize_schema
 
 _JOURNAL_FILE = "journal.jsonl"
 _MANIFEST_FILE = "storage-migration-v2.json"
@@ -220,7 +220,7 @@ def _build_import_repository(
     (``database_path``, ``lock_timeout_s``, ``_tag_catalog``). Kept private to
     this module; never used for runtime writes.
     """
-    from miniunicorn.agent.memory_repository import StructuredMemoryRepository
+    from miniunicorn.memory.repository import StructuredMemoryRepository
 
     repository = object.__new__(StructuredMemoryRepository)
     repository.workspace = Path(workspace)

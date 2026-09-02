@@ -10,10 +10,12 @@ import hashlib
 import shlex
 from datetime import datetime, timezone
 
-from miniunicorn.agent.memory import MemoryStore
-from miniunicorn.agent.memory_backup import MemoryBackupManager
-from miniunicorn.agent.memory_lifecycle import IngestContext, MemoryLifecycleError
-from miniunicorn.agent.memory_models import (
+from miniunicorn.bus.events import OutboundMessage
+from miniunicorn.command.router import CommandContext, CommandRouter
+from miniunicorn.memory import MemoryStore
+from miniunicorn.memory.backup import MemoryBackupManager
+from miniunicorn.memory.lifecycle import IngestContext, MemoryLifecycleError
+from miniunicorn.memory.models import (
     ActorKind,
     CandidateProposal,
     EvidenceKind,
@@ -27,8 +29,6 @@ from miniunicorn.agent.memory_models import (
     SourceLevel,
     normalize_text,
 )
-from miniunicorn.bus.events import OutboundMessage
-from miniunicorn.command.router import CommandContext, CommandRouter
 
 _MAX_LIST_ITEMS = 20
 _EXCERPT_LIMIT = 200

@@ -8,9 +8,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.memory import Dream, MemoryStore
-from miniunicorn.agent.memory_models import MemoryWriteError, ScopeKind
 from miniunicorn.config.schema import StructuredMemoryConfig
+from miniunicorn.memory import Dream, MemoryStore
+from miniunicorn.memory.models import MemoryWriteError, ScopeKind
 
 
 @pytest.fixture
@@ -122,9 +122,9 @@ def reflection_entry(
 def seed_record(store, scope_kind: ScopeKind, scope_key: str, statement: str) -> None:
     from datetime import datetime, timezone
 
-    from miniunicorn.agent.memory_extraction import parse_extraction_batch
-    from miniunicorn.agent.memory_lifecycle import IngestContext
-    from miniunicorn.agent.memory_models import (
+    from miniunicorn.memory.extraction import parse_extraction_batch
+    from miniunicorn.memory.lifecycle import IngestContext
+    from miniunicorn.memory.models import (
         ActorKind,
         EvidenceKind,
         EvidenceRef,
@@ -517,14 +517,14 @@ class TestEvidencePromptContract:
 
 class TestDreamSourceBatch:
     def test_evidence_set_batch_is_order_stable(self):
-        from miniunicorn.agent.memory import _dream_source_batch
+        from miniunicorn.memory import _dream_source_batch
 
         refs = ["history:7", "reflection:rfl_abc"]
         assert _dream_source_batch(refs) == _dream_source_batch(reversed(refs))
         assert re.fullmatch(r"dream:[0-9a-f]{24}", _dream_source_batch(refs))
 
     def test_evidence_set_batch_changes_when_refs_change(self):
-        from miniunicorn.agent.memory import _dream_source_batch
+        from miniunicorn.memory import _dream_source_batch
 
         base = _dream_source_batch(["history:1", "history:2"])
         assert _dream_source_batch(["history:1"]) != base
@@ -957,8 +957,8 @@ class TestDreamBounds:
     async def test_tiny_budget_keeps_prompt_catalog_batch_and_cursor_in_sync(
         self, store, mock_provider, monkeypatch
     ):
-        from miniunicorn.agent.memory import _dream_source_batch
-        from miniunicorn.agent.memory_models import MemoryScope
+        from miniunicorn.memory import _dream_source_batch
+        from miniunicorn.memory.models import MemoryScope
         from miniunicorn.utils.helpers import estimate_message_tokens
 
         store.append_history("First governed fact.")
@@ -1032,7 +1032,7 @@ class TestDreamBounds:
         assert store.get_last_reflections_cursor() == 0
 
     async def test_budget_too_small_for_evidence_body_defers_batch(self, store, mock_provider):
-        from miniunicorn.agent.memory_models import MemoryScope
+        from miniunicorn.memory.models import MemoryScope
         from miniunicorn.utils.helpers import estimate_message_tokens
 
         store.append_history("The model must receive this governed fact.")
@@ -1066,7 +1066,7 @@ class TestDreamBounds:
     async def test_budget_shrink_does_not_skip_valid_reflection_after_invalid(
         self, store, mock_provider
     ):
-        from miniunicorn.agent.memory_models import MemoryScope
+        from miniunicorn.memory.models import MemoryScope
         from miniunicorn.utils.helpers import estimate_message_tokens
 
         write_history_direct(

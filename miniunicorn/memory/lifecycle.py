@@ -17,7 +17,7 @@ from typing import Mapping
 
 from loguru import logger
 
-from miniunicorn.agent.memory_models import (
+from miniunicorn.memory.models import (
     ActorKind,
     CandidateProposal,
     EvidenceKind,
@@ -36,10 +36,10 @@ from miniunicorn.agent.memory_models import (
     normalize_match_text,
     transaction_checksum,
 )
-from miniunicorn.agent.memory_models import (
+from miniunicorn.memory.models import (
     MemoryError as StructuredMemoryError,
 )
-from miniunicorn.agent.memory_repository import StructuredMemoryRepository
+from miniunicorn.memory.repository import StructuredMemoryRepository
 
 REASON_CREATED = "created_candidate"
 REASON_AUTO_PROMOTED = "auto_promoted"

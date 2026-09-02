@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import ValidationError
 
-import miniunicorn.agent.memory_consolidator as memory_module
+import miniunicorn.memory.consolidator as memory_module
 from miniunicorn.agent.loop import AgentLoop
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.config.schema import AgentDefaults

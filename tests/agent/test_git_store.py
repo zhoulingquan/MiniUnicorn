@@ -249,13 +249,13 @@ class TestRevert:
 
 class TestMemoryStoreGitProperty:
     def test_git_property_exposes_gitstore(self, tmp_path):
-        from miniunicorn.agent.memory import MemoryStore
+        from miniunicorn.memory import MemoryStore
 
         store = MemoryStore(tmp_path)
         assert isinstance(store.git, GitStore)
 
     def test_git_property_is_same_object(self, tmp_path):
-        from miniunicorn.agent.memory import MemoryStore
+        from miniunicorn.memory import MemoryStore
 
         store = MemoryStore(tmp_path)
         assert store.git is store._git

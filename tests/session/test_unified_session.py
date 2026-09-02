@@ -320,7 +320,7 @@ class TestConsolidationUnaffectedByUnifiedSession:
     @pytest.mark.asyncio
     async def test_consolidation_skips_empty_session_for_unified_key(self):
         """Empty unified:default session → consolidation exits immediately, archive not called."""
-        from miniunicorn.agent.memory import Consolidator, MemoryStore
+        from miniunicorn.memory import Consolidator, MemoryStore
 
         store = MagicMock(spec=MemoryStore)
         mock_provider = MagicMock()
@@ -352,7 +352,7 @@ class TestConsolidationUnaffectedByUnifiedSession:
     async def test_consolidation_behaviour_identical_for_any_key(self):
         """archive call count is the same for 'telegram:123' and 'unified:default'
         under identical token conditions."""
-        from miniunicorn.agent.memory import Consolidator, MemoryStore
+        from miniunicorn.memory import Consolidator, MemoryStore
 
         archive_calls: dict[str, int] = {}
 
@@ -386,7 +386,7 @@ class TestConsolidationUnaffectedByUnifiedSession:
     async def test_consolidation_triggers_when_over_budget_unified_key(self):
         """When tokens exceed budget, consolidation attempts to find a boundary —
         behaviour is identical to any other session key."""
-        from miniunicorn.agent.memory import Consolidator, MemoryStore
+        from miniunicorn.memory import Consolidator, MemoryStore
 
         store = MagicMock(spec=MemoryStore)
         mock_provider = MagicMock()

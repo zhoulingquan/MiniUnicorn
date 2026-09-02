@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.memory_models import (
+from miniunicorn.memory.models import (
     SCHEMA_VERSION,
     ActorKind,
     MemoryKind,
@@ -27,14 +27,14 @@ from miniunicorn.agent.memory_models import (
     normalize_match_text,
     transaction_checksum,
 )
-from miniunicorn.agent.memory_recall import (
+from miniunicorn.memory.recall import (
     PROMPT_HEADER,
     ROUTE_EXPLICIT_ID,
     SOURCE_SCORE,
     StructuredMemoryRecall,
     _tokenizer,
 )
-from miniunicorn.agent.memory_repository import StructuredMemoryRepository
+from miniunicorn.memory.repository import StructuredMemoryRepository
 
 UTC = timezone.utc
 

@@ -8,9 +8,10 @@ from datetime import datetime, timezone
 import pytest
 
 from miniunicorn.agent.context import ContextBuilder
-from miniunicorn.agent.memory import MemoryStore
-from miniunicorn.agent.memory_lifecycle import IngestContext
-from miniunicorn.agent.memory_models import (
+from miniunicorn.config.schema import StructuredMemoryConfig
+from miniunicorn.memory import MemoryStore
+from miniunicorn.memory.lifecycle import IngestContext
+from miniunicorn.memory.models import (
     ActorKind,
     EvidenceKind,
     EvidenceRef,
@@ -18,7 +19,6 @@ from miniunicorn.agent.memory_models import (
     RecallResult,
     ScopeKind,
 )
-from miniunicorn.config.schema import StructuredMemoryConfig
 
 UTC = timezone.utc
 
@@ -61,7 +61,7 @@ def seed_active_record(
             observed_at=datetime(2026, 8, 11, 8, 30, tzinfo=UTC),
         )
     }
-    from miniunicorn.agent.memory_extraction import parse_extraction_batch
+    from miniunicorn.memory.extraction import parse_extraction_batch
 
     extracted = parse_extraction_batch(
         json.dumps({"schema_version": 1, "proposals": [make_proposal(statement, slot)]}),

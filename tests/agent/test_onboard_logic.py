@@ -10,7 +10,6 @@ from typing import Any, cast
 
 from pydantic import BaseModel, Field
 
-from miniunicorn.agent.memory import MemoryStore
 from miniunicorn.cli import onboard as onboard_wizard
 from miniunicorn.cli.commands import _merge_missing_defaults
 from miniunicorn.cli.onboard import (
@@ -24,6 +23,7 @@ from miniunicorn.cli.onboard import (
     run_onboard,
 )
 from miniunicorn.config.schema import Config, StructuredMemoryConfig
+from miniunicorn.memory import MemoryStore
 from miniunicorn.utils.gitstore import GOVERNED_MEMORY_TRACKED_FILES
 from miniunicorn.utils.helpers import sync_workspace_templates
 

@@ -8,8 +8,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniunicorn.agent.memory import _HISTORY_ENTRY_HARD_CAP, MemoryStore
-from miniunicorn.agent.memory_models import (
+from miniunicorn.config.schema import StructuredMemoryConfig
+from miniunicorn.memory import _HISTORY_ENTRY_HARD_CAP, MemoryStore
+from miniunicorn.memory.models import (
     SCHEMA_VERSION,
     ActorKind,
     MemoryOperation,
@@ -20,7 +21,6 @@ from miniunicorn.agent.memory_models import (
     ScopeKind,
     transaction_checksum,
 )
-from miniunicorn.config.schema import StructuredMemoryConfig
 
 UTC = timezone.utc
 
@@ -796,7 +796,7 @@ class TestSQLiteStartupWiring:
     def test_startup_migration_invokes_migrator_with_correct_args(self, tmp_path, monkeypatch):
         """The startup decision runs BEFORE repository construction with the
         exact workspace and lock timeout."""
-        import miniunicorn.agent.memory_store as memory_module
+        import miniunicorn.memory.store as memory_module
 
         _write_legacy_journal(tmp_path, [_record("a")])
         captured: dict[str, object] = {}
@@ -804,7 +804,7 @@ class TestSQLiteStartupWiring:
         def spy_migrate(workspace, lock_timeout_s):
             captured["workspace"] = workspace
             captured["lock_timeout_s"] = lock_timeout_s
-            from miniunicorn.agent.memory_jsonl_import import migrate_legacy_journal
+            from miniunicorn.memory.jsonl_import import migrate_legacy_journal
 
             return migrate_legacy_journal(workspace, lock_timeout_s)
 

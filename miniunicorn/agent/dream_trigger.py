@@ -19,10 +19,10 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from miniunicorn.agent.memory import count_pending_dream_entries
+from miniunicorn.memory import count_pending_dream_entries
 
 if TYPE_CHECKING:
-    from miniunicorn.agent.memory import Dream
+    from miniunicorn.memory import Dream
 
 
 class DreamIdleTrigger:
