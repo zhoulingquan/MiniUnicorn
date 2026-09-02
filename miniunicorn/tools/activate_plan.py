@@ -20,7 +20,7 @@ from typing import Any
 from loguru import logger
 
 from miniunicorn.agent.planner import Plan, PlanStep, _normalize_evidence_level
-from miniunicorn.agent.safety_policy import RiskLevel
+from miniunicorn.security.risk import RiskLevel
 from miniunicorn.tools.base import Tool, tool_parameters
 from miniunicorn.tools.schema import StringSchema, tool_parameters_schema
 

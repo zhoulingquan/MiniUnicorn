@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from miniunicorn.agent.safety_policy import RiskLevel
+from miniunicorn.security.risk import RiskLevel
 from miniunicorn.security.workspace_access import current_tool_workspace
 from miniunicorn.tools.base import Tool, tool_parameters
 from miniunicorn.tools.file_state import FileStates, _hash_file, current_file_states

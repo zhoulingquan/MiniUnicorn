@@ -20,8 +20,8 @@ from contextvars import ContextVar
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from miniunicorn.agent.safety_policy import RiskLevel
 from miniunicorn.bus.events import OutboundMessage
+from miniunicorn.security.risk import RiskLevel
 from miniunicorn.session.goal_state import (
     GOAL_STATE_KEY,
     discard_legacy_goal_state_key,

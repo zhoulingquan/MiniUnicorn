@@ -11,7 +11,7 @@ from typing import Any, TypeVar
 if typing.TYPE_CHECKING:
     from pydantic import BaseModel
 
-    from miniunicorn.agent.safety_policy import RiskLevel
+    from miniunicorn.security.risk import RiskLevel
     from miniunicorn.tools.context import ToolContext
 
 _ToolT = TypeVar("_ToolT", bound="Tool")

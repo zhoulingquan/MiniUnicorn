@@ -5,7 +5,7 @@ from __future__ import annotations
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 
-from miniunicorn.agent.safety_policy import RiskLevel
+from miniunicorn.security.risk import RiskLevel
 from miniunicorn.security.workspace_access import current_workspace_scope
 from miniunicorn.tools.base import Tool, tool_parameters
 from miniunicorn.tools.context import ContextAware, RequestContext

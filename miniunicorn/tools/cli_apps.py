@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import Field
 
-from miniunicorn.agent.safety_policy import RiskLevel
 from miniunicorn.config.schema import Base
+from miniunicorn.security.risk import RiskLevel
 from miniunicorn.security.workspace_access import current_tool_workspace
 from miniunicorn.tools.base import Tool, tool_parameters
 from miniunicorn.tools.schema import (

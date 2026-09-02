@@ -17,9 +17,9 @@ from typing import Any, ClassVar, Mapping
 from loguru import logger
 from pydantic import Field
 
-from miniunicorn.agent.safety_policy import RiskLevel
 from miniunicorn.config.paths import get_media_dir
 from miniunicorn.config.schema import Base
+from miniunicorn.security.risk import RiskLevel
 from miniunicorn.security.workspace_access import (
     current_scope_allows_loopback,
     current_tool_workspace,

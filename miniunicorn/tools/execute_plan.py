@@ -16,7 +16,7 @@ from typing import Any
 
 from loguru import logger
 
-from miniunicorn.agent.safety_policy import RiskLevel
+from miniunicorn.security.risk import RiskLevel
 from miniunicorn.security.workspace_access import current_workspace_scope
 from miniunicorn.tools.base import Tool, tool_parameters
 from miniunicorn.tools.context import ContextAware, RequestContext

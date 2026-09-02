@@ -6,9 +6,9 @@ from contextvars import ContextVar
 from datetime import datetime
 from typing import Any
 
-from miniunicorn.agent.safety_policy import RiskLevel
 from miniunicorn.cron.service import CronService
 from miniunicorn.cron.types import CronJob, CronJobState, CronSchedule
+from miniunicorn.security.risk import RiskLevel
 from miniunicorn.tools.base import Tool, tool_parameters
 from miniunicorn.tools.context import ContextAware, RequestContext
 from miniunicorn.tools.schema import (

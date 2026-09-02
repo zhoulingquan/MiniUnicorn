@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from miniunicorn.agent.safety_policy import RiskLevel
+from miniunicorn.security.risk import RiskLevel
 from miniunicorn.tools.base import tool_parameters
 from miniunicorn.tools.file_state import _hash_file
 from miniunicorn.tools.filesystem import _FsTool

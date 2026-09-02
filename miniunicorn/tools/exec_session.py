@@ -9,8 +9,8 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 
-from miniunicorn.agent.safety_policy import RiskLevel
 from miniunicorn.config.schema import Base
+from miniunicorn.security.risk import RiskLevel
 from miniunicorn.tools.base import Tool, tool_parameters
 from miniunicorn.tools.context import current_request_session_key
 from miniunicorn.tools.schema import (

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from miniunicorn.agent.agent_generator import AgentGenerator, extract_name
-from miniunicorn.agent.safety_policy import RiskLevel
+from miniunicorn.security.risk import RiskLevel
 from miniunicorn.tools.base import Tool, tool_parameters
 from miniunicorn.tools.schema import ObjectSchema, StringSchema
 
