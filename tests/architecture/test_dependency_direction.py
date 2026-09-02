@@ -136,7 +136,12 @@ def test_business_modules_do_not_import_composition() -> None:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8-sig"))
         for lineno, target in _import_targets(tree):
-            if target.split(".")[0] == "composition":
+            if (
+                target == "composition"
+                or target.startswith("composition.")
+                or target == "miniunicorn.composition"
+                or target.startswith("miniunicorn.composition.")
+            ):
                 violations.append(f"{rel}:{lineno} imports {target}")
     assert not violations, "business modules must not import composition:\n" + "\n".join(violations)
 

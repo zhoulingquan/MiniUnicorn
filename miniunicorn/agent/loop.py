@@ -46,7 +46,6 @@ from miniunicorn.command import (
     CommandRouter,
     register_builtin_commands,
 )
-from miniunicorn.composition.mcp_runtime import McpRuntime
 from miniunicorn.config.schema import AgentDefaults, ModelPresetConfig, StructuredMemoryConfig
 from miniunicorn.memory import Consolidator, Dream, MemoryStore
 from miniunicorn.providers.base import LLMProvider
@@ -73,6 +72,7 @@ from miniunicorn.tools.context import (
     reset_request_context,
 )
 from miniunicorn.tools.file_state import FileStateStore, bind_file_states, reset_file_states
+from miniunicorn.tools.mcp_runtime import McpRuntime
 from miniunicorn.tools.registry import LazyToolRegistry, ToolRegistry
 from miniunicorn.utils.callback_types import ProgressCallback
 from miniunicorn.utils.document import extract_documents  # re-export for tests/extensions

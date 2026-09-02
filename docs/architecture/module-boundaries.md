@@ -32,7 +32,7 @@
 
 | 禁止依赖 | 原因 | 现状 |
 |---|---|---|
-| 业务模块 `import miniunicorn.composition` | 避免业务代码自举装配、破坏单一组合根 | ✅ 现状无 |
+| 业务模块 `import miniunicorn.composition` | 避免业务代码自举装配、破坏单一组合根 | ✅ 现状无(W8-1 修复架构守护的匹配盲区,裸 `composition` 与全限定 `miniunicorn.composition.*` 两种形式同判;此前 agent/loop 与 loop_builder 对 `composition.mcp_runtime` 的最后两处违例随 McpRuntime 归位 tools 消解,守护修复后为真实 ✅) |
 | `session` import `agent` | 会话层不依赖代理执行细节 | ✅ 现状经 bus 解耦 |
 | `channels` import `agent` | 通道层经 bus 解耦,不直接持有 agent | ✅ 现状无(原过渡期豁免 `channels/websocket/channel → agent.tools.mcp` 随 W5 工具库外置 `miniunicorn/tools` 后消解,channel.py 不再 import agent) |
 | 模块间读取对方下划线私有属性 | 模块边界 = 公开 API 边界 | ⚠️ 已知例外见 §4 |
@@ -298,6 +298,19 @@
   `tests/memory/test_memory_package_split.py` 冷导入/AST 双重锁定)。
 - `agent/__init__.py` 门面收窄:不再 re-export `MemoryStore` / `Dream`;消费方
   一律从 `miniunicorn.memory` 门面或具名子模块导入。
+
+### 2.20 tools(工具库,W8-1 起登记)
+
+- 位置:`miniunicorn/tools/`(W5 起自 `agent/tools` 外置的纯工具库)。
+- 本次登记:`tools/mcp_runtime.py` — `McpRuntime`:MCP 连接栈运行时(持有 `_mcp_servers`
+  / `_mcp_stacks` 等可变状态,提供 `connect_missing` / `close_all`,原生满足
+  `tools.mcp` 的 `RuntimeState` 协议;依赖仅 `tools.registry` / `tools.mcp`,
+  纯库代码)。W8-1 自 `composition/mcp_runtime.py` 归位至此;
+  `agent/loop.py` / `agent/loop_builder.py` / `composition/gateway.py` 及
+  `tests/tools/test_mcp_runtime.py` / `tests/agent/test_loop_init_phase_split.py`
+  随之改指新家。
+- 依赖方向:`tools` 为库层,`agent → tools` 与 `composition → tools` 均为既有
+  合法方向。
 
 ---
 

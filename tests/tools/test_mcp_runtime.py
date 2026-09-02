@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from miniunicorn.agent.loop_builder import AgentLoopBuilder
 from miniunicorn.bus.queue import MessageBus
-from miniunicorn.composition.mcp_runtime import McpRuntime
+from miniunicorn.tools.mcp_runtime import McpRuntime
 
 
 def _provider() -> MagicMock:

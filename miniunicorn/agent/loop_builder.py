@@ -36,10 +36,10 @@ if TYPE_CHECKING:
     from miniunicorn.agent.hook import AgentHook
     from miniunicorn.agent.loop import AgentLoop
     from miniunicorn.agent.subagent import SubagentManager
-    from miniunicorn.composition.mcp_runtime import McpRuntime
     from miniunicorn.config.schema import ModelPresetConfig, ToolsConfig
     from miniunicorn.cron.service import CronService
     from miniunicorn.session.manager import SessionManager
+    from miniunicorn.tools.mcp_runtime import McpRuntime
 
 
 # Facade 注入的服务对象参数名(AgentLoop.__init__ 关键字参数)。

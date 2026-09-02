@@ -62,10 +62,10 @@ class GatewayApplication:
         from miniunicorn.cli._gateway_runner import (
             _dream_backlog_total,
         )
-        from miniunicorn.composition.mcp_runtime import McpRuntime
         from miniunicorn.cron.service import CronService
         from miniunicorn.providers.factory import build_provider_snapshot, load_provider_snapshot
         from miniunicorn.session.manager import SessionManager
+        from miniunicorn.tools.mcp_runtime import McpRuntime
         from miniunicorn.tools.message import MessageTool
 
         self.config = config
