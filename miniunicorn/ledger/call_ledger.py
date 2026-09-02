@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from miniunicorn.agent.turn_budget import TurnBudget
+from miniunicorn.ledger.turn_budget import TurnBudget
 
 
 class CallPurpose(str, Enum):

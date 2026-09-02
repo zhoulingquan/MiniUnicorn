@@ -629,7 +629,7 @@ class LLMProvider(ABC):
         )
 
         # Record the ledger once with the final response
-        from miniunicorn.agent.call_ledger import current_call_ledger
+        from miniunicorn.ledger import current_call_ledger
 
         ledger = current_call_ledger()
         if ledger is not None:
@@ -687,7 +687,7 @@ class LLMProvider(ABC):
         )
 
         # Record the ledger once with the final response
-        from miniunicorn.agent.call_ledger import current_call_ledger
+        from miniunicorn.ledger import current_call_ledger
 
         ledger = current_call_ledger()
         if ledger is not None:

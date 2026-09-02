@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from miniunicorn.agent.call_ledger import CallLedger, CallPurpose, bind_call_ledger, call_purpose
+from miniunicorn.ledger import CallLedger, CallPurpose, bind_call_ledger, call_purpose
 from miniunicorn.providers.base import LLMProvider, LLMResponse
 
 

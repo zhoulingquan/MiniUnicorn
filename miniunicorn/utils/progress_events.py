@@ -6,7 +6,6 @@ import inspect
 from collections.abc import Callable
 from typing import Any
 
-from miniunicorn.agent.hook import AgentHookContext
 from miniunicorn.utils.callback_types import ProgressCallback
 
 __all__ = [
@@ -83,13 +82,15 @@ def tool_event_result_extras(result: Any) -> tuple[list[Any], list[Any]]:
     return files, embeds
 
 
-def build_tool_event_finish_payloads(context: AgentHookContext) -> list[dict[str, Any]]:
+def build_tool_event_finish_payloads(
+    tool_calls: list[Any], tool_results: list[Any], tool_events: list[Any]
+) -> list[dict[str, Any]]:
     payloads: list[dict[str, Any]] = []
-    count = min(len(context.tool_calls), len(context.tool_results), len(context.tool_events))
+    count = min(len(tool_calls), len(tool_results), len(tool_events))
     for idx in range(count):
-        tool_call = context.tool_calls[idx]
-        result = context.tool_results[idx]
-        event = context.tool_events[idx] if isinstance(context.tool_events[idx], dict) else {}
+        tool_call = tool_calls[idx]
+        result = tool_results[idx]
+        event = tool_events[idx] if isinstance(tool_events[idx], dict) else {}
         status = event.get("status")
         phase = "end" if status == "ok" else "error"
         files, embeds = tool_event_result_extras(result)

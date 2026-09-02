@@ -296,7 +296,7 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         advisory when the provider does not report cost, so default
         deployments never hard-fail on missing pricing.
         """
-        from miniunicorn.agent.turn_budget import (
+        from miniunicorn.ledger.turn_budget import (
             DEFAULT_FAST_MAX_COST_USD,
             DEFAULT_FAST_MAX_INPUT_TOKENS,
             DEFAULT_MANAGED_MAX_COST_USD,

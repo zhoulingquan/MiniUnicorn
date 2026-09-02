@@ -146,7 +146,9 @@
 
 ### 2.9 security / config / utils(基础库)
 
-- `security`:权限、SSRF、脚本安全等策略;只读被业务模块引用。
+- `security`:权限、SSRF、脚本安全等策略;只读被业务模块引用。风险分级词汇
+  `RiskLevel` 独立于 `agent/safety_policy`,以叶子模块 `security/risk.py` 承载
+  (W6-1a 起 tools 库 14 处调用点全部直连 `security.risk`,不再经 agent re-export)。
 - `config`:`Config` 模式、加载器(`load_config` / `resolve_config_env_vars` /
   `set_config_path`)、路径(`config/paths.py`);状态 = 进程内活动配置上下文。
 - `utils`:`helpers` / `restart` 等纯工具,不拥有业务状态。
@@ -257,6 +259,20 @@
 - 生命周期:随工具注册表构建;作用域 `_scopes = {"core"}`,不对 subagent 开放(避免递归)。
 - 依赖方向:依赖 `agent/subagent.py`(`SubagentManager.spawn_and_wait`)、`security/workspace_access`(工作区范围透传)、`safety_policy`(`RiskLevel.HIGH`);不 import `agent/loop`。
 - 语义说明:将计划步骤委派给并行 subagent——无数据依赖的步骤走 **parallel** 模式并发执行(每步一个 subagent),有依赖的步骤走 **serial** 模式,上一步结果以 sandbox 标记包裹后作为下一步上下文传入(防 prompt injection)。默认 `auto`:步骤动作引用先前输出则串行,否则并行。
+
+### 2.18 ledger(词法叶子包)
+
+- 位置:`miniunicorn/ledger/`
+- 公开 API:`CallPurpose` / `CallRecord` / `CallLedger` / `TurnBudget` /
+  `current_call_ledger` / `bind_call_ledger` / `reset_call_ledger` /
+  `call_purpose` / `allow_call_ledger_child_tasks`(`__init__` 门面 re-export)。
+- 拥有的状态:call ledger 的 ContextVar 绑定(当前 ledger 实例)与 TurnBudget
+  常量;无跨请求可变业务状态。
+- 生命周期所有者:`agent`(每轮 turn 构造 `CallLedger` 并 `bind_call_ledger`);
+  `providers/base` 运行时只读消费(`current_call_ledger()`)。
+- 依赖方向:叶子包,**不 import `miniunicorn.agent.*`**(W6-1b 自 agent 外置,
+  依赖单向:agent / providers / utils / tools → ledger,永不反向);守护规则见
+  `tests/architecture/test_dependency_direction.py`(sink 包零 agent import)。
 
 ---
 

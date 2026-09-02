@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from miniunicorn.agent.call_ledger import allow_call_ledger_child_tasks
+from miniunicorn.ledger import allow_call_ledger_child_tasks
 
 if TYPE_CHECKING:
     from miniunicorn.agent.hook import AgentHook, AgentHookContext

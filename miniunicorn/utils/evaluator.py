@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from miniunicorn.agent.call_ledger import CallPurpose, call_purpose
+from miniunicorn.ledger import CallPurpose, call_purpose
 from miniunicorn.utils.prompt_templates import render_template
 
 if TYPE_CHECKING:

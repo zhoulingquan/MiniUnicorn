@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING, Any, Iterable, Mapping
 
 from loguru import logger
 
-from miniunicorn.agent.call_ledger import CallPurpose, call_purpose
 from miniunicorn.bus.events import session_key_base
+from miniunicorn.ledger import CallPurpose, call_purpose
 from miniunicorn.utils.helpers import (
     estimate_message_tokens,
 )

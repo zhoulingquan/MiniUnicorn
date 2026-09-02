@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from miniunicorn.agent.call_ledger import CallPurpose, call_purpose
+from miniunicorn.ledger import CallPurpose, call_purpose
 from miniunicorn.tools.base import Tool, tool_parameters
 from miniunicorn.tools.deep_research.config import DeepResearchConfig
 from miniunicorn.tools.deep_research.prompts import (

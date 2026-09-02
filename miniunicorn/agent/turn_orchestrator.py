@@ -27,8 +27,8 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable
 from loguru import logger
 
 from miniunicorn.agent import turn_telemetry
-from miniunicorn.agent.call_ledger import CallLedger, bind_call_ledger
 from miniunicorn.bus.events import InboundMessage, OutboundMessage
+from miniunicorn.ledger import CallLedger, bind_call_ledger
 from miniunicorn.session.webui_turns import mark_webui_session
 from miniunicorn.tools.message import MessageTool
 from miniunicorn.utils.document import extract_documents, reference_non_image_attachments
@@ -42,8 +42,8 @@ if TYPE_CHECKING:
     from miniunicorn.agent.runtime_resources import RuntimeResourceRegistry
     from miniunicorn.agent.session_turn import SessionTurnService
     from miniunicorn.agent.subagent_registry import SubagentDefinition
-    from miniunicorn.agent.turn_budget import TurnBudget
     from miniunicorn.config.schema import ChannelsConfig
+    from miniunicorn.ledger import TurnBudget
     from miniunicorn.security.workspace_access import WorkspaceScope
     from miniunicorn.session.manager import Session, SessionManager
     from miniunicorn.session.webui_turns import WebuiTurnCoordinator

@@ -15,6 +15,11 @@ C. Modules must not access underscore-private attributes on names imported
    listed explicitly below and each exemption must be removed once the
    underlying coupling is resolved.
 
+D. Sink packages (``providers`` / ``utils`` / ``security`` / ``config`` /
+   ``bus`` / ``ledger``) must not import ``miniunicorn.agent``.  Dependency
+   direction is one-way: the agent core may depend on its vocabulary and
+   infrastructure leaves, never the reverse.  No exemptions.
+
 The scanner is deliberately dependency-free (pure ``ast``): every
 ``miniunicorn/**/*.py`` file is parsed, import bindings are resolved, and
 accesses are checked.  Instance-level private access on objects that are not
@@ -150,6 +155,22 @@ def test_session_and_channels_do_not_import_agent() -> None:
         "imports and the declared exemptions:\n"
         f"  unexpected: {sorted(found - AGENT_IMPORT_EXEMPTIONS)}\n"
         f"  stale:      {sorted(AGENT_IMPORT_EXEMPTIONS - found)}"
+    )
+
+
+def test_sink_packages_do_not_import_agent() -> None:
+    found: set[tuple[str, str]] = set()
+    for path in _iter_source_files():
+        rel = _rel_module(path)
+        if _package_of(rel) not in {"providers", "utils", "security", "config", "bus", "ledger"}:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        for _, target in _import_targets(tree):
+            if target == "miniunicorn.agent" or target.startswith("miniunicorn.agent."):
+                found.add((rel, target))
+    assert found == set(), (
+        "providers/utils/security/config/bus/ledger must not import agent; "
+        f"violations:\n  {sorted(found)}"
     )
 
 

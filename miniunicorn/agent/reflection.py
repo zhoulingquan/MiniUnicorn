@@ -22,7 +22,7 @@ from typing import Any
 
 from loguru import logger
 
-from miniunicorn.agent.call_ledger import CallPurpose, call_purpose
+from miniunicorn.ledger import CallPurpose, call_purpose
 from miniunicorn.utils.prompt_templates import render_template
 
 # Hard cap on reflection text length to keep reflections.jsonl compact.

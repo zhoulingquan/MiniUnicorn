@@ -11,11 +11,6 @@ from uuid import uuid4
 
 from loguru import logger
 
-from miniunicorn.agent.call_ledger import (
-    CallLedger,
-    bind_call_ledger,
-    current_call_ledger,
-)
 from miniunicorn.agent.execution.context_governance import ContextGovernanceService
 from miniunicorn.agent.execution.model_request import ModelRequestExecutor
 from miniunicorn.agent.execution.planning import PlanningReflectionService
@@ -30,6 +25,11 @@ from miniunicorn.agent.hook import AgentHook, AgentHookContext
 from miniunicorn.agent.planning_policy import PlanningMode, PlanningPolicy
 from miniunicorn.agent.provider_registry import ProviderRegistry
 from miniunicorn.agent.step_acceptance import ToolObservation
+from miniunicorn.ledger import (
+    CallLedger,
+    bind_call_ledger,
+    current_call_ledger,
+)
 from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from miniunicorn.tools.registry import ToolRegistry
 from miniunicorn.utils.file_edit_events import (
@@ -111,7 +111,7 @@ class AgentRunSpec:
     effective_tool_definitions: list[dict[str, Any]] | None = None
     # Optional per-turn budget; when exceeded, run() stops with
     # stop_reason="budget_exceeded". None = no budget tracking (legacy behavior).
-    # Typed as Any to avoid a circular import with miniunicorn.agent.turn_budget.
+    # Typed as Any to avoid a circular import with miniunicorn.ledger.turn_budget.
     turn_budget: Any | None = None
     # Plan-and-Execute mode. When True, the runner first decomposes the task
     # into steps via a Planner LLM call, then executes each step via ReAct.

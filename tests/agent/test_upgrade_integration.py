@@ -27,9 +27,9 @@ from miniunicorn.agent.context_governor import ContextGovernor
 from miniunicorn.agent.planner import Plan, Planner, PlanStep, StepStatus
 from miniunicorn.agent.reflection import Reflection
 from miniunicorn.agent.subagent_registry import SubagentRegistry
-from miniunicorn.agent.turn_budget import TurnBudget
 from miniunicorn.bus.queue import MessageBus
 from miniunicorn.config.schema import AgentDefaults
+from miniunicorn.ledger.turn_budget import TurnBudget
 from miniunicorn.providers.base import LLMProvider, LLMResponse
 from miniunicorn.tools.context import RequestContext
 from miniunicorn.tools.delegate import DelegateTool

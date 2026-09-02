@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from miniunicorn.agent.call_ledger import CallPurpose, call_purpose
+from miniunicorn.ledger import CallPurpose, call_purpose
 
 if TYPE_CHECKING:
     from miniunicorn.providers.base import LLMProvider

@@ -248,7 +248,7 @@ class StepAcceptancePolicy:
         final_content: str | None,
     ) -> dict[str, Any] | None:
         """Call LLM to verify step completion. Returns verdict dict or None on failure."""
-        from miniunicorn.agent.call_ledger import CallPurpose, call_purpose
+        from miniunicorn.ledger import CallPurpose, call_purpose
 
         prompt = self._build_verifier_prompt(step, observations, final_content)
 

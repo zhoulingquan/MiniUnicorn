@@ -8,21 +8,21 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.call_ledger import (
+from miniunicorn.agent.execution.model_request import ModelRequestExecutor
+from miniunicorn.agent.hook import AgentHook, AgentHookContext
+from miniunicorn.agent.loop import AgentLoop
+from miniunicorn.agent.reflection import Reflection
+from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
+from miniunicorn.bus.events import InboundMessage
+from miniunicorn.bus.queue import MessageBus
+from miniunicorn.ledger import (
     CallLedger,
     CallPurpose,
     bind_call_ledger,
     call_purpose,
     current_call_ledger,
 )
-from miniunicorn.agent.execution.model_request import ModelRequestExecutor
-from miniunicorn.agent.hook import AgentHook, AgentHookContext
-from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.agent.reflection import Reflection
-from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
-from miniunicorn.agent.turn_budget import TurnBudget
-from miniunicorn.bus.events import InboundMessage
-from miniunicorn.bus.queue import MessageBus
+from miniunicorn.ledger.turn_budget import TurnBudget
 from miniunicorn.providers.base import GenerationSettings, LLMProvider, LLMResponse
 
 

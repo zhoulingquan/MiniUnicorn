@@ -159,7 +159,9 @@ class AgentProgressHook(AgentHook):
             and context.tool_events
             and on_progress_accepts_tool_events(self._on_progress)
         ):
-            tool_events = build_tool_event_finish_payloads(context)
+            tool_events = build_tool_event_finish_payloads(
+                context.tool_calls, context.tool_results, context.tool_events
+            )
             if tool_events:
                 await invoke_on_progress(
                     self._on_progress,
