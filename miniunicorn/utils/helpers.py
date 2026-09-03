@@ -328,8 +328,11 @@ def _cleanup_tool_result_buckets(root: Path, current_bucket: Path) -> None:
 def _write_text_atomic(path: Path, content: str) -> None:
     tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
-        tmp.write_text(content, encoding="utf-8")
-        tmp.replace(path)
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
     finally:
         if tmp.exists():
             tmp.unlink(missing_ok=True)
