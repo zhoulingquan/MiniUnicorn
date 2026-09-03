@@ -3,6 +3,8 @@
 .worktree/
 .env
 .miniunicorn-config/
+.trae-html-share-packages/
+.workbuddy/
 
 # Claude / AI assistant artifacts
 docs/superpowers/
