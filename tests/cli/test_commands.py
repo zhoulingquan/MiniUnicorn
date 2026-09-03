@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import re
 import shutil
 from pathlib import Path
@@ -1368,3 +1369,50 @@ def test_channels_login_requires_channel_name() -> None:
     result = runner.invoke(app, ["channels", "login"])
 
     assert result.exit_code == 2
+
+
+def test_onboard_plugins_holds_config_write_lock(tmp_path, monkeypatch) -> None:
+    """_onboard_plugins must hold <config>.lock across the read→modify→write.
+
+    Same lock-file convention as ``config/loader.py::_locked_config_write`` so
+    concurrent config saves from the gateway process are mutually exclusive.
+    """
+    import filelock
+
+    from miniunicorn.cli.commands import _onboard_plugins
+
+    config_path = tmp_path / "config.json"
+    config_path.write_text("{}", encoding="utf-8")
+    lock_path = str(config_path) + ".lock"
+
+    class _FakeChannel:
+        @staticmethod
+        def default_config():
+            return {"enabled": True}
+
+    monkeypatch.setattr(
+        "miniunicorn.channels.registry.discover_all",
+        lambda: {"fake": _FakeChannel},
+    )
+
+    attempts: list[str] = []
+    original_replace = os.replace
+
+    def _probe_replace(src, dst):
+        # Runs while _onboard_plugins is inside its critical section: a second
+        # same-name lock with a short timeout must be blocked (mutual exclusion).
+        probe = filelock.FileLock(lock_path, timeout=0.2)
+        try:
+            probe.acquire()
+            probe.release()
+            attempts.append("acquired")
+        except filelock.Timeout:
+            attempts.append("blocked")
+        return original_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", _probe_replace)
+    _onboard_plugins(config_path)
+
+    # A same-name lock could not be acquired while _onboard_plugins was inside
+    # its read→modify→write section → it holds exactly <config>.lock.
+    assert attempts == ["blocked"]

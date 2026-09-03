@@ -262,33 +262,39 @@ def _onboard_plugins(config_path: Path) -> None:
     import json
     import tempfile
 
+    from filelock import FileLock
+
     from miniunicorn.channels.registry import discover_all
 
     all_channels = discover_all()
     if not all_channels:
         return
 
-    with open(config_path, encoding="utf-8") as f:
-        data = json.load(f)
+    # 跨进程互斥：锁文件名与 config/loader.py 的 _locked_config_write 约定
+    # 完全一致（<path>.lock），否则与 gateway 进程并发保存配置时
+    # read-modify-write 会互相覆盖。
+    with FileLock(str(config_path) + ".lock"):
+        with open(config_path, encoding="utf-8") as f:
+            data = json.load(f)
 
-    channels = data.setdefault("channels", {})
-    for name, cls in all_channels.items():
-        if name not in channels:
-            channels[name] = cls.default_config()
-        else:
-            channels[name] = _merge_missing_defaults(channels[name], cls.default_config())
+        channels = data.setdefault("channels", {})
+        for name, cls in all_channels.items():
+            if name not in channels:
+                channels[name] = cls.default_config()
+            else:
+                channels[name] = _merge_missing_defaults(channels[name], cls.default_config())
 
-    # 原子写：先写入临时文件，再 os.replace 覆盖目标，避免写入中途崩溃导致配置损坏
-    tmp_fd, tmp_path = tempfile.mkstemp(dir=config_path.parent, prefix=".tmp_")
-    try:
-        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        os.replace(tmp_path, config_path)
-    except Exception:
-        # 写入失败时清理临时文件，避免残留
-        with suppress(Exception):
-            os.unlink(tmp_path)
-        raise
+        # 原子写：先写入临时文件，再 os.replace 覆盖目标，避免写入中途崩溃导致配置损坏
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=config_path.parent, prefix=".tmp_")
+        try:
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            os.replace(tmp_path, config_path)
+        except Exception:
+            # 写入失败时清理临时文件，避免残留
+            with suppress(Exception):
+                os.unlink(tmp_path)
+            raise
 
 
 def _model_display(config: Config) -> tuple[str, str]:
