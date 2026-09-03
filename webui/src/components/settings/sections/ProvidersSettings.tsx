@@ -1,5 +1,5 @@
 // Providers section:已配置/未配置两个分组,每个 provider 卡片支持
-// API Key / API Base / Model 编辑、OAuth 登录登出、删除、模型列表抓取。
+// API Key / API Base / Model 编辑、删除、模型列表抓取。
 // 从 SettingsView.tsx 拆分而来。
 
 import { useMemo, useState } from "react";
@@ -52,8 +52,6 @@ export function ProvidersSettings({
   onToggleProviderKeyEditing,
   onChangeProviderForm,
   onSaveProvider,
-  onProviderOAuthLogin,
-  onProviderOAuthLogout,
   onRequestDeleteProvider,
   onAddModelToProvider,
   onActivatePreset,
@@ -95,8 +93,6 @@ export function ProvidersSettings({
   onToggleProviderKeyEditing: (provider: string) => void;
   onChangeProviderForm: (provider: string, value: Partial<ProviderForm>) => void;
   onSaveProvider: (provider: string) => void;
-  onProviderOAuthLogin: (provider: string) => void;
-  onProviderOAuthLogout: (provider: string) => void;
   onRequestDeleteProvider: (provider: string) => void;
   onAddModelToProvider: (providerName: string) => void;
   onActivatePreset: (presetName: string) => void;
@@ -176,15 +172,14 @@ export function ProvidersSettings({
     };
     const saving = providerSaving === provider.name;
     const saved = !!providerSaved[provider.name];
-    const isOauthProvider = provider.auth_type === "oauth";
     const keyVisible = !!visibleProviderKeys[provider.name];
     const editingKey = !isConfigured || !!editingProviderKeys[provider.name];
     const apiKeyRequired = provider.api_key_required ?? true;
     const apiKey = form.apiKey.trim();
     const apiBase = form.apiBase.trim();
-    const missingRequiredApiKey = !isOauthProvider && apiKeyRequired && !isConfigured && !apiKey;
+    const missingRequiredApiKey = apiKeyRequired && !isConfigured && !apiKey;
     const missingOptionalCredential =
-      !isOauthProvider && !apiKeyRequired && !isConfigured && !apiKey && !apiBase;
+      !apiKeyRequired && !isConfigured && !apiKey && !apiBase;
     return (
       <div key={entryKey(provider)} className="divide-y divide-border/45">
         <button
@@ -209,63 +204,14 @@ export function ProvidersSettings({
             </span>
           </span>
           <StatusPill tone={isConfigured ? "success" : "neutral"}>
-            {isOauthProvider
-              ? isConfigured
-                ? tx("settings.oauth.signedIn", "Signed in")
-                : tx("settings.oauth.notSignedIn", "Not signed in")
-              : isConfigured
-                ? t("settings.byok.configured")
-                : t("settings.byok.notConfigured")}
+            {isConfigured
+              ? t("settings.byok.configured")
+              : t("settings.byok.notConfigured")}
           </StatusPill>
         </button>
 
         {expanded ? (
           <div className="space-y-3 bg-muted/18 px-4 py-4 sm:px-5">
-            {isOauthProvider ? (
-              <div className="flex flex-col gap-3 rounded-[18px] border border-border/45 bg-background/75 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
-                  <p className="text-[13px] font-semibold text-foreground">
-                    {tx("settings.oauth.authentication", "OAuth authentication")}
-                  </p>
-                  <p className="mt-1 truncate text-[12px] text-muted-foreground">
-                    {provider.configured
-                      ? t("settings.oauth.signedInAs", {
-                          account: provider.oauth_account || provider.label,
-                          defaultValue: "Signed in as {{account}}",
-                        })
-                      : tx("settings.oauth.signInHelp", "Sign in from this device; no API key is stored in config.")}
-                  </p>
-                </div>
-                <div className="flex shrink-0 justify-end gap-2">
-                  {provider.configured ? (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => onProviderOAuthLogout(provider.name)}
-                      disabled={saving}
-                      className="rounded-full"
-                    >
-                      {tx("settings.oauth.signOut", "Sign out")}
-                    </Button>
-                  ) : null}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => onProviderOAuthLogin(provider.name)}
-                    disabled={saving || !provider.oauth_login_supported}
-                    className="rounded-full"
-                  >
-                    {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
-                    {saving
-                      ? tx("settings.oauth.signingIn", "Signing in...")
-                      : provider.configured
-                        ? tx("settings.oauth.signInAgain", "Sign in again")
-                        : tx("settings.oauth.signIn", "Sign in")}
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <>
             {/* API Key / API Base:所有 provider 一致显示(含 custom)。
                 custom 的 preset 自带凭证会覆盖单例值,单例凭证作为新 preset 的默认预填。 */}
             <label className="block space-y-1.5">
@@ -412,8 +358,6 @@ export function ProvidersSettings({
                 </Button>
               ) : null}
             </div>
-              </>
-            )}
           </div>
         ) : null}
       </div>

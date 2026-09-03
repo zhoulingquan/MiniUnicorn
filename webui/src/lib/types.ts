@@ -275,15 +275,11 @@ export interface SettingsPayload {
     name: string;
     label: string;
     configured: boolean;
-    auth_type?: "api_key" | "oauth";
     api_key_required?: boolean;
     api_key_hint?: string | null;
     api_base?: string | null;
     default_api_base?: string | null;
     api_type?: "auto" | "chat_completions" | "responses";
-    oauth_account?: string | null;
-    oauth_expires_at?: number | null;
-    oauth_login_supported?: boolean;
     // preset 虚拟 provider 条目标记(已配置区域的 preset 卡片):
     // - custom preset: name=custom__<preset_name>, is_custom_preset=true
     // - 非 custom preset: name=<provider>__<preset_name>, is_custom_preset=false

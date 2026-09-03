@@ -22,8 +22,6 @@ import {
   deleteProviderSettings,
   fetchProviderModels,
   fetchSettings,
-  loginProviderOAuth,
-  logoutProviderOAuth,
   updateModelConfiguration,
   updateProviderSettings,
   updateSettings,
@@ -112,7 +110,6 @@ export interface ModelsAndProvidersSectionState {
   changeProviderForm: (providerName: string, value: Partial<ProviderForm>) => void;
   saveProvider: (providerName: string) => Promise<void>;
   fetchProviderModelList: (providerName: string) => Promise<void>;
-  runProviderOAuth: (providerName: string, action: "login" | "logout") => Promise<void>;
 
   // preset activate / delete
   activateModelPreset: (presetName: string) => Promise<void>;
@@ -775,7 +772,6 @@ export function useModelsAndProvidersSection(
     if (providerSaving) return;
     const provider = settings?.providers.find((item) => item.name === providerName);
     if (!provider) return;
-    if (provider.auth_type === "oauth") return;
     const providerForm = providerForms[providerName] ?? { apiKey: "", apiBase: "", apiType: "auto", model: "" };
     const apiKey = providerForm.apiKey.trim();
     const apiKeyRequired = provider.api_key_required ?? true;
@@ -973,24 +969,6 @@ export function useModelsAndProvidersSection(
     }
   }, [providerModelsLoading, settings, providerForms, token, setError]);
 
-  const runProviderOAuth = useCallback(async (providerName: string, action: "login" | "logout") => {
-    if (providerSaving) return;
-    setProviderSaving(providerName);
-    try {
-      const payload: SettingsPayload =
-        action === "login"
-          ? await loginProviderOAuth(token, providerName)
-          : await logoutProviderOAuth(token, providerName);
-      applyPayload(payload);
-      setExpandedProvider(providerName);
-      setError(null);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setProviderSaving(null);
-    }
-  }, [providerSaving, token, applyPayload, setError]);
-
   const deleteAllProviders = useCallback(async () => {
     if (deletingAllProviders) return;
     setDeletingAllProviders(true);
@@ -1068,7 +1046,6 @@ export function useModelsAndProvidersSection(
     changeProviderForm,
     saveProvider,
     fetchProviderModelList,
-    runProviderOAuth,
     activateModelPreset,
     deletePreset,
     customPresetLabel,

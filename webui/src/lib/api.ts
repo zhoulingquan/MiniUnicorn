@@ -774,32 +774,6 @@ export async function fetchProviderModels(
   return body.models;
 }
 
-export async function loginProviderOAuth(
-  token: string,
-  provider: string,
-  base: string = "",
-): Promise<SettingsPayload> {
-  const query = new URLSearchParams();
-  query.set("provider", provider);
-  return request<SettingsPayload>(
-    `${base}/api/settings/provider/oauth-login?${query}`,
-    token,
-  );
-}
-
-export async function logoutProviderOAuth(
-  token: string,
-  provider: string,
-  base: string = "",
-): Promise<SettingsPayload> {
-  const query = new URLSearchParams();
-  query.set("provider", provider);
-  return request<SettingsPayload>(
-    `${base}/api/settings/provider/oauth-logout?${query}`,
-    token,
-  );
-}
-
 export async function updateWebFetchSettings(
   token: string,
   update: WebFetchSettingsUpdate,

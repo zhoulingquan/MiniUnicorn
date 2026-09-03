@@ -130,8 +130,6 @@ export function SettingsView({
               onToggleProviderKeyEditing={state.models.toggleProviderKeyEditing}
               onChangeProviderForm={state.models.changeProviderForm}
               onSaveProvider={state.models.saveProvider}
-              onProviderOAuthLogin={(provider) => state.models.runProviderOAuth(provider, "login")}
-              onProviderOAuthLogout={(provider) => state.models.runProviderOAuth(provider, "logout")}
               onRequestDeleteProvider={(provider) => state.models.setProviderToDelete(provider)}
               onAddModelToProvider={state.models.openModelConfigurationForProvider}
               onActivatePreset={state.models.activateModelPreset}

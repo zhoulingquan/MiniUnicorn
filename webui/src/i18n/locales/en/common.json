@@ -436,19 +436,6 @@
       "featured": "Featured",
       "loading": "Loading Apps...",
       "empty": "No apps match this filter."
-    },
-    "oauth": {
-      "authentication": "OAuth authentication",
-      "signIn": "Sign in",
-      "signingIn": "Signing in...",
-      "signInAgain": "Sign in again",
-      "signOut": "Sign out",
-      "signedInAs": "Signed in as {{account}}",
-      "signInHelp": "Sign in from this device; no API key is stored in config.",
-      "signInRequired": "Sign in required",
-      "signInBeforeSaving": "Sign in before saving this OAuth provider as the active model provider.",
-      "signedIn": "Signed in",
-      "notSignedIn": "Not signed in"
     }
   },
   "chat": {
