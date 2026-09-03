@@ -5,6 +5,8 @@
 .miniunicorn-config/
 .trae-html-share-packages/
 .workbuddy/
+arch-eval-miniunicorn-vs-aniyaa/
+docs/miniunicorn-architecture-analysis/
 
 # Claude / AI assistant artifacts
 docs/superpowers/
