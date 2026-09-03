@@ -43,7 +43,6 @@ from miniunicorn.utils.runtime import (
     EMPTY_FINAL_RESPONSE_MESSAGE,
     build_goal_continue_message,
     is_blank_text,
-    repeated_workspace_violation_error,
 )
 
 if TYPE_CHECKING:
@@ -283,46 +282,6 @@ class AgentRunner:
             desc = desc.split("\n")[0][:100] if desc else ""
             lines.append(f"- {name}: {desc}".rstrip())
         return "\n".join(lines) if lines else "(no tools)"
-
-    @staticmethod
-    def extract_task_from_messages(messages: list[dict[str, Any]]) -> str:
-        """Extract the user's task from the initial messages (last user msg)."""
-        for msg in reversed(messages):
-            if msg.get("role") == "user":
-                content = msg.get("content")
-                if isinstance(content, str):
-                    return content
-                if isinstance(content, list):
-                    for block in reversed(content):
-                        if isinstance(block, dict) and block.get("type") == "text":
-                            return str(block.get("text", ""))
-        return "(task)"
-
-    @staticmethod
-    def inject_step_guidance(
-        messages: list[dict[str, Any]],
-        guidance: str,
-    ) -> list[dict[str, Any]]:
-        """Append step guidance to the last user message (non-destructive copy).
-
-        Returns a new list; the input list and its dicts are not mutated. The
-        guidance is appended to the last user message's content so the model
-        sees it as additional context without polluting the persisted history
-        (the caller passes the returned list only to the LLM, not to messages).
-        """
-        if not messages:
-            return messages
-        updated = [dict(m) for m in messages]
-        for i in range(len(updated) - 1, -1, -1):
-            if updated[i].get("role") == "user":
-                content = updated[i].get("content")
-                if isinstance(content, str):
-                    updated[i] = {**updated[i], "content": content + guidance}
-                elif isinstance(content, list):
-                    new_content = list(content) + [{"type": "text", "text": guidance}]
-                    updated[i] = {**updated[i], "content": new_content}
-                break
-        return updated
 
     @staticmethod
     def _merge_message_content(left: Any, right: Any) -> str | list[dict[str, Any]]:
@@ -1474,98 +1433,6 @@ class AgentRunner:
             workspace_violation_counts,
             step_id=step_id,
         )
-
-    # SSRF is a hard security block at the tool boundary, but the agent turn
-    # should recover conversationally instead of aborting the runtime.
-    _SSRF_MARKERS: tuple[str, ...] = (
-        "internal/private url detected",
-        "private/internal address",
-        "private address",
-    )
-    _SSRF_BOUNDARY_NOTE: str = (
-        "This is a non-bypassable security boundary. Stop trying to access "
-        "private/internal URLs. Do not retry with curl, wget, encoded IPs, "
-        "alternate DNS, redirects, proxies, or another tool. Ask the user for "
-        "local files, logs, screenshots, or an explicit safe public URL instead. "
-        "If the user explicitly trusts this private URL, ask them to whitelist "
-        "the exact IP/CIDR via tools.ssrfWhitelist."
-    )
-
-    # Non-SSRF boundary markers returned to the LLM as recoverable tool errors.
-    _WORKSPACE_VIOLATION_MARKERS: tuple[str, ...] = (
-        "outside the configured workspace",
-        "outside allowed directory",
-        "working_dir is outside",
-        "working_dir could not be resolved",
-        "path outside working dir",
-        "path traversal detected",
-    )
-
-    @classmethod
-    def _is_ssrf_violation(cls, text: str) -> bool:
-        if not text:
-            return False
-        lowered = text.lower()
-        return any(marker in lowered for marker in cls._SSRF_MARKERS)
-
-    @classmethod
-    def _is_workspace_violation(cls, text: str) -> bool:
-        """True when *text* looks like any policy boundary rejection."""
-        if not text:
-            return False
-        lowered = text.lower()
-        if cls._is_ssrf_violation(lowered):
-            return True
-        return any(marker in lowered for marker in cls._WORKSPACE_VIOLATION_MARKERS)
-
-    def classify_violation(
-        self,
-        *,
-        raw_text: str,
-        soft_payload: str,
-        event: dict[str, Any],
-        tool_call: ToolCallRequest,
-        workspace_violation_counts: dict[str, int],
-    ) -> tuple[Any, dict[str, Any], BaseException | None] | None:
-        """Classify safety-boundary failures, or return ``None`` to pass through."""
-        if self._is_ssrf_violation(raw_text):
-            logger.warning(
-                "Tool {} blocked by SSRF guard; returning non-retryable tool error: {}",
-                tool_call.name,
-                raw_text.replace("\n", " ").strip()[:200],
-            )
-            event["detail"] = self._event_detail("ssrf_violation: ", raw_text)
-            return self._ssrf_soft_payload(raw_text), event, None
-
-        if self._is_workspace_violation(raw_text):
-            escalation = repeated_workspace_violation_error(
-                tool_call.name,
-                tool_call.arguments,
-                workspace_violation_counts,
-            )
-            event["detail"] = self._event_detail("workspace_violation: ", raw_text)
-            if escalation is not None:
-                logger.warning(
-                    "Tool {} hit workspace boundary repeatedly; escalating hint",
-                    tool_call.name,
-                )
-                event["detail"] = self._event_detail(
-                    "workspace_violation_escalated: ",
-                    raw_text,
-                )
-                return escalation, event, None
-            return soft_payload, event, None
-
-        return None
-
-    @classmethod
-    def _ssrf_soft_payload(cls, raw_text: str) -> str:
-        text = raw_text.strip() or "Error: request blocked by SSRF guard"
-        return f"{text}\n\n{cls._SSRF_BOUNDARY_NOTE}"
-
-    @staticmethod
-    def _event_detail(prefix: str, text: str, limit: int = 160) -> str:
-        return (prefix + text.replace("\n", " ").strip())[:limit]
 
     async def emit_checkpoint(
         self,

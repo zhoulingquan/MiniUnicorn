@@ -26,13 +26,52 @@ if TYPE_CHECKING:
     from miniunicorn.agent.step_acceptance import ToolObservation
 
 
+def extract_task_from_messages(messages: list[dict[str, Any]]) -> str:
+    """Extract the user's task from the initial messages (last user msg)."""
+    for msg in reversed(messages):
+        if msg.get("role") == "user":
+            content = msg.get("content")
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                for block in reversed(content):
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        return str(block.get("text", ""))
+    return "(task)"
+
+
+def inject_step_guidance(
+    messages: list[dict[str, Any]],
+    guidance: str,
+) -> list[dict[str, Any]]:
+    """Append step guidance to the last user message (non-destructive copy).
+
+    Returns a new list; the input list and its dicts are not mutated. The
+    guidance is appended to the last user message's content so the model
+    sees it as additional context without polluting the persisted history
+    (the caller passes the returned list only to the LLM, not to messages).
+    """
+    if not messages:
+        return messages
+    updated = [dict(m) for m in messages]
+    for i in range(len(updated) - 1, -1, -1):
+        if updated[i].get("role") == "user":
+            content = updated[i].get("content")
+            if isinstance(content, str):
+                updated[i] = {**updated[i], "content": content + guidance}
+            elif isinstance(content, list):
+                new_content = list(content) + [{"type": "text", "text": guidance}]
+                updated[i] = {**updated[i], "content": new_content}
+            break
+    return updated
+
+
 class PlanningReflectionService:
     """Plan-and-Execute and reflection for a single agent turn.
 
     Constructed with the host ``AgentRunner``; helper collaborators (task
-    extraction, tools summary, step guidance injection) are reached through
-    the runner reference this service is constructed with, following the
-    PR-5a host pattern.
+    extraction, step guidance injection) are homed in this module as module
+    functions; ``build_tools_summary`` remains on the runner.
     """
 
     def __init__(self, runner: AgentRunner) -> None:
@@ -95,7 +134,7 @@ class PlanningReflectionService:
         from miniunicorn.agent.planner import PlannerStatus as _PlannerStatus
 
         planner = _Planner(self._runner.provider, planner_model)
-        task_text = self._runner.extract_task_from_messages(spec.initial_messages)
+        task_text = extract_task_from_messages(spec.initial_messages)
         tools_summary = self._runner.build_tools_summary(spec.tools)
         try:
             result = await planner.create_plan(
@@ -159,7 +198,7 @@ class PlanningReflectionService:
             f"Done when: {step.done_criteria or 'step goal achieved'}\n"
             f"Focus on this step. Use tool_hint={step.tool_hint} if applicable."
         )
-        return self._runner.inject_step_guidance(messages_for_model, guidance)
+        return inject_step_guidance(messages_for_model, guidance)
 
     def fire_periodic_reflection(
         self,
