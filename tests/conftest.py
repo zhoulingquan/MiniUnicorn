@@ -23,7 +23,7 @@ os.environ.setdefault("MINIUNICORN_NO_AUTO_LOOKUP", "1")
 
 @pytest.fixture(autouse=True)
 def _hermetic_model_context(monkeypatch: pytest.MonkeyPatch) -> None:
-    from miniunicorn.cli import models as models_module
+    from miniunicorn.providers import model_catalog as models_module
 
     real = models_module.get_model_context_limit
 

@@ -20,6 +20,11 @@ D. Sink packages (``providers`` / ``utils`` / ``security`` / ``config`` /
    direction is one-way: the agent core may depend on its vocabulary and
    infrastructure leaves, never the reverse.  No exemptions.
 
+E. Base-layer sink packages (``providers`` / ``utils`` / ``security`` /
+   ``config`` / ``bus`` / ``ledger`` / ``memory`` / ``tools``) must not
+   import the cli entry layer (``miniunicorn.cli.*``, bare ``cli.*`` both
+   matched).  No exemptions.
+
 The scanner is deliberately dependency-free (pure ``ast``): every
 ``miniunicorn/**/*.py`` file is parsed, import bindings are resolved, and
 accesses are checked.  Instance-level private access on objects that are not
@@ -184,6 +189,39 @@ def test_sink_packages_do_not_import_agent() -> None:
                 found.add((rel, target))
     assert found == set(), (
         "providers/utils/security/config/bus/ledger/memory must not import agent; "
+        f"violations:\n  {sorted(found)}"
+    )
+
+
+def test_base_layer_does_not_import_cli() -> None:
+    found: set[tuple[str, str]] = set()
+    for path in _iter_source_files():
+        rel = _rel_module(path)
+        if _package_of(rel) not in {
+            "providers",
+            "utils",
+            "security",
+            "config",
+            "bus",
+            "ledger",
+            "memory",
+            "tools",
+        }:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        for _, target in _import_targets(tree):
+            # W8-1 lesson: match the bare form as well as the fully-qualified
+            # prefix, otherwise a bare ``import cli`` import slips through
+            # unnoticed.
+            if (
+                target == "cli"
+                or target.startswith("cli.")
+                or target == "miniunicorn.cli"
+                or target.startswith("miniunicorn.cli.")
+            ):
+                found.add((rel, target))
+    assert found == set(), (
+        "providers/utils/security/config/bus/ledger/memory/tools must not import cli; "
         f"violations:\n  {sorted(found)}"
     )
 

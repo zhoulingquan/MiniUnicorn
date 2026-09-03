@@ -50,7 +50,7 @@ class ProviderSwitchingMixin:
         # Auto-detect when snapshot didn't carry a concrete value.
         # Resolution: built-in table → cache → Hugging Face API → fail-loud.
         if context_window_tokens is None:
-            from miniunicorn.cli.models import get_model_context_limit
+            from miniunicorn.providers.model_catalog import get_model_context_limit
 
             context_window_tokens = get_model_context_limit(model, raise_on_unknown=True)
         old_model = self.model

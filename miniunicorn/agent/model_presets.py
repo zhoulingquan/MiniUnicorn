@@ -53,7 +53,7 @@ def build_static_preset_snapshot(
 ) -> ProviderSnapshot:
     provider.generation = preset.to_generation_settings()
     # Auto-detect context window when preset leaves it unset (None).
-    from miniunicorn.cli.models import get_model_context_limit
+    from miniunicorn.providers.model_catalog import get_model_context_limit
 
     ctx = preset.context_window_tokens
     if ctx is None:

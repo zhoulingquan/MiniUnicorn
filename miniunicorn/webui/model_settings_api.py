@@ -99,7 +99,7 @@ def _resolve_context_window_for_settings(model: str, configured: int | None) -> 
     if not model:
         return {"limit": 65_536, "status": "default", "error": None}
     try:
-        from miniunicorn.cli.models import _load_learned_entry, _normalize_model_name
+        from miniunicorn.providers.model_catalog import _load_learned_entry, _normalize_model_name
 
         key = _normalize_model_name(model)
         entry = _load_learned_entry(key) if key else None
@@ -132,7 +132,7 @@ def _trigger_model_learning(model: str) -> dict[str, Any]:
     if not model:
         return {"limit": 65_536, "status": "default", "error": None}
     try:
-        from miniunicorn.cli.models import learn_model_context_limit
+        from miniunicorn.providers.model_catalog import learn_model_context_limit
 
         result = learn_model_context_limit(model)
     except Exception as exc:
@@ -147,7 +147,7 @@ def _trigger_model_learning(model: str) -> dict[str, Any]:
     error = result.get("error") or "未知错误"
     # Persist the failure reason so the settings page can show it.
     try:
-        from miniunicorn.cli.models import _save_learned_failure
+        from miniunicorn.providers.model_catalog import _save_learned_failure
 
         _save_learned_failure(model, error)
     except Exception:

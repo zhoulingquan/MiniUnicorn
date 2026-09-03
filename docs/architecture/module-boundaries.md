@@ -37,6 +37,7 @@
 | `channels` import `agent` | 通道层经 bus 解耦,不直接持有 agent | ✅ 现状无(原过渡期豁免 `channels/websocket/channel → agent.tools.mcp` 随 W5 工具库外置 `miniunicorn/tools` 后消解,channel.py 不再 import agent) |
 | 模块间读取对方下划线私有属性 | 模块边界 = 公开 API 边界 | ⚠️ 已知例外见 §4 |
 | 业务模块反向 import `cli/*`(除 `cli` 作为入口的调用方向) | 保持入口 → 业务单向 | ⚠️ 组合根内为测试兼容保留的 late-binding 例外,见 §4.1 |
+| sink 八包(providers/utils/security/config/bus/ledger/memory/tools)import `cli` | 模型目录等基础设施知识归位 providers,入口层不被下层咬住 | ✅ 现状无(W8-2 模型目录自 cli 下沉 providers 消 6 处反向导入;AST 守护 `test_base_layer_does_not_import_cli` 固化,裸 `cli.*` 与全限定 `miniunicorn.cli.*` 同判) |
 
 ### 1.2 例外声明(必须逐项登记)
 
@@ -117,6 +118,16 @@
 - 拥有的状态:provider/model/context_window 的选择与构建结果(快照)。
 - 生命周期所有者:`composition`(gateway 预构建快照并注入 agent;运行时热切换由
   agent 的 `_provider_snapshot_loader` 驱动)。
+- 本次登记(W8-2):`providers/model_catalog.py` — 模型元数据目录服务(模型 ID /
+  上下文窗口解析、HF-ModelScope 自动查询、学习表;自包含,仅依赖 `config`)。
+  自 `miniunicorn/cli/models.py` 整文件归位至此;消费方(`providers/factory` /
+  `agent/loop` / `agent/_provider_switching` / `agent/model_presets` /
+  `webui/model_settings_api` / `cli/onboard` / `tests/conftest.py`)随之改指新家,
+  共消 6 处下层对 cli 入口层的反向导入。
+- 新守护(W8-2):sink 八包(providers / utils / security / config / bus / ledger /
+  memory / tools)禁止 import cli(裸形式与全限定 `miniunicorn.cli.*` 同判),
+  由 `tests/architecture/test_dependency_direction.py::test_base_layer_does_not_import_cli`
+  固化。
 
 ### 2.6 bus
 

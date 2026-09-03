@@ -127,7 +127,7 @@ class ModelPresetConfig(Base):
     provider: str = "auto"
     max_tokens: int = 8192
     # None means auto-detect from the built-in model metadata table
-    # (see cli.models.get_model_context_limit). Falls back to 65_536 when
+    # (see providers.model_catalog.get_model_context_limit). Falls back to 65_536 when
     # the model is not in the table. Set an explicit int to override.
     context_window_tokens: int | None = None
     temperature: float = 0.1
@@ -191,7 +191,7 @@ class AgentDefaults(Base):
     )
     max_tokens: int = 8192
     # None means auto-detect via Hugging Face search
-    # (see cli.models.get_model_context_limit). Falls back to 65_536 when
+    # (see providers.model_catalog.get_model_context_limit). Falls back to 65_536 when
     # the model is not found on HF. Set an explicit int to override.
     context_window_tokens: int | None = None
     context_block_limit: int | None = None

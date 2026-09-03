@@ -443,13 +443,13 @@ class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin):
         # ``MINIUNICORN_NO_AUTO_LOOKUP=1`` also fails loud here (the error
         # message tells the user to set context_window_tokens explicitly).
         if self.context_window_tokens is None:
-            from miniunicorn.cli.models import get_model_context_limit
+            from miniunicorn.providers.model_catalog import get_model_context_limit
 
             self.context_window_tokens = get_model_context_limit(self.model, raise_on_unknown=True)
         # resolved_context_window_tokens: 后端解析值,用于 /status 等显示场景
         # 优先使用用户显式配置,否则回退到默认值(DEFAULT_CONTEXT_LIMIT)
         # 不依赖学习表缓存,因为学习表可能包含过时或误匹配的值(如 test-model → 512)
-        from miniunicorn.cli.models import DEFAULT_CONTEXT_LIMIT
+        from miniunicorn.providers.model_catalog import DEFAULT_CONTEXT_LIMIT
 
         self.resolved_context_window_tokens = (
             cfg.context_window_tokens

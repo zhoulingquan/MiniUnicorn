@@ -223,7 +223,7 @@ def build_provider_snapshot(
     resolved = _resolve_model_preset(config, preset_name=preset_name, preset=preset)
     # Auto-detect context window from built-in model metadata table when the
     # preset leaves it unset (None). Trae-style: built-in metadata + fallback.
-    from miniunicorn.cli.models import get_model_context_limit
+    from miniunicorn.providers.model_catalog import get_model_context_limit
 
     primary_window = resolved.context_window_tokens
     if primary_window is None:

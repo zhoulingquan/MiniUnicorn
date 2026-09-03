@@ -16,13 +16,13 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from miniunicorn.cli.models import (
+from miniunicorn.config.loader import get_config_path, load_config
+from miniunicorn.config.schema import Config, ModelPresetConfig
+from miniunicorn.providers.model_catalog import (
     format_token_count,
     get_model_context_limit,
     get_model_suggestions,
 )
-from miniunicorn.config.loader import get_config_path, load_config
-from miniunicorn.config.schema import Config, ModelPresetConfig
 
 console = Console()
 
