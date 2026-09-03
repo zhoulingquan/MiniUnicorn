@@ -815,7 +815,16 @@ class MemoryStore:
     def set_last_dream_cursor(self, cursor: int) -> None:
         self._assert_path_in_workspace(self._dream_cursor_file)
         self._assert_writer_allowed("dream", "memory/.dream_cursor")
-        self._dream_cursor_file.write_text(str(cursor), encoding="utf-8")
+        # 原子写：中途崩溃不得损坏/截断游标文件（损坏会被 get_last_dream_cursor
+        # suppress 后回退为 0，导致 dream 从头重扫全部历史）。
+        if not atomic_rewrite_lines(self._dream_cursor_file, [str(cursor)]):
+            # 失败方向是安全的（重复处理而非跳过），与 reflections 游标语义一致，
+            # 仅留痕不抛异常。
+            logger.warning(
+                "Failed to persist dream cursor {} to {} (safe: entries will be reprocessed)",
+                cursor,
+                self._dream_cursor_file,
+            )
 
     # -- message formatting utility ------------------------------------------
 

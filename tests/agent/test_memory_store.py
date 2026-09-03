@@ -350,6 +350,28 @@ class TestDreamCursor:
         assert restore_sha is not None
         assert store.get_last_dream_cursor() == 1
 
+    def test_cursor_file_contains_pure_numeric_string(self, store):
+        """The persisted cursor file must stay a plain numeric string (no truncation)."""
+        store.set_last_dream_cursor(42)
+        assert store._dream_cursor_file.read_text(encoding="utf-8").strip().isdigit()
+
+    def test_atomic_write_failure_does_not_raise_and_warns(self, store, monkeypatch):
+        """A failed durable rewrite must not raise — failure is safe (reprocess)."""
+        from loguru import logger as loguru_logger
+
+        import miniunicorn.memory.store as store_module
+
+        monkeypatch.setattr(store_module, "atomic_rewrite_lines", lambda *_a, **_kw: False)
+
+        records: list[str] = []
+        handler_id = loguru_logger.add(lambda m: records.append(m), level="WARNING")
+        try:
+            store.set_last_dream_cursor(7)  # must not raise
+        finally:
+            loguru_logger.remove(handler_id)
+
+        assert any("dream cursor" in r for r in records)
+
 
 class TestHistoryInput:
     def test_read_unprocessed_history_handles_entries_without_cursor(self, store):
