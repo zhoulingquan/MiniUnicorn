@@ -9,7 +9,6 @@ network_safety / runtime 等其它设置混在通用文件里。
 - ``update_agent_settings``: 切换 model/preset/provider/context_window/planner
 - ``create_model_configuration`` / ``update_model_configuration`` / ``delete_model_configuration``
 - ``update_provider_settings`` / ``delete_provider_settings`` / ``delete_all_providers``
-- ``login_oauth_provider`` / ``logout_oauth_provider`` (stub)
 - ``list_provider_models`` (async, 拉取 provider 模型列表)
 """
 
@@ -643,14 +642,6 @@ def update_provider_settings(query: QueryParams) -> dict[str, Any]:
     from .settings_api import settings_payload
 
     return settings_payload(requires_restart=False)
-
-
-def login_oauth_provider(query: QueryParams) -> dict[str, Any]:
-    raise WebUISettingsError("No OAuth providers available in this build")
-
-
-def logout_oauth_provider(query: QueryParams) -> dict[str, Any]:
-    raise WebUISettingsError("No OAuth providers available in this build")
 
 
 async def list_provider_models(query: QueryParams) -> dict[str, Any]:

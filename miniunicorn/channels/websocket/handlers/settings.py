@@ -14,8 +14,6 @@ from miniunicorn.webui.settings_api import (
     delete_model_configuration,
     delete_provider_settings,
     list_provider_models,
-    login_oauth_provider,
-    logout_oauth_provider,
     settings_payload,
     update_agent_settings,
     update_image_generation_settings,
@@ -146,28 +144,6 @@ async def provider_models(ctx: RouteContext) -> Response:
         ctx.deps.logger.warning("provider models fetch failed: {}", exc)
         return _http_error(500, "Failed to fetch models (provider request failed; see server logs)")
     return _http_json_response(payload)
-
-
-async def _provider_oauth(ctx: RouteContext, action: str) -> Response:
-    query = ctx.query
-    try:
-        if action == "login":
-            payload = await asyncio.to_thread(login_oauth_provider, query)
-        else:
-            payload = await asyncio.to_thread(logout_oauth_provider, query)
-    except WebUISettingsError as e:
-        return _http_error(e.status, e.message)
-    return _http_json_response(ctx.deps.with_restart_state(payload, section=None))
-
-
-@router.route("/api/settings/provider/oauth-login", methods={"GET", "POST"})
-async def provider_oauth_login(ctx: RouteContext) -> Response:
-    return await _provider_oauth(ctx, "login")
-
-
-@router.route("/api/settings/provider/oauth-logout", methods={"GET", "POST"})
-async def provider_oauth_logout(ctx: RouteContext) -> Response:
-    return await _provider_oauth(ctx, "logout")
 
 
 @router.route("/api/settings/web-fetch/update", methods={"GET", "POST"})

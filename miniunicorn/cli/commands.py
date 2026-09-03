@@ -1129,38 +1129,6 @@ def status():
                 )
 
 
-# ============================================================================
-# OAuth Login
-# ============================================================================
-
-provider_app = typer.Typer(help="Manage providers")
-app.add_typer(provider_app, name="provider")
-
-
-def _resolve_oauth_provider(provider: str):
-    """Resolve and validate an OAuth provider configuration."""
-    console.print(
-        f"[red]Unknown OAuth provider: {provider}[/red]  No OAuth providers available in this build."
-    )
-    raise typer.Exit(1)
-
-
-@provider_app.command("login")
-def provider_login(
-    provider: str = typer.Argument(..., help="OAuth provider"),
-):
-    """Authenticate with an OAuth provider."""
-    _resolve_oauth_provider(provider)
-
-
-@provider_app.command("logout")
-def provider_logout(
-    provider: str = typer.Argument(..., help="OAuth provider"),
-):
-    """Log out from an OAuth provider."""
-    _resolve_oauth_provider(provider)
-
-
 # === 向后兼容 re-export ===
 # 这些符号已迁移到专门模块,但测试通过 monkeypatch / unittest.mock.patch 替换
 # commands 模块上的属性(例如 patch("miniunicorn.cli.commands.evaluate_response", ...)),

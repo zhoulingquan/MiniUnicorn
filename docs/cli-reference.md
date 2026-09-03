@@ -14,7 +14,6 @@
 | `miniunicorn serve` | Start the OpenAI-compatible API |
 | `miniunicorn gateway` | Start the gateway |
 | `miniunicorn status` | Show status |
-| `miniunicorn provider login openai-codex` | OAuth login for providers |
 | `miniunicorn channels login <channel>` | Authenticate a channel interactively |
 | `miniunicorn channels status` | Show channel status |
 

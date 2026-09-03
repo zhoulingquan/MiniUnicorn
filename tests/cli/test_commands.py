@@ -206,20 +206,6 @@ def test_onboard_wizard_preserves_explicit_config_in_next_steps(tmp_path, monkey
     assert f"miniunicorn gateway --config {resolved_config}" in compact_output
 
 
-def test_provider_logout_rejects_unknown_provider():
-    result = runner.invoke(app, ["provider", "logout", "not-a-real-provider"])
-
-    assert result.exit_code == 1
-    assert "Unknown OAuth provider" in result.stdout
-
-
-def test_provider_login_rejects_unknown_provider():
-    result = runner.invoke(app, ["provider", "login", "not-a-real-provider"])
-
-    assert result.exit_code == 1
-    assert "Unknown OAuth provider" in result.stdout
-
-
 def test_openai_compat_provider_passes_model_through():
     from miniunicorn.providers.openai_compat_provider import OpenAICompatProvider
 

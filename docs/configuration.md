@@ -164,8 +164,8 @@ ANTHROPIC_API_KEY="$(bw get password api/anthropic)" miniunicorn agent
 | `stepfun` | LLM (Step Fun/阶跃星辰) | [platform.stepfun.com](https://platform.stepfun.com) |
 | `ovms` | LLM (local, OpenVINO Model Server) | [docs.openvino.ai](https://docs.openvino.ai/2026/model-server/ovms_docs_llm_quickstart.html) |
 | `vllm` | LLM (local, any OpenAI-compatible server) | — |
-| `openai_codex` | LLM (Codex, OAuth) | `miniunicorn provider login openai-codex` |
-| `github_copilot` | LLM (GitHub Copilot, OAuth) | `miniunicorn provider login github-copilot` |
+| `openai_codex` | LLM (Codex, OAuth) | — |
+| `github_copilot` | LLM (GitHub Copilot, OAuth) | — |
 | `qianfan` | LLM (Baidu Qianfan) | [cloud.baidu.com](https://cloud.baidu.com/doc/qianfan/s/Hmh4suq26) |
 
 <details>
@@ -419,14 +419,9 @@ miniunicorn agent -m "Reply with one short sentence."
 <summary><b>OpenAI Codex (OAuth)</b></summary>
 
 Codex uses OAuth instead of API keys. Requires a ChatGPT Plus or Pro account.
-No `providers.openaiCodex` block is needed in `config.json`; `miniunicorn provider login` stores the OAuth session outside config.
+No `providers.openaiCodex` block is needed in `config.json`.
 
-**1. Login:**
-```bash
-miniunicorn provider login openai-codex
-```
-
-**2. Set model** (merge into `~/.miniunicorn/config.json`):
+**1. Set model** (merge into `~/.miniunicorn/config.json`):
 ```json
 {
   "agents": {
@@ -437,7 +432,7 @@ miniunicorn provider login openai-codex
 }
 ```
 
-**3. Chat:**
+**2. Chat:**
 ```bash
 miniunicorn agent -m "Hello!"
 
@@ -448,8 +443,6 @@ miniunicorn agent -c ~/.miniunicorn-telegram/config.json -m "Hello!"
 miniunicorn agent -c ~/.miniunicorn-telegram/config.json -w /tmp/miniunicorn-telegram-test -m "Hello!"
 ```
 
-> Docker users: use `docker run -it` for interactive OAuth login.
-
 </details>
 
 
@@ -457,14 +450,9 @@ miniunicorn agent -c ~/.miniunicorn-telegram/config.json -w /tmp/miniunicorn-tel
 <summary><b>GitHub Copilot (OAuth)</b></summary>
 
 GitHub Copilot uses OAuth instead of API keys. Requires a [GitHub account with a plan](https://github.com/features/copilot/plans) configured.
-No `providers.githubCopilot` block is needed in `config.json`; `miniunicorn provider login` stores the OAuth session outside config.
+No `providers.githubCopilot` block is needed in `config.json`.
 
-**1. Login:**
-```bash
-miniunicorn provider login github-copilot
-```
-
-**2. Set model** (merge into `~/.miniunicorn/config.json`):
+**1. Set model** (merge into `~/.miniunicorn/config.json`):
 ```json
 {
   "agents": {
@@ -475,7 +463,7 @@ miniunicorn provider login github-copilot
 }
 ```
 
-**3. Chat:**
+**2. Chat:**
 ```bash
 miniunicorn agent -m "Hello!"
 
@@ -485,8 +473,6 @@ miniunicorn agent -c ~/.miniunicorn-telegram/config.json -m "Hello!"
 # One-off workspace override on top of that config
 miniunicorn agent -c ~/.miniunicorn-telegram/config.json -w /tmp/miniunicorn-telegram-test -m "Hello!"
 ```
-
-> Docker users: use `docker run -it` for interactive OAuth login.
 
 </details>
 
