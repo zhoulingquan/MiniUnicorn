@@ -72,7 +72,7 @@ async def test_runner_batches_read_only_tools_before_exclusive_work():
     tools.register(write_a)
 
     runner = AgentRunner(MagicMock())
-    await runner._execute_tools(
+    await runner.execute_tools(
         AgentRunSpec(
             initial_messages=[],
             tools=tools,
@@ -117,7 +117,7 @@ async def test_runner_does_not_batch_exclusive_read_only_tools():
     tools.register(read_b)
 
     runner = AgentRunner(MagicMock())
-    await runner._execute_tools(
+    await runner.execute_tools(
         AgentRunSpec(
             initial_messages=[],
             tools=tools,

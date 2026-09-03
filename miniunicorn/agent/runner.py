@@ -269,8 +269,6 @@ class AgentRunner:
             self._default_governor = ContextGovernor()
         return self._default_governor
 
-    _get_governor = get_governor  # compat alias
-
     def build_tools_summary(self, tools: ToolRegistry) -> str:
         """Build a compact summary of available tools for the planner."""
         lines: list[str] = []
@@ -286,8 +284,6 @@ class AgentRunner:
             lines.append(f"- {name}: {desc}".rstrip())
         return "\n".join(lines) if lines else "(no tools)"
 
-    _build_tools_summary = build_tools_summary  # compat alias
-
     @staticmethod
     def extract_task_from_messages(messages: list[dict[str, Any]]) -> str:
         """Extract the user's task from the initial messages (last user msg)."""
@@ -301,8 +297,6 @@ class AgentRunner:
                         if isinstance(block, dict) and block.get("type") == "text":
                             return str(block.get("text", ""))
         return "(task)"
-
-    _extract_task_from_messages = extract_task_from_messages  # compat alias
 
     @staticmethod
     def inject_step_guidance(
@@ -329,8 +323,6 @@ class AgentRunner:
                     updated[i] = {**updated[i], "content": new_content}
                 break
         return updated
-
-    _inject_step_guidance = inject_step_guidance  # compat alias
 
     @staticmethod
     def _merge_message_content(left: Any, right: Any) -> str | list[dict[str, Any]]:
@@ -425,8 +417,6 @@ class AgentRunner:
             logger.info("Injected sustained-goal continuation {}", phase)
         return True, injection_cycles
 
-    _try_drain_injections = try_drain_injections  # compat alias
-
     async def drain_injections(self, spec: AgentRunSpec) -> list[dict[str, Any]]:
         """Drain pending user messages via the injection callback.
 
@@ -470,8 +460,6 @@ class AgentRunner:
             )
             injected_messages = injected_messages[:_MAX_INJECTIONS_PER_TURN]
         return injected_messages
-
-    _drain_injections = drain_injections  # compat alias
 
     async def run(self, spec: AgentRunSpec) -> AgentRunResult:
         """Public entry point: bind a CallLedger if none is active, then delegate."""
@@ -1138,8 +1126,6 @@ class AgentRunner:
         """Normalize tool execution results into tool-role messages (ordered)."""
         return self.tool_execution.build_tool_result_messages(spec, tool_calls, results)
 
-    _build_tool_result_messages = build_tool_result_messages  # compat alias
-
     async def handle_fatal_tool_error(
         self,
         spec: AgentRunSpec,
@@ -1214,8 +1200,6 @@ class AgentRunner:
         is a thin delegation keeping the AgentRunner surface unchanged.
         """
         self.planning.fire_periodic_reflection(reflection, spec, messages, iteration)
-
-    _fire_periodic_reflection = fire_periodic_reflection  # compat alias
 
     async def fire_terminal_reflection(
         self,
@@ -1413,8 +1397,6 @@ class AgentRunner:
     ) -> dict[str, Any]:
         return self.model_request.build_request_kwargs(spec, messages, tools=tools)
 
-    _build_request_kwargs = build_request_kwargs  # compat alias
-
     async def request_model(
         self,
         spec: AgentRunSpec,
@@ -1424,8 +1406,6 @@ class AgentRunner:
     ):
         return await self.model_request.request_model(spec, messages, hook, context)
 
-    _request_model = request_model  # compat alias
-
     async def request_finalization_retry(
         self,
         spec: AgentRunSpec,
@@ -1433,25 +1413,17 @@ class AgentRunner:
     ):
         return await self.model_request.request_finalization_retry(spec, messages)
 
-    _request_finalization_retry = request_finalization_retry  # compat alias
-
     @staticmethod
     def usage_dict(usage: dict[str, Any] | None) -> dict[str, int]:
         return ModelRequestExecutor.usage_dict(usage)
-
-    _usage_dict = usage_dict  # compat alias
 
     @staticmethod
     def accumulate_usage(target: dict[str, int], addition: dict[str, int]) -> None:
         ModelRequestExecutor.accumulate_usage(target, addition)
 
-    _accumulate_usage = accumulate_usage  # compat alias
-
     @staticmethod
     def merge_usage(left: dict[str, int], right: dict[str, int]) -> dict[str, int]:
         return ModelRequestExecutor.merge_usage(left, right)
-
-    _merge_usage = merge_usage  # compat alias
 
     def handle_budget_exceeded(
         self,
@@ -1522,8 +1494,6 @@ class AgentRunner:
         context.stop_reason = "budget_exceeded"
         return fc, "budget_exceeded", fc
 
-    _handle_budget_exceeded = handle_budget_exceeded  # compat alias
-
     async def execute_tools(
         self,
         spec: AgentRunSpec,
@@ -1541,8 +1511,6 @@ class AgentRunner:
             step_id=step_id,
         )
 
-    _execute_tools = execute_tools  # compat alias
-
     async def run_tool(
         self,
         spec: AgentRunSpec,
@@ -1559,8 +1527,6 @@ class AgentRunner:
             workspace_violation_counts,
             step_id=step_id,
         )
-
-    _run_tool = run_tool  # compat alias
 
     # SSRF is a hard security block at the tool boundary, but the agent turn
     # should recover conversationally instead of aborting the runtime.
@@ -1645,8 +1611,6 @@ class AgentRunner:
 
         return None
 
-    _classify_violation = classify_violation  # compat alias
-
     @classmethod
     def _ssrf_soft_payload(cls, raw_text: str) -> str:
         text = raw_text.strip() or "Error: request blocked by SSRF guard"
@@ -1664,8 +1628,6 @@ class AgentRunner:
         callback = spec.checkpoint_callback
         if callback is not None:
             await callback(payload)
-
-    _emit_checkpoint = emit_checkpoint  # compat alias
 
     @staticmethod
     def append_final_message(messages: list[dict[str, Any]], content: str | None) -> None:
@@ -1703,8 +1665,6 @@ class AgentRunner:
     ) -> Any:
         return self.tool_execution.normalize_tool_result(spec, tool_call_id, tool_name, result)
 
-    _normalize_tool_result = normalize_tool_result  # compat alias
-
     def apply_tool_result_budget(
         self,
         spec: AgentRunSpec,
@@ -1712,8 +1672,6 @@ class AgentRunner:
     ) -> list[dict[str, Any]]:
         """Migrated to :class:`ContextGovernanceService` (PR-5b); thin delegation."""
         return self.context_governance.apply_tool_result_budget(spec, messages)
-
-    _apply_tool_result_budget = apply_tool_result_budget  # compat alias
 
     def snip_history(
         self,
@@ -1723,13 +1681,9 @@ class AgentRunner:
         """Migrated to :class:`ContextGovernanceService` (PR-5b); thin delegation."""
         return self.context_governance.snip_history(spec, messages)
 
-    _snip_history = snip_history  # compat alias
-
     def partition_tool_batches(
         self,
         spec: AgentRunSpec,
         tool_calls: list[ToolCallRequest],
     ) -> list[list[ToolCallRequest]]:
         return self.tool_execution.partition_tool_batches(spec, tool_calls)
-
-    _partition_tool_batches = partition_tool_batches  # compat alias

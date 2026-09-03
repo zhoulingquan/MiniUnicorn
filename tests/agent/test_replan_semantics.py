@@ -107,7 +107,7 @@ async def test_invalid_replan_degrades_recovery_to_fast(provider_outcome: str) -
         max_tool_result_chars=1000,
     )
 
-    action, replacement = await runner._handle_fatal_tool_error(
+    action, replacement = await runner.handle_fatal_tool_error(
         spec,
         state,
         context,
@@ -166,7 +166,7 @@ async def test_exhausted_plan_returns_plan_failed() -> None:
         max_tool_result_chars=1000,
     )
 
-    action, replacement = await runner._handle_fatal_tool_error(
+    action, replacement = await runner.handle_fatal_tool_error(
         spec,
         state,
         context,

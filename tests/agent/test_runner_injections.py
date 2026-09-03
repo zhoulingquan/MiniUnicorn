@@ -62,7 +62,7 @@ async def test_drain_injections_returns_empty_when_no_callback():
         max_tool_result_chars=1000,
         injection_callback=None,
     )
-    result = await runner._drain_injections(spec)
+    result = await runner.drain_injections(spec)
     assert result == []
 
 
@@ -93,7 +93,7 @@ async def test_drain_injections_extracts_content_from_inbound_messages():
         max_tool_result_chars=1000,
         injection_callback=cb,
     )
-    result = await runner._drain_injections(spec)
+    result = await runner.drain_injections(spec)
     assert result == [
         {"role": "user", "content": "hello"},
         {"role": "user", "content": "world"},
@@ -129,7 +129,7 @@ async def test_drain_injections_passes_limit_to_callback_when_supported():
         max_tool_result_chars=1000,
         injection_callback=cb,
     )
-    result = await runner._drain_injections(spec)
+    result = await runner.drain_injections(spec)
     assert seen_limits == [_MAX_INJECTIONS_PER_TURN]
     assert result == [
         {"role": "user", "content": "msg0"},
@@ -166,7 +166,7 @@ async def test_drain_injections_skips_empty_content():
         max_tool_result_chars=1000,
         injection_callback=cb,
     )
-    result = await runner._drain_injections(spec)
+    result = await runner.drain_injections(spec)
     assert result == [{"role": "user", "content": "valid"}]
 
 
@@ -191,7 +191,7 @@ async def test_drain_injections_handles_callback_exception():
         max_tool_result_chars=1000,
         injection_callback=cb,
     )
-    result = await runner._drain_injections(spec)
+    result = await runner.drain_injections(spec)
     assert result == []
 
 

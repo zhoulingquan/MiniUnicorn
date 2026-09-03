@@ -114,7 +114,7 @@ async def test_planner_receives_full_latest_user_message() -> None:
         use_planner=True,
     )
 
-    _planner, plan, task_text, _tools_summary = await runner._init_planner(spec)
+    _planner, plan, task_text, _tools_summary = await runner.init_planner(spec)
 
     assert plan is not None
     assert task_text == long_task
@@ -213,7 +213,7 @@ async def test_end_to_end_tool_level_step_reaches_acceptance() -> None:
         use_planner=True,
     )
 
-    _planner, plan, _task_text, _summary = await AgentRunner(provider)._init_planner(spec)
+    _planner, plan, _task_text, _summary = await AgentRunner(provider).init_planner(spec)
 
     assert plan is not None
     # No tool_hint, so the level comes from the Planner's declaration alone.

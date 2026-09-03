@@ -205,7 +205,7 @@ async def test_fatal_error_after_repeated_failures_aborts_with_no_progress() -> 
         max_tool_result_chars=1000,
     )
 
-    action, replacement = await runner._handle_fatal_tool_error(
+    action, replacement = await runner.handle_fatal_tool_error(
         spec,
         state,
         context,

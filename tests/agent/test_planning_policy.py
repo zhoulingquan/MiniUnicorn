@@ -158,7 +158,7 @@ async def test_fast_mode_skips_planner() -> None:
         planning_policy=PlanningPolicy(mode=PlanningMode.FAST),
     )
 
-    result = await runner._init_planner(spec)
+    result = await runner.init_planner(spec)
 
     assert result == (None, None, None, None)
 
@@ -183,7 +183,7 @@ async def test_managed_mode_invokes_planner_create_plan() -> None:
         planning_policy=PlanningPolicy(mode=PlanningMode.MANAGED),
     )
 
-    planner, plan, task_text, _tools_summary = await runner._init_planner(spec)
+    planner, plan, task_text, _tools_summary = await runner.init_planner(spec)
 
     assert planner is not None
     assert plan is not None
