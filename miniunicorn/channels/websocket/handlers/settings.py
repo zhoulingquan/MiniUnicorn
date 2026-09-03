@@ -229,7 +229,11 @@ async def _cli_apps_action(ctx: RouteContext, action: str) -> Response:
         return _http_error(e.status, e.message)
     except Exception as e:
         status = getattr(e, "status", 500)
-        message = getattr(e, "message", str(e))
+        message = getattr(e, "message", None)
+        if message is None:
+            # 任意非 curated 异常的 str(e) 可能含内部路径/堆栈片段，
+            # 只回固定文案；原文仅经下方 logger.exception 落日志。
+            message = "internal error" if status >= 500 else "request failed"
         if status >= 500:
             ctx.deps.logger.exception("CLI Apps action '{}' failed", action)
         return _http_error(status, message)
@@ -265,7 +269,11 @@ async def _mcp_presets_handler(ctx: RouteContext, action: str | None) -> Respons
         )
     except Exception as e:
         status = getattr(e, "status", 500)
-        message = getattr(e, "message", str(e))
+        message = getattr(e, "message", None)
+        if message is None:
+            # 任意非 curated 异常的 str(e) 可能含内部路径/堆栈片段，
+            # 只回固定文案；原文仅经下方 logger.exception 落日志。
+            message = "internal error" if status >= 500 else "request failed"
         if status >= 500:
             ctx.deps.logger.exception("MCP preset action '{}' failed", action or "list")
         return _http_error(status, message)

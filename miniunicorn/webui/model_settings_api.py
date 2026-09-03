@@ -18,6 +18,8 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
+from loguru import logger
+
 from miniunicorn.config.loader import load_config, save_config
 from miniunicorn.config.schema import ModelPresetConfig
 from miniunicorn.providers.registry import PROVIDERS, find_by_name
@@ -702,7 +704,10 @@ async def list_provider_models(query: QueryParams) -> dict[str, Any]:
     except WebUISettingsError:
         raise
     except Exception as exc:
-        raise WebUISettingsError(f"Failed to fetch models: {exc}") from exc
+        # 服务端留痕完整异常；HTTP 响应只保留异常类名，避免 provider 异常
+        # 原文（连接错误细节、内部 URL 等）泄漏给客户端。
+        logger.exception("provider models fetch failed for '{}'", provider_name)
+        raise WebUISettingsError(f"Failed to fetch models ({type(exc).__name__})") from exc
 
 
 def delete_model_configuration(query: QueryParams) -> dict[str, Any]:
