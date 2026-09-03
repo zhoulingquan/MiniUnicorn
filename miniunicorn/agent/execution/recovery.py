@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+from miniunicorn.agent.execution.model_request import ModelRequestExecutor
 from miniunicorn.utils.helpers import build_assistant_message
 from miniunicorn.utils.prompt_templates import render_template
 from miniunicorn.utils.runtime import (
@@ -224,8 +225,8 @@ class TurnRecoveryPolicy:
         if hook.wants_streaming():
             await hook.on_stream_end(context, resuming=False)
         response = await self._runner.request_finalization_retry(spec, messages_for_model)
-        retry_usage = self._runner.usage_dict(response.usage)
-        self._runner.accumulate_usage(state.usage, retry_usage)
+        retry_usage = ModelRequestExecutor.usage_dict(response.usage)
+        ModelRequestExecutor.accumulate_usage(state.usage, retry_usage)
         # Budget check: stop early if cumulative usage exceeds limits.
         _fc, _sr, _err = self._runner.handle_budget_exceeded(
             budget,
@@ -242,7 +243,7 @@ class TurnRecoveryPolicy:
             self._runner.append_final_message(messages, state.final_content)
             await hook.after_iteration(context)
             return "break", response, raw_usage, clean
-        raw_usage = self._runner.merge_usage(raw_usage, retry_usage)
+        raw_usage = ModelRequestExecutor.merge_usage(raw_usage, retry_usage)
         context.response = response
         context.usage = dict(raw_usage)
         context.tool_calls = list(response.tool_calls)

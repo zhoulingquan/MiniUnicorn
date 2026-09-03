@@ -98,8 +98,8 @@ async def test_maybe_escalate_escalates_on_fast_stall(
     ) -> PlanSnapshot:
         return PlanSnapshot.from_plan(plan, turn_id, stop_reason, origin=origin)
 
-    monkeypatch.setattr(runner, "_init_planner", fake_init_planner)
-    monkeypatch.setattr(runner, "_emit_plan_snapshot", fake_emit)
+    monkeypatch.setattr(runner, "init_planner", fake_init_planner)
+    monkeypatch.setattr(runner, "emit_plan_snapshot", fake_emit)
 
     out_planner, out_plan, out_task, out_summary = await runner._maybe_escalate_to_managed(
         spec, state, None, None, None, None
@@ -133,7 +133,7 @@ async def test_maybe_escalate_skips_when_already_escalated(
     async def fail_init(spec: AgentRunSpec) -> tuple[Any, Any, str | None, str | None]:
         raise AssertionError("_init_planner must not be called")
 
-    monkeypatch.setattr(runner, "_init_planner", fail_init)
+    monkeypatch.setattr(runner, "init_planner", fail_init)
 
     result = await runner._maybe_escalate_to_managed(
         spec, state, original_planner, original_plan, "task", "summary"
@@ -158,7 +158,7 @@ async def test_maybe_escalate_failure_returns_original_inputs(
     async def raising_init(spec: AgentRunSpec) -> tuple[Any, Any, str | None, str | None]:
         raise RuntimeError("planner down")
 
-    monkeypatch.setattr(runner, "_init_planner", raising_init)
+    monkeypatch.setattr(runner, "init_planner", raising_init)
 
     warnings: list[str] = []
     handler_id = loguru_logger.add(lambda message: warnings.append(str(message)), level="WARNING")
