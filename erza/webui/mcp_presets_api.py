@@ -16,7 +16,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Mapping
 
-from erza.apps.protocol import app_manifest, compact_dict
 from erza.config.loader import load_config, resolve_config_env_vars, save_config
 from erza.config.paths import get_runtime_subdir
 from erza.config.schema import MCPServerConfig
@@ -550,11 +549,60 @@ def _managed_mcp_path(name: str, cfg: MCPServerConfig | None) -> list[str]:
     return [f"runtime:mcp/{name}"]
 
 
+_APP_MANIFEST_SCHEMA = "agent-app.v1"
+
+
+def _compact_dict(values: dict[str, Any]) -> dict[str, Any]:
+    """Drop empty optional values while preserving explicit booleans and zeros."""
+    return {
+        key: value
+        for key, value in values.items()
+        if value is not None and value != "" and value != [] and value != {}
+    }
+
+
+def _app_manifest(
+    *,
+    app_id: str,
+    display_name: str,
+    description: str,
+    category: str,
+    source: str,
+    capabilities: list[dict[str, Any]],
+    install: dict[str, Any],
+    remove: dict[str, Any],
+    trust: dict[str, Any],
+    version: str | None = None,
+    logo_url: str | None = None,
+    brand_color: str | None = None,
+    docs_url: str | None = None,
+) -> dict[str, Any]:
+    """Build a stable app manifest dictionary."""
+    return _compact_dict(
+        {
+            "schema": _APP_MANIFEST_SCHEMA,
+            "id": app_id,
+            "display_name": display_name,
+            "version": version,
+            "description": description,
+            "category": category,
+            "source": source,
+            "logo_url": logo_url,
+            "brand_color": brand_color,
+            "docs_url": docs_url,
+            "capabilities": capabilities,
+            "install": install,
+            "remove": remove,
+            "trust": trust,
+        }
+    )
+
+
 def _preset_manifest(preset: McpPreset, *, logo_url: str) -> dict[str, Any]:
     server = preset.server
     managed_paths = _managed_mcp_path(preset.name, server)
     field_specs = [
-        compact_dict(
+        _compact_dict(
             {
                 "name": field.name,
                 "target": field.target[0],
@@ -566,7 +614,7 @@ def _preset_manifest(preset: McpPreset, *, logo_url: str) -> dict[str, Any]:
         for field in preset.fields
     ]
     capabilities = [
-        compact_dict(
+        _compact_dict(
             {
                 "type": "mcp",
                 "transport": preset.transport,
@@ -577,7 +625,7 @@ def _preset_manifest(preset: McpPreset, *, logo_url: str) -> dict[str, Any]:
             }
         )
     ]
-    return app_manifest(
+    return _app_manifest(
         app_id=preset.name,
         display_name=preset.display_name,
         description=preset.description,
@@ -587,7 +635,7 @@ def _preset_manifest(preset: McpPreset, *, logo_url: str) -> dict[str, Any]:
         logo_url=logo_url,
         brand_color=preset.brand_color,
         capabilities=capabilities,
-        install=compact_dict(
+        install=_compact_dict(
             {
                 "supported": preset.install_supported,
                 "strategy": "config",
@@ -595,7 +643,7 @@ def _preset_manifest(preset: McpPreset, *, logo_url: str) -> dict[str, Any]:
                 "verification": ["config_present", "dependency_available"],
             }
         ),
-        remove=compact_dict(
+        remove=_compact_dict(
             {
                 "supported": True,
                 "strategy": "config",
@@ -616,7 +664,7 @@ def _preset_manifest(preset: McpPreset, *, logo_url: str) -> dict[str, Any]:
 def _custom_manifest(name: str, cfg: MCPServerConfig) -> dict[str, Any]:
     transport = cfg.type or ("stdio" if cfg.command else "streamableHttp")
     managed_paths: list[str] = []
-    return app_manifest(
+    return _app_manifest(
         app_id=name,
         display_name=name,
         description="Custom MCP server from Erza config.",
@@ -624,7 +672,7 @@ def _custom_manifest(name: str, cfg: MCPServerConfig) -> dict[str, Any]:
         source="mcp-custom",
         brand_color="#64748B",
         capabilities=[
-            compact_dict(
+            _compact_dict(
                 {
                     "type": "mcp",
                     "transport": transport,
@@ -633,7 +681,7 @@ def _custom_manifest(name: str, cfg: MCPServerConfig) -> dict[str, Any]:
                 }
             )
         ],
-        install=compact_dict(
+        install=_compact_dict(
             {
                 "supported": True,
                 "strategy": "config",
@@ -641,7 +689,7 @@ def _custom_manifest(name: str, cfg: MCPServerConfig) -> dict[str, Any]:
                 "verification": ["config_present", "dependency_available"],
             }
         ),
-        remove=compact_dict(
+        remove=_compact_dict(
             {
                 "supported": True,
                 "strategy": "config",
