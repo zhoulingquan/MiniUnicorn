@@ -11,7 +11,6 @@
 | 安装与快速开始 | [`quick-start.md`](./quick-start.md) | 安装、初始化引导与首次运行 |
 | 聊天平台接入 | [`chat-apps.md`](./chat-apps.md) | 接入飞书 / 钉钉 / 企微 / 微信 / QQ / WebSocket |
 | 配置参考 | [`configuration.md`](./configuration.md) | Providers、工具、频道、MCP 与运行时设置 |
-| 图片生成 | [`image-generation.md`](./image-generation.md) | 配置图片提供商、WebUI 图片模式与生成产物 |
 | WebUI | [`../webui/README.md`](../webui/README.md) | 内置浏览器 UI、局域网访问、Vite 开发服务器 |
 | 多实例 | [`multiple-instances.md`](./multiple-instances.md) | 用独立 config 和 workspace 运行多个 bot |
 | CLI 参考 | [`cli-reference.md`](./cli-reference.md) | 核心 CLI 命令与常用入口 |

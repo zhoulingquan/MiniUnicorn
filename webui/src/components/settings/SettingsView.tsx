@@ -36,8 +36,6 @@ import { ModelsSettings } from "./sections/ModelsSettings";
 import { ProvidersSettings } from "./sections/ProvidersSettings";
 import { AdvancedSettings } from "./sections/AdvancedSettings";
 import { NewModelConfigurationDialog } from "./sections/NewModelConfigurationDialog";
-import { WebSearchSettings } from "./sections/WebSearchSettings";
-import { ImageGenerationSettings } from "./sections/ImageGenerationSettings";
 import { useSettingsState } from "./hooks/useSettingsState";
 
 // 重新导出共享类型,保证外部 `import { SettingsSectionKey } from "@/components/settings/SettingsView"` 仍可用。
@@ -157,33 +155,6 @@ export function SettingsView({
               deletingAllProviders={state.models.deletingAllProviders}
             />
           </div>
-        );
-      case "browser":
-        return (
-          <WebSearchSettings
-            form={state.webSearch.webSearchForm}
-            dirty={state.webSearch.webSearchDirty}
-            saving={state.webSearch.webSearchSaving}
-            onChangeForm={state.webSearch.setWebSearchForm}
-            onSave={state.webSearch.saveWebSearchSettings}
-            onRestart={state.restartViaSettingsSurface}
-            isRestarting={isRestarting || state.hostEngineApplying}
-            requiresRestartPending={state.pendingRestartSections.browser}
-          />
-        );
-      case "images":
-        return (
-          <ImageGenerationSettings
-            form={state.imageGeneration.imageGenForm}
-            dirty={state.imageGeneration.imageGenDirty}
-            saving={state.imageGeneration.imageGenSaving}
-            settings={state.settings}
-            onChangeForm={state.imageGeneration.setImageGenForm}
-            onSave={state.imageGeneration.saveImageGenerationSettings}
-            onRestart={state.restartViaSettingsSurface}
-            isRestarting={isRestarting || state.hostEngineApplying}
-            requiresRestartPending={state.pendingRestartSections.images}
-          />
         );
       case "advanced":
         return (

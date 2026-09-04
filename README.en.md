@@ -44,7 +44,7 @@ The channel layer (`channels/`, 6 adapters) is fully decoupled from the agent co
 | # | Harness module | MiniUnicorn implementation | Key files |
 |---|---------------|---------------------------|-----------|
 | 1 | Orchestration Loop | ReAct loop of AgentLoop → AgentRunner | `agent/loop.py` · `agent/runner.py` |
-| 2 | Tools | 24 built-in tools + MCP + CLI apps | `agent/tools/` |
+| 2 | Tools | 21 built-in tools + MCP + CLI apps | `agent/tools/` |
 | 3 | Memory | Layered memory + two-stage Consolidator/Dream | `agent/memory.py` |
 | 4 | Context Management | Strategy-based governance and multi-level compaction | `agent/context_governor.py` · `agent/runner_strategies.py` |
 | 5 | Prompt Construction | Layered assembly + on-demand skill injection | `agent/context.py` · `agent/skills.py` |
@@ -62,16 +62,16 @@ The channel layer (`channels/`, 6 adapters) is fully decoupled from the agent co
 
 ### 2. Tools — the agent's hands
 
-24 built-in tool classes are auto-discovered via `pkgutil`; third-party tools register through entry-point plugins:
+21 built-in tool classes are auto-discovered via `pkgutil`; third-party tools register through entry-point plugins:
 
 | Category | Tools |
 |----------|-------|
 | Filesystem | `read_file` · `write_file` · `edit_file` · `apply_patch` · `list_dir` · `find_files` · `grep` |
 | Execution | `exec` (optional sandbox, persistent sessions) · `write_stdin` · `list_exec_sessions` · `run_cli_app` (local CLIs) |
-| Retrieval | `web_search` (multi-backend aggregation + cache/circuit-breaker) · `web_fetch` · `deep_research` |
+| Retrieval | `web_fetch` (URL fetch → Markdown, with Jina Reader and local readability fallback) |
 | Orchestration | `cron` · `long_task` · `execute_plan` · `complete_goal` |
 | Subagents | `spawn` · `delegate` · `create_agent` |
-| External | `mcp_*` (multi-server) · `message` (cross-channel) · `image_generation` (multi-provider) |
+| External | `mcp_*` (multi-server) · `message` (cross-channel) |
 | Introspection | `self` |
 
 Every tool has an explicit schema (name / description / parameters), and execution is constrained by the security layer (module 9). External capability also has two paths that never touch the core: **MCP servers** (external process protocol) and **CLI apps** (`run_cli_app` + SKILL.md guiding the agent to use local programs like ffmpeg, pandoc, git).
@@ -176,7 +176,7 @@ A layered termination system: natural termination (the model stops calling tools
 | Module | Responsibility |
 |--------|---------------|
 | `channels/` | 6 channel adapters (Feishu/DingTalk/WeCom/WeChat/QQ/WebSocket) |
-| `agent/tools/` | 24 built-in tool classes (files/shell/search/MCP/subagents...) |
+| `agent/tools/` | 21 built-in tool classes (files/shell/fetch/MCP/subagents...) |
 | `webui/` (repo root) | React 18 + Vite + TypeScript frontend (~40k lines of TS/TSX) |
 | `miniunicorn/webui/` | Python gateway: HTTP/WebSocket routing, settings/channels/tools management APIs |
 | `apps/` | Agent app ecosystem: CLI app catalog, installation, and extension marketplace protocol |
@@ -281,7 +281,7 @@ Built on a unified base class, supporting:
 
 Defined in Markdown + YAML frontmatter, loaded on demand:
 
-`cron` · `document-processing` · `github` · `image-generation` · `long-goal` · `memory` · `my` · `skill-creator` · `summarize` · `tmux` · `update-setup` · `weather`
+`cron` · `document-processing` · `github` · `long-goal` · `memory` · `my` · `skill-creator` · `summarize` · `tmux` · `update-setup` · `weather`
 
 ## Testing and quality
 
@@ -316,7 +316,6 @@ pytest
 | Python SDK | [python-sdk.md](./docs/python-sdk.md) | Programmatic usage |
 | Channel plugins | [channel-plugin-guide.md](./docs/channel-plugin-guide.md) | Custom channel plugin development |
 | WebSocket | [websocket.md](./docs/websocket.md) | Real-time WebSocket protocol details |
-| Image generation | [image-generation.md](./docs/image-generation.md) | Image providers, WebUI image mode |
 | Introspection tool | [my-tool.md](./docs/my-tool.md) | `my` tool runtime state |
 
 Full documentation index at [docs/README.md](./docs/README.md).

@@ -1027,9 +1027,9 @@ When a channel `send()` raises, MiniUnicorn retries at the channel-manager layer
 
 ## Web Tools
 
-MiniUnicorn incorporates basic tools for accessing the web. These include searching via APIs, and fetching arbitrary web pages in Markdown format. They are enabled by default, and can be configured in `~/.miniunicorn/config.json` under `tools.web`.
+MiniUnicorn incorporates a basic tool for fetching arbitrary web pages in Markdown format. It is enabled by default, and can be configured in `~/.miniunicorn/config.json` under `tools.web`.
 
-If you want to disable them, which removes both `web_search` and `web_fetch` from the tool list sent to the LLM, set `tools.web.enable` to `false`:
+If you want to disable it, which removes `web_fetch` from the tool list sent to the LLM, set `tools.web.enable` to `false`:
 
 ```json
 {
@@ -1052,7 +1052,7 @@ If you need to allow trusted private ranges such as Tailscale / CGNAT addresses,
 ```
 
 > [!TIP]
-> Use `proxy` in `tools.web` to route all web requests (search + fetch) through a proxy:
+> Use `proxy` in `tools.web` to route all web requests through a proxy:
 > ```json
 > { "tools": { "web": { "proxy": "http://127.0.0.1:7890" } } }
 > ```
@@ -1061,56 +1061,9 @@ If you need to allow trusted private ranges such as Tailscale / CGNAT addresses,
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `enable` | boolean | `true` | Enable or disable all built-in web tools (`web_search` + `web_fetch`) |
+| `enable` | boolean | `true` | Enable or disable the built-in web fetch tool (`web_fetch`) |
 | `proxy` | string or null | `null` | Proxy for all web requests, for example `http://127.0.0.1:7890` |
 | `userAgent` | string or null | `null` | User-Agent header for all web requests. If null, a browser one will be used |
-
-### Web Search
-
-MiniUnicorn 内置 5 个搜索后端，`provider="auto"` 时并发调用所有后端，首个成功即返回（剩余后端后台写入缓存供下次命中）。配置在 `~/.miniunicorn/config.json` 顶层 `web_search` 字段（与 `tools.web` 平级，独立于 `web_fetch`）。
-
-| 后端 | 类型 | 需要 Key | 说明 |
-|------|------|----------|------|
-| `bocha` | AI Search API | 是（`BOCHA_API_KEY`） | 国内 AI 搜索，snippet 最完整 |
-| `bing_cn` | RSS 抓取 | 否 | Bing 国内版，稳定 |
-| `sogou` | 页面抓取 | 否 | 搜狗搜索 |
-| `baidu` | 页面抓取 | 否 | 百度搜索（易风控） |
-| `duckduckgo` | API | 否 | 海外免 Key，国内需代理 |
-
-**配置示例：**
-```json
-{
-  "web_search": {
-    "enable": true,
-    "provider": "auto",
-    "max_results": 5,
-    "timeout": 30,
-    "proxy": "http://127.0.0.1:7890",
-    "user_agent": null,
-    "backends": {
-      "bocha": {
-        "api_key": "your-bocha-api-key",
-        "base_url": "",
-        "timeout": 30
-      }
-    }
-  }
-}
-```
-
-#### `web_search` 字段
-
-| 选项 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `enable` | boolean | `true` | 启用/禁用 web_search 工具 |
-| `provider` | string | `"auto"` | `"auto"` 并发聚合，或指定单个后端名 |
-| `max_results` | integer | `5` | 每次搜索返回结果数（1–10） |
-| `timeout` | integer | `30` | 单次请求超时（秒） |
-| `proxy` | string or null | `null` | 海外后端代理地址（留空使用系统环境变量） |
-| `user_agent` | string or null | `null` | 自定义 User-Agent（留空使用默认值） |
-| `backends` | object | `{}` | 各后端独立配置，Key 优先级：`backends[name].api_key` > 环境变量 |
-
-> **Brave / Tavily 搜索**：通过 MCP presets 提供，不内置为后端。在 WebUI → MCP 页面启用 `brave-search` 或 `tavily` preset 即可。
 
 ### Web Fetch
 
@@ -1141,12 +1094,6 @@ If you want to always use the local conversion, you can force it using:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `useJinaReader` | boolean | `true` | If true, Jina Reader will be preferred over the local conversion |
-
-## Image Generation
-
-Image generation is configured under `tools.imageGeneration` and uses credentials from the selected provider's `providers.<name>` block.
-
-See [Image Generation](./image-generation.md) for WebUI usage, provider examples, artifact storage, and troubleshooting.
 
 ## CLI Apps
 

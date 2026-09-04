@@ -720,7 +720,6 @@ describe("App layout", () => {
     );
     expect(within(settingsNav).getByRole("button", { name: /Models/ })).toBeInTheDocument();
     expect(within(settingsNav).queryByRole("button", { name: "Providers" })).not.toBeInTheDocument();
-    expect(within(settingsNav).getByRole("button", { name: "Web Search" })).toBeInTheDocument();
     expect(within(settingsNav).queryByRole("button", { name: "Apps" })).not.toBeInTheDocument();
     expect(within(settingsNav).getByRole("button", { name: "Security" })).toBeInTheDocument();
     fireEvent.click(within(settingsNav).getByRole("button", { name: "Appearance" }));
@@ -777,10 +776,6 @@ describe("App layout", () => {
 
     fireEvent.click(within(settingsNav).getByRole("button", { name: /Models/ }));
     expect(screen.getByRole("heading", { name: /Models/ })).toBeInTheDocument();
-
-    fireEvent.click(within(settingsNav).getByRole("button", { name: "Web Search" }));
-    // Web 设置页包含 web_search 工具开关
-    expect(screen.getByRole("switch", { name: /Enable web_search/i })).toBeInTheDocument();
 
     fireEvent.click(within(settingsNav).getByRole("button", { name: "Overview" }));
     expect(screen.queryByText("Bot name")).not.toBeInTheDocument();

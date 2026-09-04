@@ -37,7 +37,7 @@ import {
   type ModelConfigurationDraft,
   type ProviderForm,
 } from "../types";
-import type { UseSectionShared } from "./useWebSearchSection";
+import type { UseSectionShared } from "../types";
 
 /** 主 hook 传入的共享依赖 + 本 section 独有依赖 */
 export interface UseModelsAndProvidersParams extends UseSectionShared {

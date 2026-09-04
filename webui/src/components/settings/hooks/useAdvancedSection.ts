@@ -11,7 +11,7 @@ import { updateNetworkSafetySettings } from "@/lib/api";
 import type { NetworkSafetySettingsUpdate, SettingsPayload } from "@/lib/types";
 
 import { visibleWebuiDefaultAccessMode, type RestartAwarePayload } from "../types";
-import type { UseSectionShared } from "./useWebSearchSection";
+import type { UseSectionShared } from "../types";
 
 /** Advanced section 暴露的状态与回调 */
 export interface AdvancedSectionState {

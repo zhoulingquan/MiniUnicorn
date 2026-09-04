@@ -73,12 +73,10 @@
       "appearance": "Appearance",
       "models": "Models",
       "providers": "Providers",
-      "browser": "Web Search",
       "cliApps": "CLI Apps",
       "mcp": "MCP",
       "advanced": "Security",
-      "apps": "CLI Apps",
-      "images": "Image"
+      "apps": "CLI Apps"
     },
     "sections": {
       "interface": "Interface",
@@ -92,14 +90,9 @@
       "mcp": "MCP services",
       "identity": "Identity",
       "webuiSafety": "Web safety",
-      "webSearchBasic": "Web Search",
-      "webSearchCache": "Network",
-      "webSearchBackends": "Backend Credentials",
       "apps": "CLI Apps",
       "nativeHost": "Native host",
-      "hostSafety": "App safety",
-      "imageGeneration": "Image Generation",
-      "imageGenDefaults": "Defaults"
+      "hostSafety": "App safety"
     },
     "models": {
       "selectModel": "Select model",
@@ -141,25 +134,12 @@
       "workspacePath": "Default workspace",
       "localServiceAccess": "Local services",
       "webuiDefaultAccess": "Default access",
-      "webSearchEnable": "Enable web_search",
-      "webSearchMaxResults": "Max results",
-      "webSearchTimeout": "Timeout",
-      "webSearchProxy": "Proxy",
-      "webSearchUserAgent": "User-Agent",
-      "webSearchApiKey": "API Key",
-      "webSearchBaseUrl": "Base URL (optional)",
       "cliAppsCatalog": "Catalog",
       "cliAppsFilter": "Filter",
       "engine": "Engine",
       "logs": "Logs",
       "diagnostics": "Diagnostics",
-      "contextWindow": "Context window",
-      "imageGenEnable": "Enable generate_image",
-      "imageGenPreset": "Model Preset",
-      "imageGenAspectRatio": "Default Aspect Ratio",
-      "imageGenImageSize": "Default Image Size",
-      "imageGenMaxPerTurn": "Max Images Per Turn",
-      "imageGenSaveDir": "Save Directory"
+      "contextWindow": "Context window"
     },
     "help": {
       "theme": "Switch between light and dark appearance.",
@@ -183,13 +163,6 @@
       "localServiceAccess": "Allow Full Access shell commands to reach localhost services.",
       "webuiDefaultAccess": "Used by web chats without a project-specific permission.",
       "securityManagedControls": "Web fetches always protect local, private, and metadata services. Core channel safety stays in config.json.",
-      "webSearchEnable": "Toggle the web_search tool on/off. By default queries searxng + tavily + bing_cn concurrently and merges deduped results.",
-      "webSearchMaxResults": "Maximum number of results returned per query (1-10).",
-      "webSearchTimeout": "Per-request timeout in seconds.",
-      "webSearchProxy": "HTTP proxy for overseas backends (e.g. tavily). Leave empty to use system HTTP_PROXY/HTTPS_PROXY env vars.",
-      "webSearchUserAgent": "Custom User-Agent for scraping backends. Leave empty to use default.",
-      "webSearchBackend_searxng": "SearXNG self-hosted meta search (requires base_url, aggregates 100+ engines, free)",
-      "webSearchBackend_tavily": "Tavily AI Search API (requires key, returns LLM summary, 1000/mo free)",
       "logs": "Open the native engine log folder.",
       "diagnostics": "Export a small runtime report for support.",
       "localServiceAccessNative": "Allow Full Access shell commands to reach services on this Mac.",
@@ -197,17 +170,7 @@
       "contextWindow": "Choose the default context budget for this model configuration.",
       "heartbeat": "Idle check interval in seconds (60-86400). Heartbeat only runs in gateway mode with a configured channel (Feishu/DingTalk etc.) — it lets the agent proactively notify you via IM. Desktop mode and CLI-only setups do not trigger heartbeat.",
       "heartbeatOptions": "Active hours limit when heartbeat triggers; light context skips bootstrap files to save tokens; isolated session prevents history accumulation.",
-      "dream": "Memory consolidation frequency (baseline). Idle trigger is enabled by default — Dream also runs automatically after 5 min of inactivity, no need to run 24/7.",
-      "imageGenEnable": "Expose generate_image in chats when a configured model preset is available. Toggle this on after picking a preset below.",
-      "imageGenPreset": "Model preset used for image generation. The dropdown lists all cards in the configured area of Models settings; credentials (API Key / API Base) are reused from the preset, no need to re-enter here.",
-      "imageGenProviderDisabled": "Image generation is off. Toggle enable above after picking a preset.",
-      "imageGenProviderSelected": "Preset: {{name}} · Model: {{model}}",
-      "imageGenProviderMain": "Using main model: {{model}}",
-      "imageGenAspectRatio": "Used when the tool call omits aspect_ratio. Maps to provider-specific sizes.",
-      "imageGenImageSize": "Size hint like 1K / 2K / 4K or explicit dimensions (1024x1024).",
-      "imageGenMaxPerTurn": "Cap on count parameter to prevent runaway API bills. Range: 1-8.",
-      "imageGenSaveDir": "Subdirectory under media root for storing generated artifacts. Default: generated.",
-      "imageGenWorkflow": "After enabling, just ask in chat to generate or edit images. Say things like 'make the previous one warmer' to iteratively refine. Pick a model preset above; credentials are reused."
+      "dream": "Memory consolidation frequency (baseline). Idle trigger is enabled by default — Dream also runs automatically after 5 min of inactivity, no need to run 24/7."
     },
     "cliApps": {
       "allCategories": "All categories",
@@ -264,10 +227,7 @@
       "cnRegion": "CN",
       "globalRegion": "Global",
       "seconds": "s",
-      "noProvider": "No provider configured",
-      "imageGenMain": "Main model",
-      "imageGenPickFolder": "Pick Folder",
-      "imageGenSaveDirPath": "Save path"
+      "noProvider": "No provider configured"
     },
     "status": {
       "loading": "Loading settings...",
@@ -908,7 +868,6 @@
       "cron": "Schedule reminders and recurring tasks",
       "document-processing": "Create, edit, convert, and analyze documents (PDF/Word/Excel/PPT)",
       "github": "Interact with GitHub via the gh CLI (issues, PRs, CI, API)",
-      "image-generation": "Generate images and iteratively edit saved image artifacts",
       "long-goal": "Manage sustained objectives via long_task / complete_goal",
       "memory": "Two-layer memory system with Dream-managed knowledge files",
       "my": "Check and set the agent's own runtime state",
@@ -1065,8 +1024,6 @@
       "run_cli_app": "Run a CLI App installed in Settings",
       "spawn": "Spawn a subagent to handle a task in the background",
       "web_fetch": "Fetch a URL and extract readable content",
-      "web_search": "Search the web by keyword with SearXNG (self-hosted meta search aggregating 100+ engines) as primary, plus Tavily AI summaries and Bing CN fallback; concurrent query with dedup merge and auto-caching; returns titles, URLs, and snippets",
-      "deep_research": "Multi-step research workflow (plan, search, fetch, reflect, rerank, write) powered by SearXNG-primary concurrent search with full-text fetching and auto-reflection; returns a cited Markdown report",
       "write_file": "Create a new file or intentionally replace an entire file",
       "write_stdin": "Write to stdin or control a running exec session"
     }

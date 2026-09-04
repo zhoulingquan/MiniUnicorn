@@ -44,7 +44,7 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 | #   | Harness 模块                        | MiniUnicorn 实现                     | 关键文件                                                       |
 | --- | --------------------------------- | ---------------------------------- | ---------------------------------------------------------- |
 | 1   | 编排循环 Orchestration Loop           | AgentLoop → AgentRunner 的 ReAct 循环 | `agent/loop.py` · `agent/runner.py`                        |
-| 2   | 工具系统 Tools                        | 24 类内置工具 + MCP + CLI 应用            | `agent/tools/`                                             |
+| 2   | 工具系统 Tools                        | 21 类内置工具 + MCP + CLI 应用            | `agent/tools/`                                             |
 | 3   | 记忆系统 Memory                       | 分层记忆 + Consolidator/Dream 两阶段      | `agent/memory.py`                                          |
 | 4   | 上下文管理 Context Management          | 策略化上下文治理与多级压缩                      | `agent/context_governor.py` · `agent/runner_strategies.py` |
 | 5   | Prompt 构建 Prompt Construction     | 分层组装 + 技能按需注入                      | `agent/context.py` · `agent/skills.py`                     |
@@ -62,16 +62,16 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 
 ### 2. 工具系统 — Agent 的双手
 
-24 类内置工具经 `pkgutil` 自动发现，第三方工具经入口点插件注册：
+21 类内置工具经 `pkgutil` 自动发现，第三方工具经入口点插件注册：
 
 | 类别 | 工具 |
 |------|------|
 | 文件系统 | `read_file` · `write_file` · `edit_file` · `apply_patch` · `list_dir` · `find_files` · `grep` |
 | 执行 | `exec`（沙箱可选，持久会话）· `write_stdin` · `list_exec_sessions` · `run_cli_app`（本机 CLI） |
-| 检索 | `web_search`（多后端聚合 + 缓存/熔断）· `web_fetch` · `deep_research` |
+| 检索 | `web_fetch`（URL 抓取 → Markdown，含 Jina Reader 与本地可读性回退） |
 | 编排 | `cron` · `long_task` · `execute_plan` · `complete_goal` |
 | 子代理 | `spawn` · `delegate` · `create_agent` |
-| 外部 | `mcp_*`（多服务器）· `message`（跨频道）· `image_generation`（多 provider） |
+| 外部 | `mcp_*`（多服务器）· `message`（跨频道） |
 | 自省 | `self` |
 
 每个工具有显式 schema（name / description / parameters），执行受安全层（模块 9）约束。外部能力还有两条不碰核心的接入路径：**MCP 服务器**（外部进程协议）与 **CLI 应用**（`run_cli_app` + SKILL.md 指导代理使用 ffmpeg、pandoc、git 等本机程序）。
@@ -176,7 +176,7 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 | 模块 | 职责 |
 |------|------|
 | `channels/` | 6 个频道适配器（飞书/钉钉/企微/微信/QQ/WebSocket） |
-| `agent/tools/` | 24 类内置工具（文件/Shell/搜索/MCP/子代理...） |
+| `agent/tools/` | 21 类内置工具（文件/Shell/抓取/MCP/子代理...） |
 | `webui/`（仓库根） | React 18 + Vite + TypeScript 前端（约 4 万行 TS/TSX） |
 | `miniunicorn/webui/` | Python 网关：HTTP/WebSocket 路由、设置/频道/工具管理 API |
 | `apps/` | Agent App 生态：CLI 应用目录、安装与扩展市场协议 |
@@ -281,7 +281,7 @@ curl http://127.0.0.1:8765/v1/chat/completions \
 
 Markdown + YAML frontmatter 定义，按需加载：
 
-`cron` · `document-processing` · `github` · `image-generation` · `long-goal` · `memory` · `my` · `skill-creator` · `summarize` · `tmux` · `update-setup` · `weather`
+`cron` · `document-processing` · `github` · `long-goal` · `memory` · `my` · `skill-creator` · `summarize` · `tmux` · `update-setup` · `weather`
 
 ## 测试与质量
 
@@ -316,7 +316,6 @@ pytest
 | Python SDK | [python-sdk.md](./docs/python-sdk.md) | 编程式调用 |
 | 频道插件 | [channel-plugin-guide.md](./docs/channel-plugin-guide.md) | 自定义频道插件开发 |
 | WebSocket | [websocket.md](./docs/websocket.md) | 实时 WebSocket 协议细节 |
-| 图像生成 | [image-generation.md](./docs/image-generation.md) | 图像 provider、WebUI 图像模式 |
 | 自省工具 | [my-tool.md](./docs/my-tool.md) | `my` 工具运行时状态 |
 
 完整文档目录见 [docs/README.md](./docs/README.md)。

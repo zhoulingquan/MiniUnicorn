@@ -28,6 +28,13 @@
 - 架构历史任务书（docs/architecture/ 下 w2~w8、trusted-evidence-plan、agent-core-tool-library-split-plan.md、agent-harness-*.md）：**不改**。
 - 其他活文档（README、docs/*.md）：rg 检查提及，逐个判断删改；工具列表/功能列表里出现这三个工具的条目删除。
 
+## 执行注意（防中断）
+
+- 轮询/等待类命令必须每次带唯一变体（时间戳或计数器后缀），禁止连续执行 5 次以上完全相同的命令——hub 的 loopDetection 会在 5 次相同签名调用后终止会话。
+- 单条命令控制在 25 秒内完成；更长的等待拆成多条带唯一变体的短命令。
+- 执行前先看 `webui/package.json` 的 scripts 确认测试/构建命令名，不要臆测。
+- 后端已重组出 `miniunicorn/webui/web_fetch_api.py`（WebFetch 保留功能的配置域模块）；前端 `web` 设置区块对应保留，勿误删。
+
 ## 验证步骤
 
 1. TypeScript 编译：

@@ -9,7 +9,6 @@ import type {
   CronJobCreate,
   CronJobPayload,
   CronJobsPayload,
-  ImageGenerationSettingsUpdate,
   McpPresetsPayload,
   ModelConfigurationCreate,
   ModelConfigurationUpdate,
@@ -26,7 +25,6 @@ import type {
   ToolImportResult,
   ToolsPayload,
   WebFetchSettingsUpdate,
-  WebSearchSettingsUpdate,
   WorkspacesPayload,
   WebuiThreadPersistedPayload,
   WorkspaceScopePayload,
@@ -784,59 +782,6 @@ export async function updateWebFetchSettings(
   return request<SettingsPayload>(
     `${base}/api/settings/web-fetch/update?${query}`,
     token,
-  );
-}
-
-export async function updateImageGenerationSettings(
-  token: string,
-  update: ImageGenerationSettingsUpdate,
-  base: string = "",
-): Promise<SettingsPayload> {
-  const query = new URLSearchParams();
-  query.set("enable", String(update.enabled));
-  query.set("preset", update.preset);
-  query.set("default_aspect_ratio", update.defaultAspectRatio);
-  query.set("default_image_size", update.defaultImageSize);
-  query.set("max_images_per_turn", String(update.maxImagesPerTurn));
-  query.set("save_dir", update.saveDir);
-  return request<SettingsPayload>(
-    `${base}/api/settings/image-generation/update?${query}`,
-    token,
-  );
-}
-
-export async function updateWebSearchSettings(
-  token: string,
-  update: WebSearchSettingsUpdate,
-  base: string = "",
-): Promise<SettingsPayload> {
-  const query = new URLSearchParams();
-  query.set("enable", String(update.enable));
-  query.set("provider", update.provider);
-  query.set("max_results", String(update.max_results));
-  query.set("timeout", String(update.timeout));
-  // backends 嵌套结构通过 JSON 字符串传递
-  // 空 backends 对象传 "{}" 以便后端清空;只在有非空 api_key 时包含该后端
-  const backendsObj: Record<string, { api_key?: string; base_url: string; timeout: number }> = {};
-  for (const [name, draft] of Object.entries(update.backends)) {
-    backendsObj[name] = {
-      base_url: draft.base_url,
-      timeout: draft.timeout,
-    };
-    if (draft.api_key) {
-      backendsObj[name].api_key = draft.api_key;
-    }
-  }
-  // proxy and backends_json (which may contain api_key values) are sensitive —
-  // move them out of the URL query string into the x-miniunicorn-Values header.
-  const sensitive = sensitiveValuesHeader({
-    proxy: update.proxy,
-    backends_json: JSON.stringify(backendsObj),
-  });
-  return request<SettingsPayload>(
-    `${base}/api/settings/web-search/update?${query}`,
-    token,
-    { headers: sensitive ?? {} },
   );
 }
 

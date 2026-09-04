@@ -307,35 +307,6 @@ export interface SettingsPayload {
       use_jina_reader: boolean;
     };
   };
-  web_search: {
-    enable: boolean;
-    provider: string;
-    max_results: number;
-    timeout: number;
-    proxy: string | null;
-    backends: Record<
-      string,
-      {
-        api_key_hint: string | null;
-        api_key_set: boolean;
-        base_url: string;
-        timeout: number;
-      }
-    >;
-  };
-  image_generation: {
-    enabled: boolean;
-    preset: string;
-    api_type: "images_generations" | "chat_completions" | "dashscope_multimodal";
-    response_format: "b64_json" | "url";
-    default_aspect_ratio: string;
-    default_image_size: string;
-    max_images_per_turn: number;
-    save_dir: string;
-    save_dir_full: string;
-    supported_api_types: string[];
-    aspect_ratio_options: string[];
-  };
   runtime: {
     config_path: string;
     workspace_path: string;
@@ -634,30 +605,6 @@ export interface ProviderSettingsUpdate {
 
 export interface WebFetchSettingsUpdate {
   useJinaReader: boolean;
-}
-
-export interface ImageGenerationSettingsUpdate {
-  enabled: boolean;
-  preset: string;
-  defaultAspectRatio: string;
-  defaultImageSize: string;
-  maxImagesPerTurn: number;
-  saveDir: string;
-}
-
-export interface WebSearchBackendDraft {
-  api_key: string;
-  base_url: string;
-  timeout: number;
-}
-
-export interface WebSearchSettingsUpdate {
-  enable: boolean;
-  provider: string;
-  max_results: number;
-  timeout: number;
-  proxy: string;
-  backends: Record<string, WebSearchBackendDraft>;
 }
 
 export interface NetworkSafetySettingsUpdate {

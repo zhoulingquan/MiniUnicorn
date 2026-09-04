@@ -1,10 +1,10 @@
 // 共享类型、常量与 helper 函数
 // 从 SettingsView.tsx 拆分而来,供主组件、各 section 与辅助组件复用。
 
+import type { Dispatch, SetStateAction } from "react";
+
 import {
   Activity,
-  Globe2,
-  ImageIcon,
   LayoutGrid,
   Palette,
   ShieldCheck,
@@ -25,8 +25,6 @@ export type SettingsSectionKey =
   | "overview"
   | "appearance"
   | "models"
-  | "browser"
-  | "images"
   | "advanced"
   | "apps";
 
@@ -59,7 +57,7 @@ export interface ModelConfigurationDraft {
   editingPresetName?: string;
 }
 
-export type PendingRestartSection = "runtime" | "browser" | "images";
+export type PendingRestartSection = "runtime" | "browser";
 export type PendingRestartSections = Record<PendingRestartSection, boolean>;
 
 export type RestartAwarePayload = {
@@ -68,6 +66,17 @@ export type RestartAwarePayload = {
   runtime_surface?: SettingsPayload["runtime_surface"];
   runtime_capabilities?: SettingsPayload["runtime_capabilities"];
 };
+
+/** 主 hook（useSettingsState）传入各 section 子 hook 的共享依赖。
+ * 原定义于搜索设置子 hook 文件；该文件随 W9 可选工具下线删除后迁入本文件。 */
+export interface UseSectionShared {
+  settings: SettingsPayload | null;
+  token: string;
+  setError: (msg: string | null) => void;
+  applyPayload: (payload: SettingsPayload) => void;
+  setPendingRestartSections: Dispatch<SetStateAction<PendingRestartSections>>;
+  maybeRestartHostEngine: (payload: RestartAwarePayload) => Promise<void>;
+}
 
 export type ProviderApiType = "auto" | "chat_completions" | "responses";
 
@@ -115,7 +124,6 @@ export const LOCAL_UNCONFIGURED_PROVIDER_ORDER = new Map(
 export const EMPTY_PENDING_RESTART_SECTIONS: PendingRestartSections = {
   runtime: false,
   browser: false,
-  images: false,
 };
 
 export const SETTINGS_NAV_ITEMS: Array<{
@@ -126,8 +134,6 @@ export const SETTINGS_NAV_ITEMS: Array<{
   { key: "overview", icon: Activity, fallback: "Overview" },
   { key: "appearance", icon: Palette, fallback: "Appearance" },
   { key: "models", icon: SlidersHorizontal, fallback: "Models" },
-  { key: "browser", icon: Globe2, fallback: "Search" },
-  { key: "images", icon: ImageIcon, fallback: "Image" },
   { key: "advanced", icon: ShieldCheck, fallback: "Security" },
   { key: "apps", icon: LayoutGrid, fallback: "Apps" },
 ];

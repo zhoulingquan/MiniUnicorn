@@ -387,8 +387,8 @@
 - [x] CommandRouter/builtin 行为与输出逐字节不变;流式回调签名不变
 - [x] `_last_usage`/`_last_call_usage`/`_pending_turn_latency_ms` 收尾写入迁入
   `ResponseAssembler`,语义不变,已标注 Phase 6 决策项
-- [x] 全量回归通过数 ≥ 基线(3728 passed,唯一可接受失败
-  `test_deep_research.py::test_full_workflow_success` 网络 flake)
+- [x] 全量回归通过数 ≥ 基线(3728 passed;当时的唯一网络 flake 用例
+  已随 W9 可选工具子包下线一并移除)
 
 ---
 

@@ -12,7 +12,7 @@ import { updateRuntimeSettings, updateSettings } from "@/lib/api";
 import type { RuntimeSettingsUpdate, SettingsPayload } from "@/lib/types";
 
 import { extractDreamCron, type RestartAwarePayload } from "../types";
-import type { UseSectionShared } from "./useWebSearchSection";
+import type { UseSectionShared } from "../types";
 
 /** Runtime section 暴露的状态与回调 */
 export interface RuntimeSectionState {

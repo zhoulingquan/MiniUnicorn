@@ -5,7 +5,7 @@
 //    pendingRestartSections / restartConfirmOpen / hostEngineApplying
 //  - 提供 applyPayload（简化版：仅 setSettings + setPendingRestartSections + onSettingsChange）
 //  - 提供 restart 相关回调：restartViaSettingsSurface / maybeRestartHostEngine / confirmRestart / cancelRestart
-//  - 组装各 section 子 hook：webSearch / advanced / runtime / models
+//  - 组装各 section 子 hook：advanced / runtime / models
 //
 // 各 section 的 form / dirty / save 逻辑由对应子 hook 自治，
 // 通过监听 settings 变化自行同步 form（替代原 applyPayload 内的 setForm 调用）。
@@ -31,11 +31,9 @@ import {
   type RestartAwarePayload,
   type SettingsSectionKey,
 } from "../types";
-import { useWebSearchSection } from "./useWebSearchSection";
 import { useAdvancedSection } from "./useAdvancedSection";
 import { useRuntimeSection } from "./useRuntimeSection";
 import { useModelsAndProvidersSection } from "./useModelsAndProvidersSection";
-import { useImageGenerationSection } from "./useImageGenerationSection";
 
 export interface UseSettingsStateParams {
   token: string;
@@ -83,7 +81,6 @@ export function useSettingsState({
       setPendingRestartSections({
         runtime: payload.restart_required_sections.includes("runtime"),
         browser: payload.restart_required_sections.includes("browser"),
-        images: payload.restart_required_sections.includes("images"),
       });
     }
     onSettingsChange?.(payload);
@@ -179,11 +176,9 @@ export function useSettingsState({
   };
 
   // === 各 section 子 hook ===
-  const webSearch = useWebSearchSection(shared);
   const advanced = useAdvancedSection(shared);
   const runtime = useRuntimeSection(shared);
   const models = useModelsAndProvidersSection({ ...shared, onModelNameChange });
-  const imageGeneration = useImageGenerationSection(shared);
 
   return {
     // 共享状态
@@ -206,10 +201,8 @@ export function useSettingsState({
     text,
 
     // 分域
-    webSearch,
     advanced,
     runtime,
     models,
-    imageGeneration,
   };
 }
