@@ -225,8 +225,6 @@ MCP_PRESETS: tuple[McpPreset, ...] = (
         requires="Node.js + GitHub Token",
         note="在 GitHub Settings → Developer settings → Personal access tokens 生成 Token。",
     ),
-    # 注：brave-search / tavily 已移至 web_search backends（参与聚合/熔断/deep_research），
-    # 不再作为 MCP preset 暴露，避免搜索能力分散在两处。
     McpPreset(
         name="memory",
         display_name="Memory",

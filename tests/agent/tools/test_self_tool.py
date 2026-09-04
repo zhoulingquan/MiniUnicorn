@@ -37,8 +37,7 @@ def _make_mock_loop(**overrides):
     loop._unified_session = False
     loop._extra_hooks = []
 
-    # web_config mock removed — web_search tool was deleted; web_fetch config
-    # is not exercised by self-tool tests.
+    # web_config mock removed — web_fetch config is not exercised by self-tool tests.
 
     # Tools registry mock
     loop.tools = MagicMock()

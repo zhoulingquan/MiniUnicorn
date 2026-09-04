@@ -1,8 +1,8 @@
 """模型设置领域模块:provider 配置 + model preset CRUD + 上下文窗口学习。
 
 从 ``_helpers.py`` / ``_payload.py`` / ``_updates.py`` 迁入,集中模型设置
-相关的 helper、payload builder 和 update handler,避免与 web_search /
-network_safety / runtime 等其它设置混在通用文件里。
+相关的 helper、payload builder 和 update handler,避免与 network_safety /
+runtime 等其它设置混在通用文件里。
 
 公共 API(经 ``settings_api.py`` re-export):
 - ``model_settings_payload``: 构造 agent + model_presets + providers 区域

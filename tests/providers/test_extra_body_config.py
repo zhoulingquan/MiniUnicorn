@@ -250,7 +250,7 @@ class TestBuildResponsesBodyExtraBody:
             api_key="test-key",
             default_model="gpt-5",
             spec=find_by_name("deepseek"),
-            extra_body={"tools": [{"type": "web_search"}]},
+            extra_body={"tools": [{"type": "code_interpreter"}]},
         )
 
         body = provider._build_responses_body(
@@ -279,7 +279,7 @@ class TestBuildResponsesBodyExtraBody:
                 "description": "Read a file",
                 "parameters": {"type": "object"},
             },
-            {"type": "web_search"},
+            {"type": "code_interpreter"},
         ]
 
     def test_responses_extra_body_merges_include_without_duplicates(self) -> None:
@@ -290,7 +290,7 @@ class TestBuildResponsesBodyExtraBody:
             extra_body={
                 "include": [
                     "reasoning.encrypted_content",
-                    "web_search_call.action.sources",
+                    "file_search_call.results",
                 ],
             },
         )
@@ -307,7 +307,7 @@ class TestBuildResponsesBodyExtraBody:
 
         assert body["include"] == [
             "reasoning.encrypted_content",
-            "web_search_call.action.sources",
+            "file_search_call.results",
         ]
 
 

@@ -160,13 +160,13 @@ def test_receipt_tool_hint_raises_level_to_tool(tool_hint: str) -> None:
 
 
 def test_non_receipt_tool_hint_stays_text() -> None:
-    step = _step(tool_hint="web_search", evidence_level="text")
+    step = _step(tool_hint="web_fetch", evidence_level="text")
 
     assert effective_evidence_level(step) == "text"
 
 
 def test_declared_tool_level_is_honoured() -> None:
-    step = _step(tool_hint="web_search", evidence_level="tool")
+    step = _step(tool_hint="web_fetch", evidence_level="tool")
 
     assert effective_evidence_level(step) == "tool"
 

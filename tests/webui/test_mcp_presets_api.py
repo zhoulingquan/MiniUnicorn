@@ -38,7 +38,7 @@ def test_mcp_presets_payload_lists_supported_cards(
         "puppeteer",
         "time",
     }.issubset(names)
-    # brave-search / tavily 已移至 web_search backends，不再作为 MCP preset 暴露
+    # brave-search / tavily 不作为 MCP preset 暴露
     assert "brave-search" not in names
     assert "tavily" not in names
 

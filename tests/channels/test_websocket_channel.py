@@ -1459,7 +1459,7 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         provider="deepseek",
         reasoning_effort="high",
     )
-    # web_search was removed; only web.fetch.use_jina_reader remains configurable
+    # only web.fetch.use_jina_reader remains configurable
     save_config(config, config_path)
     monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
 

@@ -14,13 +14,10 @@ from miniunicorn.cron.types import CronSchedule
 
 if TYPE_CHECKING:
     from miniunicorn.tools.cli_apps import CliAppsToolConfig
-    from miniunicorn.tools.deep_research.config import DeepResearchConfig
     from miniunicorn.tools.exec_session import ExecSessionToolConfig
-    from miniunicorn.tools.image_generation.config import ImageGenerationConfig
     from miniunicorn.tools.self import MyToolConfig
     from miniunicorn.tools.shell import ExecToolConfig
     from miniunicorn.tools.web import WebToolsConfig
-    from miniunicorn.tools.web_search.config import WebSearchConfig
 
 
 class Base(BaseModel):
@@ -565,21 +562,6 @@ class ToolsConfig(Base, metaclass=_lazy_rebuild_meta(type(Base))):
     my: MyToolConfig = Field(
         default_factory=lambda: _lazy_default("miniunicorn.tools.self", "MyToolConfig")
     )
-    web_search: WebSearchConfig = Field(
-        default_factory=lambda: _lazy_default(
-            "miniunicorn.tools.web_search.config", "WebSearchConfig"
-        )
-    )
-    deep_research: "DeepResearchConfig" = Field(
-        default_factory=lambda: _lazy_default(
-            "miniunicorn.tools.deep_research.config", "DeepResearchConfig"
-        )
-    )
-    image_generation: "ImageGenerationConfig" = Field(
-        default_factory=lambda: _lazy_default(
-            "miniunicorn.tools.image_generation.config", "ImageGenerationConfig"
-        )
-    )
     # 默认开启工作区隔离,避免工具越权访问工作区外路径;已有 config.json 中的显式值会覆盖此默认
     restrict_to_workspace: bool = True
     # HIGH 风险工具执行策略: "allow"(默认,仅审计) | "deny"(执行前静态拒绝)
@@ -825,13 +807,10 @@ def _resolve_tool_config_refs() -> None:
     import sys
 
     from miniunicorn.tools.cli_apps import CliAppsToolConfig
-    from miniunicorn.tools.deep_research.config import DeepResearchConfig
     from miniunicorn.tools.exec_session import ExecSessionToolConfig
-    from miniunicorn.tools.image_generation.config import ImageGenerationConfig
     from miniunicorn.tools.self import MyToolConfig
     from miniunicorn.tools.shell import ExecToolConfig
     from miniunicorn.tools.web import WebFetchConfig, WebToolsConfig
-    from miniunicorn.tools.web_search.config import WebSearchConfig
 
     # Re-export into this module's namespace
     mod = sys.modules[__name__]
@@ -841,9 +820,6 @@ def _resolve_tool_config_refs() -> None:
     mod.WebToolsConfig = WebToolsConfig  # type: ignore[attr-defined]
     mod.WebFetchConfig = WebFetchConfig  # type: ignore[attr-defined]
     mod.MyToolConfig = MyToolConfig  # type: ignore[attr-defined]
-    mod.WebSearchConfig = WebSearchConfig  # type: ignore[attr-defined]
-    mod.DeepResearchConfig = DeepResearchConfig  # type: ignore[attr-defined]
-    mod.ImageGenerationConfig = ImageGenerationConfig  # type: ignore[attr-defined]
 
     ToolsConfig.model_rebuild()
     Config.model_rebuild()

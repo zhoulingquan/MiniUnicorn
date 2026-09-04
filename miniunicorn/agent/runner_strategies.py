@@ -31,7 +31,6 @@ _COMPACTABLE_TOOLS = frozenset(
         "exec",
         "grep",
         "find_files",
-        "web_search",
         "web_fetch",
         "list_dir",
         "list_exec_sessions",

@@ -1,7 +1,7 @@
 """通用查询参数解析工具。
 
 从 ``_helpers.py`` / ``_runtime.py`` 抽出的无业务依赖工具,
-被各 settings 域 api 模块(model_settings_api / web_search_api / ...)
+被各 settings 域 api 模块(model_settings_api / web_fetch_api / ...)
 以及 channels_api / cron_api / tools_api 等独立领域模块共用。
 
 放在独立模块,避免这些模块借道 settings 的 ``_helpers`` 取工具。

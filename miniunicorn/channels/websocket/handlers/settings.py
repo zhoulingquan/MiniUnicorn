@@ -16,13 +16,11 @@ from miniunicorn.webui.settings_api import (
     list_provider_models,
     settings_payload,
     update_agent_settings,
-    update_image_generation_settings,
     update_model_configuration,
     update_network_safety_settings,
     update_provider_settings,
     update_runtime_settings,
     update_web_fetch_settings,
-    update_web_search_settings,
 )
 
 from .._http_router import RouteContext, router
@@ -155,28 +153,6 @@ def web_fetch_update(ctx: RouteContext) -> Response:
     except WebUISettingsError as e:
         return _http_error(e.status, e.message)
     return _http_json_response(ctx.deps.with_restart_state(payload, section="browser"))
-
-
-@router.route("/api/settings/web-search/update", methods={"GET", "POST"})
-@require_auth
-def web_search_update(ctx: RouteContext) -> Response:
-    query = ctx.query
-    try:
-        payload = update_web_search_settings(query)
-    except WebUISettingsError as e:
-        return _http_error(e.status, e.message)
-    return _http_json_response(ctx.deps.with_restart_state(payload, section="browser"))
-
-
-@router.route("/api/settings/image-generation/update", methods={"GET", "POST"})
-@require_auth
-def image_generation_update(ctx: RouteContext) -> Response:
-    query = ctx.query
-    try:
-        payload = update_image_generation_settings(query)
-    except WebUISettingsError as e:
-        return _http_error(e.status, e.message)
-    return _http_json_response(ctx.deps.with_restart_state(payload, section="runtime"))
 
 
 @router.route("/api/settings/network-safety/update", methods={"GET", "POST"})

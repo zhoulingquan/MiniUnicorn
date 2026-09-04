@@ -51,7 +51,7 @@ _MCP_VALUES_HEADER_MAX_BYTES = 64 * 1024
 
 # 通用敏感字段 header:前端把 api_key / config / backends_json 等秘密放进这个
 # JSON 对象 header,而不是 URL query,避免秘密进入日志/Referer/浏览器历史。
-# 与 MCP 专用 header 平行,但面向所有需要携带秘密的路由(provider/web-search/
+# 与 MCP 专用 header 平行,但面向所有需要携带秘密的路由(provider/channel/model-config
 # channel/model-config 等)。支持分块({base}/{base}-1/...),总字节上限 256KB。
 _SENSITIVE_VALUES_HEADER = "x-miniunicorn-Values"
 _SENSITIVE_VALUES_HEADER_MAX_BYTES = 256 * 1024

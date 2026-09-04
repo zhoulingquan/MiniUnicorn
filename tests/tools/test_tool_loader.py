@@ -244,7 +244,7 @@ def test_cron_tool_create():
     assert isinstance(tool, CronTool)
 
 
-# --- Task 6: ExecTool, WebTools, ImageGenerationTool ---
+# --- Task 6: ExecTool, WebTools ---
 
 
 def test_exec_tool_config_cls():

@@ -115,7 +115,7 @@ def test_rejects_empty_content_without_tools(empty_content: str | None) -> None:
 def test_rejects_empty_content_with_tools() -> None:
     evidence = StepAcceptancePolicy().evaluate(
         step=_step(),
-        observations=[_obs("web_search")],
+        observations=[_obs("web_fetch")],
         final_content=None,
         iterations_used=3,
     )
@@ -321,7 +321,7 @@ async def test_complete_plan_step_appends_accepted_evidence_and_completes() -> N
         hook,
         "found the answer",
         "stop",
-        tool_observations=[_obs("web_search", arguments={"q": "docs"})],
+        tool_observations=[_obs("web_fetch", arguments={"q": "docs"})],
     )
 
     assert more_steps is False
@@ -330,7 +330,7 @@ async def test_complete_plan_step_appends_accepted_evidence_and_completes() -> N
     evidence = plan.step_evidence[0]
     assert evidence.step_id == 1
     assert evidence.accepted is True
-    assert [o["tool_name"] for o in evidence.observations] == ["web_search"]
+    assert [o["tool_name"] for o in evidence.observations] == ["web_fetch"]
     assert evidence.tool_calls == []
     assert evidence.tool_results == []
     assert evidence.final_content == "found the answer"

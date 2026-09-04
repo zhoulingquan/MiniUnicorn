@@ -4,7 +4,7 @@
 - ``_query``: 通用查询工具(QueryParams/_query_first/_parse_bool 等)
 - ``_runtime``: WebUISettingsError、runtime surface capabilities、decorate helper
 - ``model_settings_api``: 模型设置(provider/preset/context window)
-- ``web_search_api``: WebSearch + WebFetch
+- ``web_fetch_api``: WebFetch 工具配置(Jina Reader)
 - ``network_safety_api``: Advanced(network safety)
 - ``runtime_settings_api``: Runtime(heartbeat/dream)
 
@@ -27,10 +27,6 @@ from ._runtime import (
     restart_behavior_by_section,
     runtime_capabilities,
 )
-from .image_generation_api import (
-    image_generation_payload,
-    update_image_generation_settings,
-)
 from .model_settings_api import (
     create_model_configuration,
     delete_all_providers,
@@ -44,11 +40,7 @@ from .model_settings_api import (
 )
 from .network_safety_api import advanced_payload, update_network_safety_settings
 from .runtime_settings_api import runtime_payload, update_runtime_settings
-from .web_search_api import (
-    update_web_fetch_settings,
-    update_web_search_settings,
-    web_search_payload,
-)
+from .web_fetch_api import update_web_fetch_settings, web_fetch_payload
 
 
 def settings_payload(
@@ -68,10 +60,9 @@ def settings_payload(
     payload: dict[str, Any] = {}
     # 各域 payload builder 返回的 key 互不重叠,直接 merge。
     payload.update(model_settings_payload(config))
-    payload.update(web_search_payload(config))
+    payload.update(web_fetch_payload(config))
     payload.update(runtime_payload(config))
     payload.update(advanced_payload(config))
-    payload.update(image_generation_payload(config))
     payload["requires_restart"] = requires_restart
     return decorate_settings_payload(
         payload,
@@ -92,7 +83,6 @@ __all__ = [
     "delete_all_providers",
     "delete_model_configuration",
     "delete_provider_settings",
-    "image_generation_payload",
     "list_provider_models",
     "model_settings_payload",
     "restart_behavior_by_section",
@@ -100,14 +90,12 @@ __all__ = [
     "runtime_payload",
     "settings_payload",
     "update_agent_settings",
-    "update_image_generation_settings",
     "update_model_configuration",
     "update_network_safety_settings",
     "update_provider_settings",
     "update_runtime_settings",
     "update_web_fetch_settings",
-    "update_web_search_settings",
-    "web_search_payload",
+    "web_fetch_payload",
     "_clip_ws_string",
     "_mask_secret_hint",
     "_parse_bool",

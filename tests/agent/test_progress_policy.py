@@ -103,7 +103,7 @@ def test_empty_counter_resets_on_tool_evidence() -> None:
     step = PlanStep(id=1, action="recovering")
     stalled = _evidence()
     with_tools = _evidence(
-        tool_calls=[{"name": "web_search"}],
+        tool_calls=[{"name": "web_fetch"}],
         tool_results=[{"summary": "3 hits"}],
         iterations_used=2,
         rejection_reason="empty_content_with_tools",
