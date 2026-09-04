@@ -1,0 +1,62 @@
+# MiniUnicorn implementation task - W9-6 repo hygiene batch (superpowers untrack + apps package relocation)
+
+## Role and context
+
+You are a senior Python implementation engineer on the MiniUnicorn project (business-intelligence agent; core values: efficiency, leanness, maintainability). This batch closes the W9 series with two hygiene items: (a) 16 tracked files under docs/superpowers/ violate the existing .gitignore rule and must be untracked (kept on disk); (b) the miniunicorn/apps/ package - a 53-line protocol remnant of the deleted CLI Apps ecosystem whose only consumer is webui/mcp_presets_api.py - must be inlined into that consumer as private helpers and deleted. Implement as TWO independent commits (W9-6a then W9-6b), verify each before committing, then STOP.
+
+Working directory: D:\MyProject\MiniUnicorn
+
+Prerequisite: `git log --oneline -2` shows HEAD at the docs commit for this taskbook; working tree clean apart from the untracked root node_modules/ directory. If tracked files are modified, stop and report.
+
+## Step 1: required reading (before any implementation)
+
+1. `docs/architecture/w9-library-slim/05-taskbook-repo-hygiene.md` - THE task book, sole implementation basis. It contains the exact file inventories, line anchors (mcp_presets_api.py:19 import; compact_dict at 557/569/590/598/627/636/644; app_manifest at 580/619), the external contract that MUST survive (manifest "schema": "agent-app.v1", asserted by tests/webui/test_mcp_presets_api.py:306 and typed in webui/src/lib/types.ts:381), the verification gates, and the forbidden-changes list.
+2. `miniunicorn/apps/protocol.py` - the 44-line source you will inline.
+
+## Implementation discipline (takes priority over any efficiency concern)
+
+### Stop-and-report immediately (never guess and continue)
+
+1. Any anchor in the task book (file/line/count) does not match the actual code
+2. Any test fails after the changes - NEVER weaken or delete assertions; roll back with `git checkout -- <file>` and report
+3. `git status` shows anything outside the task book's declared paths
+
+### Global red lines
+
+1. TWO commits, in order. Commit 1 (W9-6a) the moment its gate passes; never batch both commits together
+2. W9-6a: `git rm -r --cached docs/superpowers/` ONLY (files stay on disk); in .gitignore change the single line `webui/node_modules/` to `node_modules/`; delete the local untracked root node_modules/ folder. Do NOT delete or edit the docs/superpowers files on disk
+3. W9-6b: inline `_APP_MANIFEST_SCHEMA = "agent-app.v1"` + `_compact_dict` + `_app_manifest` (bodies copied verbatim from protocol.py, docstrings preserved) immediately above `_preset_manifest` in miniunicorn/webui/mcp_presets_api.py; drop the line-19 import; rename the 9 call sites to the underscore names; then `git rm -r miniunicorn/apps/`. Zero other logic changes. Zero test edits - tests/webui/test_mcp_presets_api.py:306 is the contract guard for this batch
+4. Use ONLY `.venv\Scripts\python.exe` (3.12). System Python 3.10 fails collection - environment problem, not code problem
+
+## Execution flow
+
+1. Read the task book -> verify anchors:
+   - `git ls-files docs/superpowers` (expect exactly 16 files)
+   - `rg -n "from miniunicorn.apps.protocol" miniunicorn/` (expect exactly 1 hit, mcp_presets_api.py:19)
+   - If either mismatches, stop and report
+2. W9-6a: untrack -> gitignore line swap -> delete local node_modules -> gate: `git ls-files docs/superpowers` empty; `git check-ignore node_modules` and `git check-ignore webui/node_modules` both hit; `git status` shows only the 16 staged deletions + .gitignore -> COMMIT 1: `chore(repo): untrack superpowers AI artifacts; ignore node_modules at any level`
+3. W9-6b: inline helpers -> rename 9 call sites -> `git rm -r miniunicorn/apps/` -> gate:
+   - `rg "miniunicorn\.apps" miniunicorn/ tests/` -> zero output
+   - `.venv\Scripts\python.exe -m pytest tests/webui/ -q` -> all pass
+   - `.venv\Scripts\python.exe -m ruff check miniunicorn/webui/mcp_presets_api.py` -> zero output
+   - `.venv\Scripts\python.exe -m ruff format --check miniunicorn/webui/mcp_presets_api.py` -> zero output
+4. Full-suite gate before COMMIT 2 (all must hold):
+   - Launch detached: `Start-Process -FilePath ".venv\Scripts\python.exe" -ArgumentList "-m","pytest","tests/","-q" -RedirectStandardOutput "$env:TEMP\w96_pytest.log" -RedirectStandardError "$env:TEMP\w96_pytest_err.log" -NoNewWindow -PassThru`, then poll the log
+   - Expected: 0 failed EXCEPT the single known environment failure `test_exec_guard_allows_public_urls[curl -s -o /dev/null -w "%{http_code}" https://www.google.com]` (local hosts hijack resolves google.com to 127.0.0.1; pre-existing, unrelated to this batch). Any OTHER failure -> stop and report
+   - passed = 4007, skipped = 29 (this batch adds/removes no tests)
+   - `git status` -> only mcp_presets_api.py modified + miniunicorn/apps/ deleted
+5. COMMIT 2: `refactor(webui): inline manifest helpers from apps.protocol; drop apps package` (git add only the declared paths - never `git add .`)
+
+### Session-survival rules (MANDATORY - violations killed previous sessions)
+
+- The full pytest run takes ~4 minutes. ALWAYS launch it detached as shown above, then poll
+- **NEVER send the same polling command twice in a row - the runtime aborts the session after 5 identical tool calls.** Vary EVERY poll: embed an incrementing counter or timestamp, or alternate `-Tail 2` / `-Tail 5` so each command string is unique
+- Keep every single shell command under 25 seconds
+- Commit the moment a gate passes - never batch verification and commit
+
+## Batch report format (output last)
+
+1. The two commit hashes + messages
+2. Full-suite pytest result line (exact numbers)
+3. The three residue scans' outputs (superpowers ls-files, miniunicorn.apps rg, agent-app.v1 rg)
+4. Any deviation from the task book and why
