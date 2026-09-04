@@ -452,14 +452,13 @@ class TestBuildMessages:
             [],
             "please use @zoom tonight",
             current_runtime_lines=[
-                "CLI App Attachment: @zoom (installed; tool=run_cli_app; entry_point=cli-anything-zoom).",
+                "Runtime Note: example-annotation (kind=custom).",
             ],
         )
         user_msg = str(messages[-1]["content"])
 
-        assert "CLI App Attachment: @zoom" in user_msg
-        assert "tool=run_cli_app" in user_msg
-        assert "entry_point=cli-anything-zoom" in user_msg
+        assert "Runtime Note: example-annotation" in user_msg
+        assert "kind=custom" in user_msg
 
     def test_consecutive_same_role_merged(self, tmp_path):
         builder = _builder(tmp_path)

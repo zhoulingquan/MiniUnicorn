@@ -1,11 +1,7 @@
-import json
-import time
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
-from miniunicorn.apps.cli.service import CliAppManager, CliAppsRuntimeConfig
 from miniunicorn.security.workspace_access import (
     WORKSPACE_SCOPE_METADATA_KEY,
     WorkspaceScopeError,
@@ -15,7 +11,6 @@ from miniunicorn.security.workspace_access import (
     validate_workspace_scope_payload,
     workspace_scope_from_metadata,
 )
-from miniunicorn.tools.cli_apps import CliAppsTool
 from miniunicorn.tools.filesystem import ReadFileTool
 from miniunicorn.tools.message import MessageTool
 from miniunicorn.tools.shell import ExecTool
@@ -189,91 +184,6 @@ def test_message_media_scope_restricted_blocks_outside_and_full_allows(tmp_path:
         assert tool._resolve_media([str(media)]) == [str(media)]
     finally:
         reset_workspace_scope(token)
-
-
-@pytest.mark.asyncio
-async def test_cli_app_scope_controls_working_dir(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    project = tmp_path / "project"
-    outside = tmp_path / "outside"
-    data_dir = tmp_path / "data"
-    project.mkdir()
-    outside.mkdir()
-    registry = {
-        "meta": {},
-        "clis": [
-            {
-                "name": "demo",
-                "display_name": "Demo",
-                "version": "1.0",
-                "description": "demo",
-                "category": "test",
-                "install_cmd": "pip install demo",
-                "entry_point": "demo-cli",
-            }
-        ],
-    }
-    data_dir.mkdir()
-    (data_dir / "harness_registry_cache.json").write_text(
-        json.dumps({"_cached_at": time.time(), "data": registry}),
-        encoding="utf-8",
-    )
-    (data_dir / "public_registry_cache.json").write_text(
-        json.dumps({"_cached_at": time.time(), "data": {"meta": {}, "clis": []}}),
-        encoding="utf-8",
-    )
-    (data_dir / "extensions_registry_cache.json").write_text(
-        json.dumps({"_cached_at": time.time(), "data": {"meta": {}, "clis": []}}),
-        encoding="utf-8",
-    )
-    CliAppManager(workspace=project, data_dir=data_dir)._save_installed(
-        {"demo": {"entry_point": "demo-cli"}}
-    )
-    monkeypatch.setattr("miniunicorn.apps.cli.service.get_runtime_subdir", lambda _name: data_dir)
-    monkeypatch.setattr(
-        "miniunicorn.apps.cli.service.shutil.which",
-        lambda entry: "/usr/bin/demo-cli" if entry == "demo-cli" else None,
-    )
-
-    seen: dict[str, str] = {}
-
-    def fake_run(argv, **kwargs):
-        seen["cwd"] = kwargs["cwd"]
-        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
-
-    monkeypatch.setattr("miniunicorn.apps.cli.service.subprocess.run", fake_run)
-    tool = CliAppsTool(
-        workspace=tmp_path,
-        restrict_to_workspace=True,
-        runtime=CliAppsRuntimeConfig(run_timeout=5),
-    )
-
-    restricted = validate_workspace_scope_payload(
-        {"project_path": str(project), "access_mode": "restricted"},
-        default_workspace=tmp_path,
-        default_restrict_to_workspace=False,
-    )
-    token = bind_workspace_scope(restricted)
-    try:
-        blocked = await tool.execute(name="demo", working_dir=str(outside))
-    finally:
-        reset_workspace_scope(token)
-    assert "outside the configured workspace" in blocked
-
-    full = validate_workspace_scope_payload(
-        {"project_path": str(project), "access_mode": "full"},
-        default_workspace=tmp_path,
-        default_restrict_to_workspace=True,
-    )
-    token = bind_workspace_scope(full)
-    try:
-        result = await tool.execute(name="demo", working_dir=str(outside))
-    finally:
-        reset_workspace_scope(token)
-    assert "CLI app 'demo' exited 0" in result
-    assert seen["cwd"] == str(outside.resolve())
 
 
 @pytest.mark.asyncio

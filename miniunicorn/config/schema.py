@@ -13,7 +13,6 @@ from pydantic_settings import BaseSettings
 from miniunicorn.cron.types import CronSchedule
 
 if TYPE_CHECKING:
-    from miniunicorn.tools.cli_apps import CliAppsToolConfig
     from miniunicorn.tools.exec_session import ExecSessionToolConfig
     from miniunicorn.tools.self import MyToolConfig
     from miniunicorn.tools.shell import ExecToolConfig
@@ -556,9 +555,6 @@ class ToolsConfig(Base, metaclass=_lazy_rebuild_meta(type(Base))):
             "miniunicorn.tools.exec_session", "ExecSessionToolConfig"
         )
     )
-    cli_apps: CliAppsToolConfig = Field(
-        default_factory=lambda: _lazy_default("miniunicorn.tools.cli_apps", "CliAppsToolConfig")
-    )
     my: MyToolConfig = Field(
         default_factory=lambda: _lazy_default("miniunicorn.tools.self", "MyToolConfig")
     )
@@ -806,7 +802,6 @@ def _resolve_tool_config_refs() -> None:
     """
     import sys
 
-    from miniunicorn.tools.cli_apps import CliAppsToolConfig
     from miniunicorn.tools.exec_session import ExecSessionToolConfig
     from miniunicorn.tools.self import MyToolConfig
     from miniunicorn.tools.shell import ExecToolConfig
@@ -816,7 +811,6 @@ def _resolve_tool_config_refs() -> None:
     mod = sys.modules[__name__]
     mod.ExecToolConfig = ExecToolConfig  # type: ignore[attr-defined]
     mod.ExecSessionToolConfig = ExecSessionToolConfig  # type: ignore[attr-defined]
-    mod.CliAppsToolConfig = CliAppsToolConfig  # type: ignore[attr-defined]
     mod.WebToolsConfig = WebToolsConfig  # type: ignore[attr-defined]
     mod.WebFetchConfig = WebFetchConfig  # type: ignore[attr-defined]
     mod.MyToolConfig = MyToolConfig  # type: ignore[attr-defined]

@@ -297,7 +297,7 @@ def test_replay_tool_events_dedupes_finish_after_start() -> None:
 
 
 def test_replay_tool_events_keeps_phase_update_when_trace_is_deduped() -> None:
-    args = {"name": "github", "args": ["repo", "view"], "json": "true"}
+    args = {"url": "https://example.invalid/repo"}
     msgs = replay_transcript_to_ui_messages(
         [
             {
@@ -308,8 +308,8 @@ def test_replay_tool_events_keeps_phase_update_when_trace_is_deduped() -> None:
                 "tool_events": [
                     {
                         "phase": "start",
-                        "call_id": "call-cli",
-                        "name": "run_cli_app",
+                        "call_id": "call-fetch",
+                        "name": "web_fetch",
                         "arguments": args,
                     },
                 ],
@@ -322,10 +322,10 @@ def test_replay_tool_events_keeps_phase_update_when_trace_is_deduped() -> None:
                 "tool_events": [
                     {
                         "phase": "error",
-                        "call_id": "call-cli",
-                        "name": "run_cli_app",
+                        "call_id": "call-fetch",
+                        "name": "web_fetch",
                         "arguments": args,
-                        "error": "Error: CLI app 'github' not found",
+                        "error": "Error: fetch failed",
                     },
                 ],
             },
@@ -334,10 +334,10 @@ def test_replay_tool_events_keeps_phase_update_when_trace_is_deduped() -> None:
 
     assert len(msgs) == 1
     assert msgs[0]["traces"] == [
-        'run_cli_app({"name": "github", "args": ["repo", "view"], "json": "true"})',
+        'web_fetch({"url": "https://example.invalid/repo"})',
     ]
     assert msgs[0]["toolEvents"][0]["phase"] == "error"
-    assert msgs[0]["toolEvents"][0]["error"] == "Error: CLI app 'github' not found"
+    assert msgs[0]["toolEvents"][0]["error"] == "Error: fetch failed"
 
 
 def test_replay_file_edit_progress_merges_after_interleaved_activity(tmp_path, monkeypatch) -> None:

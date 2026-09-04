@@ -35,7 +35,6 @@ _AVAILABLE_TOOLS = (
     "find_files",
     "list_dir",
     "exec",
-    "run_cli_app",
     "web_fetch",
     "apply_patch",
     "spawn",

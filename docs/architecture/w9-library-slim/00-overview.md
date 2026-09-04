@@ -35,6 +35,12 @@ Library 精简评估发现三个可选子包合计 27 文件 / 3.5k loc，占 to
 
 - **批次 1（01-taskbook-backend.md）**：后端 Python 删除（子包 + config + webui API + channels 路由 + agent 名单 + 后端测试），pytest 全量验证。
 - **批次 2（02-taskbook-frontend-docs.md）**：前端 webui/src 清理 + 文档清理，vitest 验证。
+- **批次 3（03-taskbook-cliapps-backend.md）**：CLI Apps 生态后端删除（apps/cli 子包 + run_cli_app 工具 + cli_apps_api + mention/session/transcript 链 + 测试）。apps/protocol.py 保留（MCP presets 复用）。
+- **批次 4（04-taskbook-cliapps-frontend-docs.md）**：CLI Apps 前端（Apps 页 CLI 半边、@mention 链、i18n）与文档清理。MCP Presets 半边保留。
+
+## 增补背景（W9-3/W9-4，2026-09-04）
+
+用户裁决：本 agent 定位为企业固定工作流执行，CLI Apps（CLI-Anything 第三方工具受控运行层，apps/cli 约 1.2k loc + cli_apps.py 138 loc + cli_apps_api.py 约 150 loc + 前端 Apps 页 CLI 半边与 @mention 链）用不到，彻底删除。与三子包同理：可选外围，git 历史可找回。附带收益：agent→apps.cli 横向依赖（module-boundaries.md 登记的可选项）随批次 3 拔除，agent 核心对外横向依赖归零。
 
 ## 原则
 

@@ -719,9 +719,6 @@ def replay_transcript_to_ui_messages(
                     row["images"] = [
                         {"url": m.get("url"), "name": m.get("name")} for m in media_att
                     ]
-            cli_apps = rec.get("cli_apps")
-            if isinstance(cli_apps, list) and cli_apps:
-                row["cliApps"] = [dict(app) for app in cli_apps if isinstance(app, dict)]
             mcp_presets = rec.get("mcp_presets")
             if isinstance(mcp_presets, list) and mcp_presets:
                 row["mcpPresets"] = [

@@ -14,7 +14,6 @@ from miniunicorn.agent.persist_tags import RUNTIME_CONTEXT_TAG
 from miniunicorn.agent.runtime_view import RuntimeStateView
 from miniunicorn.agent.skills import SkillsLoader
 from miniunicorn.agent.subagent_registry import SubagentDefinition
-from miniunicorn.apps.cli import utils as cli_app_utils
 from miniunicorn.bus.events import InboundMessage
 from miniunicorn.config.schema import StructuredMemoryConfig
 from miniunicorn.memory import MemoryStore, WorkspaceMemoryRegistry
@@ -33,7 +32,7 @@ from miniunicorn.utils.prompt_templates import render_template
 
 def session_extra(metadata: Mapping[str, Any] | None) -> dict[str, Any]:
     """Return persisted kwargs for turn-attached capabilities."""
-    return cli_app_utils.session_extra(metadata) | mcp_tools.session_extra(metadata)
+    return mcp_tools.session_extra(metadata)
 
 
 def runtime_lines(
@@ -42,17 +41,9 @@ def runtime_lines(
     workspace: Path,
     *,
     skip: bool = False,
-    cli_apps_enabled: bool = True,
 ) -> list[str]:
-    """Return model-visible runtime annotations for turn-attached capabilities.
-
-    ``cli_apps_enabled=False`` (the default config) skips the CLI Apps
-    helpers entirely so the optional ``apps`` service is never touched on
-    the gateway main flow.
-    """
-    cli_lines = cli_app_utils.runtime_lines(msg, workspace, skip=skip) if cli_apps_enabled else []
+    """Return model-visible runtime annotations for turn-attached capabilities."""
     return [
-        *cli_lines,
         *mcp_tools.runtime_lines(
             msg,
             configured_server_names=set(state.mcp_servers),
@@ -108,11 +99,9 @@ class ContextBuilder:
         disabled_skills: list[str] | None = None,
         subagent_registry: Any = None,
         structured_memory_config: StructuredMemoryConfig | None = None,
-        cli_apps_enabled: bool = True,
     ):
         self.workspace = workspace
         self.timezone = None
-        self.cli_apps_enabled = cli_apps_enabled
         self.memory = MemoryStore(workspace, structured_config=structured_memory_config)
         self.memory_registry = WorkspaceMemoryRegistry(
             workspace,
@@ -580,7 +569,6 @@ class ContextBuilder:
                     inbound_message,
                     root,
                     skip=skip_runtime_lines,
-                    cli_apps_enabled=self.cli_apps_enabled,
                 )
             )
         if current_runtime_lines:

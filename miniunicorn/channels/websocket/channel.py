@@ -3,8 +3,8 @@
 The module-level helpers (path/HTTP/MIME/session/config) live in sibling
 ``_``-prefixed modules and are re-imported here so the public surface
 (``WebSocketChannel``, ``WebSocketConfig``, ``publish_runtime_model_update``)
-and the test monkeypatch targets (``get_media_dir``, ``cli_apps_payload``,
-``cli_apps_action``, ``request_mcp_reload``, ``_default_model_name_from_config``)
+and the test monkeypatch targets (``get_media_dir``,
+``request_mcp_reload``, ``_default_model_name_from_config``)
 keep working unchanged.
 """
 
@@ -44,11 +44,6 @@ from miniunicorn.tools.mcp import request_mcp_reload
 from miniunicorn.utils.media_decode import (
     FileSizeExceededError,
     save_base64_data_url,
-)
-from miniunicorn.webui.cli_apps_api import (
-    cli_apps_action,  # noqa: F401 — re-exported as test monkeypatch target
-    cli_apps_payload,  # noqa: F401 — re-exported as test monkeypatch target
-    normalize_cli_app_mentions,
 )
 from miniunicorn.webui.mcp_presets_api import (
     normalize_mcp_preset_mentions,
@@ -864,9 +859,6 @@ class WebSocketChannel(BaseChannel):
             }
             if media:
                 user_obj["media_paths"] = list(media)
-            cli_apps = meta.get("cli_apps")
-            if isinstance(cli_apps, list) and cli_apps:
-                user_obj["cli_apps"] = cli_apps
             mcp_presets = meta.get("mcp_presets")
             if isinstance(mcp_presets, list) and mcp_presets:
                 user_obj["mcp_presets"] = mcp_presets
@@ -1416,9 +1408,6 @@ class WebSocketChannel(BaseChannel):
             metadata: dict[str, Any] = {"remote": getattr(connection, "remote_address", None)}
             if envelope.get("webui") is True:
                 metadata["webui"] = True
-            cli_apps = normalize_cli_app_mentions(envelope.get("cli_apps"))
-            if cli_apps:
-                metadata["cli_apps"] = cli_apps
             mcp_presets = normalize_mcp_preset_mentions(envelope.get("mcp_presets"))
             if mcp_presets:
                 metadata["mcp_presets"] = mcp_presets

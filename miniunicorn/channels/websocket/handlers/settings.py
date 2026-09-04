@@ -1,8 +1,6 @@
-"""Provider/MCP/搜索等配置 handler(18 个端点,含 async)。"""
+"""Provider/MCP/搜索等配置 handler(13 个端点,含 async)。"""
 
 from __future__ import annotations
-
-import asyncio
 
 from websockets.http11 import Response
 
@@ -176,64 +174,6 @@ def runtime_update(ctx: RouteContext) -> Response:
         return _http_error(e.status, e.message)
     ctx.deps.reload_cron()
     return _http_json_response(ctx.deps.with_restart_state(payload, section="runtime"))
-
-
-@router.route("/api/settings/cli-apps", methods={"GET"})
-@require_auth
-def cli_apps(ctx: RouteContext) -> Response:
-    # Import from channel module so tests can monkeypatch
-    # ``channel.cli_apps_payload`` and intercept the call.
-    from miniunicorn.channels.websocket.channel import cli_apps_payload
-
-    try:
-        payload = cli_apps_payload()
-    except Exception:
-        ctx.deps.logger.exception("failed to load CLI Apps payload")
-        return _http_error(500, "failed to load CLI Apps")
-    return _http_json_response(payload)
-
-
-async def _cli_apps_action(ctx: RouteContext, action: str) -> Response:
-    query = ctx.query
-    # Import from channel module so tests can monkeypatch
-    # ``channel.cli_apps_action`` and intercept the call.
-    from miniunicorn.channels.websocket.channel import cli_apps_action
-
-    try:
-        payload = await asyncio.to_thread(cli_apps_action, action, query)
-    except WebUISettingsError as e:
-        return _http_error(e.status, e.message)
-    except Exception as e:
-        status = getattr(e, "status", 500)
-        message = getattr(e, "message", None)
-        if message is None:
-            # 任意非 curated 异常的 str(e) 可能含内部路径/堆栈片段，
-            # 只回固定文案；原文仅经下方 logger.exception 落日志。
-            message = "internal error" if status >= 500 else "request failed"
-        if status >= 500:
-            ctx.deps.logger.exception("CLI Apps action '{}' failed", action)
-        return _http_error(status, message)
-    return _http_json_response(payload)
-
-
-@router.route("/api/settings/cli-apps/install", methods={"GET", "POST"})
-async def cli_apps_install(ctx: RouteContext) -> Response:
-    return await _cli_apps_action(ctx, "install")
-
-
-@router.route("/api/settings/cli-apps/update", methods={"GET", "POST"})
-async def cli_apps_update(ctx: RouteContext) -> Response:
-    return await _cli_apps_action(ctx, "update")
-
-
-@router.route("/api/settings/cli-apps/uninstall", methods={"GET", "POST"})
-async def cli_apps_uninstall(ctx: RouteContext) -> Response:
-    return await _cli_apps_action(ctx, "uninstall")
-
-
-@router.route("/api/settings/cli-apps/test", methods={"GET", "POST"})
-async def cli_apps_test(ctx: RouteContext) -> Response:
-    return await _cli_apps_action(ctx, "test")
 
 
 async def _mcp_presets_handler(ctx: RouteContext, action: str | None) -> Response:
