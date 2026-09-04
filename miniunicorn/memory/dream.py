@@ -507,6 +507,15 @@ class Dream:
             return False
 
         raw = response.content or ""
+        # Fail closed before parsing: a truncated response must not be
+        # "repaired" by json_repair into half-valid proposals, and a provider
+        # error response is not extraction output at all.
+        if response.finish_reason == "length":
+            logger.warning("memory_dream_batch_failed code=phase1_truncated")
+            return False
+        if response.finish_reason == "error":
+            logger.warning("memory_dream_batch_failed code=phase1_llm_error")
+            return False
         try:
             extracted = parse_extraction_batch(
                 raw,
@@ -515,7 +524,11 @@ class Dream:
                 allowed_scope_hints=set(scope_by_hint),
             )
         except MemoryExtractionError as exc:
-            logger.warning("memory_dream_batch_failed code=extraction_error error={}", exc)
+            logger.warning(
+                "memory_dream_batch_failed code=extraction_error error={} raw={}",
+                exc,
+                raw[:200],
+            )
             return False
 
         context = IngestContext(

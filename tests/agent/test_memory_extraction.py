@@ -102,6 +102,28 @@ def test_fenced_json_is_stripped(evidence_catalog, tag_catalog):
     assert len(parsed.proposals) == 1
 
 
+def test_missing_schema_version_defaults_to_1(evidence_catalog, tag_catalog):
+    raw = json.dumps({"proposals": [valid_proposal()]})
+    parsed = parse_extraction_batch(raw, evidence_catalog, tag_catalog)
+    assert parsed.schema_version == 1
+    assert len(parsed.proposals) == 1
+
+
+def test_wrong_schema_version_rejected(evidence_catalog, tag_catalog):
+    raw = json.dumps({"schema_version": 2, "proposals": []})
+    with pytest.raises(MemoryExtractionError):
+        parse_extraction_batch(raw, evidence_catalog, tag_catalog)
+
+
+def test_fenced_json_with_trailing_prose_takes_first_block(evidence_catalog, tag_catalog):
+    raw = (
+        f"```json\n{json.dumps(valid_batch(valid_proposal()))}\n```\n"
+        "Here is the explanation."
+    )
+    parsed = parse_extraction_batch(raw, evidence_catalog, tag_catalog)
+    assert len(parsed.proposals) == 1
+
+
 def test_missing_evidence_ref_rejects_batch(evidence_catalog, tag_catalog):
     raw = json.dumps(valid_batch(valid_proposal(evidence_refs=["history:99"])))
     with pytest.raises(MemoryExtractionError, match="unresolved evidence ref"):

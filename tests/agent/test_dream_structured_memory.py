@@ -1245,3 +1245,56 @@ class TestAuditExportTrigger:
         assert await dream.run() is False
         assert store.structured_repository.storage_stats().transaction_count == 0
         assert not (store.workspace / "memory" / "structured" / "audit").exists()
+
+
+class TestProviderResponseGuards:
+    """Phase-1 fails closed on truncated/error provider responses and
+    tolerates models that omit the top-level schema_version key."""
+
+    async def test_truncated_response_fails_before_parse(
+        self, store, dream, mock_provider, monkeypatch
+    ):
+        import miniunicorn.memory.extraction as extraction_module
+
+        store.append_history("A fact that must not be half-parsed.")
+        mock_provider.chat_with_retry.return_value = MagicMock(
+            content=raw_batch(proposal()), finish_reason="length"
+        )
+        parse_spy = MagicMock()
+        monkeypatch.setattr(extraction_module, "parse_extraction_batch", parse_spy)
+
+        assert await dream.run() is False
+
+        parse_spy.assert_not_called()
+        assert store.get_last_dream_cursor() == 0
+        assert all_records(store) == ()
+
+    async def test_missing_schema_version_batch_still_succeeds(self, store, dream, mock_provider):
+        store.append_history("Main uses deterministic structured recall.")
+        set_provider_response(mock_provider, json.dumps({"proposals": [proposal()]}))
+
+        assert await dream.run() is True
+
+        assert store.get_last_dream_cursor() == 1
+        assert len(all_records(store)) == 1
+
+    async def test_extraction_failure_logs_raw_sample(self, store, dream, mock_provider):
+        from loguru import logger as loguru_logger
+
+        store.append_history("A fact whose extraction will fail.")
+        bad_raw = '{"schema_version": 1, "proposa": []}'
+        set_provider_response(mock_provider, bad_raw)
+
+        records: list = []
+        handler_id = loguru_logger.add(lambda m: records.append(m), level="WARNING")
+        try:
+            result = await dream.run()
+        finally:
+            loguru_logger.remove(handler_id)
+
+        assert result is False
+        assert store.get_last_dream_cursor() == 0
+        joined = "".join(str(record) for record in records)
+        assert "code=extraction_error" in joined
+        assert "raw=" in joined
+        assert bad_raw in joined

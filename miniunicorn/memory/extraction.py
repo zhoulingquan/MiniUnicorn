@@ -45,7 +45,10 @@ _NON_ATOMIC_ASCII_RE = re.compile(r"\b(?:and|also|then|but)\b", re.IGNORECASE)
 
 _DEFAULT_SCOPE_HINTS = frozenset({ScopeKind.PROJECT, ScopeKind.SHARED})
 
-_FENCE_RE = re.compile(r"^```(?:json)?\s*\n(.*)\n```\s*$", re.DOTALL)
+# Non-greedy, no end anchor: take the first closing fence and tolerate
+# trailing prose after it (greedy `(.*)` + `$` used to miss the whole match
+# whenever the model appended explanation text after the fenced block).
+_FENCE_RE = re.compile(r"^```(?:json)?\s*\n(.*?)\n```", re.DOTALL)
 
 
 def _assert_atomic(statement: str) -> None:
@@ -120,9 +123,15 @@ def parse_extraction_batch(
     if fence:
         text = fence.group(1).strip()
     data = _parse_json(text)
-    for key in ("schema_version", "proposals"):
-        if key not in data:
-            raise MemoryExtractionError(f"extraction batch missing required key: {key}")
+    # WHY: only "proposals" is required here. Small models systematically omit
+    # the top-level "schema_version" key; MemoryExtractionBatch defaults it to
+    # SCHEMA_VERSION and its field validator still rejects wrong versions, so
+    # demanding the key was redundant strictness (the direct cause of the
+    # production backlog wedged at 526 permanently-failing batches). The
+    # "proposals" check itself must stay: the model defaults both fields, so a
+    # bare "{}" would otherwise validate as an empty batch.
+    if "proposals" not in data:
+        raise MemoryExtractionError("extraction batch missing required key: proposals")
     try:
         batch = MemoryExtractionBatch.model_validate(data)
     except ValidationError as exc:
