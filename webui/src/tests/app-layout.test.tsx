@@ -704,7 +704,7 @@ describe("App layout", () => {
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
     const searchButton = screen.getByRole("button", { name: "Search chats" });
-    const appsButton = within(sidebar).getByRole("button", { name: "CLI Apps" });
+    const appsButton = within(sidebar).getByRole("button", { name: "Apps" });
     expect(searchButton.compareDocumentPosition(appsButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(within(sidebar).getByRole("button", { name: "Settings" }));
 
@@ -720,7 +720,7 @@ describe("App layout", () => {
     );
     expect(within(settingsNav).getByRole("button", { name: /Models/ })).toBeInTheDocument();
     expect(within(settingsNav).queryByRole("button", { name: "Providers" })).not.toBeInTheDocument();
-    expect(within(settingsNav).queryByRole("button", { name: "Apps" })).not.toBeInTheDocument();
+    expect(within(settingsNav).getByRole("button", { name: "Apps" })).toBeInTheDocument();
     expect(within(settingsNav).getByRole("button", { name: "Security" })).toBeInTheDocument();
     fireEvent.click(within(settingsNav).getByRole("button", { name: "Appearance" }));
     fireEvent.click(within(settingsNav).getByRole("button", { name: "Models" }));
@@ -810,11 +810,11 @@ describe("App layout", () => {
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
-    const appsButton = within(sidebar).getByRole("button", { name: "CLI Apps" });
+    const appsButton = within(sidebar).getByRole("button", { name: "Apps" });
 
     fireEvent.click(appsButton);
 
-    expect(await screen.findByRole("heading", { name: "CLI Apps" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Apps" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Sidebar navigation" })).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "Settings sections" })).not.toBeInTheDocument();
     expect(document.title).toBe("MiniUnicorn");

@@ -5,7 +5,6 @@ import type {
   ChannelQrStatusPayload,
   ChannelsPayload,
   ChatSummary,
-  CliAppsPayload,
   CronJobCreate,
   CronJobPayload,
   CronJobsPayload,
@@ -216,24 +215,6 @@ export async function fetchWorkspaces(
   base: string = "",
 ): Promise<WorkspacesPayload> {
   return request<WorkspacesPayload>(`${base}/api/workspaces`, token);
-}
-
-export async function fetchCliApps(
-  token: string,
-  base: string = "",
-): Promise<CliAppsPayload> {
-  return request<CliAppsPayload>(`${base}/api/settings/cli-apps`, token);
-}
-
-export async function runCliAppAction(
-  token: string,
-  action: "install" | "update" | "uninstall" | "test",
-  name: string,
-  base: string = "",
-): Promise<CliAppsPayload> {
-  const query = new URLSearchParams();
-  query.set("name", name);
-  return request<CliAppsPayload>(`${base}/api/settings/cli-apps/${action}?${query}`, token);
 }
 
 export async function fetchMcpPresets(

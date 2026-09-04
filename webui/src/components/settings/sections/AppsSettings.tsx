@@ -1,7 +1,7 @@
-// Apps section:CLI Apps + MCP Presets 一体化管理。
-// 参考 ChannelsView 的两段式列表模式：已启用（CLI installed / MCP configured）
-// 在上半部分，可用项在下半部分。无 drawer，仅有 install/uninstall/update/test
-// 四种原子动作；执行后通过 toast 展示 last_action.message。
+// Apps section:MCP Presets 管理。
+// 参考 ChannelsView 的两段式列表模式:已启用(configured)在上半部分,
+// 可用项在下半部分。无 drawer,仅有 enable/remove/test 三种原子动作;
+// 执行后通过 toast 展示 last_action.message。
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle, Loader2, Package, Sparkles } from "lucide-react";
@@ -15,85 +15,40 @@ import {
   SettingsRow,
   SettingsSectionTitle,
 } from "@/components/settings/components/SettingsRow";
-import {
-  fetchCliApps,
-  fetchMcpPresets,
-  runCliAppAction,
-  runMcpPresetAction,
-} from "@/lib/api";
-import { notifyCliAppsChanged } from "@/lib/cli-app-events";
+import { fetchMcpPresets, runMcpPresetAction } from "@/lib/api";
 import { notifyMcpPresetsChanged } from "@/lib/mcp-preset-events";
-import type {
-  CliAppInfo,
-  CliAppsPayload,
-  McpPresetInfo,
-  McpPresetsPayload,
-} from "@/lib/types";
+import type { McpPresetInfo, McpPresetsPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useClient } from "@/providers/ClientProvider";
 
 interface AppsSettingsProps {
-  /** 可选：从父组件注入的 cli-apps payload。SettingsView 通过 fetch
-   * `/api/settings/cli-apps` 已经拉取过一次时传入，避免重复请求。 */
-  initialCliApps?: CliAppsPayload | null;
+  /** 可选：从父组件注入的 mcp-presets payload。 */
   initialMcpPresets?: McpPresetsPayload | null;
   /** 隐藏顶部的 "Apps" section 标题。AppsView 已通过 ViewShell 提供 h1，
-   * 渲染重复标题会导致 `findByRole("heading", { name: "Apps" })` 匹配多项。 */
+   渲染重复标题会导致 `findByRole("heading", { name: "Apps" })` 匹配多项。 */
   hideTitle?: boolean;
 }
 
-type AppKind = "cli" | "mcp";
-
-interface UnifiedAppRow {
-  kind: AppKind;
+interface PresetRow {
   name: string;
   displayName: string;
   description: string;
   category: string;
-  /** CLI: installed；MCP: configured。决定是否出现在"已启用"区域。 */
   enabled: boolean;
-  /** CLI: install_supported；MCP: install_supported。决定是否可执行动作。 */
   installSupported: boolean;
-  /** CLI: available；MCP: available。决定是否可安装。 */
-  available: boolean;
   status: string;
-  brandColor: string | null;
-  logoUrl: string | null;
-  /** 透传原始信息，便于动作回调使用。 */
-  raw: CliAppInfo | McpPresetInfo;
+  raw: McpPresetInfo;
 }
 
-function toRow(kind: AppKind, info: CliAppInfo | McpPresetInfo): UnifiedAppRow {
-  if (kind === "cli") {
-    const app = info as CliAppInfo;
-    return {
-      kind,
-      name: app.name,
-      displayName: app.display_name,
-      description: app.description,
-      category: app.category,
-      enabled: app.installed,
-      installSupported: app.install_supported,
-      available: app.available,
-      status: app.status,
-      brandColor: app.brand_color ?? null,
-      logoUrl: app.logo_url ?? null,
-      raw: app,
-    };
-  }
-  const preset = info as McpPresetInfo;
+function toRow(preset: McpPresetInfo): PresetRow {
   return {
-    kind,
     name: preset.name,
     displayName: preset.display_name,
     description: preset.description,
     category: preset.category,
     enabled: preset.installed && preset.configured,
     installSupported: preset.install_supported,
-    available: preset.available,
     status: preset.status,
-    brandColor: preset.brand_color ?? null,
-    logoUrl: preset.logo_url ?? null,
     raw: preset,
   };
 }
@@ -115,18 +70,16 @@ function AppAvatar({ name, displayName }: { name: string; displayName: string })
   );
 }
 
-/** 已启用应用卡片：头像 + 名称 + 类型标签 + 状态点 + 描述 + 动作按钮。 */
+/** 已启用应用卡片：头像 + 名称 + 状态点 + 描述 + 动作按钮。 */
 function InstalledAppCard({
   row,
   acting,
-  onUninstall,
-  onUpdate,
+  onRemove,
   onTest,
 }: {
-  row: UnifiedAppRow;
+  row: PresetRow;
   acting: boolean;
-  onUninstall: () => void;
-  onUpdate: () => void;
+  onRemove: () => void;
   onTest: () => void;
 }) {
   const { t } = useTranslation();
@@ -147,14 +100,10 @@ function InstalledAppCard({
             <span
               className={cn(
                 "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
-                row.kind === "cli"
-                  ? "bg-blue-500/15 text-blue-600 dark:text-blue-300"
-                  : "bg-violet-500/15 text-violet-600 dark:text-violet-300",
+                "bg-violet-500/15 text-violet-600 dark:text-violet-300",
               )}
             >
-              {row.kind === "cli"
-                ? t("settings.apps.cliLabel")
-                : t("settings.apps.mcpLabel")}
+              {t("settings.apps.mcpLabel")}
             </span>
           </div>
           <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -175,31 +124,15 @@ function InstalledAppCard({
         <button
           type="button"
           disabled={acting}
-          onClick={onUninstall}
+          onClick={onRemove}
           className={cn(
             "inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium",
             "bg-foreground text-background hover:scale-105 transition-transform",
             "disabled:opacity-50 disabled:cursor-not-allowed",
           )}
         >
-          {row.kind === "cli"
-            ? t("settings.cliApps.uninstall")
-            : t("settings.cliApps.uninstall")}
+          {t("settings.apps.uninstall")}
         </button>
-        {row.kind === "cli" ? (
-          <button
-            type="button"
-            disabled={acting}
-            onClick={onUpdate}
-            className={cn(
-              "inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium",
-              "border border-border/60 bg-card text-foreground hover:bg-accent/30",
-              "disabled:opacity-50 disabled:cursor-not-allowed",
-            )}
-          >
-            {t("settings.cliApps.update")}
-          </button>
-        ) : null}
         <button
           type="button"
           disabled={acting}
@@ -210,7 +143,7 @@ function InstalledAppCard({
             "disabled:opacity-50 disabled:cursor-not-allowed",
           )}
         >
-          {t("settings.cliApps.test")}
+          {t("settings.apps.test")}
         </button>
       </div>
     </div>
@@ -223,7 +156,7 @@ function AvailableAppItem({
   acting,
   onInstall,
 }: {
-  row: UnifiedAppRow;
+  row: PresetRow;
   acting: boolean;
   onInstall: () => void;
 }) {
@@ -244,14 +177,10 @@ function AvailableAppItem({
           <span
             className={cn(
               "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
-              row.kind === "cli"
-                ? "bg-blue-500/15 text-blue-600 dark:text-blue-300"
-                : "bg-violet-500/15 text-violet-600 dark:text-violet-300",
+              "bg-violet-500/15 text-violet-600 dark:text-violet-300",
             )}
           >
-            {row.kind === "cli"
-              ? t("settings.apps.cliLabel")
-              : t("settings.apps.mcpLabel")}
+            {t("settings.apps.mcpLabel")}
           </span>
         </div>
         {row.description ? (
@@ -272,13 +201,11 @@ function AvailableAppItem({
           )}
         >
           {acting ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-          {row.kind === "cli"
-            ? t("settings.cliApps.install")
-            : t("settings.cliApps.install")}
+          {t("settings.apps.enable")}
         </button>
       ) : (
         <span className="shrink-0 text-[10px] text-muted-foreground/70">
-          {t("settings.cliApps.unsupported")}
+          {t("settings.apps.unsupported")}
         </span>
       )}
     </div>
@@ -286,15 +213,11 @@ function AvailableAppItem({
 }
 
 export function AppsSettings({
-  initialCliApps,
   initialMcpPresets,
   hideTitle = false,
 }: AppsSettingsProps = {}) {
   const { t } = useTranslation();
   const { token } = useClient();
-  const [cliApps, setCliApps] = useState<CliAppInfo[]>(
-    initialCliApps?.apps ?? [],
-  );
   const [mcpPresets, setMcpPresets] = useState<McpPresetInfo[]>(
     initialMcpPresets?.presets ?? [],
   );
@@ -307,15 +230,9 @@ export function AppsSettings({
     setLoading(true);
     setError(null);
     try {
-      const [cliData, mcpData] = await Promise.all([
-        fetchCliApps(token),
-        fetchMcpPresets(token),
-      ]);
-      setCliApps(cliData.apps);
+      const mcpData = await fetchMcpPresets(token);
       setMcpPresets(mcpData.presets);
-      if (cliData.last_action?.message) {
-        setToast(cliData.last_action.message);
-      } else if (mcpData.last_action?.message) {
+      if (mcpData.last_action?.message) {
         setToast(mcpData.last_action.message);
       }
     } catch (e) {
@@ -335,11 +252,10 @@ export function AppsSettings({
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const unifiedRows = useMemo<UnifiedAppRow[]>(() => {
-    const cliRows = cliApps.map((app) => toRow("cli", app));
-    const mcpRows = mcpPresets.map((preset) => toRow("mcp", preset));
-    return [...cliRows, ...mcpRows];
-  }, [cliApps, mcpPresets]);
+  const unifiedRows = useMemo<PresetRow[]>(
+    () => mcpPresets.map(toRow),
+    [mcpPresets],
+  );
 
   const enabledApps = useMemo(
     () => unifiedRows.filter((row) => row.enabled),
@@ -348,30 +264,6 @@ export function AppsSettings({
   const availableApps = useMemo(
     () => unifiedRows.filter((row) => !row.enabled),
     [unifiedRows],
-  );
-
-  /** 应用 CLI 动作（install/update/uninstall/test）并合并返回的 payload。 */
-  const runCliAction = useCallback(
-    async (
-      action: "install" | "update" | "uninstall" | "test",
-      name: string,
-    ) => {
-      if (actingName) return;
-      setActingName(name);
-      try {
-        const payload = await runCliAppAction(token, action, name);
-        setCliApps(payload.apps);
-        if (payload.last_action?.message) {
-          setToast(payload.last_action.message);
-        }
-        notifyCliAppsChanged(payload);
-      } catch (e) {
-        setError((e as Error).message);
-      } finally {
-        setActingName(null);
-      }
-    },
-    [actingName, token],
   );
 
   /** 应用 MCP 动作（enable/remove/test）。 */
@@ -398,20 +290,6 @@ export function AppsSettings({
     [actingName, token],
   );
 
-  const handleAction = useCallback(
-    (row: UnifiedAppRow, action: "install" | "update" | "uninstall" | "test" | "enable" | "remove") => {
-      if (row.kind === "cli") {
-        const cliAction = action === "enable" ? "install" : action === "remove" ? "uninstall" : action;
-        void runCliAction(cliAction as "install" | "update" | "uninstall" | "test", row.name);
-      } else {
-        const mcpAction = action === "install" ? "enable" : action === "uninstall" ? "remove" : action === "update" ? "test" : action;
-        void runMcpAction(mcpAction as "enable" | "remove" | "test", row.name);
-      }
-    },
-    [runCliAction, runMcpAction],
-  );
-
-  const cliInstalledCount = cliApps.filter((app) => app.installed).length;
   const mcpConfiguredCount = mcpPresets.filter(
     (preset) => preset.installed && preset.configured,
   ).length;
@@ -428,43 +306,15 @@ export function AppsSettings({
           <SettingsRow
             title={t("settings.apps.description")}
             description={t("settings.apps.caption", {
-              cli: cliInstalledCount,
               mcp: mcpConfiguredCount,
             })}
           >
             <RefreshIconButton
               onClick={load}
               loading={loading}
-              title={t("settings.cliApps.allCategories")}
+              title={t("settings.apps.refresh")}
             />
           </SettingsRow>
-          <details className="px-4 py-3.5 text-[11px] leading-relaxed text-muted-foreground/80 sm:px-5">
-            <summary className="cursor-pointer select-none font-medium text-foreground/70 hover:text-foreground">
-              CLI 应用实现机制
-            </summary>
-            <div className="mt-2 space-y-1.5">
-              <p>
-                <span className="font-medium text-foreground/70">【数据来源】</span>
-                所有 CLI 应用条目均来自 3 个远程 JSON registry(harness/public 必选,extensions 可选),无本地内置 catalog。本地缓存 TTL 由 catalogTtlSeconds 控制(默认 3600s)。
-              </p>
-              <p>
-                <span className="font-medium text-foreground/70">【安装策略】</span>
-                bundled(随父应用捆绑,只检测不安装)、npm、brew、uv、pip 五种;其他视为 unsupported。
-              </p>
-              <p>
-                <span className="font-medium text-foreground/70">【状态判定】</span>
-                installed(已登记+可执行)、missing(已登记+找不到)、available(未登记+系统已有)、not_installed(未登记+找不到)、unsupported。
-              </p>
-              <p>
-                <span className="font-medium text-foreground/70">【不支持自定义 CLI】</span>
-                UI/API/配置/核心逻辑四层均封闭:get_app() 只查远程 catalog,无 create/edit/delete 接口,config.tools.cliApps 仅含 enable 与超时字段。
-              </p>
-              <p>
-                <span className="font-medium text-foreground/70">【替代方案】</span>
-                运行任意 CLI 用 exec 工具;集成自定义服务用 tools.mcpServers 声明。
-              </p>
-            </div>
-          </details>
         </SettingsGroup>
       </section>
 
@@ -473,7 +323,7 @@ export function AppsSettings({
           <AlertCircle className="h-6 w-6 opacity-50" />
           <p>{error}</p>
           <Button variant="outline" size="sm" onClick={load}>
-            {t("settings.cliApps.allCategories")}
+            {t("settings.apps.refresh")}
           </Button>
         </div>
       ) : loading && unifiedRows.length === 0 ? (
@@ -508,12 +358,11 @@ export function AppsSettings({
               <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                 {enabledApps.map((row) => (
                   <InstalledAppCard
-                    key={`${row.kind}-${row.name}`}
+                    key={row.name}
                     row={row}
                     acting={actingName === row.name}
-                    onUninstall={() => handleAction(row, row.kind === "cli" ? "uninstall" : "remove")}
-                    onUpdate={() => handleAction(row, "update")}
-                    onTest={() => handleAction(row, "test")}
+                    onRemove={() => void runMcpAction("remove", row.name)}
+                    onTest={() => void runMcpAction("test", row.name)}
                   />
                 ))}
               </div>
@@ -535,10 +384,10 @@ export function AppsSettings({
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {availableApps.map((row) => (
                   <AvailableAppItem
-                    key={`${row.kind}-${row.name}`}
+                    key={row.name}
                     row={row}
                     acting={actingName === row.name}
-                    onInstall={() => handleAction(row, row.kind === "cli" ? "install" : "enable")}
+                    onInstall={() => void runMcpAction("enable", row.name)}
                   />
                 ))}
               </div>

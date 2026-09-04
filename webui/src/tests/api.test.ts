@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createModelConfiguration,
   deleteSession,
-  fetchCliApps,
   fetchMcpPresets,
   fetchSidebarState,
   fetchWebuiThread,
@@ -11,7 +10,6 @@ import {
   importMcpConfig,
   listSessions,
   listSlashCommands,
-  runCliAppAction,
   runMcpPresetAction,
   saveCustomMcpServer,
   updateSidebarState,
@@ -137,7 +135,7 @@ describe("webui API helpers", () => {
       }),
     );
 
-    await expect(runCliAppAction("tok", "install", "hyperframes")).rejects.toMatchObject({
+    await expect(runMcpPresetAction("tok", "enable", "hyperframes")).rejects.toMatchObject({
       status: 500,
       message: "npm error ENOTEMPTY",
     });
@@ -183,33 +181,6 @@ describe("webui API helpers", () => {
 
     expect(fetch).toHaveBeenCalledWith(
       "/api/settings/network-safety/update?webui_allow_local_service_access=false&webui_default_access_mode=full",
-      expect.objectContaining({
-        headers: { Authorization: "Bearer tok" },
-      }),
-    );
-  });
-
-  it("reads CLI Apps catalog and serializes actions", async () => {
-    vi.mocked(fetch).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        apps: [],
-        installed_count: 0,
-        catalog_updated_at: "2026-04-18",
-      }),
-    } as Response);
-
-    await expect(fetchCliApps("tok")).resolves.toMatchObject({ apps: [] });
-    expect(fetch).toHaveBeenCalledWith(
-      "/api/settings/cli-apps",
-      expect.objectContaining({
-        headers: { Authorization: "Bearer tok" },
-      }),
-    );
-
-    await runCliAppAction("tok", "install", "gimp");
-    expect(fetch).toHaveBeenCalledWith(
-      "/api/settings/cli-apps/install?name=gimp",
       expect.objectContaining({
         headers: { Authorization: "Bearer tok" },
       }),

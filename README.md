@@ -44,7 +44,7 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 | #   | Harness 模块                        | MiniUnicorn 实现                     | 关键文件                                                       |
 | --- | --------------------------------- | ---------------------------------- | ---------------------------------------------------------- |
 | 1   | 编排循环 Orchestration Loop           | AgentLoop → AgentRunner 的 ReAct 循环 | `agent/loop.py` · `agent/runner.py`                        |
-| 2   | 工具系统 Tools                        | 21 类内置工具 + MCP + CLI 应用            | `agent/tools/`                                             |
+| 2   | 工具系统 Tools                        | 20 类内置工具 + MCP                       | `agent/tools/`                                             |
 | 3   | 记忆系统 Memory                       | 分层记忆 + Consolidator/Dream 两阶段      | `agent/memory.py`                                          |
 | 4   | 上下文管理 Context Management          | 策略化上下文治理与多级压缩                      | `agent/context_governor.py` · `agent/runner_strategies.py` |
 | 5   | Prompt 构建 Prompt Construction     | 分层组装 + 技能按需注入                      | `agent/context.py` · `agent/skills.py`                     |

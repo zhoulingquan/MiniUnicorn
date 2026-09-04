@@ -448,49 +448,6 @@ describe("MiniunicornClient", () => {
     );
   });
 
-  it("includes CLI app attachments in outbound messages", () => {
-    const client = new MiniunicornClient({
-      url: "ws://test",
-      reconnect: false,
-      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
-    });
-    client.connect();
-    lastSocket().fakeOpen();
-
-    client.sendMessage(
-      "chat-cli",
-      "@drawio please make this diagram",
-      undefined,
-      {
-        cliApps: [{
-          name: "drawio",
-          display_name: "Draw.io",
-          category: "diagrams",
-          entry_point: "cli-anything-drawio",
-          logo_url: null,
-          brand_color: "#F08705",
-        }],
-      },
-    );
-
-    expect(lastSocket().sent).toContain(
-      JSON.stringify({
-        type: "message",
-        chat_id: "chat-cli",
-        content: "@drawio please make this diagram",
-        cli_apps: [{
-          name: "drawio",
-          display_name: "Draw.io",
-          category: "diagrams",
-          entry_point: "cli-anything-drawio",
-          logo_url: null,
-          brand_color: "#F08705",
-        }],
-        webui: true,
-      }),
-    );
-  });
-
   it("includes MCP preset attachments in outbound messages", () => {
     const client = new MiniunicornClient({
       url: "ws://test",

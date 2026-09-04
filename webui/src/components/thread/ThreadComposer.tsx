@@ -70,7 +70,7 @@ const ACCEPT_ATTR =
 const DEFAULT_MAX_MESSAGE_BYTES = 37_748_736;
 /** 发送前校验时为 envelope framing(JSON 包裹 + chat_id + 字段名等)预留的
  * 安全余量。设计 §4.5 要求"保留安全余量",这里取 64 KiB,足以覆盖
- * metadata/workspace_scope/cli_apps/mcp_presets 等小字段。 */
+ * metadata/workspace_scope/mcp_presets 等小字段。 */
 const FRAME_FRAMING_MARGIN_BYTES = 64 * 1024;
 
 /** UTF-8 字节长度,浏览器原生 ``TextEncoder`` 输出 ``Uint8Array``,其

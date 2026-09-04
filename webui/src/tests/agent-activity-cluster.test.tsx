@@ -462,33 +462,9 @@ describe("AgentActivityCluster", () => {
     expect(screen.getByText("-3")).toBeInTheDocument();
   });
 
-  it("renders CLI app runs as dedicated activity rows", () => {
-    const line = 'run_cli_app({"name":"blender","args":["--background","scene.blend"],"json":true})';
-    render(
-      <AgentActivityCluster
-        messages={[{
-          id: "t-cli",
-          role: "tool",
-          kind: "trace",
-          content: line,
-          traces: [line],
-          createdAt: 1,
-        }]}
-        isTurnStreaming
-        hasBodyBelow={false}
-      />,
-    );
-
-    const cliRuns = screen.getByTestId("activity-cli-runs");
-    expect(cliRuns).toHaveTextContent("Using");
-    expect(cliRuns).toHaveTextContent("@blender");
-    expect(cliRuns).toHaveTextContent("--json --background scene.blend");
-    expect(screen.queryByText(/run_cli_app/)).not.toBeInTheDocument();
-  });
-
-  it("keeps CLI rows in chronological trace order", () => {
-    const cliArgs = { name: "blender", args: ["project", "new"], json: true };
-    const cliLine = `run_cli_app(${JSON.stringify(cliArgs)})`;
+  it("keeps MCP rows in chronological trace order", () => {
+    const mcpArgs = { url: "https://example.com" };
+    const mcpLine = `mcp_browserbase_browser_navigate(${JSON.stringify(mcpArgs)})`;
     render(
       <AgentActivityCluster
         messages={[
@@ -501,16 +477,16 @@ describe("AgentActivityCluster", () => {
             createdAt: 1,
           },
           {
-            id: "t-cli",
+            id: "t-mcp",
             role: "tool",
             kind: "trace",
-            content: cliLine,
-            traces: [cliLine],
+            content: mcpLine,
+            traces: [mcpLine],
             toolEvents: [{
               phase: "end",
-              call_id: "call-blender",
-              name: "run_cli_app",
-              arguments: cliArgs,
+              call_id: "call-browserbase",
+              name: "mcp_browserbase_browser_navigate",
+              arguments: mcpArgs,
             }],
             createdAt: 2,
           },
@@ -529,32 +505,32 @@ describe("AgentActivityCluster", () => {
     );
 
     const shellRow = screen.getByText("Shell").closest("li");
-    const cliRow = screen.getByText("@blender").closest("li");
+    const mcpRow = screen.getByText("Browserbase").closest("li");
     const fetchRow = screen.getByText("Reading").closest("li");
 
     expect(shellRow).not.toBeNull();
-    expect(cliRow).not.toBeNull();
+    expect(mcpRow).not.toBeNull();
     expect(fetchRow).not.toBeNull();
-    expect(shellRow!.compareDocumentPosition(cliRow!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(cliRow!.compareDocumentPosition(fetchRow!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(shellRow!.compareDocumentPosition(mcpRow!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(mcpRow!.compareDocumentPosition(fetchRow!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("labels rejected CLI app calls as failed instead of ran", () => {
+  it("labels rejected MCP calls as failed instead of ran", () => {
     render(
       <AgentActivityCluster
         messages={[{
-          id: "t-cli-fail",
+          id: "t-mcp-fail",
           role: "tool",
           kind: "trace",
-          content: 'run_cli_app({"name":"github","args":["repo","view"],"json":"true"})',
-          traces: ['run_cli_app({"name":"github","args":["repo","view"],"json":"true"})'],
+          content: 'mcp_browserbase_browser_navigate({"url":"https://example.com"})',
+          traces: ['mcp_browserbase_browser_navigate({"url":"https://example.com"})'],
           toolEvents: [
             {
               phase: "error",
-              call_id: "call-github",
-              name: "run_cli_app",
-              arguments: { name: "github", args: ["repo", "view"], json: "true" },
-              error: "Error: CLI app 'github' not found",
+              call_id: "call-browserbase",
+              name: "mcp_browserbase_browser_navigate",
+              arguments: { url: "https://example.com" },
+              error: "Error: browser not connected",
             },
           ],
           createdAt: 1,
@@ -564,12 +540,12 @@ describe("AgentActivityCluster", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /failed @github/i }));
+    fireEvent.click(screen.getByRole("button", { name: /failed browserbase/i }));
 
-    expect(screen.getByTestId("activity-cli-runs")).toHaveTextContent("Failed");
-    expect(screen.getByTestId("activity-cli-runs")).toHaveTextContent("@github");
-    expect(screen.getByTestId("activity-cli-runs")).toHaveTextContent("Error: CLI app 'github' not found");
-    expect(screen.queryByText("Ran CLI")).not.toBeInTheDocument();
+    const mcpRuns = screen.getByTestId("activity-mcp-runs");
+    expect(mcpRuns).toHaveTextContent("Failed");
+    expect(mcpRuns).toHaveTextContent("browser_navigate");
+    expect(mcpRuns).toHaveTextContent("Error: browser not connected");
   });
 
   it("renders MCP preset tool calls as branded activity rows", () => {

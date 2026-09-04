@@ -2,7 +2,6 @@ import type {
   ConnectionStatus,
   InboundEvent,
   Outbound,
-  OutboundCliAppMention,
   OutboundMessageMetadata,
   OutboundMcpPresetMention,
   OutboundMedia,
@@ -342,7 +341,6 @@ export class MiniunicornClient {
     content: string,
     media?: OutboundMedia[],
     options?: {
-      cliApps?: OutboundCliAppMention[];
       mcpPresets?: OutboundMcpPresetMention[];
       workspaceScope?: WorkspaceScopePayload | null;
       agentId?: string;
@@ -357,7 +355,6 @@ export class MiniunicornClient {
       chat_id: chatId,
       content,
       ...(media && media.length > 0 ? { media } : {}),
-      ...(options?.cliApps?.length ? { cli_apps: options.cliApps } : {}),
       ...(options?.mcpPresets?.length ? { mcp_presets: options.mcpPresets } : {}),
       ...(options?.workspaceScope ? { workspace_scope: options.workspaceScope } : {}),
       ...(metadata ? { metadata } : {}),

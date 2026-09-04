@@ -12,7 +12,6 @@ import type { StreamError } from "@/lib/miniunicorn-client";
 import type {
   ContextUsagePayload,
   InboundEvent,
-  OutboundCliAppMention,
   OutboundMcpPresetMention,
   OutboundMedia,
   GoalStateWsPayload,
@@ -406,7 +405,6 @@ export interface SendImage {
 }
 
 export interface SendOptions {
-  cliApps?: OutboundCliAppMention[];
   mcpPresets?: OutboundMcpPresetMention[];
   workspaceScope?: WorkspaceScopePayload | null;
   /** When set, the backend routes this user turn to the matching subagent. */
@@ -1006,7 +1004,6 @@ export function useMiniunicornStream(
             content,
             createdAt: Date.now(),
             ...(previews ? { images: previews } : {}),
-            ...(options?.cliApps?.length ? { cliApps: options.cliApps } : {}),
             ...(options?.mcpPresets?.length ? { mcpPresets: options.mcpPresets } : {}),
           },
         ];

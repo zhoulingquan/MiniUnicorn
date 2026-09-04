@@ -44,7 +44,7 @@ The channel layer (`channels/`, 6 adapters) is fully decoupled from the agent co
 | # | Harness module | MiniUnicorn implementation | Key files |
 |---|---------------|---------------------------|-----------|
 | 1 | Orchestration Loop | ReAct loop of AgentLoop → AgentRunner | `agent/loop.py` · `agent/runner.py` |
-| 2 | Tools | 21 built-in tools + MCP + CLI apps | `agent/tools/` |
+| 2 | Tools | 20 built-in tools + MCP | `agent/tools/` |
 | 3 | Memory | Layered memory + two-stage Consolidator/Dream | `agent/memory.py` |
 | 4 | Context Management | Strategy-based governance and multi-level compaction | `agent/context_governor.py` · `agent/runner_strategies.py` |
 | 5 | Prompt Construction | Layered assembly + on-demand skill injection | `agent/context.py` · `agent/skills.py` |

@@ -84,21 +84,19 @@ function settingsPayload(): SettingsPayload {
   };
 }
 
-const installedAnyGen = {
-  name: "anygen",
-  display_name: "AnyGen",
-  category: "generation",
-  description: "Generate docs, slides, websites and more via AnyGen cloud API",
-  requires: "ANYGEN_API_KEY",
-  source: "harness",
-  entry_point: "cli-anything-anygen",
+const installedBrowserbase = {
+  name: "browserbase",
+  display_name: "Browserbase",
+  category: "browser",
+  description: "Cloud browser automation for agents",
+  requires: "BROWSERBASE_API_KEY",
   install_supported: true,
   installed: true,
+  configured: true,
   available: true,
-  status: "installed",
-  logo_url: "https://www.google.com/s2/favicons?domain=anygen.io&sz=64",
-  brand_color: "#111827",
-  skill_installed: true,
+  status: "configured",
+  logo_url: null,
+  brand_color: "#6366F1",
 };
 
 function renderSettingsView(
@@ -126,31 +124,25 @@ describe("SettingsView Apps catalog", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows a visible uninstall button for installed CLI apps and calls uninstall", async () => {
+  it("shows a visible remove button for configured MCP presets and calls remove", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/settings") {
         return jsonResponse(settingsPayload());
       }
-      if (url === "/api/settings/cli-apps") {
+      if (url === "/api/settings/mcp-presets") {
         return jsonResponse({
-          apps: [installedAnyGen],
+          presets: [installedBrowserbase],
           installed_count: 1,
-          catalog_updated_at: "2026-04-18",
         });
       }
-      if (url === "/api/settings/mcp-presets") {
-        return jsonResponse({ presets: [], installed_count: 0 });
-      }
-      if (url === "/api/settings/cli-apps/uninstall?name=anygen") {
+      if (url === "/api/settings/mcp-presets/remove?name=browserbase") {
         return jsonResponse({
-          apps: [{ ...installedAnyGen, installed: false, status: "available" }],
+          presets: [{ ...installedBrowserbase, installed: false, configured: false, status: "available" }],
           installed_count: 0,
-          catalog_updated_at: "2026-04-18",
           last_action: {
             ok: true,
-            message: "Uninstalled CLI for AnyGen.",
-            still_available: false,
+            message: "Removed MCP preset Browserbase.",
           },
         });
       }
@@ -160,25 +152,25 @@ describe("SettingsView Apps catalog", () => {
 
     renderSettingsView({ initialSection: "apps" });
 
-    expect(await screen.findByRole("heading", { name: "CLI Apps" })).toBeInTheDocument();
-    expect(await screen.findByText("AnyGen")).toBeInTheDocument();
-    const uninstall = screen.getByRole("button", { name: "Uninstall CLI" });
+    expect(await screen.findByRole("heading", { name: "Apps" })).toBeInTheDocument();
+    expect(await screen.findByText("Browserbase")).toBeInTheDocument();
+    const remove = screen.getByRole("button", { name: "Remove" });
 
-    fireEvent.click(uninstall);
+    fireEvent.click(remove);
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
-        "/api/settings/cli-apps/uninstall?name=anygen",
+        "/api/settings/mcp-presets/remove?name=browserbase",
         expect.objectContaining({
           headers: { Authorization: "Bearer tok" },
         }),
       ),
     );
-    expect(await screen.findByText("Uninstalled CLI for AnyGen.")).toBeInTheDocument();
+    expect(await screen.findByText("Removed MCP preset Browserbase.")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
 
-    expect(screen.queryByText("Uninstalled CLI for AnyGen.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Removed MCP preset Browserbase.")).not.toBeInTheDocument();
   });
 
   it("publishes the latest settings payload to the shell", async () => {
@@ -209,9 +201,6 @@ describe("SettingsView Apps catalog", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/settings") return jsonResponse(payload);
-      if (url === "/api/settings/cli-apps") {
-        return jsonResponse({ apps: [], installed_count: 0 });
-      }
       if (url === "/api/settings/mcp-presets") {
         return jsonResponse({ presets: [], installed_count: 0 });
       }

@@ -372,7 +372,7 @@ describe("useMiniunicornStream", () => {
       wrapper: wrap(fake.client),
     });
 
-    const args = { name: "github", args: ["repo", "view"], json: "true" };
+    const args = { url: "https://example.com" };
     act(() => {
       fake.emit("chat-tool-phase", {
         event: "message",
@@ -381,8 +381,8 @@ describe("useMiniunicornStream", () => {
         kind: "tool_hint",
         tool_events: [{
           phase: "start",
-          call_id: "call-cli",
-          name: "run_cli_app",
+          call_id: "call-web",
+          name: "web_fetch",
           arguments: args,
         }],
       });
@@ -393,23 +393,23 @@ describe("useMiniunicornStream", () => {
         kind: "progress",
         tool_events: [{
           phase: "error",
-          call_id: "call-cli",
-          name: "run_cli_app",
+          call_id: "call-web",
+          name: "web_fetch",
           arguments: args,
-          error: "Error: CLI app 'github' not found",
+          error: "Error: fetch failed",
         }],
       });
     });
 
     expect(result.current.messages[0].traces).toEqual([
-      'run_cli_app({"name":"github","args":["repo","view"],"json":"true"})',
+      'web_fetch({"url":"https://example.com"})',
     ]);
     expect(result.current.messages[0].toolEvents).toMatchObject([
       {
         phase: "error",
-        call_id: "call-cli",
-        name: "run_cli_app",
-        error: "Error: CLI app 'github' not found",
+        call_id: "call-web",
+        name: "web_fetch",
+        error: "Error: fetch failed",
       },
     ]);
   });

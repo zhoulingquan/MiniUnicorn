@@ -8,7 +8,7 @@ interface AppsViewProps {
   onBack: () => void;
 }
 
-/** Apps 资源页：CLI Apps + MCP Presets 一体化管理入口。
+/** Apps 资源页：MCP Presets 管理入口。
  * 复用 AppsSettings 渲染主体，外加 ViewShell 提供返回按钮与标题。
  * 传 hideTitle 避免与 ViewShell 的 h1 重复渲染 "Apps" heading。 */
 export function AppsView({ onBack }: AppsViewProps) {
