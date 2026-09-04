@@ -181,9 +181,6 @@ describe("SettingsView Apps catalog", () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url === "/api/settings") return jsonResponse(payload);
-        if (url === "/api/settings/cli-apps") {
-          return jsonResponse({ apps: [], installed_count: 0 });
-        }
         if (url === "/api/settings/mcp-presets") {
           return jsonResponse({ presets: [], installed_count: 0 });
         }
@@ -250,7 +247,6 @@ describe("SettingsView Apps catalog", () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url === "/api/settings") return jsonResponse(payload);
-        if (url === "/api/settings/cli-apps") return jsonResponse({ apps: [], installed_count: 0 });
         if (url === "/api/settings/mcp-presets") return jsonResponse({ presets: [], installed_count: 0 });
         return { ok: false, status: 404, json: async () => ({}) } as Response;
       }),

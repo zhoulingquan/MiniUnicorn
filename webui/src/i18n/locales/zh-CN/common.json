@@ -508,12 +508,6 @@
         "tooltipTokensUnit": "tokens",
         "tooltipEstimateHint": "基于消息条数估算,发送后将获取真实数据"
       },
-      "tools": {
-        "search": "搜索",
-        "reason": "推理",
-        "deepResearch": "深度研究",
-        "voice": "语音输入"
-      },
       "slash": {
         "ariaLabel": "斜杠命令",
         "label": "命令",

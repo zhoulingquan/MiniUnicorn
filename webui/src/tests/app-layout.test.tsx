@@ -796,9 +796,6 @@ describe("App layout", () => {
         if (href === "/api/settings") {
           return jsonResponse(baseSettingsPayload());
         }
-        if (href === "/api/settings/cli-apps") {
-          return jsonResponse({ apps: [], installed_count: 0, catalog_updated_at: "2026-04-18" });
-        }
         if (href === "/api/settings/mcp-presets") {
           return jsonResponse({ presets: [], installed_count: 0 });
         }

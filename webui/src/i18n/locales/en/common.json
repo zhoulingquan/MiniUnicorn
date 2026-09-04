@@ -509,12 +509,6 @@
         "tooltipTokensUnit": "tokens",
         "tooltipEstimateHint": "Estimated from message count; real usage arrives after sending"
       },
-      "tools": {
-        "search": "Search",
-        "reason": "Reason",
-        "deepResearch": "Deep research",
-        "voice": "Voice input"
-      },
       "slash": {
         "ariaLabel": "Slash commands",
         "label": "commands",
