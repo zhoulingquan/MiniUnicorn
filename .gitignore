@@ -13,7 +13,7 @@ docs/superpowers/
 docs/plans/
 
 # webui (monorepo frontend)
-webui/node_modules/
+node_modules/
 webui/dist/
 webui/coverage/
 webui/.vite/
