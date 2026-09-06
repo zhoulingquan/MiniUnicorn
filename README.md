@@ -1,15 +1,17 @@
 <div align="center">
 
-<img src="docs/logo.svg" alt="Erza Logo" width="200" height="200">
+**开源、自托管的 Agent 运行时引擎**
 
-**一个核心轻量、可审计、可扩展的开源个人 AI 代理框架**
+把任意 LLM 变成长期运行、可治理、可审计的 Agent 系统——  
+一条透明的执行内核，一套确定性的治理机制，一层可插拔的接入面。
 
-围绕一个可读的核心循环构建——消息进来，LLM 决策，工具执行，记忆按需注入。
+![Python](https://img.shields.io/badge/python-≥3.11-blue)
 
-[![Python](https://img.shields.io/badge/python-≥3.11-blue)](https://www.python.org/)
-[![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
-[![Release](https://img.shields.io/badge/release-v0.4.0-success)](https://github.com/zhoulingquan/Erza/releases)
-[![Status](https://img.shields.io/badge/status-alpha-orange)]()
+![License](https://img.shields.io/badge/license-MIT-green)
+
+![Release](https://img.shields.io/badge/release-v0.4.0-success)
+
+![Status](https://img.shields.io/badge/status-alpha-orange)
 
 **[简体中文]** | [English](./README.en.md)
 
@@ -19,263 +21,246 @@
 
 ## 这是什么
 
-Erza 是一个可以长期运行的个人 AI 代理。它不是聊天机器人框架，也不是编排引擎——它只是一个**小的代理循环**：接收消息、调用 LLM、执行工具、返回结果。所有重的东西（频道适配、工具实现、记忆策略）都挂在循环外围，核心保持可读、可审计、可替换。
+Erza 不是个人 AI 助手，也不是聊天机器人框架。**Erza 是一个 Agent 运行时（Agent Runtime）**：位于 LLM 之下、应用之上的一层基础设施，负责把"会说话的模型"变成"能干活、可托管的软件系统"。
 
-需要说明：这里的「轻量」指架构哲学与依赖成本——编排核心仅约 3.4k 行、运行时约 30 个纯 Python 依赖、单进程即可部署；而完整代码库含频道适配、30 类工具与 WebUI 等外围能力，源码总量约 11 万行，并非「小脚本」级别。
+它由三部分构成：
 
-基于 [Nanobot](https://github.com/marm-io/nanobot) 项目二次开发，在其轻量级代理核心基础上扩展了频道适配、记忆系统、WebUI 和多平台部署能力。
+- **执行内核**（约 3.9k 行）：一条固定的 ReAct 循环和一台轮次状态机。没有插件钩子链，没有中间件栈，没有动态编排——读 `agent/loop.py` 和 `agent/runner.py` 就能理解 Agent 的全部行为路径。
+- **治理机制**：调用账本、结构化工具回执、基于证据的步骤验收、受治理的记忆生命周期。这些机制不依赖模型自觉，全部是确定性代码。
+- **接入面**：5 个 IM 频道 + WebSocket、OpenAI 兼容 HTTP API、Python SDK、WebUI 控制台。所有流量从边缘进入，汇入同一条消息总线。
 
-> *"If you're not the model, you're the harness."* —— 当模型能力跨过阈值后，决定 Agent 生产力的是包裹模型的工程化基础设施。Erza 就是一个完整而极简的 **Agent Harness** 实现。
+基于 [Nanobot](https://github.com/marm-io/nanobot) 二次开发。项目命名取自《妖精的尾巴》的 Erza：本体是稳定的核心，装备按需从武器库换装——对应本项目的 **core + library** 架构。
+
+> *"If you're not the model, you're the harness."* —— 当模型能力跨过阈值后，决定 Agent 生产力的是包裹模型的工程化基础设施。Erza 就是这样一个完整实现。
+
+### 适用与不适用
+
+**适合**：构建需要长期运行、有状态、可审计的 Agent 应用（垂直 Agent、运维代理、研发助理）；需要接入 IM 或暴露 API 的自托管部署；研究 Agent 执行内核、记忆治理与工具治理的实现。
+
+**不适合**：需要复杂 DAG 工作流引擎的场景；多租户 SaaS（当前为单工作区隔离模型）；不接受文件系统 / Shell 访问的高沙箱环境。
+
 
 ## 整体架构
 
-整个系统围绕一个异步消息总线展开，分四层：
+系统围绕一条异步消息总线展开，分四层：
 
 <div align="center">
 
-<img src="docs/architecture.svg" alt="Erza 四层架构：频道层 → 消息总线 → 代理核心 → 能力层" width="680">
+![Erza 四层架构：频道层 → 消息总线 → 代理核心 → 能力层](docs/architecture.svg)
 
 </div>
 
-频道层（`channels/`，6 个适配器）经 49 行的 `MessageBus` 与代理核心完全解耦；核心之下是工具、技能、LLM 提供商组成的能力层。而代理核心本身，可以按 Agent Harness 的十二个标准模块逐一拆解。
+```
+接入层    channels/(飞书·微信·企微·钉钉·QQ·WebSocket)   api_compat/(OpenAI 兼容)   cli/   webui/(控制台)
+             │                    │                        │
+             └────────────┬───────┴────────────┬───────────┘
+                          ▼                    ▼
+                   bus/MessageBus ──────► command/ 斜杠命令路由
+                          │
+                          ▼
+执行内核   agent/  AgentLoop（轮次状态机）──► AgentRunner（ReAct 循环）
+             │              │                    │
+             │              │             ┌──────┴──────┐
+             │              ▼             ▼             ▼
+治理机制     │        ledger/CallLedger  planner/  step_acceptance(回执+证据)
+             │
+             ├──► tools/registry ──► tools/*（25+ 内置工具）＋ mcp_runtime（MCP 服务器）
+             ├──► providers/（多提供商 + Fallback 链）
+             ├──► memory/（SQLite 结构化记忆 + Dream 蒸馏）＋ session/（会话持久化）
+             └──► security/（工作区边界 · SSRF 防护 · 沙箱 · 风险分级）
 
-## 模块拆解
+控制面     webui/ Python 网关 ──► React 18 前端（设置/频道/工具/记忆管理）
+组合根     composition/  gateway / agent / serve 三种装配方式
+```
 
-| #   | Harness 模块                        | Erza 实现                     | 关键文件                                                       |
-| --- | --------------------------------- | ---------------------------------- | ---------------------------------------------------------- |
-| 1   | 编排循环 Orchestration Loop           | AgentLoop → AgentRunner 的 ReAct 循环 | `agent/loop.py` · `agent/runner.py`                        |
-| 2   | 工具系统 Tools                        | 20 类内置工具 + MCP                       | `agent/tools/`                                             |
-| 3   | 记忆系统 Memory                       | 分层记忆 + Consolidator/Dream 两阶段      | `agent/memory.py`                                          |
-| 4   | 上下文管理 Context Management          | 策略化上下文治理与多级压缩                      | `agent/context_governor.py` · `agent/runner_strategies.py` |
-| 5   | Prompt 构建 Prompt Construction     | 分层组装 + 技能按需注入                      | `agent/context.py` · `agent/skills.py`                     |
-| 6   | 输出解析 Output Parsing               | 原生 Function Calling + JSON 修复      | `providers/*/parsing.py`                                   |
-| 7   | 状态管理 State Management             | 原子持久化会话 + Git 版本化记忆                | `session/` · `utils/`(GitStore)                            |
-| 8   | 错误处理 Error Handling               | Provider Fallback + 失败反思           | `providers/fallback_provider.py` · `agent/reflection.py`   |
-| 9   | 安全防护 Guardrails                   | 工作区限制 / SSRF / 沙箱 / 频道准入        | `security/`                                                |
-| 10  | 验证循环 Verification Loops           | Reflection 教训沉淀 + 计划执行             | `agent/reflection.py` · `agent/planner.py`                 |
-| 11  | 子 Agent 编排 Subagent Orchestration | spawn / delegate / create_agent    | `agent/subagent.py`                                        |
-| 12  | 终止条件 Termination Conditions       | 迭代上限 + 轮次预算 + 用户中断                 | `agent/turn_budget.py`                                     |
+频道的入站消息经 49 行的 `MessageBus`（有界队列 + 背压）进入内核；内核之下，工具、技能、提供商组成能力层。**所有跨层通信都走显式接口，没有隐式全局状态。**
 
-### 1. 编排循环 — Agent 的心跳
+## 执行内核
 
-`AgentLoop`（1575 行）协调对话轮次，`AgentRunner`（1663 行）执行 Thought→Action→Observation 循环。这是整个系统**唯一的处理路径**——没有插件钩子链，没有中间件栈，没有动态编排。这是刻意的"Dumb Loop"哲学：循环保持笨拙而透明，智能留给模型，复杂性推到边缘。读这两个文件就能理解代理如何工作。
+### 轮次状态机（`agent/turn_orchestrator.py`）
 
-### 2. 工具系统 — Agent 的双手
+每一轮对话是确定性的状态流转：
 
-21 类内置工具经 `pkgutil` 自动发现，第三方工具经入口点插件注册：
+```
+RESTORE → COMPACT → COMMAND → BUILD → RUN → SAVE → RESPOND → DONE
+```
 
-| 类别 | 工具 |
-|------|------|
+状态机从 `AgentLoop` 中独立出来，依赖通过 `TurnDeps` 显式注入。恢复（RESTORE）和压缩（COMPACT）在进入对话之前发生，保证崩溃后可续跑、上下文不腐烂。
+
+### ReAct 循环（`agent/runner.py`）
+
+Thought → Action → Observation 的固定循环。这是系统**唯一的处理路径**："Dumb Loop" 哲学——循环保持笨拙而透明，智能留给模型，复杂性推到边缘。
+
+### 计划与执行（`agent/planner.py`）
+
+启用 Planner 后，LLM 先把任务分解为有序步骤，再逐步入 ReAct 循环执行；失败步骤携带原因触发重新规划（replan），剩余步骤延续。计划快照（`plan_snapshot.py`）与恢复检查点隔离持久化。
+
+### 回执与证据验收（`tools/receipts.py` · `agent/step_acceptance.py`）
+
+每个契约类工具调用产出**结构化回执**（status / result_excerpt / receipt）。步骤是否完成由**确定性规则**基于回执证据判定，规则拒绝时才回退到 LLM 验证器——步骤完成与否不再依赖模型自述。
+
+### 调用账本（`ledger/call_ledger.py`）
+
+单轮内所有 LLM 调用按用途记账（executor / planner / replan / reflection），`turn_budget` 据此约束单轮资源消耗，防止失控循环。
+
+### 上下文治理（`agent/context_governor.py`）
+
+可插拔策略链，在每次 LLM 调用前把上下文压回窗口内：Snip（裁剪最旧片段交给 Consolidator）→ Microcompact（压缩旧工具结果）→ 孤儿治理（保证工具结果消息序列合法）→ AutoCompact（空闲会话主动压缩）。第三方策略经入口点 `erza.context_strategies` 注册。
+
+### 反思与 Dream（`agent/reflection.py` · `memory/dream.py`）
+
+失败或每 N 轮触发一句话反思，写入 `reflections.jsonl`；**Dream** 在空闲时（`dream_trigger.py`，用户停用 5 分钟后触发，与 cron 保底互补）把新增摘要与反思蒸馏成候选事实，进入受治理的记忆生命周期。目标是跨轮次学习——不重复同一个错误。
+
+## 状态与记忆
+
+| 层    | 载体                            | 职责                                                                                                          |
+| ---- | ----------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| 短期会话 | `session/`                    | 活跃对话上下文，原子写入（临时文件 + fsync + rename），崩溃安全                                                                    |
+| 压缩归档 | `memory/history.jsonl`        | 追加式历史摘要，带游标，由 Consolidator 维护                                                                               |
+| 长期知识 | `memory/structured/memory.db` | **SQLite 单一事实存储**（`memory/repository.py`，fail-closed 健康检查），仅 `memory/lifecycle.py` 有权晋升/替换/吊销/过期记录，全部变更走单事务 |
+| 教训沉淀 | `memory/reflections.jsonl`    | 失败与周期性反思                                                                                                    |
+| 版本历史 | `utils/` GitStore（内嵌 Git）     | 长期文件每次变更可 diff、可回滚                                                                                          |
+
+记忆进入提示词的唯一路径是**确定性召回**：只召回符合精确作用域的 active 事实；候选事实、历史归档不会整体注入。旧版 JSONL 日志仅作为迁移输入（`memory/jsonl_import.py`）。
+
+## 能力层
+
+### 工具系统（`tools/`，25+ 内置）
+
+`ToolRegistry` 动态注册 + 别名机制，`pkgutil` 自动发现；每个工具有显式 JSON Schema，执行受安全层约束。
+
+| 类别   | 工具                                                                                            |
+| ---- | --------------------------------------------------------------------------------------------- |
 | 文件系统 | `read_file` · `write_file` · `edit_file` · `apply_patch` · `list_dir` · `find_files` · `grep` |
-| 执行 | `exec`（沙箱可选，持久会话）· `write_stdin` · `list_exec_sessions` · `run_cli_app`（本机 CLI） |
-| 检索 | `web_fetch`（URL 抓取 → Markdown，含 Jina Reader 与本地可读性回退） |
-| 编排 | `cron` · `long_task` · `execute_plan` · `complete_goal` |
-| 子代理 | `spawn` · `delegate` · `create_agent` |
-| 外部 | `mcp_*`（多服务器）· `message`（跨频道） |
-| 自省 | `self` |
+| 执行   | `exec`（可选拌箱，持久会话）· `write_stdin` · `list_exec_sessions`                                       |
+| 检索   | `web_fetch`（URL → Markdown，SSRF 防护 + DNS rebinding 钉扎）                                        |
+| 编排   | `cron` · `long_task` · `execute_plan` · `activate_plan`                                       |
+| 子代理  | `spawn` · `delegate` · `create_agent`                                                         |
+| 外部   | `mcp_*`（多服务器连接栈）· `message`（跨频道）                                                              |
+| 自省   | `self`（运行时状态查询，白名单门控）                                                                         |
 
-每个工具有显式 schema（name / description / parameters），执行受安全层（模块 9）约束。外部能力还有两条不碰核心的接入路径：**MCP 服务器**（外部进程协议）与 **CLI 应用**（`run_cli_app` + SKILL.md 指导代理使用 ffmpeg、pandoc、git 等本机程序）。
+外部能力三条接入路径，全部不碰内核：**MCP 服务器**（`tools/mcp_runtime.py`，由组合根持有连接栈）、**技能**（Markdown + YAML frontmatter，按需注入）、**Python 入口点插件**。
 
-### 3. 记忆系统 — 跨时间尺度的状态保持
+### LLM 提供商（`providers/`）
 
-记忆不是一个巨大文件，而是分层的，不同的记忆方式配不同的载体：
+统一基类 + `ProviderSpec` 声明式行为 flag（`force_string_content`、`normalize_tool_call_ids` 等）消除各家差异的硬编码分支：
 
-| 层 | 载体 | 角色 |
-|----|------|------|
-| 短期会话 | `session.messages` | 活跃对话的完整上下文 |
-| 压缩归档 | `memory/history.jsonl` | 追加式、带游标的历史摘要（机器优先） |
-| 长期知识 | `memory/structured/memory.db` | 受治理记录的结构化事实（`journal.jsonl` 仅为旧版迁移输入） |
-| 教训沉淀 | `memory/reflections.jsonl` | 失败与周期性反思的一句话教训 |
-| 版本历史 | `GitStore`（内嵌 Git） | 长期文件每次变更可追溯、可回滚 |
+- OpenAI 兼容（DeepSeek、OpenRouter、Moonshot、Azure、vLLM、Ollama 等）
+- OpenAI Responses API（GPT-5 / o-series 独立解析路径）
+- Anthropic（自适应思考与缓存优化）
+- `FallbackProvider` 主模型失败自动切换；签名指纹（`ProviderSignature`）驱动的运行时热切换
 
-记忆经**两阶段流转**：**Consolidator** 在会话逼近上下文窗口时把最旧的安全片段摘要进 `history.jsonl`；**Dream** 按周期或 `/dream` 手动触发，从新增摘要与反思中提取候选事实，再由确定性的生命周期写入追加式结构化日志。正常提示词只召回符合精确作用域的 active 事实；候选事实和旧 Markdown 记忆文件不会整体注入。
+## 接入层
 
-### 4. 上下文管理 — 对抗上下文腐烂
+| 模块                   | 职责                                                                                                                   |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `channels/`（12.6k 行） | 5 个 IM 适配器（飞书/微信/企微/钉钉/QQ）+ WebSocket，统一 `BaseChannel` 接口，二维码扫码登录（`QRCodeAuthHandler`），`allowFrom` 准入白名单，均为可选 extras |
+| `bus/`               | 49 行异步消息总线，有界队列 + 自然背压，入站/出站解耦                                                                                       |
+| `command/`           | 斜杠命令路由，priority / exact / prefix 三层匹配，含治理型记忆管理命令                                                                     |
+| `cron/`              | 自然语言定时任务，持久化存储，重启后补执行                                                                                                |
+| `api_compat/`        | OpenAI 兼容 HTTP API（`/v1/chat/completions` SSE 流式、`/v1/models`），可选 extras `[api]`                                     |
+| `webui/`             | Python 网关：HTTP/WebSocket 路由、设置/频道/工具/记忆管理 API；前端为 React 18 + Vite + TypeScript（约 4 万行）                               |
 
-上下文治理是策略化的，`ContextGovernor` 驱动一组可替换的 `ContextStrategy`：
+## 安全模型
 
-- **Snip**——裁剪最旧历史片段（交给 Consolidator 摘要）
-- **Microcompact**——压缩旧工具结果，保留最近 10 条完整
-- **孤儿治理**——`drop_orphan_tool_results` / `backfill_missing_tool_results` 保证消息序列结构合法
-- **AutoCompact**——主动压缩空闲会话，降低 token 成本与延迟
-- **轮次预算**——`TurnBudget` 约束单轮资源消耗
-
-自动压缩基于 Token 预算触发，跳过活跃任务。第三方策略可经入口点 `erza.context_strategies` 注册，内置策略永远优先。
-
-### 5. Prompt 构建 — 模型看到的世界
-
-上下文组装是分层的：基础人格（`SOUL.md`）→ 项目指令 → 工具定义 → 确定性召回的 active 记忆与按需技能。长期事实只来自 append-only 结构化日志，并按精确作用域召回；候选记忆不会进入正常提示词。
-
-### 6. 输出解析 — 从自由文本到结构化行动
-
-采用原生 Function Calling 循环（而非自由文本解析），并用 `json-repair` 容错修复模型输出的不合法 JSON。Provider 层面：`ProviderSpec` 声明式行为 flag（如 `force_string_content`、`normalize_tool_call_ids`）消除各家提供商差异的硬编码分支；OpenAI Responses API（GPT-5 / o-series）有独立解析路径。
-
-### 7. 状态管理 — 可恢复、可调试
-
-会话写入是原子的（临时文件 + fsync + rename），崩溃安全。长期记忆文件经 `GitStore` 版本化——每次 Dream 变更都是一个可 diff、可回滚的提交。定时任务（`cron/`）持久化存储并在重启后补执行，`/goal` 持续目标跨会话跟踪。
-
-### 8. 错误处理 — 在必然错误中生存
-
-多步代理的错误会累积，Erza 的对策分层：`FallbackProvider` 在主模型失败时自动切换备用模型；工具错误结构化返回给模型自行修正；**Reflection 机制**在失败时（工具错误、LLM 错误、达到迭代上限）让模型产出一句话教训写入 `reflections.jsonl`，由 Dream 整合进长期记忆——目标是跨轮次学习，不重复同一个错误。
-
-### 9. 安全防护 — 显式边界
-
-| 边界 | 机制 |
-|------|------|
-| 文件访问 | `_resolve_path` 强制路径在工作区内 |
-| Shell 执行 | 可选 `bwrap` 沙箱，工作区限制 |
-| 出站 HTTP | `validate_url_target` 阻止 RFC1918 和云元数据端点 |
-| 频道准入 | 各频道 `allowFrom` 白名单（精确匹配，支持 `*` 通配） |
+| 边界       | 机制                                                                              |
+| -------- | ------------------------------------------------------------------------------- |
+| 文件访问     | 工作区路径边界（`security/workspace_policy.py`），越界是硬策略错误，模型不可用 shell 技巧绕过               |
+| Shell 执行 | 可选 `bwrap` 沙箱、受限环境变量注入、exec_session 配置门控                                        |
+| 出站 HTTP  | SSRF 防护：传输层钩子拦截 IP 字面量目标、DNS rebinding 钉扎（30s TTL）、重定向复检（`security/network.py`） |
+| 风险分级     | `RiskLevel` 标注工具风险，高危工具经审批门（approval gate）与检查点隔离（`agent/tool_checkpoint.py`）    |
+| 频道准入     | 各频道 `allowFrom` 白名单                                                             |
 
 权限架构与推理架构分离：安全检查在工具执行层强制执行，不依赖模型自觉。
 
-### 10. 验证循环 — Demo 到生产的分水岭
+## 组合根与入口
 
-`execute_plan` 支持先计划后执行的任务分解；Reflection 除失败触发外还可按间隔周期性触发，形成"执行→反思→沉淀→改进"的闭环。计划执行失败（`plan_failed`）同样触发反思，避免自我验证偏差。
+所有长生命周期对象（总线、cron、会话管理、MCP 连接栈）由组合根创建并按逆序关闭，内核不自行创建资源：
 
-### 11. 子 Agent 编排 — 并行化与上下文隔离
+| 入口                          | 组合根                              | 用途                      |
+| --------------------------- | -------------------------------- | ----------------------- |
+| `erza gateway`              | `composition/gateway.py`         | 全功能网关（频道 + WebUI + API） |
+| `erza agent` / `erza serve` | `composition/agent_app.py`       | 无头终端对话 / 纯 API 服务       |
+| Python SDK                  | `erza.py` 的 `Erza.from_config()` | 编程式嵌入                   |
 
-`SubagentManager` 管理三种委派方式：`spawn`（后台并行子任务）、`delegate`（委托并等待结果）、`create_agent`（动态生成新代理定义）。子代理在独立上下文中深度工作，只把结论带回主循环——这既是并行化手段，也是上下文管理手段（模块 4 的延伸）。
+```python
+from erza import Erza
 
-### 12. 终止条件 — 知道何时停下
+bot = Erza.from_config()
+result = await bot.run("总结这个仓库的架构")
+print(result.content, result.tools_used)
+```
 
-分层的终止体系：自然终止（模型不再调用工具）、迭代上限（`max_tool_iterations`，触发时记录 `stop_reason` 并告警）、轮次预算（`TurnBudget` token/资源约束）、用户中断。达到上限的非正常终止会触发 Reflection（模块 8），把"为什么没做完"沉淀为教训。
 
-## 适用场景
+## 代码地图
 
-### 适合
+Python 源码约 **7.0 万行**（69.6k），WebUI TypeScript 约 **4.0 万行**，测试 **253 个文件 / 8.5 万行**：
 
-- **个人 AI 助手**：接入飞书/钉钉/微信，7×24 小时在线，记忆跨会话保留
-- **开发辅助**：文件读写、Shell 执行、代码搜索、补丁应用——代理可自主完成多步任务
-- **定时自动化**：自然语言调度，`/goal` 持续目标，重启后补执行
-- **研究实验**：代码可读，核心循环可审计，适合研究工具使用、记忆策略、代理行为
-- **编程式集成**：Python SDK 或 OpenAI 兼容 API 嵌入现有系统
-- **多平台部署**：Docker、Linux 服务、macOS LaunchAgent
+| 包                   | 行数     | 职责                                      |
+| ------------------- | ------ | --------------------------------------- |
+| `erza/channels/`    | 12,644 | IM 频道适配器与媒体处理                           |
+| `erza/agent/`       | 12,511 | 执行内核：状态机、ReAct、规划、验收、上下文治理              |
+| `erza/tools/`       | 8,963  | 内置工具、注册表、MCP 运行时、沙箱                     |
+| `erza/webui/`       | 6,485  | 控制台网关 API（前端在仓库根 `webui/`）              |
+| `erza/memory/`      | 6,163  | SQLite 记忆仓库、生命周期治理、Dream 蒸馏             |
+| `erza/providers/`   | 5,121  | 多提供商抽象与 Fallback 链                      |
+| `erza/cli/`         | 3,717  | Typer 命令、终端渲染、网关运行器                     |
+| `erza/utils/`       | 3,516  | 文档解析、媒体解码、GitStore、原子写                  |
+| `erza/skills/`      | 2,105  | 内置技能包                                   |
+| `erza/session/`     | 1,608  | 会话持久化与目标状态                              |
+| `erza/config/`      | 1,285  | Pydantic 配置模型（camelCase/snake_case 双兼容） |
+| `erza/command/`     | 1,258  | 斜杠命令路由                                  |
+| `erza/security/`    | 1,240  | 工作区边界、SSRF、风险分级                         |
+| `erza/cron/`        | 1,014  | 定时任务服务                                  |
+| `erza/composition/` | 573    | 组合根（gateway / agent_app）                |
+| `erza/api_compat/`  | 557    | OpenAI 兼容 API                           |
+| `erza/ledger/`      | 431    | 调用账本与轮次预算                               |
+| `erza/bus/`         | 141    | 消息总线                                    |
+| `erza/erza.py`      | SDK 门面 | `Erza.from_config().run()`              |
 
-### 不适合
-
-- 需要复杂 DAG 编排或工作流引擎的场景
-- 需要多租户隔离的 SaaS 部署
-- 不接受文件系统/Shell 访问的高沙箱要求环境
-
-## 模块速查
-
-### 核心运行时
-
-| 模块 | 职责 |
-|------|------|
-| `agent/` | AgentLoop 协调对话轮次，AgentRunner 执行 LLM 循环，含上下文治理策略与自动压缩 |
-| `session/` | 会话历史持久化、自动压缩、目标状态跟踪 |
-| `config/` | Pydantic 配置模型，支持 `${VAR}` 环境变量 |
-| `cron/` | 自然语言定时任务，持久化，重启补执行 |
-| `bus/` | 异步消息总线 |
-| `command/` | 斜杠命令路由（priority/exact/prefix 三层匹配） |
-
-### 扩展模块
-
-| 模块 | 职责 |
-|------|------|
-| `channels/` | 6 个频道适配器（飞书/钉钉/企微/微信/QQ/WebSocket） |
-| `agent/tools/` | 21 类内置工具（文件/Shell/抓取/MCP/子代理...） |
-| `webui/`（仓库根） | React 18 + Vite + TypeScript 前端（约 4 万行 TS/TSX） |
-| `erza/webui/` | Python 网关：HTTP/WebSocket 路由、设置/频道/工具管理 API |
-| `apps/` | Agent App 生态：CLI 应用目录、安装与扩展市场协议 |
-| `cli/` | Typer CLI 命令、终端渲染、网关运行器 |
-| `utils/` | 文档解析、媒体解码、Git 存储等工具 |
-| `providers/` | LLM 提供商抽象与 OpenAI 兼容实现 |
-| `security/` | 工作区限制、SSRF 防护、Shell 沙箱 |
-| `api_compat/` | OpenAI 兼容 HTTP API（可选 extras `[api]`） |
-
-## 安装
+## 快速开始
 
 ```bash
-# 从源码（最新特性）
-git clone https://github.com/zhoulingquan/erza.git
-cd erza
+# 从源码安装
+git clone https://github.com/zhoulingquan/Erza.git
+cd Erza
 pip install -e .
 
 # 可选附加依赖
 pip install -e ".[api,pdf,dev]"   # HTTP API / PDF 解析 / 测试
 ```
 
-运行时依赖约 30 个 Python 包，无原生编译依赖（除 lxml 外）。
+运行时依赖约 30 个纯 Python 包（除 lxml 外无原生编译）。也可以用 Docker / Linux 服务 / macOS LaunchAgent 部署，见 [deployment.md](./docs/deployment.md)。
 
-## 快速开始
-
-**一条命令启动**——配置文件和工作区会自动初始化，LLM API Key 可以启动后在 WebUI 里配置。
+**一条命令启动**——配置和工作区自动初始化：
 
 ```bash
 erza gateway
 # → 浏览器访问 http://127.0.0.1:8765
 ```
 
-首次启动时没有 LLM 配置，对话功能暂不可用。在 WebUI 的 **设置 → 模型配置** 里填入任意 OpenAI 兼容提供商的 API Key（DeepSeek、OpenRouter、Moonshot 等），保存后即可对话——无需重启。
-
-**其他启动方式**
+首次启动没有 LLM 配置，在 WebUI **设置 → 模型配置** 填入任意 OpenAI 兼容提供商的 API Key，保存即生效，无需重启。
 
 ```bash
-# CLI 终端对话（需要先配置 LLM）
-erza agent
-
-# 仅 OpenAI 兼容 API 服务
-erza serve
-
-# 交互式配置向导（可选，用于预配置频道等）
-erza onboard --wizard
+erza agent            # CLI 终端对话（需先配置 LLM）
+erza serve            # 仅 OpenAI 兼容 API
+erza onboard --wizard # 交互式配置向导
 ```
 
-**手动编辑配置**（可选）：配置文件位于 `~/.erza/config.json`，支持 `${VAR}` 环境变量替换。
-
-## 编程式接入
-
-### Python SDK
-
-```python
-from erza import Erza
-
-bot = Erza.from_config()
-result = await bot.run("总结这个仓库的架构", hooks=[MyHook()])
-print(result.content)
-print(result.tools_used)
-```
-
-### OpenAI 兼容 API
-
-```bash
-curl http://127.0.0.1:8765/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "default",
-    "messages": [{"role": "user", "content": "你好"}],
-    "stream": true
-  }'
-```
-
-端点：`/v1/chat/completions`（支持 SSE 流式）、`/v1/models`、文件上传。
+配置文件位于 `~/.erza/config.json`，支持 `${VAR}` 环境变量替换。
 
 ## 频道接入
 
-| 频道 | 凭据接入 | WebUI 扫码登录 |
-|------|---------|---------------|
-| WebSocket | 内置 WebUI，无需配置 | — |
-| 飞书 | App ID + App Secret | ✓ |
-| 钉钉 | App Key + App Secret | ✓ |
-| 企业微信 | Bot ID + Bot Secret | ✓ |
-| 微信 | — | ✓ |
-| QQ | App ID + App Secret | ✓ |
+| 频道        | 凭据接入                 | WebUI 扫码登录 |
+| --------- | -------------------- | ---------- |
+| WebSocket | 内置 WebUI，无需配置        | —          |
+| 飞书        | App ID + App Secret  | ✓          |
+| 钉钉        | App Key + App Secret | ✓          |
+| 企业微信      | Bot ID + Bot Secret  | ✓          |
+| 微信        | —                    | ✓          |
+| QQ        | App ID + App Secret  | ✓          |
 
-所有外部频道均支持在 WebUI 中生成二维码扫码登录（统一的 `QRCodeAuthHandler` 机制：获取二维码 → 轮询扫码状态 → 自动写入凭据），也可以手动填写平台凭据。频道通过 `pkgutil` 自动发现，支持入口点插件扩展。
-
-## LLM 提供商
-
-基于统一基类，支持：
-
-- **OpenAI 兼容**：DeepSeek、OpenRouter、Moonshot/Kimi、MiniMax、VolcEngine、StepFun、LongCat、Azure、Bedrock、NVIDIA NIM、GitHub Copilot、LM Studio、Ollama、vLLM 等
-- **OpenAI Responses API**：GPT-5 / o-series 推理模型
-- **Anthropic**：Claude 系列，自适应思考与缓存优化
-- **Fallback**：主模型失败自动切换备用
-- **自动检测**：根据 API Key 识别提供商
-- **行为声明式配置**：通过 `ProviderSpec` 的行为 flag 字段（如 `force_string_content`、`normalize_tool_call_ids`）声明 provider 特殊行为，消除代码中的硬编码分支
+频道经 `pkgutil` 自动发现，支持入口点插件扩展，详见 [channel-plugin-guide.md](./docs/channel-plugin-guide.md)。
 
 ## 内置技能
 
@@ -285,7 +270,7 @@ Markdown + YAML frontmatter 定义，按需加载：
 
 ## 测试与质量
 
-约 185 个测试文件覆盖全部核心模块（agent 59 · channels 27 · tools 23 · utils 16 · providers 14 · cli/config/session/cron/security 等），`pytest-asyncio` 自动模式 + 覆盖率统计，`ruff` 静态检查。
+253 个测试文件、8.5 万行测试代码，覆盖全部核心模块；`pytest-asyncio` 自动模式 + 覆盖率统计；`ruff` 静态检查；CI 覆盖三大操作系统矩阵。
 
 ```bash
 pip install -e ".[dev]"
@@ -294,51 +279,41 @@ pytest
 
 ## 文档
 
-### 核心文档
-
-| 主题 | 链接 | 覆盖内容 |
-|------|------|---------|
-| 快速开始 | [quick-start.md](./docs/quick-start.md) | 安装、onboarding、首次运行 |
-| 配置参考 | [configuration.md](./docs/configuration.md) | 提供商、工具、频道、MCP、运行时设置 |
-| 聊天应用 | [chat-apps.md](./docs/chat-apps.md) | 频道接入详细说明 |
-| WebUI | [../webui/README.md](./webui/README.md) | 内置浏览器 UI、局域网访问、Vite 开发 |
-| 多实例 | [multiple-instances.md](./docs/multiple-instances.md) | 独立配置与工作区隔离 |
-| CLI 参考 | [cli-reference.md](./docs/cli-reference.md) | 核心 CLI 命令与入口 |
-| 聊天命令 | [chat-commands.md](./docs/chat-commands.md) | 斜杠命令与定时任务行为 |
-| OpenAI API | [openai-api.md](./docs/openai-api.md) | 本地 API 端点与文件上传 |
-| 部署 | [deployment.md](./docs/deployment.md) | Docker、Linux 服务、macOS LaunchAgent |
-
-### 进阶文档
-
-| 主题 | 链接 | 覆盖内容 |
-|------|------|---------|
-| 记忆系统 | [memory.md](./docs/memory.md) | 存储、整合、恢复机制 |
-| Python SDK | [python-sdk.md](./docs/python-sdk.md) | 编程式调用 |
-| 频道插件 | [channel-plugin-guide.md](./docs/channel-plugin-guide.md) | 自定义频道插件开发 |
-| WebSocket | [websocket.md](./docs/websocket.md) | 实时 WebSocket 协议细节 |
-| 自省工具 | [my-tool.md](./docs/my-tool.md) | `my` 工具运行时状态 |
+| 主题         | 链接                                                        |
+| ---------- | --------------------------------------------------------- |
+| 快速开始       | [quick-start.md](./docs/quick-start.md)                   |
+| 配置参考       | [configuration.md](./docs/configuration.md)               |
+| 频道接入       | [chat-apps.md](./docs/chat-apps.md)                       |
+| WebUI      | [../webui/README.md](./webui/README.md)                   |
+| CLI 参考     | [cli-reference.md](./docs/cli-reference.md)               |
+| 聊天命令       | [chat-commands.md](./docs/chat-commands.md)               |
+| OpenAI API | [openai-api.md](./docs/openai-api.md)                     |
+| 部署         | [deployment.md](./docs/deployment.md)                     |
+| 记忆系统       | [memory.md](./docs/memory.md)                             |
+| Python SDK | [python-sdk.md](./docs/python-sdk.md)                     |
+| 频道插件       | [channel-plugin-guide.md](./docs/channel-plugin-guide.md) |
 
 完整文档目录见 [docs/README.md](./docs/README.md)。
 
 ## 贡献
 
-PR 欢迎。代码库刻意保持可读。
+PR 欢迎。代码库刻意保持可读——执行内核、治理机制、接入面三层边界清晰，改哪层就读哪层。
 
-| 分支 | 用途 |
-|------|------|
-| `main` | 稳定发布 |
+| 分支        | 用途   |
+| --------- | ---- |
+| `main`    | 稳定发布 |
 | `nightly` | 实验特性 |
 
 详见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
 ## 许可证
 
-MIT — 见 [LICENSE](./LICENSE) 与 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
+MIT — 见 [LICENSE](./LICENSE) 与 [THIRD\_PARTY\_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
 
 ---
 
 <div align="center">
 
-<em>核心小，扩展在边缘，记忆即上下文。</em>
+<em>透明的内核，确定的治理，边缘的扩展。</em>
 
 </div>

@@ -2,16 +2,17 @@
 
 <img src="docs/logo.svg" alt="Erza Logo" width="200" height="200">
 
-**An open-source personal AI agent framework — lightweight at its core, auditable, and extensible**
+**Open-source, self-hosted Agent Runtime**
 
-Built around one readable core loop — messages come in, the LLM decides, tools execute, memory is injected on demand.
+Turn any LLM into a long-running, governable, auditable agent system —
+a transparent execution kernel, deterministic governance, and a pluggable edge.
 
 [![Python](https://img.shields.io/badge/python-≥3.11-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![Release](https://img.shields.io/badge/release-v0.4.0-success)](https://github.com/zhoulingquan/Erza/releases)
 [![Status](https://img.shields.io/badge/status-alpha-orange)]()
 
-[简体中文](./README.md) | **English**
+[简体中文](./README.md) | **[English]**
 
 </div>
 
@@ -19,273 +20,254 @@ Built around one readable core loop — messages come in, the LLM decides, tools
 
 ## What is this
 
-Erza is a personal AI agent that runs long-term. It is not a chatbot framework, nor an orchestration engine — it is just a **small agent loop**: receive a message, call the LLM, execute tools, return the result. Everything heavy (channel adapters, tool implementations, memory strategies) hangs on the edges of the loop, keeping the core readable, auditable, and replaceable.
+Erza is not a personal AI assistant, and not a chatbot framework. **Erza is an Agent Runtime**: an infrastructure layer that sits below the LLM and above the application, turning "a model that talks" into "a software system that works, stays up, and can be audited".
 
-A note on "lightweight": here it refers to the architectural philosophy and dependency cost — the orchestration core is only about 3.4k lines, the runtime pulls in roughly 30 pure-Python dependencies, and a single process is enough to deploy; yet the full codebase, with channel adapters, 30 tool classes, and the WebUI on the edges, totals roughly 110k lines of source — far from "small-script" territory.
+Read from the code, it consists of three parts:
 
-Built on top of [Nanobot](https://github.com/marm-io/nanobot), extending its lightweight agent core with channel adapters, a memory system, a WebUI, and multi-platform deployment.
+- **Execution kernel** (~3.9k lines): one fixed ReAct loop and one turn state machine. No plugin hook chains, no middleware stacks, no dynamic orchestration — read `agent/loop.py` and `agent/runner.py` and you understand every path the agent can take.
+- **Governance mechanisms**: a per-turn call ledger, structured tool receipts, evidence-based step acceptance, and a governed memory lifecycle. None of these rely on model good behavior — they are all deterministic code.
+- **Edge surfaces**: 5 IM channels + WebSocket, an OpenAI-compatible HTTP API, a Python SDK, and a WebUI console. All traffic enters from the edge and converges into one message bus.
 
-> *"If you're not the model, you're the harness."* — once model capability crosses a threshold, what determines agent productivity is the engineering infrastructure wrapped around the model. Erza is a complete yet minimal **Agent Harness** implementation.
+Built on top of [Nanobot](https://github.com/marm-io/nanobot). The project is named after Erza from *Fairy Tail*: a stable core, with equipment swapped in from the armory on demand — mirroring the **core + library** architecture.
+
+> *"If you're not the model, you're the harness."* — once model capability crosses a threshold, agent productivity is decided by the engineering infrastructure wrapping the model. Erza is a complete implementation of such a harness.
+
+### Good fit / poor fit
+
+**Good fit**: building long-running, stateful, auditable agent applications (vertical agents, ops agents, engineering assistants); self-hosted deployments that need IM ingress or an HTTP API; studying the implementation of agent kernels, memory governance, and tool governance.
+
+**Poor fit**: scenarios that need a complex DAG workflow engine; multi-tenant SaaS (the current model is single-workspace isolation); high-sandbox environments that disallow filesystem / shell access.
 
 ## Architecture
 
-The whole system revolves around an async message bus, in four layers:
+The system revolves around an async message bus, in four layers:
 
 <div align="center">
 
-<img src="docs/architecture-en.svg" alt="Erza four-layer architecture: channel layer → message bus → agent core → capability layer" width="680">
+<img src="docs/architecture.svg" alt="Erza four-layer architecture: channels → bus → agent kernel → capability layer" width="680">
 
 </div>
 
-The channel layer (`channels/`, 6 adapters) is fully decoupled from the agent core by a 49-line `MessageBus`; below the core sits the capability layer of tools, skills, and LLM providers. The agent core itself can be dissected module by module against the twelve standard Agent Harness components.
+```
+Edge      channels/(Feishu·WeChat·WeCom·DingTalk·QQ·WebSocket)   api_compat/(OpenAI-compat)   cli/   webui/(console)
+             │                    │                        │
+             └────────────┬───────┴────────────┬───────────┘
+                          ▼                    ▼
+                   bus/MessageBus ──────► command/ slash-command router
+                          │
+                          ▼
+Kernel    agent/  AgentLoop (turn state machine) ──► AgentRunner (ReAct loop)
+             │              │                    │
+             │              │             ┌──────┴──────┐
+             │              ▼             ▼             ▼
+Governance  │        ledger/CallLedger  planner/  step_acceptance (receipts + evidence)
+             │
+             ├──► tools/registry ──► tools/* (25+ built-ins) ＋ mcp_runtime (MCP servers)
+             ├──► providers/ (multi-provider + fallback chain)
+             ├──► memory/ (SQLite structured memory + Dream distillation) ＋ session/ (persistence)
+             └──► security/ (workspace boundary · SSRF guard · sandbox · risk levels)
 
-## Module breakdown
+Control   webui/ Python gateway ──► React 18 frontend (settings/channels/tools/memory)
+Roots     composition/  gateway / agent / serve assembly
+```
 
-| # | Harness module | Erza implementation | Key files |
-|---|---------------|---------------------------|-----------|
-| 1 | Orchestration Loop | ReAct loop of AgentLoop → AgentRunner | `agent/loop.py` · `agent/runner.py` |
-| 2 | Tools | 20 built-in tools + MCP | `agent/tools/` |
-| 3 | Memory | Layered memory + two-stage Consolidator/Dream | `agent/memory.py` |
-| 4 | Context Management | Strategy-based governance and multi-level compaction | `agent/context_governor.py` · `agent/runner_strategies.py` |
-| 5 | Prompt Construction | Layered assembly + on-demand skill injection | `agent/context.py` · `agent/skills.py` |
-| 6 | Output Parsing | Native function calling + JSON repair | `providers/*/parsing.py` |
-| 7 | State Management | Atomic session persistence + Git-versioned memory | `session/` · `utils/` (GitStore) |
-| 8 | Error Handling | Provider fallback + failure reflection | `providers/fallback_provider.py` · `agent/reflection.py` |
-| 9 | Guardrails | Workspace confinement / SSRF / sandbox / channel admission | `security/` |
-| 10 | Verification Loops | Reflection lessons + plan execution | `agent/reflection.py` · `agent/planner.py` |
-| 11 | Subagent Orchestration | spawn / delegate / create_agent | `agent/subagent.py` |
-| 12 | Termination Conditions | Iteration caps + turn budget + user interrupt | `agent/turn_budget.py` |
+Inbound channel messages flow through a 49-line `MessageBus` (bounded queue + backpressure) into the kernel; below the kernel, tools, skills, and providers form the capability layer. **All cross-layer communication goes through explicit interfaces — no implicit global state.**
 
-### 1. Orchestration loop — the agent's heartbeat
+## Execution kernel
 
-`AgentLoop` (1,575 lines) coordinates conversation turns; `AgentRunner` (1,663 lines) drives the Thought→Action→Observation loop. This is the **only processing path** in the entire system — no plugin hook chains, no middleware stacks, no dynamic orchestration. This is a deliberate "Dumb Loop" philosophy: keep the loop plain and transparent, leave intelligence to the model, push complexity to the edges. Read these two files and you understand how the agent works.
+### Turn state machine (`agent/turn_orchestrator.py`)
 
-### 2. Tools — the agent's hands
+Every conversation turn is a deterministic state transition:
 
-21 built-in tool classes are auto-discovered via `pkgutil`; third-party tools register through entry-point plugins:
+```
+RESTORE → COMPACT → COMMAND → BUILD → RUN → SAVE → RESPOND → DONE
+```
+
+The state machine is extracted from `AgentLoop`; dependencies are injected explicitly via `TurnDeps`. Restore and compaction happen *before* the conversation proceeds, guaranteeing crash recovery and non-rotting context.
+
+### ReAct loop (`agent/runner.py`)
+
+A fixed Thought → Action → Observation loop — the **only** processing path in the system. The "Dumb Loop" philosophy: keep the loop dumb and transparent, leave intelligence to the model, push complexity to the edge.
+
+### Plan-and-execute (`agent/planner.py`)
+
+With the Planner enabled, the LLM first decomposes the task into ordered steps, then executes each step through the normal ReAct loop; failed steps trigger a replan carrying the failure reason forward. Plan snapshots (`plan_snapshot.py`) are persisted isolated from recovery checkpoints.
+
+### Receipts and step acceptance (`tools/receipts.py` · `agent/step_acceptance.py`)
+
+Every contract-tool call produces a **structured receipt** (status / result_excerpt / receipt). Whether a plan step is complete is decided by **deterministic rules** over receipt evidence; only when rules reject does an LLM verifier step in — step completion no longer depends on model self-reporting.
+
+### Call ledger (`ledger/call_ledger.py`)
+
+All LLM calls within a turn are accounted by purpose (executor / planner / replan / reflection); `turn_budget` uses this to bound per-turn resource consumption and prevent runaway loops.
+
+### Context governance (`agent/context_governor.py`)
+
+A pluggable strategy chain compresses the context back into the window before each LLM call: Snip (crop oldest segments, hand them to the Consolidator) → Microcompact (compress old tool results) → orphan governance (keep the tool-result message sequence structurally legal) → AutoCompact (proactively compress idle sessions). Third-party strategies register via the `erza.context_strategies` entry point.
+
+### Reflection and Dream (`agent/reflection.py` · `memory/dream.py`)
+
+Failures — or every N iterations — trigger a one-sentence lesson written to `reflections.jsonl`; **Dream** distills new summaries and reflections into candidate facts when idle (`dream_trigger.py`, fires 5 minutes after the user goes quiet, complementing the cron floor), feeding them into the governed memory lifecycle. The goal is cross-turn learning: never repeat the same mistake.
+
+## State and memory
+
+| Layer | Carrier | Responsibility |
+|----|------|------|
+| Short-term session | `session/` | Active conversation context, atomic writes (temp file + fsync + rename), crash-safe |
+| Compacted archive | `memory/history.jsonl` | Append-only history summaries with cursors, maintained by the Consolidator |
+| Long-term knowledge | `memory/structured/memory.db` | **Single SQLite fact store** (`memory/repository.py`, fail-closed health); only `memory/lifecycle.py` may promote/replace/revoke/expire records, all changes in one transaction |
+| Lessons | `memory/reflections.jsonl` | Failure and periodic reflections |
+| Version history | `utils/` GitStore (embedded Git) | Every long-term file change is diffable and rollback-able |
+
+The only path for memory into a prompt is **deterministic recall**: only active facts matching exact scopes are recalled; candidate facts and historical archives are never injected wholesale. Legacy JSONL journals serve only as migration input (`memory/jsonl_import.py`).
+
+## Capability layer
+
+### Tool system (`tools/`, 25+ built-ins)
+
+`ToolRegistry` with dynamic registration and aliases, `pkgutil` auto-discovery; every tool carries an explicit JSON Schema and executes under the security layer.
 
 | Category | Tools |
-|----------|-------|
+|------|------|
 | Filesystem | `read_file` · `write_file` · `edit_file` · `apply_patch` · `list_dir` · `find_files` · `grep` |
-| Execution | `exec` (optional sandbox, persistent sessions) · `write_stdin` · `list_exec_sessions` · `run_cli_app` (local CLIs) |
-| Retrieval | `web_fetch` (URL fetch → Markdown, with Jina Reader and local readability fallback) |
-| Orchestration | `cron` · `long_task` · `execute_plan` · `complete_goal` |
+| Execution | `exec` (optional sandbox, persistent sessions) · `write_stdin` · `list_exec_sessions` |
+| Retrieval | `web_fetch` (URL → Markdown, SSRF-guarded + DNS-rebinding pinning) |
+| Orchestration | `cron` · `long_task` · `execute_plan` · `activate_plan` |
 | Subagents | `spawn` · `delegate` · `create_agent` |
 | External | `mcp_*` (multi-server) · `message` (cross-channel) |
-| Introspection | `self` |
+| Introspection | `self` (runtime state queries, allow-list gated) |
 
-Every tool has an explicit schema (name / description / parameters), and execution is constrained by the security layer (module 9). External capability also has two paths that never touch the core: **MCP servers** (external process protocol) and **CLI apps** (`run_cli_app` + SKILL.md guiding the agent to use local programs like ffmpeg, pandoc, git).
+Three external capability paths, none touching the kernel: **MCP servers** (`tools/mcp_runtime.py`, connection stacks owned by the composition root), **skills** (Markdown + YAML frontmatter, injected on demand), and **Python entry-point plugins**.
 
-### 3. Memory — state across time scales
+### LLM providers (`providers/`)
 
-Memory is not one giant file. It is layered, with a different medium for each kind of remembering:
+A unified base class plus declarative `ProviderSpec` behavior flags (`force_string_content`, `normalize_tool_call_ids`, …) that eliminate per-vendor hardcoded branches:
 
-| Layer | Medium | Role |
-|-------|--------|------|
-| Short-term session | `session.messages` | Full context of the live conversation |
-| Compressed archive | `memory/history.jsonl` | Append-only, cursor-based history summaries (machine-first) |
-| Long-term knowledge | `memory/structured/memory.db` | Governed structured facts (`journal.jsonl` is legacy migration input only) |
-| Lessons learned | `memory/reflections.jsonl` | One-sentence lessons from failures and periodic reflection |
-| Version history | `GitStore` (embedded Git) | Every change to long-term files is traceable and revertible |
+- OpenAI-compatible (DeepSeek, OpenRouter, Moonshot, Azure, vLLM, Ollama, etc.)
+- OpenAI Responses API (dedicated parsing path for GPT-5 / o-series)
+- Anthropic (adaptive thinking and cache optimization)
+- `FallbackProvider` automatic failover; runtime hot-switching driven by `ProviderSignature` fingerprints
 
-Memory moves in **two stages**: the **Consolidator** summarizes the oldest safe slice into `history.jsonl` when the session approaches the context window; **Dream** runs on a schedule or via `/dream`, extracts candidate facts from new summaries and reflections, and passes them through a deterministic lifecycle into an append-only structured journal. Normal prompts recall only exact-scope active facts; candidates never enter the prompt.
+## Edge surfaces
 
-### 4. Context management — fighting context rot
+| Module | Responsibility |
+|------|------|
+| `channels/` (12.6k lines) | 5 IM adapters (Feishu/WeChat/WeCom/DingTalk/QQ) + WebSocket, unified `BaseChannel` interface, QR-code login (`QRCodeAuthHandler`), `allowFrom` admission allow-lists, all optional extras |
+| `bus/` | 49-line async message bus, bounded queue + natural backpressure |
+| `command/` | Slash-command router with priority / exact / prefix matching, including governed memory-management commands |
+| `cron/` | Natural-language scheduled tasks, persisted, catch-up execution after restart |
+| `api_compat/` | OpenAI-compatible HTTP API (`/v1/chat/completions` SSE streaming, `/v1/models`), optional `[api]` extra |
+| `webui/` | Python gateway: HTTP/WebSocket routing, settings/channel/tool/memory management APIs; frontend is React 18 + Vite + TypeScript (~40k lines) |
 
-Context governance is strategy-based. `ContextGovernor` drives a set of replaceable `ContextStrategy` implementations:
-
-- **Snip** — trim the oldest history slice (handing it to the Consolidator for summarization)
-- **Microcompact** — compress old tool results, keeping the 10 most recent intact
-- **Orphan governance** — `drop_orphan_tool_results` / `backfill_missing_tool_results` keep the message sequence structurally valid
-- **AutoCompact** — proactively compress idle sessions to cut token cost and latency
-- **Turn budget** — `TurnBudget` caps per-turn resource consumption
-
-Auto-compaction is token-budget driven and skips active tasks. Third-party strategies register via the `erza.context_strategies` entry point; built-ins always take precedence.
-
-### 5. Prompt construction — the world the model sees
-
-Context assembly is layered: base persona (`SOUL.md`) → project instructions → tool definitions → deterministically recalled active memory and on-demand skills. Durable facts come only from the append-only structured journal and are recalled under exact scope rules.
-
-### 6. Output parsing — from free text to structured action
-
-Uses a native function-calling loop (rather than free-text parsing), with `json-repair` tolerantly fixing malformed JSON from the model. At the provider level, `ProviderSpec` declares behavior flags (e.g. `force_string_content`, `normalize_tool_call_ids`) to eliminate hard-coded per-provider branches; the OpenAI Responses API (GPT-5 / o-series) has its own parsing path.
-
-### 7. State management — recoverable and debuggable
-
-Session writes are atomic (temp file + fsync + rename), crash-safe. Long-term memory files are versioned by `GitStore` — every Dream change is a diffable, revertible commit. Scheduled tasks (`cron/`) persist and catch up after restarts; `/goal` tracks persistent goals across sessions.
-
-### 8. Error handling — surviving inevitable errors
-
-Errors compound in multi-step agents. Erza's countermeasures are layered: `FallbackProvider` automatically switches to a backup model when the primary fails; tool errors return structured results for the model to self-correct; the **Reflection mechanism** has the model produce a one-sentence lesson on failure (tool error, LLM error, iteration cap) written to `reflections.jsonl`, which Dream consolidates into long-term memory — the goal is cross-turn learning: never repeat the same mistake.
-
-### 9. Guardrails — explicit boundaries
+## Security model
 
 | Boundary | Mechanism |
-|----------|-----------|
-| File access | `_resolve_path` confines paths to the workspace |
-| Shell execution | Optional `bwrap` sandbox, workspace restriction |
-| Outbound HTTP | `validate_url_target` blocks RFC1918 and cloud metadata endpoints |
-| Channel admission | Per-channel `allowFrom` allowlist (exact match, `*` wildcard supported) |
+|------|------|
+| File access | Workspace path boundary (`security/workspace_policy.py`); boundary violations are hard policy errors the model cannot bypass with shell tricks |
+| Shell execution | Optional `bwrap` sandbox, restricted env injection, exec_session config gating |
+| Outbound HTTP | SSRF protection: transport-level hook blocking IP-literal targets, DNS-rebinding pinning (30s TTL), redirect re-validation (`security/network.py`) |
+| Risk levels | `RiskLevel` on tools; high-risk tools behind approval gates and isolated checkpoints (`agent/tool_checkpoint.py`) |
+| Channel admission | Per-channel `allowFrom` allow-lists |
 
-Permission architecture is separated from reasoning architecture: security checks are enforced at the tool-execution layer, never relying on the model's goodwill.
+The permission architecture is separated from the reasoning architecture: security checks are enforced at the tool-execution layer, never left to model discretion.
 
-### 10. Verification loops — the line between demo and production
+## Composition roots and entry points
 
-`execute_plan` supports plan-then-execute task decomposition; Reflection triggers not only on failure but also periodically, forming an execute → reflect → consolidate → improve loop. Plan failures (`plan_failed`) also trigger reflection, guarding against self-verification bias.
+All long-lived objects (bus, cron, session manager, MCP stacks) are created by composition roots and shut down in reverse order — the kernel never creates its own resources:
 
-### 11. Subagent orchestration — parallelism and context isolation
+| Entry | Root | Use |
+|------|--------|------|
+| `erza gateway` | `composition/gateway.py` | Full gateway (channels + WebUI + API) |
+| `erza agent` / `erza serve` | `composition/agent_app.py` | Headless terminal chat / pure API server |
+| Python SDK | `Erza.from_config()` in `erza.py` | Programmatic embedding |
 
-`SubagentManager` manages three delegation modes: `spawn` (parallel background subtasks), `delegate` (delegate and await results), and `create_agent` (dynamically generate new agent definitions). Subagents work deeply in isolated contexts and bring only conclusions back to the main loop — both a parallelization technique and a context-management one (an extension of module 4).
+```python
+from erza import Erza
 
-### 12. Termination conditions — knowing when to stop
+bot = Erza.from_config()
+result = await bot.run("Summarize this repo's architecture")
+print(result.content, result.tools_used)
+```
 
-A layered termination system: natural termination (the model stops calling tools), iteration caps (`max_tool_iterations`, logged with `stop_reason` and a warning), turn budget (`TurnBudget` token/resource limits), and user interrupts. Abnormal termination at the cap triggers Reflection (module 8), turning "why didn't it finish" into a lesson.
+## Code map
 
-## Use cases
+~**70k lines** of Python (69.6k), ~**40k lines** of TypeScript in the WebUI, **253 test files / 85k lines** of tests:
 
-### Good fit
+| Package | Lines | Responsibility |
+|----|------|------|
+| `erza/channels/` | 12,644 | IM channel adapters and media handling |
+| `erza/agent/` | 12,511 | Execution kernel: state machine, ReAct, planning, acceptance, context governance |
+| `erza/tools/` | 8,963 | Built-in tools, registry, MCP runtime, sandbox |
+| `erza/webui/` | 6,485 | Console gateway API (frontend at repo-root `webui/`) |
+| `erza/memory/` | 6,163 | SQLite memory repository, lifecycle governance, Dream distillation |
+| `erza/providers/` | 5,121 | Multi-provider abstraction and fallback chain |
+| `erza/cli/` | 3,717 | Typer commands, terminal rendering, gateway runner |
+| `erza/utils/` | 3,516 | Document parsing, media decoding, GitStore, atomic writes |
+| `erza/skills/` | 2,105 | Built-in skill packages |
+| `erza/session/` | 1,608 | Session persistence and goal state |
+| `erza/config/` | 1,285 | Pydantic config models (camelCase/snake_case dual-compatible) |
+| `erza/command/` | 1,258 | Slash-command router |
+| `erza/security/` | 1,240 | Workspace boundary, SSRF, risk levels |
+| `erza/cron/` | 1,014 | Scheduled-task service |
+| `erza/composition/` | 573 | Composition roots (gateway / agent_app) |
+| `erza/api_compat/` | 557 | OpenAI-compatible API |
+| `erza/ledger/` | 431 | Call ledger and turn budget |
+| `erza/bus/` | 141 | Message bus |
+| `erza/erza.py` | SDK facade | `Erza.from_config().run()` |
 
-- **Personal AI assistant**: connect Feishu/DingTalk/WeChat, online 24/7, memory persists across sessions
-- **Development aid**: file I/O, shell execution, code search, patch application — the agent completes multi-step tasks autonomously
-- **Scheduled automation**: natural-language scheduling, `/goal` persistent goals, catch-up after restarts
-- **Research experiments**: readable code, auditable core loop — good for studying tool use, memory strategies, agent behavior
-- **Programmatic integration**: embed via the Python SDK or the OpenAI-compatible API
-- **Multi-platform deployment**: Docker, Linux services, macOS LaunchAgent
-
-### Not a fit
-
-- Scenarios requiring complex DAG orchestration or workflow engines
-- Multi-tenant SaaS deployments
-- High-sandbox environments that cannot accept filesystem/shell access
-
-## Module quick reference
-
-### Core runtime
-
-| Module | Responsibility |
-|--------|---------------|
-| `agent/` | AgentLoop coordinates turns, AgentRunner drives the LLM loop; includes context-governance strategies and auto-compaction |
-| `session/` | Session history persistence, auto-compaction, goal state tracking |
-| `config/` | Pydantic config models with `${VAR}` environment variable support |
-| `cron/` | Natural-language scheduled tasks, persisted, catch-up after restart |
-| `bus/` | Async message bus |
-| `command/` | Slash-command routing (three-tier priority/exact/prefix matching) |
-
-### Extension modules
-
-| Module | Responsibility |
-|--------|---------------|
-| `channels/` | 6 channel adapters (Feishu/DingTalk/WeCom/WeChat/QQ/WebSocket) |
-| `agent/tools/` | 21 built-in tool classes (files/shell/fetch/MCP/subagents...) |
-| `webui/` (repo root) | React 18 + Vite + TypeScript frontend (~40k lines of TS/TSX) |
-| `erza/webui/` | Python gateway: HTTP/WebSocket routing, settings/channels/tools management APIs |
-| `apps/` | Agent app ecosystem: CLI app catalog, installation, and extension marketplace protocol |
-| `cli/` | Typer CLI commands, terminal rendering, gateway runner |
-| `utils/` | Document parsing, media decoding, Git storage, and other utilities |
-| `providers/` | LLM provider abstraction and OpenAI-compatible implementations |
-| `security/` | Workspace confinement, SSRF protection, shell sandbox |
-| `api_compat/` | OpenAI-compatible HTTP API (optional `[api]` extra) |
-
-## Installation
+## Quick start
 
 ```bash
-# From source (latest features)
-git clone https://github.com/zhoulingquan/erza.git
-cd erza
+# Install from source
+git clone https://github.com/zhoulingquan/Erza.git
+cd Erza
 pip install -e .
 
 # Optional extras
 pip install -e ".[api,pdf,dev]"   # HTTP API / PDF parsing / tests
 ```
 
-About 30 Python packages at runtime, no native build dependencies (except lxml).
+~30 pure-Python runtime dependencies (no native builds except lxml). Docker / Linux services / macOS LaunchAgent deployment are covered in [deployment.md](./docs/deployment.md).
 
-## Quick start
-
-**One command to start** — config files and the workspace are initialized automatically; the LLM API key can be configured in the WebUI after startup.
+**One command to start** — config and workspace are auto-initialized:
 
 ```bash
 erza gateway
-# → open http://127.0.0.1:8765 in your browser
+# → open http://127.0.0.1:8765
 ```
 
-On first launch there is no LLM configured and chat is unavailable. In the WebUI, go to **Settings → Model Configuration** and enter an API key from any OpenAI-compatible provider (DeepSeek, OpenRouter, Moonshot, etc.) — chat works right after saving, no restart needed.
-
-**Other ways to run**
+There is no LLM config on first start; set any OpenAI-compatible provider's API key in **Settings → Model Configuration** in the WebUI — it takes effect immediately, no restart needed.
 
 ```bash
-# CLI terminal chat (requires LLM configured first)
-erza agent
-
-# OpenAI-compatible API server only
-erza serve
-
-# Interactive setup wizard (optional, for pre-configuring channels etc.)
-erza onboard --wizard
+erza agent            # CLI terminal chat (configure an LLM first)
+erza serve            # OpenAI-compatible API only
+erza onboard --wizard # Interactive setup wizard
 ```
 
-**Manual configuration** (optional): the config file lives at `~/.erza/config.json` and supports `${VAR}` environment variable substitution.
+The config file lives at `~/.erza/config.json` and supports `${VAR}` env substitution.
 
-## Programmatic access
+## Channel access
 
-### Python SDK
-
-```python
-from erza import Erza
-
-bot = Erza.from_config()
-result = await bot.run("Summarize this repo's architecture", hooks=[MyHook()])
-print(result.content)
-print(result.tools_used)
-```
-
-### OpenAI-compatible API
-
-```bash
-curl http://127.0.0.1:8765/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "default",
-    "messages": [{"role": "user", "content": "Hello"}],
-    "stream": true
-  }'
-```
-
-Endpoints: `/v1/chat/completions` (SSE streaming), `/v1/models`, file upload.
-
-## Channels
-
-| Channel | Credential setup | WebUI QR-code login |
-|---------|-----------------|---------------------|
-| WebSocket | Built-in WebUI, zero config | — |
+| Channel | Credentials | WebUI QR login |
+|------|---------|---------------|
+| WebSocket | Built-in WebUI, nothing to configure | — |
 | Feishu | App ID + App Secret | ✓ |
 | DingTalk | App Key + App Secret | ✓ |
 | WeCom | Bot ID + Bot Secret | ✓ |
 | WeChat | — | ✓ |
 | QQ | App ID + App Secret | ✓ |
 
-Every external channel supports QR-code login from the WebUI (a unified `QRCodeAuthHandler` mechanism: fetch QR code → poll scan status → credentials written automatically), or you can enter platform credentials manually. Channels are auto-discovered via `pkgutil` and extensible through entry-point plugins.
-
-## LLM providers
-
-Built on a unified base class, supporting:
-
-- **OpenAI-compatible**: DeepSeek, OpenRouter, Moonshot/Kimi, MiniMax, VolcEngine, StepFun, LongCat, Azure, Bedrock, NVIDIA NIM, GitHub Copilot, LM Studio, Ollama, vLLM, and more
-- **OpenAI Responses API**: GPT-5 / o-series reasoning models
-- **Anthropic**: Claude family, adaptive thinking and cache optimization
-- **Fallback**: automatic switch to backup models when the primary fails
-- **Auto-detection**: provider identified from the API key
-- **Declarative behavior config**: `ProviderSpec` behavior flags (e.g. `force_string_content`, `normalize_tool_call_ids`) declare provider quirks, eliminating hard-coded branches
+Channels are auto-discovered via `pkgutil` and extensible via entry-point plugins — see [channel-plugin-guide.md](./docs/channel-plugin-guide.md).
 
 ## Built-in skills
 
-Defined in Markdown + YAML frontmatter, loaded on demand:
+Markdown + YAML frontmatter, loaded on demand:
 
 `cron` · `document-processing` · `github` · `long-goal` · `memory` · `my` · `skill-creator` · `summarize` · `tmux` · `update-setup` · `weather`
 
 ## Testing and quality
 
-About 185 test files covering all core modules (agent 59 · channels 27 · tools 23 · utils 16 · providers 14 · cli/config/session/cron/security, etc.), `pytest-asyncio` auto mode + coverage reporting, `ruff` static checks.
+253 test files, 85k lines of tests covering every core module; `pytest-asyncio` auto mode + coverage; `ruff` static checks; CI runs a three-OS matrix.
 
 ```bash
 pip install -e ".[dev]"
@@ -294,38 +276,28 @@ pytest
 
 ## Documentation
 
-### Core docs
+| Topic | Link |
+|------|------|
+| Quick start | [quick-start.md](./docs/quick-start.md) |
+| Configuration | [configuration.md](./docs/configuration.md) |
+| Channels | [chat-apps.md](./docs/chat-apps.md) |
+| WebUI | [../webui/README.md](./webui/README.md) |
+| CLI reference | [cli-reference.md](./docs/cli-reference.md) |
+| Chat commands | [chat-commands.md](./docs/chat-commands.md) |
+| OpenAI API | [openai-api.md](./docs/openai-api.md) |
+| Deployment | [deployment.md](./docs/deployment.md) |
+| Memory system | [memory.md](./docs/memory.md) |
+| Python SDK | [python-sdk.md](./docs/python-sdk.md) |
+| Channel plugins | [channel-plugin-guide.md](./docs/channel-plugin-guide.md) |
 
-| Topic | Link | Covers |
-|-------|------|--------|
-| Quick start | [quick-start.md](./docs/quick-start.md) | Installation, onboarding, first run |
-| Configuration | [configuration.md](./docs/configuration.md) | Providers, tools, channels, MCP, runtime settings |
-| Chat apps | [chat-apps.md](./docs/chat-apps.md) | Detailed channel setup |
-| WebUI | [../webui/README.md](./webui/README.md) | Built-in browser UI, LAN access, Vite development |
-| Multiple instances | [multiple-instances.md](./docs/multiple-instances.md) | Isolated configs and workspaces |
-| CLI reference | [cli-reference.md](./docs/cli-reference.md) | Core CLI commands and entry points |
-| Chat commands | [chat-commands.md](./docs/chat-commands.md) | Slash commands and scheduled-task behavior |
-| OpenAI API | [openai-api.md](./docs/openai-api.md) | Local API endpoints and file upload |
-| Deployment | [deployment.md](./docs/deployment.md) | Docker, Linux services, macOS LaunchAgent |
-
-### Advanced docs
-
-| Topic | Link | Covers |
-|-------|------|--------|
-| Memory system | [memory.md](./docs/memory.md) | Storage, consolidation, restore mechanisms |
-| Python SDK | [python-sdk.md](./docs/python-sdk.md) | Programmatic usage |
-| Channel plugins | [channel-plugin-guide.md](./docs/channel-plugin-guide.md) | Custom channel plugin development |
-| WebSocket | [websocket.md](./docs/websocket.md) | Real-time WebSocket protocol details |
-| Introspection tool | [my-tool.md](./docs/my-tool.md) | `my` tool runtime state |
-
-Full documentation index at [docs/README.md](./docs/README.md).
+Full docs index: [docs/README.md](./docs/README.md).
 
 ## Contributing
 
-PRs welcome. The codebase is deliberately kept readable.
+PRs welcome. The codebase is deliberately readable — the kernel / governance / edge boundaries are clean; read the layer you're changing.
 
 | Branch | Purpose |
-|--------|---------|
+|------|------|
 | `main` | Stable releases |
 | `nightly` | Experimental features |
 
@@ -339,6 +311,6 @@ MIT — see [LICENSE](./LICENSE) and [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTI
 
 <div align="center">
 
-<em>Small core, extensions at the edges, memory as context.</em>
+<em>Transparent kernel. Deterministic governance. Extensions at the edge.</em>
 
 </div>
