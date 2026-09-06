@@ -17,12 +17,12 @@ describe("MarkdownTextRenderer", () => {
   });
 
   it("renders markdown videos as inline players", () => {
-    render(<MarkdownTextRenderer>![miniunicorn-intro.mp4](/api/media/sig/video)</MarkdownTextRenderer>);
+    render(<MarkdownTextRenderer>![erza-intro.mp4](/api/media/sig/video)</MarkdownTextRenderer>);
 
-    const video = screen.getByLabelText("Video attachment: miniunicorn-intro.mp4");
+    const video = screen.getByLabelText("Video attachment: erza-intro.mp4");
     expect(video.tagName).toBe("VIDEO");
     expect(video).toHaveAttribute("src", "/api/media/sig/video");
     expect(video).toHaveAttribute("controls");
-    expect(screen.queryByRole("img", { name: "miniunicorn-intro.mp4" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "erza-intro.mp4" })).not.toBeInTheDocument();
   });
 });

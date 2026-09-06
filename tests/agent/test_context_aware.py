@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from miniunicorn.tools.context import ContextAware, RequestContext
+from erza.tools.context import ContextAware, RequestContext
 
 
 class _ContextTool:

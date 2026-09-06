@@ -15,8 +15,8 @@ describe("bootstrap helpers", () => {
   });
 
   it("preserves the host socket bridge URL", () => {
-    expect(deriveWsUrl("/", "tok en", "miniunicorn-host://engine/")).toBe(
-      "miniunicorn-host://engine/?token=tok%20en",
+    expect(deriveWsUrl("/", "tok en", "erza-host://engine/")).toBe(
+      "erza-host://engine/?token=tok%20en",
     );
   });
 

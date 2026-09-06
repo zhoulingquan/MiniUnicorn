@@ -8,14 +8,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.planner import (
+from erza.agent.planner import (
     Planner,
     PlannerStatus,
     _normalize_evidence_level,
     effective_evidence_level,
 )
-from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
-from miniunicorn.providers.base import LLMProvider, LLMResponse
+from erza.agent.runner import AgentRunner, AgentRunSpec
+from erza.providers.base import LLMProvider, LLMResponse
 
 
 def _provider_with_content(content: str) -> MagicMock:
@@ -175,7 +175,7 @@ def test_non_string_evidence_level_falls_back_to_text(raw: object) -> None:
 def test_planner_template_declares_evidence_level() -> None:
     template = (
         Path(__file__).resolve().parents[2]
-        / "miniunicorn"
+        / "erza"
         / "templates"
         / "agent"
         / "planner_system.md"

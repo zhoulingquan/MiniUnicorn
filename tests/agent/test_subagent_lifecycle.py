@@ -7,16 +7,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniunicorn.agent.hook import AgentHookContext
-from miniunicorn.agent.runner import AgentRunResult
-from miniunicorn.agent.subagent import (
+from erza.agent.hook import AgentHookContext
+from erza.agent.runner import AgentRunResult
+from erza.agent.subagent import (
     SubagentManager,
     SubagentStatus,
     _SubagentHook,
 )
-from miniunicorn.bus.events import make_session_key, session_key_base
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.providers.base import LLMProvider
+from erza.bus.events import make_session_key, session_key_base
+from erza.bus.queue import MessageBus
+from erza.providers.base import LLMProvider
 
 # ---------------------------------------------------------------------------
 # Helpers

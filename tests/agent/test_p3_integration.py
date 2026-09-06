@@ -9,16 +9,16 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent import turn_telemetry
-from miniunicorn.agent.planner import Plan, PlanStep
-from miniunicorn.agent.planning_policy import PlanningMode, PlanningPolicy
-from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
-from miniunicorn.agent.safety_policy import RiskLevel
-from miniunicorn.agent.turn_telemetry import TurnTelemetry
-from miniunicorn.providers.base import LLMResponse, ToolCallRequest
-from miniunicorn.tools.base import Tool
-from miniunicorn.tools.execute_plan import ExecutePlanTool
-from miniunicorn.tools.registry import ToolRegistry
+from erza.agent import turn_telemetry
+from erza.agent.planner import Plan, PlanStep
+from erza.agent.planning_policy import PlanningMode, PlanningPolicy
+from erza.agent.runner import AgentRunner, AgentRunSpec
+from erza.agent.safety_policy import RiskLevel
+from erza.agent.turn_telemetry import TurnTelemetry
+from erza.providers.base import LLMResponse, ToolCallRequest
+from erza.tools.base import Tool
+from erza.tools.execute_plan import ExecutePlanTool
+from erza.tools.registry import ToolRegistry
 
 
 class _FakeProvider:

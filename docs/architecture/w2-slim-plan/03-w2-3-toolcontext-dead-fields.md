@@ -4,7 +4,7 @@
 
 ## 一、问题（现状锚点，已全库核实）
 
-`miniunicorn/agent/tools/context.py`（48-60 行）的 ToolContext 有 11 个字段，其中 9 个标 `Any`。逐字段全库核查消费情况（含 `getattr(ctx, "...")` 形式）：
+`erza/agent/tools/context.py`（48-60 行）的 ToolContext 有 11 个字段，其中 9 个标 `Any`。逐字段全库核查消费情况（含 `getattr(ctx, "...")` 形式）：
 
 | 字段 | 消费方 | 结论 |
 |---|---|---|
@@ -22,8 +22,8 @@
 
 生产构造点（全库仅两处）：
 
-1. `miniunicorn/agent/_mcp_lifecycle.py` 40-49 行：`ToolContext(..., sessions=..., timezone="UTC", workspace_sandbox=self.workspace_scopes.sandbox_status, subagent_registry=...)`
-2. `miniunicorn/agent/subagent.py` 255-263 行：`ToolContext(config=..., workspace=..., file_state_store=..., workspace_sandbox=workspace_sandbox_status(...))`
+1. `erza/agent/_mcp_lifecycle.py` 40-49 行：`ToolContext(..., sessions=..., timezone="UTC", workspace_sandbox=self.workspace_scopes.sandbox_status, subagent_registry=...)`
+2. `erza/agent/subagent.py` 255-263 行：`ToolContext(config=..., workspace=..., file_state_store=..., workspace_sandbox=workspace_sandbox_status(...))`
 
 > 附带裁决记录：**类型收窄不做**。项目无 mypy/pyright（pyproject.toml 仅 ruff 配置），`Any → 具体类型` 无静态强制力，纯文档价值不抵循环导入处理成本。若未来引入类型检查器再议。
 
@@ -53,7 +53,7 @@ class ToolContext:
 
 ### 2.3 subagent.py
 
-`_build_tools`（246-265 行）构造点删除 `workspace_sandbox=workspace_sandbox_status(...)` 实参（259-262 行）。随后核查 `workspace_sandbox_status` 的 import（本文件头部）：若删除后无其他使用则同步删除 import；若仍有其他使用（如 `_filter_tools` 附近逻辑）则保留——以 `rg -n "workspace_sandbox_status" miniunicorn/agent/subagent.py` 结果为准，报告记录。
+`_build_tools`（246-265 行）构造点删除 `workspace_sandbox=workspace_sandbox_status(...)` 实参（259-262 行）。随后核查 `workspace_sandbox_status` 的 import（本文件头部）：若删除后无其他使用则同步删除 import；若仍有其他使用（如 `_filter_tools` 附近逻辑）则保留——以 `rg -n "workspace_sandbox_status" erza/agent/subagent.py` 结果为准，报告记录。
 
 ### 2.4 测试构造点核查
 
@@ -66,7 +66,7 @@ class ToolContext:
 ```python
 def test_tool_context_field_set_is_exact():
     import dataclasses
-    from miniunicorn.agent.tools.context import ToolContext
+    from erza.agent.tools.context import ToolContext
 
     names = {f.name for f in dataclasses.fields(ToolContext)}
     assert names == {
@@ -91,7 +91,7 @@ def test_tool_context_field_set_is_exact():
 ## 五、验收自检
 
 - [ ] 全量测试绿，ruff 零告警
-- [ ] `rg -n "timezone|workspace_sandbox" miniunicorn/agent/tools/context.py` 零命中
+- [ ] `rg -n "timezone|workspace_sandbox" erza/agent/tools/context.py` 零命中
 - [ ] 两处生产构造点 + 全部测试构造点已清理（报告列出每处）
 - [ ] 字段面回归锁测试通过
 - [ ] 与本规格的偏差逐条说明

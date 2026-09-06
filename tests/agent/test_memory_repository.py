@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from miniunicorn.memory.models import (
+from erza.memory.models import (
     SCHEMA_VERSION,
     ActorKind,
     DuplicateMemoryIdempotencyKey,
@@ -36,11 +36,11 @@ from miniunicorn.memory.models import (
     normalize_match_text,
     transaction_checksum,
 )
-from miniunicorn.memory.repository import (
+from erza.memory.repository import (
     RepositoryDegradedError,
     StructuredMemoryRepository,
 )
-from miniunicorn.memory.sqlite_schema import (
+from erza.memory.sqlite_schema import (
     SQL_ORDER_BY_ID,
     SQL_RECALL_SELECT,
     SQL_RECALL_SUFFIX,
@@ -78,7 +78,7 @@ def record_data(
     tags=("project.fact",),
     aliases=(),
     slot: str = "db.primary",
-    subject: str = "MiniUnicorn",
+    subject: str = "Erza",
     kind: str = "fact",
     scope=None,
     evidence=None,
@@ -145,7 +145,7 @@ def make_transaction(
 def workspace(tmp_path: Path) -> Path:
     structured = tmp_path / "memory" / "structured"
     structured.mkdir(parents=True)
-    bundled = Path(__file__).parents[2] / "miniunicorn" / "templates" / "memory" / "TAGS.json"
+    bundled = Path(__file__).parents[2] / "erza" / "templates" / "memory" / "TAGS.json"
     shutil.copy(bundled, structured / "tags.json")
     return tmp_path
 
@@ -351,7 +351,7 @@ def test_unknown_tag_never_reaches_the_log(repository):
 def test_append_commit_failure_leaves_no_rows_and_degrades(repository, transaction, monkeypatch):
     import contextlib
 
-    from miniunicorn.memory import repository as repo_module
+    from erza.memory import repository as repo_module
 
     real_connect = repo_module.connect_memory_db
 
@@ -1476,8 +1476,8 @@ def test_startup_existing_database_never_reads_journal(workspace, monkeypatch):
     first.append_transaction(make_transaction(record))
     _write_journal(workspace, json.dumps("not-a-transaction"))
 
-    from miniunicorn.memory import jsonl_import as import_module
-    from miniunicorn.memory import repository as repo_module
+    from erza.memory import jsonl_import as import_module
+    from erza.memory import repository as repo_module
 
     class ExplodingJournalPath(Path):
         def open(self, *args, **kwargs):
@@ -1560,7 +1560,7 @@ def test_startup_existing_database_journal_reader_raises_still_succeeds(workspac
     record = MemoryRecord.model_validate(record_data(memory_id="mem_" + "a" * 32))
     first.append_transaction(make_transaction(record))
 
-    from miniunicorn.memory import jsonl_import as import_module
+    from erza.memory import jsonl_import as import_module
 
     def exploding_journal_reader(path):
         raise RuntimeError("legacy journal reader must never run for an existing database")
@@ -1597,12 +1597,12 @@ def _seed_repository_history(workspace: Path, count: int) -> StructuredMemoryRep
 
 
 def test_append_sql_statement_count_bounded_across_history_scale(workspace, tmp_path, monkeypatch):
-    from miniunicorn.memory import repository as repo_module
+    from erza.memory import repository as repo_module
 
     large_workspace = tmp_path / "large-workspace"
     structured = large_workspace / "memory" / "structured"
     structured.mkdir(parents=True)
-    bundled = Path(__file__).parents[2] / "miniunicorn" / "templates" / "memory" / "TAGS.json"
+    bundled = Path(__file__).parents[2] / "erza" / "templates" / "memory" / "TAGS.json"
     shutil.copy(bundled, structured / "tags.json")
     appended = MemoryRecord.model_validate(record_data(memory_id="mem_" + "e" * 32))
 

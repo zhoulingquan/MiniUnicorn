@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from miniunicorn.tools.execute_plan import ExecutePlanTool
-from miniunicorn.tools.registry import ToolRegistry
+from erza.tools.execute_plan import ExecutePlanTool
+from erza.tools.registry import ToolRegistry
 
 
 def test_tool_primary_name() -> None:

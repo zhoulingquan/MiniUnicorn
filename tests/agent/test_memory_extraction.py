@@ -7,11 +7,11 @@ from datetime import datetime, timezone
 
 import pytest
 
-from miniunicorn.memory.extraction import (
+from erza.memory.extraction import (
     MemoryExtractionError,
     parse_extraction_batch,
 )
-from miniunicorn.memory.models import EvidenceKind, EvidenceRef, ScopeKind, TagCatalog
+from erza.memory.models import EvidenceKind, EvidenceRef, ScopeKind, TagCatalog
 
 UTC = timezone.utc
 
@@ -48,7 +48,7 @@ def valid_proposal(**overrides):
         "proposal_index": 0,
         "kind": "decision",
         "scope_hint": "project",
-        "subject": "MiniUnicorn",
+        "subject": "Erza",
         "slot": "memory.retrieval.strategy",
         "statement": "Main uses deterministic structured recall.",
         "detail": "No embeddings are used.",
@@ -93,7 +93,7 @@ def test_valid_single_proposal_is_accepted(evidence_catalog, tag_catalog):
         json.dumps(valid_batch(valid_proposal())), evidence_catalog, tag_catalog
     )
     assert len(parsed.proposals) == 1
-    assert parsed.proposals[0].subject == "MiniUnicorn"
+    assert parsed.proposals[0].subject == "Erza"
 
 
 def test_fenced_json_is_stripped(evidence_catalog, tag_catalog):

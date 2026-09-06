@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from miniunicorn.session.manager import SessionManager
+from erza.session.manager import SessionManager
 
 _IS_WINDOWS = sys.platform == "win32"
 

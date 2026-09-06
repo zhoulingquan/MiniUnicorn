@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from miniunicorn.cli import commands
+from erza.cli import commands
 
 
 @pytest.mark.asyncio
@@ -20,7 +20,7 @@ async def test_interactive_retry_wait_is_rendered_as_progress_even_when_progress
     async def fake_print(text: str, active_thinking: object | None, renderer=None) -> None:
         calls.append((text, active_thinking))
 
-    with patch("miniunicorn.cli.commands._print_interactive_progress_line", side_effect=fake_print):
+    with patch("erza.cli.commands._print_interactive_progress_line", side_effect=fake_print):
         handled = await commands._maybe_print_interactive_progress(
             msg,
             thinking,
@@ -46,7 +46,7 @@ async def test_reasoning_displayed_when_show_reasoning_enabled():
     )
 
     with patch(
-        "miniunicorn.cli.commands._print_cli_reasoning",
+        "erza.cli.commands._print_cli_reasoning",
         side_effect=lambda t, th, r=None: calls.append(t),
     ):
         handled = await commands._maybe_print_interactive_progress(msg, None, channels_config)
@@ -70,7 +70,7 @@ async def test_reasoning_delta_displayed_when_show_reasoning_enabled():
     )
 
     with patch(
-        "miniunicorn.cli.commands._print_cli_reasoning",
+        "erza.cli.commands._print_cli_reasoning",
         side_effect=lambda t, th, r=None: calls.append(t),
     ):
         handled = await commands._maybe_print_interactive_progress(msg, None, channels_config)
@@ -90,7 +90,7 @@ async def test_reasoning_delta_buffers_until_sentence_boundary():
     reasoning_buffer = commands._ReasoningBuffer()
 
     with patch(
-        "miniunicorn.cli.commands._print_cli_reasoning",
+        "erza.cli.commands._print_cli_reasoning",
         side_effect=lambda t, th, r=None: calls.append(t),
     ):
         first = await commands._maybe_print_interactive_progress(
@@ -128,7 +128,7 @@ async def test_reasoning_end_flushes_buffered_delta():
     reasoning_buffer = commands._ReasoningBuffer()
 
     with patch(
-        "miniunicorn.cli.commands._print_cli_reasoning",
+        "erza.cli.commands._print_cli_reasoning",
         side_effect=lambda t, th, r=None: calls.append(t),
     ):
         delta = await commands._maybe_print_interactive_progress(
@@ -168,7 +168,7 @@ async def test_reasoning_hidden_when_show_reasoning_disabled():
         metadata={"_progress": True, "_reasoning": True},
     )
 
-    with patch("miniunicorn.cli.commands._print_cli_reasoning") as mock_reasoning:
+    with patch("erza.cli.commands._print_cli_reasoning") as mock_reasoning:
         handled = await commands._maybe_print_interactive_progress(msg, None, channels_config)
 
     assert handled is True
@@ -192,7 +192,7 @@ async def test_non_reasoning_progress_not_affected_by_show_reasoning():
     async def fake_print(text: str, thinking=None, renderer=None):
         calls.append(text)
 
-    with patch("miniunicorn.cli.commands._print_interactive_progress_line", side_effect=fake_print):
+    with patch("erza.cli.commands._print_interactive_progress_line", side_effect=fake_print):
         handled = await commands._maybe_print_interactive_progress(msg, None, channels_config)
 
     assert handled is True
@@ -215,7 +215,7 @@ async def test_reasoning_shown_when_send_progress_disabled():
     )
 
     with patch(
-        "miniunicorn.cli.commands._print_cli_reasoning",
+        "erza.cli.commands._print_cli_reasoning",
         side_effect=lambda t, th, r=None: calls.append(t),
     ):
         handled = await commands._maybe_print_interactive_progress(msg, None, channels_config)

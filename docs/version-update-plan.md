@@ -1,4 +1,4 @@
-# MiniUnicorn 多部署方式版本更新提示改造方案
+# Erza 多部署方式版本更新提示改造方案
 
 > 版本：v1.0
 > 日期：2026-07-26
@@ -8,13 +8,13 @@
 
 ### 1.1 现状
 
-MiniUnicorn 当前支持多种部署方式：
+Erza 当前支持多种部署方式：
 
 | 部署方式 | 安装命令 | 适用场景 |
 |---|---|---|
-| **pip 安装** | `pip install miniunicorn` | 普通用户，开箱即用 |
+| **pip 安装** | `pip install erza` | 普通用户，开箱即用 |
 | **源码安装** | `git clone && pip install -e .` | 开发者，需自定义 |
-| **Docker** | `docker pull agentscope/miniunicorn` | 容器化部署 |
+| **Docker** | `docker pull agentscope/erza` | 容器化部署 |
 | **Web 模式** | 浏览器访问 `http://127.0.0.1:8088` | 本地或云端网关 |
 | **Tauri 桌面端**（规划中） | 下载安装包 | 桌面原生体验 |
 
@@ -85,7 +85,7 @@ MiniUnicorn 当前支持多种部署方式：
   },
   "tauri": {
     "darwin-aarch64": {
-      "url": "https://dl.miniunicorn.cn/v0.4.0/miniunicorn-darwin-arm64.app.tar.gz",
+      "url": "https://dl.erza.cn/v0.4.0/erza-darwin-arm64.app.tar.gz",
       "signature": "dW50cnVzdGVkIGNvbW1lbnQ6..."
     },
     "darwin-x86_64": { "url": "...", "signature": "..." },
@@ -95,7 +95,7 @@ MiniUnicorn 当前支持多种部署方式：
   "package": {
     "pypi": "0.4.0",
     "npm": "0.4.0",
-    "docker": "agentscope/miniunicorn:0.4.0"
+    "docker": "agentscope/erza:0.4.0"
   },
   "min_required": "0.1.0",
   "release_url": "https://github.com/tuolaonainaiguomalu/mini-Unicorn/releases/tag/v0.4.0"
@@ -118,7 +118,7 @@ MiniUnicorn 当前支持多种部署方式：
 
 | 优先级 | 来源 | 说明 |
 |---|---|---|
-| 1 | `https://dl.miniunicorn.cn/updater.json` | 自建镜像（大陆加速，Phase 4） |
+| 1 | `https://dl.erza.cn/updater.json` | 自建镜像（大陆加速，Phase 4） |
 | 2 | `https://github.com/tuolaonainaiguomalu/mini-Unicorn/releases/latest/download/updater.json` | GitHub Releases |
 | 3 | 同源 `/updater.json` | Web 模式本地兜底（已实施） |
 
@@ -142,7 +142,7 @@ MiniUnicorn 当前支持多种部署方式：
 ### 4.3 UI 交互
 
 ```
-顶栏 logo 旁：MiniUnicorn v0.4.0●  （紫色高亮 + 红点）
+顶栏 logo 旁：Erza v0.4.0●  （紫色高亮 + 红点）
                     ↓ 点击
 ┌──────────────────────────────────────────┐
 │  发现新版本 v0.5.0                       │
@@ -159,7 +159,7 @@ MiniUnicorn 当前支持多种部署方式：
 │  Docker  [docker pull ...:latest]    📋 │
 │  源码    [git pull && pip install]   📋 │
 │                                          │
-│  升级后请重启服务：miniunicorn gateway   │
+│  升级后请重启服务：erza gateway   │
 │                                          │
 │              [查看发布说明]              │
 └──────────────────────────────────────────┘
@@ -177,7 +177,7 @@ MiniUnicorn 当前支持多种部署方式：
 
 ### 5.1 问题分析
 
-Docker 容器内的 MiniUnicorn 无法自行 `docker pull` 升级镜像，只能：
+Docker 容器内的 Erza 无法自行 `docker pull` 升级镜像，只能：
 1. 在 Web UI 提示用户执行 `docker pull` + `docker run`
 2. 容器启动时打印版本检查日志
 
@@ -185,14 +185,14 @@ Docker 容器内的 MiniUnicorn 无法自行 `docker pull` 升级镜像，只能
 
 #### 5.2.1 后端启动时检测（可选）
 
-在 `miniunicorn/cli/_gateway_runner.py` 启动流程中加入版本检查：
+在 `erza/cli/_gateway_runner.py` 启动流程中加入版本检查：
 
 ```python
 # 伪代码
 async def check_remote_version():
     try:
         async with httpx.AsyncClient(timeout=3) as client:
-            res = await client.get("https://dl.miniunicorn.cn/updater.json")
+            res = await client.get("https://dl.erza.cn/updater.json")
             data = res.json()
             if semver_lt(CURRENT_VERSION, data["version"]):
                 logger.info(
@@ -205,11 +205,11 @@ async def check_remote_version():
 
 #### 5.2.2 Web UI 复用提示
 
-Docker 部署的 MiniUnicorn Web UI 自动复用 Phase 1 的 `<VersionBadge>` 组件，无需额外改造。用户在浏览器中看到红点提示，点击 Modal 显示：
+Docker 部署的 Erza Web UI 自动复用 Phase 1 的 `<VersionBadge>` 组件，无需额外改造。用户在浏览器中看到红点提示，点击 Modal 显示：
 
 ```bash
-docker pull agentscope/miniunicorn:latest
-docker run -p 127.0.0.1:8088:8088 -v miniunicorn-data:/app/workspace agentscope/miniunicorn:latest
+docker pull agentscope/erza:latest
+docker run -p 127.0.0.1:8088:8088 -v erza-data:/app/workspace agentscope/erza:latest
 ```
 
 #### 5.2.3 Docker 镜像 LABEL
@@ -217,8 +217,8 @@ docker run -p 127.0.0.1:8088:8088 -v miniunicorn-data:/app/workspace agentscope/
 在 `Dockerfile` 中添加版本标签，便于 `docker inspect` 查询：
 
 ```dockerfile
-LABEL org.miniunicorn.version="0.4.0"
-LABEL org.miniunicorn.updater-url="https://dl.miniunicorn.cn/updater.json"
+LABEL org.erza.version="0.4.0"
+LABEL org.erza.updater-url="https://dl.erza.cn/updater.json"
 ```
 
 ### 5.3 升级流程
@@ -231,9 +231,9 @@ LABEL org.miniunicorn.updater-url="https://dl.miniunicorn.cn/updater.json"
 点击版本号 → Modal 显示 docker pull 命令
     ↓
 用户在宿主机执行：
-  docker pull agentscope/miniunicorn:latest
-  docker stop miniunicorn && docker rm miniunicorn
-  docker run ... agentscope/miniunicorn:latest
+  docker pull agentscope/erza:latest
+  docker stop erza && docker rm erza
+  docker run ... agentscope/erza:latest
     ↓
 重新访问 Web UI → 版本号更新
 ```
@@ -270,7 +270,7 @@ mini-Unicorn/
     "updater": {
       "active": true,
       "endpoints": [
-        "https://dl.miniunicorn.cn/updater.json",
+        "https://dl.erza.cn/updater.json",
         "https://github.com/tuolaonainaiguomalu/mini-Unicorn/releases/latest/download/updater.json"
       ],
       "pubkey": "你的Ed25519公钥",
@@ -289,10 +289,10 @@ mini-Unicorn/
 
 ```bash
 # 生成密钥对
-npx @tauri-apps/cli signer generate -w ~/.tauri/miniunicorn.key
+npx @tauri-apps/cli signer generate -w ~/.tauri/erza.key
 
 # 输出示例：
-# Private key: /Users/xxx/.tauri/miniunicorn.key
+# Private key: /Users/xxx/.tauri/erza.key
 # Public key: dW50cnVzdGVkIGNvbW1lbnQ6IG1pbml1bmljb3JuIHM...
 ```
 
@@ -483,11 +483,11 @@ Ed25519 签名验证（公钥内置在 tauri.conf.json）
 
 ### Phase 4：优化（可选 ⏳）
 
-- [ ] 自建 `dl.miniunicorn.cn` 下载镜像（大陆加速，参考 Reasonix #3926）
+- [ ] 自建 `dl.erza.cn` 下载镜像（大陆加速，参考 Reasonix #3926）
 - [ ] 加入"忽略此版本"功能
 - [ ] 加入更新检查频率配置（每日/每周/手动）
 - [ ] 后端启动时打印版本检查日志（Docker 场景）
-- [ ] Docker 镜像添加 `LABEL org.miniunicorn.version`
+- [ ] Docker 镜像添加 `LABEL org.erza.version`
 
 ## 九、关键设计决策
 

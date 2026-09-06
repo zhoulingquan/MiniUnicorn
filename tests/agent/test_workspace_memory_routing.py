@@ -17,13 +17,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent._state_machine import TurnContext, TurnState
-from miniunicorn.agent.context import ContextBuilder
-from miniunicorn.bus.events import InboundMessage
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.config.schema import StructuredMemoryConfig
-from miniunicorn.memory.lifecycle import IngestContext
-from miniunicorn.memory.models import (
+from erza.agent._state_machine import TurnContext, TurnState
+from erza.agent.context import ContextBuilder
+from erza.bus.events import InboundMessage
+from erza.bus.queue import MessageBus
+from erza.config.schema import StructuredMemoryConfig
+from erza.memory.lifecycle import IngestContext
+from erza.memory.models import (
     ActorKind,
     EvidenceKind,
     EvidenceRef,
@@ -60,7 +60,7 @@ def _proposal(statement: str, *, subject: str):
 
 def _seed_active_fact(store, statement: str, *, subject: str) -> None:
     """Ingest and promote an ACTIVE project-scope record via the lifecycle."""
-    from miniunicorn.memory.extraction import parse_extraction_batch
+    from erza.memory.extraction import parse_extraction_batch
 
     evidence_catalog = {
         "history:1": EvidenceRef(
@@ -119,7 +119,7 @@ def _write_reflection(store, lesson: str, reflection_id: str) -> None:
 
 
 def _make_loop(bus, provider, workspace, session_ttl_minutes: int = 0):
-    from miniunicorn.agent.loop import AgentLoop
+    from erza.agent.loop import AgentLoop
 
     return AgentLoop(
         bus=bus,
@@ -429,8 +429,8 @@ async def test_auto_compact_routes_expired_workspace_b_session_to_b_consolidator
 
 
 def test_consolidator_token_probe_uses_workspace_b_prompt(tmp_path: Path) -> None:
-    from miniunicorn.memory import Consolidator
-    from miniunicorn.session.manager import Session
+    from erza.memory import Consolidator
+    from erza.session.manager import Session
 
     a = tmp_path / "A"
     b = tmp_path / "B"

@@ -5,7 +5,7 @@
 
 ## 一、问题（现状锚点）
 
-`miniunicorn/agent/runner.py` 共 1657 行，`AgentRunner._run_with_ledger`（485-990 行）单个方法约 505 行，是全项目最大的 god-method。内部混合了六类关注点：
+`erza/agent/runner.py` 共 1657 行，`AgentRunner._run_with_ledger`（485-990 行）单个方法约 505 行，是全项目最大的 god-method。内部混合了六类关注点：
 
 | 区段 | 行号（参考） | 内容 |
 |---|---|---|

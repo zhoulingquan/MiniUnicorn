@@ -2,12 +2,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.config.loader import save_config
-from miniunicorn.config.schema import Config
-from miniunicorn.providers.factory import ProviderSnapshot, load_provider_snapshot
-from miniunicorn.webui.settings_api import update_agent_settings
+from erza.agent.loop import AgentLoop
+from erza.bus.queue import MessageBus
+from erza.config.loader import save_config
+from erza.config.schema import Config
+from erza.providers.factory import ProviderSnapshot, load_provider_snapshot
+from erza.webui.settings_api import update_agent_settings
 
 
 def _provider(default_model: str, max_tokens: int = 123) -> MagicMock:
@@ -89,7 +89,7 @@ def test_settings_context_window_refreshes_runtime_state(
     config.agents.defaults.context_window_tokens = 65_536
     config.providers.custom.api_key = "sk-test"
     save_config(config, config_path)
-    monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("erza.config.loader._current_config_path", config_path)
 
     def loader(*, preset_name: str | None = None) -> ProviderSnapshot:
         return load_provider_snapshot(config_path, preset_name=preset_name)

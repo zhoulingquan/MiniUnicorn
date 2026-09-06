@@ -13,18 +13,18 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.execution import tool_execution as tool_execution_module
-from miniunicorn.agent.execution.tool_execution import ToolExecutionCoordinator
-from miniunicorn.agent.planning_policy import PlanningMode, PlanningPolicy
-from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
-from miniunicorn.agent.step_acceptance import (
+from erza.agent.execution import tool_execution as tool_execution_module
+from erza.agent.execution.tool_execution import ToolExecutionCoordinator
+from erza.agent.planning_policy import PlanningMode, PlanningPolicy
+from erza.agent.runner import AgentRunner, AgentRunSpec
+from erza.agent.step_acceptance import (
     StepAcceptancePolicy,
     StepEvidence,
     ToolObservation,
 )
-from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
-from miniunicorn.tools.base import Tool
-from miniunicorn.tools.registry import ToolRegistry
+from erza.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from erza.tools.base import Tool
+from erza.tools.registry import ToolRegistry
 
 
 def _coordinator() -> ToolExecutionCoordinator:

@@ -10,7 +10,7 @@ import pytest
 
 # Check optional Feishu dependencies before running tests
 try:
-    from miniunicorn.channels import feishu
+    from erza.channels import feishu
 
     FEISHU_AVAILABLE = getattr(feishu, "FEISHU_AVAILABLE", False)
 except ImportError:
@@ -19,9 +19,9 @@ except ImportError:
 if not FEISHU_AVAILABLE:
     pytest.skip("Feishu dependencies not installed (lark-oapi)", allow_module_level=True)
 
-from miniunicorn.bus.events import OutboundMessage
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.channels.feishu import FeishuChannel, FeishuConfig
+from erza.bus.events import OutboundMessage
+from erza.bus.queue import MessageBus
+from erza.channels.feishu import FeishuChannel, FeishuConfig
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -597,7 +597,7 @@ async def test_on_message_audio_publishes_downloaded_path_and_transcription() ->
     channel.bus.publish_inbound = capture
     channel._download_and_save_media = AsyncMock(
         return_value=(
-            r"C:\\Users\\dodre\\.miniunicorn\\media\\feishu\\voice.ogg",
+            r"C:\\Users\\dodre\\.erza\\media\\feishu\\voice.ogg",
             "[audio: voice.ogg]",
         )
     )
@@ -615,10 +615,10 @@ async def test_on_message_audio_publishes_downloaded_path_and_transcription() ->
         "audio", {"file_key": "audio_key", "duration": 1000}, "om_audio"
     )
     channel.transcribe_audio.assert_awaited_once_with(
-        r"C:\\Users\\dodre\\.miniunicorn\\media\\feishu\\voice.ogg"
+        r"C:\\Users\\dodre\\.erza\\media\\feishu\\voice.ogg"
     )
     assert len(captured) == 1
-    assert captured[0].media == [r"C:\\Users\\dodre\\.miniunicorn\\media\\feishu\\voice.ogg"]
+    assert captured[0].media == [r"C:\\Users\\dodre\\.erza\\media\\feishu\\voice.ogg"]
     assert captured[0].content == "[transcription: hello from voice]"
 
 
@@ -629,9 +629,9 @@ async def test_download_and_save_media_returns_absolute_path_in_content(
     channel = _make_feishu_channel()
     # Patch get_media_dir where it's imported (channel module), not the source
     # module — channel.py does `from ...paths import get_media_dir` so the
-    # reference lives in miniunicorn.channels.feishu.channel.
+    # reference lives in erza.channels.feishu.channel.
     monkeypatch.setattr(
-        "miniunicorn.channels.feishu.channel.get_media_dir", lambda _channel: tmp_path
+        "erza.channels.feishu.channel.get_media_dir", lambda _channel: tmp_path
     )
     channel._download_file_sync = MagicMock(return_value=(b"voice-bytes", None))
 

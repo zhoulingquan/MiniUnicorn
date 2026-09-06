@@ -12,10 +12,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.bus.events import InboundMessage
-from miniunicorn.config.schema import ModelPresetConfig
-from miniunicorn.providers.base import LLMResponse
-from miniunicorn.providers.factory import ProviderSnapshot
+from erza.bus.events import InboundMessage
+from erza.config.schema import ModelPresetConfig
+from erza.providers.base import LLMResponse
+from erza.providers.factory import ProviderSnapshot
 from tests.agent.conftest import make_loop
 
 

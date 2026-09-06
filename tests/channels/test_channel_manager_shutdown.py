@@ -17,10 +17,10 @@ import asyncio
 
 import pytest
 
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.channels.base import BaseChannel
-from miniunicorn.channels.manager import ChannelManager
-from miniunicorn.config.schema import Config
+from erza.bus.queue import MessageBus
+from erza.channels.base import BaseChannel
+from erza.channels.manager import ChannelManager
+from erza.config.schema import Config
 
 
 class _RecordingChannel(BaseChannel):

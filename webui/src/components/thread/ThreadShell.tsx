@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { ThreadComposer } from "@/components/thread/ThreadComposer";
 import { StreamErrorNotice } from "@/components/thread/StreamErrorNotice";
 import { ThreadViewport } from "@/components/thread/ThreadViewport";
-import { useMiniunicornStream, type SendImage, type SendOptions } from "@/hooks/useMiniunicornStream";
+import { useErzaStream, type SendImage, type SendOptions } from "@/hooks/useErzaStream";
 import { useSessionHistory } from "@/hooks/useSessions";
 import { fetchAgents, listSlashCommands, rewindSession, updateSettings, fetchSkills } from "@/lib/api";
 import { inferProviderFromModelName, providerDisplayLabel } from "@/lib/provider-brand";
@@ -211,12 +211,12 @@ export function ThreadShell({
   // thread state alive across session switches.
   //
   // DATA FOW
-  //   messageCacheRef  ─►  `initial` (useMemo)  ─►  useMiniunicornStream
+  //   messageCacheRef  ─►  `initial` (useMemo)  ─►  useErzaStream
   //        ▲                                              │
   //        │                                              ▼
   //   sync effects ◄── setMessages / messages ────────────┘
   //
-  // Because `useMiniunicornStream` consumes `initial` (which reads
+  // Because `useErzaStream` consumes `initial` (which reads
   // `messageCacheRef`) **and** produces `setMessages` / `messages` that the
   // cache-sync effects write back, these refs cannot be cleanly extracted into
   // a standalone hook without creating a circular dependency. They are kept
@@ -227,7 +227,7 @@ export function ThreadShell({
   //   prevChatIdForCacheRef      last chatId rendered; drives cache-on-switch
   //   skipLayoutCacheRef         suppress one cache write after a chat switch
   //                              (the first paint still sees the old chat's
-  //                              messages from useMiniunicornStream's reset)
+  //                              messages from useErzaStream's reset)
   //   appliedHistoryVersionRef   chatId → last historyVersion merged into the
   //                              live thread (prevents re-applying stale snaps)
   //   pendingCanonicalHydrateRef chatIds awaiting a fresh canonical replay
@@ -260,7 +260,7 @@ export function ThreadShell({
     setMessages,
     streamError,
     dismissStreamError,
-  } = useMiniunicornStream(chatId, initial, hasPendingToolCalls, handleTurnEnd);
+  } = useErzaStream(chatId, initial, hasPendingToolCalls, handleTurnEnd);
 
   useEffect(() => {
     if (chatId && historyKey) sessionKeyByChatIdRef.current.set(chatId, historyKey);
@@ -442,7 +442,7 @@ export function ThreadShell({
     }
   }, [chatId, messages]);
 
-  // Persist thread to in-memory cache after paint so ``useMiniunicornStream``'s chat switch
+  // Persist thread to in-memory cache after paint so ``useErzaStream``'s chat switch
   // ``useEffect`` reset has flushed; ``skipLayoutCacheRef`` drops the first run that still
   // sees the *previous* chat's ``messages`` (avoids stale rows leaking across sessions).
   useEffect(() => {

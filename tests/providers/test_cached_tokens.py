@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from miniunicorn.providers.openai_compat_provider import OpenAICompatProvider
+from erza.providers.openai_compat_provider import OpenAICompatProvider
 
 
 class FakeUsage:

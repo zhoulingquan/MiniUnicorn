@@ -1,4 +1,4 @@
-# MiniUnicorn 模块化单体改造交接设计
+# Erza 模块化单体改造交接设计
 
 ## 目的
 
@@ -19,25 +19,25 @@
 
 ## 当前代码事实
 
-- `miniunicorn/agent/loop.py` 约 1710 行，负责运行时装配、资源解析、消息调度、会话并发、命令、Turn 执行、响应组装、持久化和恢复等多类职责。
-- `miniunicorn/agent/runner.py` 约 1859 行，负责模型请求、工具执行、上下文治理、规划反思和多类恢复策略。
+- `erza/agent/loop.py` 约 1710 行，负责运行时装配、资源解析、消息调度、会话并发、命令、Turn 执行、响应组装、持久化和恢复等多类职责。
+- `erza/agent/runner.py` 约 1859 行，负责模型请求、工具执行、上下文治理、规划反思和多类恢复策略。
 - `AgentLoopBuilder` 约 276 行，并明确用于处理 `AgentLoop` 的 30 多个构造参数。
 - `_state_machine.py`、`_mcp_lifecycle.py` 和 `_provider_switching.py` 虽已拆文件，但通过 `self: AgentLoop` 访问中心对象内部状态，尚未形成独立模块边界。
 - 当前会话并发模型是同会话串行、跨会话并发；会话持久化、Checkpoint、子代理、中途消息注入、Provider 切换和 MCP 生命周期都是迁移时必须保留的行为。
-- 工作区目前存在用户的未跟踪目录 `.trae-html-share-packages/` 和 `arch-eval-miniunicorn-vs-aniyaa/`，不得删除、移动、覆盖或纳入无关提交。
+- 工作区目前存在用户的未跟踪目录 `.trae-html-share-packages/` 和 `arch-eval-erza-vs-aniyaa/`，不得删除、移动、覆盖或纳入无关提交。
 
 ## 可直接交给下一个 Agent 的提示词
 
 ```text
-你正在接手 MiniUnicorn 的架构改造设计。工作区位于：
+你正在接手 Erza 的架构改造设计。工作区位于：
 
-D:\MyProject\MiniUnicorn
+D:\MyProject\Erza
 
 你的任务不是立即修改代码，而是基于实际代码完成一份可执行、可分阶段审批的“模块化单体改造设计 + 实施计划”。用户批准设计和计划之前，不得修改生产代码、测试、配置、依赖、数据库或会话格式；不得开始重构。允许执行只读检查、静态分析和不会改写项目文件的诊断测试。若你的工作流要求生成设计文档，只能新增或修改明确的设计/计划文档，并先说明文件路径。
 
 一、架构哲学
 
-将 MiniUnicorn 改造成：
+将 Erza 改造成：
 
 “模块化单体 + 确定性业务工作流”
 
@@ -58,21 +58,21 @@ D:\MyProject\MiniUnicorn
 
 不要依据 README 中的产品定位进行判断，必须检查实际代码、调用路径、测试和近期提交。至少检查：
 
-- miniunicorn/agent/loop.py
-- miniunicorn/agent/loop_builder.py
-- miniunicorn/agent/runner.py
-- miniunicorn/agent/_state_machine.py
-- miniunicorn/agent/_mcp_lifecycle.py
-- miniunicorn/agent/_provider_switching.py
-- miniunicorn/agent/context.py
-- miniunicorn/agent/context_governor.py
-- miniunicorn/agent/tools/registry.py
-- miniunicorn/agent/tools/loader.py
-- miniunicorn/session/manager.py
-- miniunicorn/bus/
-- miniunicorn/channels/
-- miniunicorn/providers/
-- miniunicorn/runtime/
+- erza/agent/loop.py
+- erza/agent/loop_builder.py
+- erza/agent/runner.py
+- erza/agent/_state_machine.py
+- erza/agent/_mcp_lifecycle.py
+- erza/agent/_provider_switching.py
+- erza/agent/context.py
+- erza/agent/context_governor.py
+- erza/agent/tools/registry.py
+- erza/agent/tools/loader.py
+- erza/session/manager.py
+- erza/bus/
+- erza/channels/
+- erza/providers/
+- erza/runtime/
 - 相关 tests/ 目录
 
 已知线索只能作为调查起点，必须自行复核：
@@ -250,7 +250,7 @@ Phase 6：清理和边界守卫
 八、明确禁止
 
 - 未批准前修改代码、测试、配置、依赖或持久化格式。
-- 把 MiniUnicorn 改造成动态插件平台。
+- 把 Erza 改造成动态插件平台。
 - 使用全局事件总线编排关键控制流。
 - 用一个新的 God Object、Service Locator、万能 Context 或字典替换 AgentLoop。
 - 为每个函数创建接口或抽象类。

@@ -4,7 +4,7 @@ When /stop cancels an active task, the runtime checkpoint (tool results,
 assistant messages accumulated so far) should be materialized into session
 history rather than silently discarded.
 
-See: https://github.com/HKUDS/miniunicorn/issues/2966
+See: https://github.com/HKUDS/erza/issues/2966
 """
 
 from __future__ import annotations
@@ -16,8 +16,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.bus.queue import MessageBus
+from erza.agent.loop import AgentLoop
+from erza.bus.queue import MessageBus
 
 
 def _make_provider():
@@ -36,9 +36,9 @@ def _make_loop(tmp_path: Path) -> AgentLoop:
     bus = MessageBus()
     provider = _make_provider()
     with (
-        patch("miniunicorn.agent.loop.ContextBuilder"),
-        patch("miniunicorn.agent.loop.SessionManager"),
-        patch("miniunicorn.agent.loop.SubagentManager") as MockSubMgr,
+        patch("erza.agent.loop.ContextBuilder"),
+        patch("erza.agent.loop.SessionManager"),
+        patch("erza.agent.loop.SubagentManager") as MockSubMgr,
     ):
         MockSubMgr.return_value.cancel_by_session = AsyncMock(return_value=0)
         return AgentLoop(bus=bus, provider=provider, workspace=tmp_path)
@@ -185,8 +185,8 @@ async def test_dispatch_cancellation_restores_checkpoint():
     isolation, so a future refactor that drops the cancel-time restore is
     caught by CI instead of silently regressing.
     """
-    from miniunicorn.bus.events import InboundMessage
-    from miniunicorn.bus.queue import MessageBus
+    from erza.bus.events import InboundMessage
+    from erza.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
@@ -195,9 +195,9 @@ async def test_dispatch_cancellation_restores_checkpoint():
     workspace.__truediv__ = MagicMock(return_value=MagicMock())
 
     with (
-        patch("miniunicorn.agent.loop.ContextBuilder"),
-        patch("miniunicorn.agent.loop.SessionManager"),
-        patch("miniunicorn.agent.loop.SubagentManager") as MockSubMgr,
+        patch("erza.agent.loop.ContextBuilder"),
+        patch("erza.agent.loop.SessionManager"),
+        patch("erza.agent.loop.SubagentManager") as MockSubMgr,
     ):
         MockSubMgr.return_value.cancel_by_session = AsyncMock(return_value=0)
         loop = AgentLoop(bus=bus, provider=provider, workspace=workspace)

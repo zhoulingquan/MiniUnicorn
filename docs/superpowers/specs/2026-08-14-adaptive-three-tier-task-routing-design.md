@@ -2,12 +2,12 @@
 
 **状态：** 待实施
 **日期：** 2026-08-14
-**适用仓库：** MiniUnicorn
+**适用仓库：** Erza
 **前置基线：** `main@4e0553db`
 
 ## 1. 决策结论
 
-MiniUnicorn 将当前全局静态 `usePlanner` 开关替换为始终启用的、确定性优先的三级任务路由：
+Erza 将当前全局静态 `usePlanner` 开关替换为始终启用的、确定性优先的三级任务路由：
 
 ```text
 用户任务
@@ -72,7 +72,7 @@ MiniUnicorn 将当前全局静态 `usePlanner` 开关替换为始终启用的、
 
 ## 6. 核心模型
 
-新增 `miniunicorn/agent/task_router.py`：
+新增 `erza/agent/task_router.py`：
 
 ```python
 class TaskRoute(str, Enum):

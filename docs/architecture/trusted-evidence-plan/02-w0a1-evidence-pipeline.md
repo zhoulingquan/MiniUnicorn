@@ -7,7 +7,7 @@
 
 工具结果从未到达验收器，管道断路：
 
-1. `miniunicorn/agent/runner.py` 主循环中 `await self.execute_tools(...)`（约 661 行）拿到 `results, new_events, fatal_error`，但 `context.tool_results = list(results)`（约 673 行）**每个迭代被覆盖**，不跨迭代累积。
+1. `erza/agent/runner.py` 主循环中 `await self.execute_tools(...)`（约 661 行）拿到 `results, new_events, fatal_error`，但 `context.tool_results = list(results)`（约 673 行）**每个迭代被覆盖**，不跨迭代累积。
 2. 步骤完成点在非工具响应分支：`await self._complete_plan_step(plan, context, hook, clean, state.stop_reason, spec=spec, turn_id=state.turn_id)`（约 873 行）——**没有传 `tool_calls` / `tool_results`**，`planning.complete_plan_step` 里二者默认 `[]`。
 3. 结果：`StepAcceptancePolicy.evaluate` 收到的 `tool_calls=[]`、`tool_results=[]`，`StepEvidence.tool_calls/tool_results` 永远为空，验收实际只看 `final_content` 文本。
 
@@ -15,7 +15,7 @@
 
 ### 2.1 新增 ToolObservation（放在 step_acceptance.py，与 StepEvidence 同域同文件）
 
-`miniunicorn/agent/step_acceptance.py` 追加：
+`erza/agent/step_acceptance.py` 追加：
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -39,7 +39,7 @@ class ToolObservation:
 
 ### 2.2 观察构建器（tool_execution.py，纯函数，不改任何签名）
 
-`miniunicorn/agent/execution/tool_execution.py` 的 `ToolExecutionService` 增加方法：
+`erza/agent/execution/tool_execution.py` 的 `ToolExecutionService` 增加方法：
 
 ```python
 def build_observations(
@@ -132,6 +132,6 @@ state.tool_observations.extend(
 ## 五、验收自检（批次报告须包含）
 
 - [ ] `pytest tests/ -q` 全绿，数量与基线一致
-- [ ] `ruff check miniunicorn/ && ruff format --check miniunicorn/` 零告警
+- [ ] `ruff check erza/ && ruff format --check erza/` 零告警
 - [ ] 改动文件清单 ≤ 5 个（step_acceptance.py、tool_execution.py、runner.py、planning.py、测试文件）
 - [ ] 与本规格的偏差逐条说明

@@ -1,9 +1,9 @@
-# MiniUnicorn Agent Harness 评估报告 — 独立复核结论
+# Erza Agent Harness 评估报告 — 独立复核结论
 
 **复核日期：** 2026-08-25
 **复核基线：** `HEAD 035770e3b1d1ae02586e8cf540a6662278e36899`（与原报告一致，已验证）
 **复核对象：** [agent-harness-evaluation-report-2026-08-25.md](./agent-harness-evaluation-report-2026-08-25.md) 第 9 节任务清单全部 8 项
-**复核方式：** 静态调用链追踪 + 最小失败测试 + 隔离环境（独立 HOME/USERPROFILE/MINIUNICORN_HOME/TEMP）分批测试重跑 + ruff 重跑
+**复核方式：** 静态调用链追踪 + 最小失败测试 + 隔离环境（独立 HOME/USERPROFILE/ERZA_HOME/TEMP）分批测试重跑 + ruff 重跑
 
 ---
 
@@ -161,7 +161,7 @@ return False
 - `.venv` **缺少 `pytest-timeout`**，而 pyproject.toml:176-177 配置了 `timeout = 600`/`timeout_method = "thread"` 且依赖组未声明该包 → **配置完全无效**（unknown config warning 可复现）→ 挂起测试永远不被打断；
 - 全量测试因此必然挂死；被强杀/中断时 pytest 将未完成测试计为 error。
 
-**归因结论：原报告的"878 errors"主要由 ① 挂起中断的级联 error ② 本机 `~/.miniunicorn` 权限 ③ 无效 timeout 配置构成；真实代码缺陷 ≤ 2 个（且均为测试设计/网络依赖问题，非产品缺陷）。** 原报告"不能等价为 878 个真实缺陷"的判断正确，且现在有了具体机制证据。
+**归因结论：原报告的"878 errors"主要由 ① 挂起中断的级联 error ② 本机 `~/.erza` 权限 ③ 无效 timeout 配置构成；真实代码缺陷 ≤ 2 个（且均为测试设计/网络依赖问题，非产品缺陷）。** 原报告"不能等价为 878 个真实缺陷"的判断正确，且现在有了具体机制证据。
 
 另注：原报告"定向子集 117 passed"的子集选择过窄——仅 tests/agent 等五个目录实际可通过 2283 项。
 
@@ -192,9 +192,9 @@ return False
 
 | 文档引用 | 实际文件 |
 |---|---|
-| `miniunicorn/agent/safety.py` | `safety_policy.py` |
-| `miniunicorn/agent/planning.py` | `planning_policy.py` |
-| `miniunicorn/agent/delegation.py`（文档声称"原 execute_plan.py，别名兼容"） | `tools/execute_plan.py`（**delegation.py 不存在，"别名兼容"描述失真**） |
+| `erza/agent/safety.py` | `safety_policy.py` |
+| `erza/agent/planning.py` | `planning_policy.py` |
+| `erza/agent/delegation.py`（文档声称"原 execute_plan.py，别名兼容"） | `tools/execute_plan.py`（**delegation.py 不存在，"别名兼容"描述失真**） |
 
 结论：纯文档漂移，无兼容模块。架构登记表需同步（原报告 P2-3 建议成立且需加强：不止路径，连"别名兼容"的说法都是错的）。
 

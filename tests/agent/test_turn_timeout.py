@@ -14,8 +14,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
-from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from erza.agent.runner import AgentRunner, AgentRunSpec
+from erza.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 
 
 def _slow_provider(delay: float = 0.15) -> MagicMock:

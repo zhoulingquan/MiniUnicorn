@@ -31,7 +31,7 @@ import {
 } from "@/hooks/useAttachedImages";
 import { useClipboardAndDrop } from "@/hooks/useClipboardAndDrop";
 import { useSlashCommandPalette } from "@/hooks/useSlashCommandPalette";
-import type { SendImage, SendOptions } from "@/hooks/useMiniunicornStream";
+import type { SendImage, SendOptions } from "@/hooks/useErzaStream";
 import {
   Tooltip,
   TooltipContent,
@@ -345,7 +345,7 @@ export function ThreadComposer({
       : undefined;
 
     // 发送前对最终 JSON frame 的 UTF-8 字节数进行校验(设计 §4.5)。
-    // 复刻 ``MiniunicornClient.sendMessage`` 的 wire 帧结构,计算精确字节数,
+    // 复刻 ``ErzaClient.sendMessage`` 的 wire 帧结构,计算精确字节数,
     // 再为 envelope 外层字段(chat_id/webui=true/metadata 等)预留安全余量。
     // 超限直接拦截、保留文本和附件草稿,避免服务端 1009 关闭连接后丢失输入。
     const limit =

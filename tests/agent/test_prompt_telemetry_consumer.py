@@ -10,10 +10,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from loguru import logger
 
-from miniunicorn.agent import turn_telemetry
-from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
-from miniunicorn.agent.turn_telemetry import PromptComponentTokens, TurnTelemetry
-from miniunicorn.providers.base import LLMProvider, LLMResponse
+from erza.agent import turn_telemetry
+from erza.agent.runner import AgentRunner, AgentRunSpec
+from erza.agent.turn_telemetry import PromptComponentTokens, TurnTelemetry
+from erza.providers.base import LLMProvider, LLMResponse
 
 
 def _spec(context_window_tokens: int | None = 1000) -> AgentRunSpec:
@@ -84,7 +84,7 @@ class TestPromptTelemetryConsumer:
 
         try:
             # Trigger the log as turn_orchestrator would
-            from miniunicorn.agent import turn_telemetry as tt
+            from erza.agent import turn_telemetry as tt
 
             telemetry = tt.current()
             if telemetry is not None and telemetry.prompt_components is not None:
@@ -152,7 +152,7 @@ class TestPromptTelemetryConsumer:
         handler_id = logger.add(captured_logs, format="{message}", level="INFO")
 
         try:
-            from miniunicorn.agent import turn_telemetry as tt
+            from erza.agent import turn_telemetry as tt
 
             telemetry = tt.current()
             if telemetry is not None and telemetry.prompt_components is not None:

@@ -13,7 +13,7 @@ import pytest_asyncio
 # skip the whole module when aiohttp (or the api_compat package) is absent.
 pytest.importorskip("aiohttp")
 
-from miniunicorn.api_compat.server import (
+from erza.api_compat.server import (
     _SSE_DONE,
     _sse_chunk,
     create_app,

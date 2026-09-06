@@ -2,14 +2,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-import miniunicorn.memory.consolidator as memory_module
-from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.providers.base import LLMResponse
+import erza.memory.consolidator as memory_module
+from erza.agent.loop import AgentLoop
+from erza.bus.queue import MessageBus
+from erza.providers.base import LLMResponse
 
 
 def _make_loop(tmp_path, *, estimated_tokens: int, context_window_tokens: int) -> AgentLoop:
-    from miniunicorn.providers.base import GenerationSettings
+    from erza.providers.base import GenerationSettings
 
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"

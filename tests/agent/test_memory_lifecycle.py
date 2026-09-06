@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from miniunicorn.memory.lifecycle import (
+from erza.memory.lifecycle import (
     REASON_BLOCKED_LOWER_RANK,
     REASON_CORRECTION_CONFLICT,
     REASON_CREATED,
@@ -28,7 +28,7 @@ from miniunicorn.memory.lifecycle import (
     StructuredMemoryLifecycle,
     can_auto_promote,
 )
-from miniunicorn.memory.models import (
+from erza.memory.models import (
     SCHEMA_VERSION,
     ActorKind,
     CandidateProposal,
@@ -48,10 +48,10 @@ from miniunicorn.memory.models import (
     new_transaction_id,
     transaction_checksum,
 )
-from miniunicorn.memory.models import (
+from erza.memory.models import (
     MemoryError as StructuredMemoryError,
 )
-from miniunicorn.memory.repository import StructuredMemoryRepository
+from erza.memory.repository import StructuredMemoryRepository
 
 UTC = timezone.utc
 
@@ -98,7 +98,7 @@ def record_data(
         "status": status,
         "kind": kind,
         "scope": {"kind": "project", "key": "project:6b5ec7b29e32"},
-        "subject": "MiniUnicorn",
+        "subject": "Erza",
         "slot": slot,
         "statement": statement,
         "detail": "",
@@ -144,7 +144,7 @@ def make_transaction(
 def workspace(tmp_path: Path) -> Path:
     structured = tmp_path / "memory" / "structured"
     structured.mkdir(parents=True)
-    bundled = Path(__file__).parents[2] / "miniunicorn" / "templates" / "memory" / "TAGS.json"
+    bundled = Path(__file__).parents[2] / "erza" / "templates" / "memory" / "TAGS.json"
     shutil.copy(bundled, structured / "tags.json")
     return tmp_path
 
@@ -211,7 +211,7 @@ def evidence_catalog() -> dict[str, EvidenceRef]:
 
 @pytest.fixture
 def file_catalog() -> dict[str, EvidenceRef]:
-    return {"file:pyproject": file_evidence("name = miniunicorn-ai")}
+    return {"file:pyproject": file_evidence("name = erza-ai")}
 
 
 @pytest.fixture
@@ -255,7 +255,7 @@ def proposal(
         {
             "proposal_index": 0,
             "kind": kind,
-            "subject": "MiniUnicorn",
+            "subject": "Erza",
             "slot": slot,
             "statement": statement,
             "detail": "",
@@ -384,7 +384,7 @@ def test_ingest_rejects_file_hash_mismatch(lifecycle, file_context):
     bad = file_context.evidence_catalog["file:pyproject"].model_copy(
         update={
             "sha256": hashlib.sha256(b"different content").hexdigest(),
-            "excerpt": "name = miniunicorn-ai",
+            "excerpt": "name = erza-ai",
         }
     )
     context = IngestContext(
@@ -434,7 +434,7 @@ def test_ingest_normalizes_tags_and_aliases(lifecycle, context):
 def test_ingest_rejects_non_atomic_missing_fields(lifecycle, context):
     with pytest.raises(ValidationError):
         CandidateProposal.model_validate(
-            {"proposal_index": 0, "kind": "fact", "subject": "MiniUnicorn"}
+            {"proposal_index": 0, "kind": "fact", "subject": "Erza"}
         )
 
 

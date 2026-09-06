@@ -4,10 +4,10 @@ from datetime import datetime, timezone
 
 import pytest
 
-from miniunicorn.cron.service import CronService
-from miniunicorn.cron.types import CronJob, CronJobState, CronPayload, CronSchedule
-from miniunicorn.tools.context import RequestContext
-from miniunicorn.tools.cron import CronTool
+from erza.cron.service import CronService
+from erza.cron.types import CronJob, CronJobState, CronPayload, CronSchedule
+from erza.tools.context import RequestContext
+from erza.tools.cron import CronTool
 
 
 def _make_tool(tmp_path) -> CronTool:

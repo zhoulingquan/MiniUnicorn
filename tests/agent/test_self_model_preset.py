@@ -3,11 +3,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.config.schema import ModelPresetConfig
-from miniunicorn.providers.factory import ProviderSnapshot
-from miniunicorn.tools.self import MyTool
+from erza.agent.loop import AgentLoop
+from erza.bus.queue import MessageBus
+from erza.config.schema import ModelPresetConfig
+from erza.providers.factory import ProviderSnapshot
+from erza.tools.self import MyTool
 
 
 def _provider(default_model: str, max_tokens: int = 123) -> MagicMock:
@@ -263,7 +263,7 @@ def test_self_tool_set_model_clears_active_preset(tmp_path) -> None:
 def test_from_config_injects_default_preset(tmp_path) -> None:
     from unittest.mock import patch
 
-    from miniunicorn.config.schema import Config
+    from erza.config.schema import Config
 
     config = Config.model_validate(
         {
@@ -271,7 +271,7 @@ def test_from_config_injects_default_preset(tmp_path) -> None:
         }
     )
     fake_provider = _provider("deepseek/deepseek-chat")
-    with patch("miniunicorn.providers.factory.make_provider", return_value=fake_provider):
+    with patch("erza.providers.factory.make_provider", return_value=fake_provider):
         loop = AgentLoop.from_config(config)
     assert loop.model == "deepseek/deepseek-chat"
     assert loop.model_preset is None
@@ -282,7 +282,7 @@ def test_from_config_injects_default_preset(tmp_path) -> None:
 def test_from_config_static_preset_loader_does_not_enable_hot_reload(tmp_path) -> None:
     from unittest.mock import patch
 
-    from miniunicorn.config.schema import Config
+    from erza.config.schema import Config
 
     config = Config.model_validate(
         {
@@ -291,7 +291,7 @@ def test_from_config_static_preset_loader_does_not_enable_hot_reload(tmp_path) -
         }
     )
     fake_provider = _provider("deepseek/deepseek-chat")
-    with patch("miniunicorn.providers.factory.make_provider", return_value=fake_provider):
+    with patch("erza.providers.factory.make_provider", return_value=fake_provider):
         loop = AgentLoop.from_config(config)
     assert loop._provider_snapshot_loader is None
     assert loop._preset_snapshot_loader is not None

@@ -13,17 +13,17 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniunicorn.agent.context_governor import (
+from erza.agent.context_governor import (
     GovernanceContext,
     PressureLevel,
     PressureSignal,
 )
-from miniunicorn.agent.runner_strategies import (
+from erza.agent.runner_strategies import (
     ApplyToolResultBudgetStrategy,
     MicrocompactStrategy,
     SnipHistoryStrategy,
 )
-from miniunicorn.providers.base import LLMProvider
+from erza.providers.base import LLMProvider
 
 _NOTICE_LEN = len("\n... (truncated)")
 
@@ -168,7 +168,7 @@ def test_microcompact_runs_when_no_pressure() -> None:
 
 def test_apply_tool_result_budget_tightens_on_red() -> None:
     """On RED, apply_tool_result_budget halves the max_tool_result_chars."""
-    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
+    from erza.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
     runner = AgentRunner(provider)
@@ -212,7 +212,7 @@ def test_apply_tool_result_budget_tightens_on_red() -> None:
 
 def test_apply_tool_result_budget_normal_on_green() -> None:
     """On GREEN, apply_tool_result_budget uses normal limits."""
-    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
+    from erza.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
     runner = AgentRunner(provider)
@@ -269,7 +269,7 @@ def test_snip_history_skips_on_green() -> None:
 
 def test_snip_history_runs_on_red() -> None:
     """On RED pressure, snip_history delegates to the governance service."""
-    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
+    from erza.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
     provider.estimate_prompt_tokens = MagicMock(return_value=(950, "mock"))

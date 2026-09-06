@@ -5,7 +5,7 @@
 
 ## 一、改动一：planner_system.md 模板
 
-`miniunicorn/templates/agent/planner_system.md` 的 JSON schema 中，每个 step 增加一个字段：
+`erza/templates/agent/planner_system.md` 的 JSON schema 中，每个 step 增加一个字段：
 
 ```
 "evidence_level": "tool" 或 "text"
@@ -55,7 +55,7 @@ def _normalize_evidence_level(value: Any) -> str:
 
 `Planner._fallback_plan`（planner.py 约 311 行）构造的兜底单步计划不声明等级（默认 "text"）——**保持现状**。兜底计划本就走 ReAct-only 或 text 级验收，声明 tool 反而抬高等级导致永远无法通过。
 
-核查项（只查不改）：`rg -n "PlanStep(" miniunicorn/ -g "*.py"` 全量过目，确认无其他生产代码路径需要同步声明 evidence_level（测试构造点按需补字段，属测试自由）。
+核查项（只查不改）：`rg -n "PlanStep(" erza/ -g "*.py"` 全量过目，确认无其他生产代码路径需要同步声明 evidence_level（测试构造点按需补字段，属测试自由）。
 
 ## 四、测试要求
 

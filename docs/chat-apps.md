@@ -1,13 +1,13 @@
 # Chat Apps
 
-将 MiniUnicorn 接入你常用的聊天平台。当前内置以下频道适配器：
+将 Erza 接入你常用的聊天平台。当前内置以下频道适配器：
 
 | 频道 | 接入方式 |
 |---------|----------|
 | **飞书 (Feishu)** | App ID + App Secret，支持扫码登录 |
 | **钉钉 (DingTalk)** | App Key + App Secret |
 | **企业微信 (Wecom)** | Bot ID + Bot Secret |
-| **微信 (Weixin)** | 扫码登录（`miniunicorn channels login weixin`） |
+| **微信 (Weixin)** | 扫码登录（`erza channels login weixin`） |
 | **QQ** | App ID + App Secret |
 | **WebSocket / WebUI** | 内置浏览器 UI，零配置可用 |
 
@@ -15,7 +15,7 @@
 
 ## 通用配置
 
-所有频道配置统一放在 `~/.miniunicorn/config.json` 的 `channels` 字段下。可以使用 `${VAR_NAME}` 引用环境变量，避免把密钥写入配置文件：
+所有频道配置统一放在 `~/.erza/config.json` 的 `channels` 字段下。可以使用 `${VAR_NAME}` 引用环境变量，避免把密钥写入配置文件：
 
 ```json
 {
@@ -58,7 +58,7 @@
 
 **3. 扫码登录（可选）**
 
-MiniUnicorn 支持飞书扫码登录流程，运行后通过 WebUI 引导扫码即可自动完成配置并持久化。
+Erza 支持飞书扫码登录流程，运行后通过 WebUI 引导扫码即可自动完成配置并持久化。
 
 ## 钉钉 (DingTalk)
 
@@ -108,10 +108,10 @@ MiniUnicorn 支持飞书扫码登录流程，运行后通过 WebUI 引导扫码�
 通过扫码登录接入个人微信：
 
 ```bash
-miniunicorn channels login weixin
+erza channels login weixin
 ```
 
-扫码成功后凭据自动写入 `~/.miniunicorn/config.json`。
+扫码成功后凭据自动写入 `~/.erza/config.json`。
 
 > 注意：个人微信接入存在账号风险，仅建议在小号或测试账号上使用。
 
@@ -141,7 +141,7 @@ miniunicorn channels login weixin
 内置频道，**零配置即可使用**。启动网关后通过浏览器访问 WebUI：
 
 ```bash
-miniunicorn gateway
+erza gateway
 ```
 
 默认监听本地端口，支持局域网访问与 Token 鉴权。详见 [Deployment](./deployment.md)。

@@ -8,8 +8,8 @@ parse → serialize round-trip so the model can continue reasoning.
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from miniunicorn.providers.base import ToolCallRequest
-from miniunicorn.providers.openai_compat_provider import OpenAICompatProvider
+from erza.providers.base import ToolCallRequest
+from erza.providers.openai_compat_provider import OpenAICompatProvider
 
 GEMINI_EXTRA = {"google": {"thought_signature": "sig-abc-123"}}
 
@@ -79,7 +79,7 @@ def _make_sdk_response_with_extra_content():
 
 
 def test_parse_sdk_object_preserves_extra_content() -> None:
-    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("erza.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider()
 
     result = provider._parse(_make_sdk_response_with_extra_content())
@@ -97,7 +97,7 @@ def test_parse_sdk_object_preserves_extra_content() -> None:
 
 
 def test_parse_dict_preserves_extra_content() -> None:
-    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("erza.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider()
 
     response_dict = {
@@ -193,7 +193,7 @@ def test_stale_extra_content_in_tool_calls_survives_sanitize() -> None:
     """When switching from Gemini to OpenAI, extra_content inside tool_calls
     should survive message sanitization (it lives inside the tool_call dict,
     not at message level, so it bypasses _ALLOWED_MSG_KEYS filtering)."""
-    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("erza.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider()
 
     messages = [

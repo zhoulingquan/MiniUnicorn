@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.config.schema import AgentDefaults
-from miniunicorn.providers.base import LLMResponse, ToolCallRequest
+from erza.config.schema import AgentDefaults
+from erza.providers.base import LLMResponse, ToolCallRequest
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
@@ -46,7 +46,7 @@ class _ReflectionProvider:
 
 @pytest.mark.asyncio
 async def test_runner_reflection_persists_structured_entry(tmp_path):
-    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
+    from erza.agent.runner import AgentRunner, AgentRunSpec
 
     provider = _ReflectionProvider('{"lesson": "Verify exact evidence IDs."}')
     tools = MagicMock()
@@ -74,7 +74,7 @@ async def test_runner_reflection_persists_structured_entry(tmp_path):
 
 @pytest.mark.asyncio
 async def test_runner_rejects_unstructured_reflection(tmp_path):
-    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
+    from erza.agent.runner import AgentRunner, AgentRunSpec
 
     provider = _ReflectionProvider("A free-text lesson is invalid.")
     tools = MagicMock()
@@ -100,7 +100,7 @@ async def test_runner_rejects_unstructured_reflection(tmp_path):
 
 @pytest.mark.asyncio
 async def test_runner_passes_session_and_user_identity_to_reflection(tmp_path):
-    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
+    from erza.agent.runner import AgentRunner, AgentRunSpec
 
     provider = _ReflectionProvider('{"lesson":"Identity flows into reflections."}')
     tools = MagicMock()

@@ -5,8 +5,8 @@ from unittest.mock import patch
 import pydantic
 import pytest
 
-from miniunicorn.config.loader import load_config, save_config
-from miniunicorn.security.network import validate_url_target
+from erza.config.loader import load_config, save_config
+from erza.security.network import validate_url_target
 
 
 def _fake_resolve(host: str, results: list[str]):
@@ -88,14 +88,14 @@ def test_onboard_does_not_crash_with_legacy_memory_window(tmp_path, monkeypatch)
         encoding="utf-8",
     )
 
-    monkeypatch.setattr("miniunicorn.config.loader.get_config_path", lambda: config_path)
+    monkeypatch.setattr("erza.config.loader.get_config_path", lambda: config_path)
     monkeypatch.setattr(
-        "miniunicorn.cli.commands.get_workspace_path", lambda _workspace=None: workspace
+        "erza.cli.commands.get_workspace_path", lambda _workspace=None: workspace
     )
 
     from typer.testing import CliRunner
 
-    from miniunicorn.cli.commands import app
+    from erza.cli.commands import app
 
     runner = CliRunner()
     result = runner.invoke(app, ["onboard"], input="n\n")
@@ -124,12 +124,12 @@ def test_onboard_refresh_backfills_missing_channel_fields(tmp_path, monkeypatch)
         encoding="utf-8",
     )
 
-    monkeypatch.setattr("miniunicorn.config.loader.get_config_path", lambda: config_path)
+    monkeypatch.setattr("erza.config.loader.get_config_path", lambda: config_path)
     monkeypatch.setattr(
-        "miniunicorn.cli.commands.get_workspace_path", lambda _workspace=None: workspace
+        "erza.cli.commands.get_workspace_path", lambda _workspace=None: workspace
     )
     monkeypatch.setattr(
-        "miniunicorn.channels.registry.discover_all",
+        "erza.channels.registry.discover_all",
         lambda: {
             "qq": SimpleNamespace(
                 default_config=lambda: {
@@ -145,7 +145,7 @@ def test_onboard_refresh_backfills_missing_channel_fields(tmp_path, monkeypatch)
 
     from typer.testing import CliRunner
 
-    from miniunicorn.cli.commands import app
+    from erza.cli.commands import app
 
     runner = CliRunner()
     result = runner.invoke(app, ["onboard"], input="n\n")
@@ -231,7 +231,7 @@ def test_load_config_resets_ssrf_whitelist_when_next_config_is_empty(tmp_path) -
 
     load_config(whitelisted)
     with patch(
-        "miniunicorn.security.network.socket.getaddrinfo",
+        "erza.security.network.socket.getaddrinfo",
         _fake_resolve("ts.local", ["100.100.1.1"]),
     ):
         ok, err = validate_url_target("http://ts.local/api")
@@ -239,7 +239,7 @@ def test_load_config_resets_ssrf_whitelist_when_next_config_is_empty(tmp_path) -
 
     load_config(defaulted)
     with patch(
-        "miniunicorn.security.network.socket.getaddrinfo",
+        "erza.security.network.socket.getaddrinfo",
         _fake_resolve("ts.local", ["100.100.1.1"]),
     ):
         ok, _ = validate_url_target("http://ts.local/api")

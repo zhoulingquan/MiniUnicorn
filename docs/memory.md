@@ -1,6 +1,6 @@
-# Memory in MiniUnicorn
+# Memory in Erza
 
-MiniUnicorn has one always-on governed memory architecture. Conversation history is compressed into an archive, Dream extracts structured proposals, deterministic lifecycle rules decide their status, and only eligible active records are recalled into a prompt.
+Erza has one always-on governed memory architecture. Conversation history is compressed into an archive, Dream extracts structured proposals, deterministic lifecycle rules decide their status, and only eligible active records are recalled into a prompt.
 
 Models never edit durable fact files or the database directly.
 
@@ -69,7 +69,7 @@ workspace/
 
 ### SQLite tables
 
-`memory.db` is created and owned by `miniunicorn/agent/memory_sqlite_schema.py` and accessed only through the repository (`miniunicorn/agent/memory_repository.py`):
+`memory.db` is created and owned by `erza/agent/memory_sqlite_schema.py` and accessed only through the repository (`erza/agent/memory_repository.py`):
 
 - `memory_transactions` — one row per governed transaction; the append-only audit trail with checksums.
 - `memory_revisions` — one row per record revision; `is_current = 1` marks the current revision of each record.
@@ -87,7 +87,7 @@ On the first boot of a workspace that still has the old `journal.jsonl` (and no 
 
 ## Prompt rules
 
-For a normal, non-light turn, MiniUnicorn:
+For a normal, non-light turn, Erza:
 
 - loads `AGENTS.md` and `SOUL.md` as bootstrap instructions and identity;
 - includes customized `memory/shared/POLICY.md`;

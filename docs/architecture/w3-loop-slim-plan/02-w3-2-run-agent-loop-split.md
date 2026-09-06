@@ -6,7 +6,7 @@
 
 ## 一、问题(现状锚点)
 
-`miniunicorn/agent/loop.py` 的 `AgentLoop._run_agent_loop`(1077-1308,约 232 行)是 loop.py 内最大方法,混杂七类关注点:
+`erza/agent/loop.py` 的 `AgentLoop._run_agent_loop`(1077-1308,约 232 行)是 loop.py 内最大方法,混杂七类关注点:
 
 | 区段 | 行号(参考) | 内容 |
 |---|---|---|

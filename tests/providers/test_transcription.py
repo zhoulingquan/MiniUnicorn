@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
-from miniunicorn.providers.transcription import (
+from erza.providers.transcription import (
     GroqTranscriptionProvider,
     OpenAITranscriptionProvider,
     _resolve_transcription_url,

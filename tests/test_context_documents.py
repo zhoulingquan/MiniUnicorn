@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from miniunicorn.agent.context import ContextBuilder
-from miniunicorn.utils.document import extract_documents
+from erza.agent.context import ContextBuilder
+from erza.utils.document import extract_documents
 
 
 def _make_builder(tmp_path: Path) -> ContextBuilder:

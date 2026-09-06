@@ -45,7 +45,7 @@ function wrap(client: ReturnType<typeof fakeClient>) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
       <ClientProvider
-        client={client as unknown as import("@/lib/miniunicorn-client").MiniunicornClient}
+        client={client as unknown as import("@/lib/erza-client").ErzaClient}
         token="tok"
       >
         {children}

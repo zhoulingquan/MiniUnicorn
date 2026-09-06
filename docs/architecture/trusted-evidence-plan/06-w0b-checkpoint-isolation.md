@@ -5,7 +5,7 @@
 
 ## 一、问题（现状锚点）
 
-`miniunicorn/agent/session_turn.py` 约 46 行：
+`erza/agent/session_turn.py` 约 46 行：
 
 ```python
 _AUDIT_ONLY_CHECKPOINT_PHASES = frozenset({"tool_started", "tool_completed", "tool_blocked"})
@@ -31,7 +31,7 @@ _AUDIT_ONLY_CHECKPOINT_PHASES = frozenset(
 
 ## 三、改动二：PlanSnapshot 增加 digest
 
-`miniunicorn/agent/plan_snapshot.py`：
+`erza/agent/plan_snapshot.py`：
 
 ```python
 import hashlib, json

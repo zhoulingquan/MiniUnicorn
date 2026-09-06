@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build C2 governed structured memory for MiniUnicorn with candidate gating, atomic lifecycle transitions, deterministic non-vector recall, auditable evidence, safe migration, and a governed context mode.
+**Goal:** Build C2 governed structured memory for Erza with candidate gating, atomic lifecycle transitions, deterministic non-vector recall, auditable evidence, safe migration, and a governed context mode.
 
 **Architecture:** Markdown remains the source for identity and always-on policy, while a checksummed append-only JSONL transaction journal becomes the sole source of structured facts. Dream creates proposals, lifecycle code alone promotes or replaces records, and ContextBuilder injects only deterministic recall hits with reasons. A rebuildable in-process index provides speed without adding a database.
 
@@ -30,29 +30,29 @@
 
 | File | Responsibility |
 |---|---|
-| `miniunicorn/agent/memory_models.py` | Enums, Pydantic models, canonical normalization/hash helpers, legal transitions |
-| `miniunicorn/agent/memory_repository.py` | Locked checksummed transaction append, replay, health, current-record indexes |
-| `miniunicorn/agent/memory_lifecycle.py` | Candidate ingestion, source validation, promotion, dedupe, conflict, revoke, expiry |
-| `miniunicorn/agent/memory_recall.py` | Scope filtering, lexical Tag/alias routing, exact score, budget, prompt rendering |
-| `miniunicorn/agent/memory_extraction.py` | Strict Dream JSON extraction parser and proposal-to-evidence resolution |
-| `miniunicorn/agent/memory_migration.py` | Dry-run and idempotent import of legacy Markdown/JSONL |
-| `miniunicorn/templates/memory/TAGS.json` | Bundled schema-v1 controlled Tag catalog |
-| `miniunicorn/templates/memory/POLICY.md` | Empty explanatory policy template |
+| `erza/agent/memory_models.py` | Enums, Pydantic models, canonical normalization/hash helpers, legal transitions |
+| `erza/agent/memory_repository.py` | Locked checksummed transaction append, replay, health, current-record indexes |
+| `erza/agent/memory_lifecycle.py` | Candidate ingestion, source validation, promotion, dedupe, conflict, revoke, expiry |
+| `erza/agent/memory_recall.py` | Scope filtering, lexical Tag/alias routing, exact score, budget, prompt rendering |
+| `erza/agent/memory_extraction.py` | Strict Dream JSON extraction parser and proposal-to-evidence resolution |
+| `erza/agent/memory_migration.py` | Dry-run and idempotent import of legacy Markdown/JSONL |
+| `erza/templates/memory/TAGS.json` | Bundled schema-v1 controlled Tag catalog |
+| `erza/templates/memory/POLICY.md` | Empty explanatory policy template |
 
 ### Modified production files
 
 | File | Change |
 |---|---|
-| `miniunicorn/agent/memory.py` | MemoryStore façade, Dream structured pipeline, Git tracked paths, hygiene expiry |
-| `miniunicorn/agent/context.py` | Policy injection, RecallQuery construction, shadow/governed behavior |
-| `miniunicorn/agent/loop.py` | Pass structured-memory config and exact session/project/user scope |
-| `miniunicorn/agent/loop_builder.py` | Wire `AgentDefaults.structured_memory` from config |
-| `miniunicorn/config/schema.py` | Add strict `StructuredMemoryConfig` |
-| `miniunicorn/command/builtin.py` | Add inspect, promote, revoke, correct, and migrate commands |
-| `miniunicorn/templates/agent/dream_phase1.md` | Require strict extraction JSON |
-| `miniunicorn/templates/agent/dream_phase2.md` | Remove long-term fact editing authority; retain only non-memory skill work if still used |
-| `miniunicorn/templates/agent/reflection_system.md` | Require one atomic lesson and no claim of formal-memory status |
-| `miniunicorn/skills/memory/SKILL.md` | Explain C2 search, IDs, correction and policy boundaries |
+| `erza/agent/memory.py` | MemoryStore façade, Dream structured pipeline, Git tracked paths, hygiene expiry |
+| `erza/agent/context.py` | Policy injection, RecallQuery construction, shadow/governed behavior |
+| `erza/agent/loop.py` | Pass structured-memory config and exact session/project/user scope |
+| `erza/agent/loop_builder.py` | Wire `AgentDefaults.structured_memory` from config |
+| `erza/config/schema.py` | Add strict `StructuredMemoryConfig` |
+| `erza/command/builtin.py` | Add inspect, promote, revoke, correct, and migrate commands |
+| `erza/templates/agent/dream_phase1.md` | Require strict extraction JSON |
+| `erza/templates/agent/dream_phase2.md` | Remove long-term fact editing authority; retain only non-memory skill work if still used |
+| `erza/templates/agent/reflection_system.md` | Require one atomic lesson and no claim of formal-memory status |
+| `erza/skills/memory/SKILL.md` | Explain C2 search, IDs, correction and policy boundaries |
 | `docs/memory.md` | Replace legacy-only explanation with modes, schema, lifecycle and operations |
 | `docs/configuration.md` | Document `structuredMemory` exact fields |
 | `docs/chat-commands.md` | Document `/memory-*` commands |
@@ -79,9 +79,9 @@ tests/agent/test_structured_memory_boundary.py
 
 **Files:**
 
-- Create: `miniunicorn/agent/memory_models.py`
-- Create: `miniunicorn/templates/memory/TAGS.json`
-- Create: `miniunicorn/templates/memory/POLICY.md`
+- Create: `erza/agent/memory_models.py`
+- Create: `erza/templates/memory/TAGS.json`
+- Create: `erza/templates/memory/POLICY.md`
 - Test: `tests/agent/test_memory_models.py`
 
 **Interfaces:**
@@ -142,7 +142,7 @@ Run:
 pytest tests/agent/test_memory_models.py -q
 ```
 
-Expected: collection fails because `miniunicorn.agent.memory_models` does not exist.
+Expected: collection fails because `erza.agent.memory_models` does not exist.
 
 - [ ] **Step 3: Implement the complete schema contract**
 
@@ -234,7 +234,7 @@ Run:
 
 ```powershell
 pytest tests/agent/test_memory_models.py -q
-ruff check miniunicorn/agent/memory_models.py tests/agent/test_memory_models.py
+ruff check erza/agent/memory_models.py tests/agent/test_memory_models.py
 ```
 
 Expected: all tests pass; Ruff exits 0.
@@ -242,7 +242,7 @@ Expected: all tests pass; Ruff exits 0.
 - [ ] **Step 5: Commit the contract**
 
 ```powershell
-git add miniunicorn/agent/memory_models.py miniunicorn/templates/memory/TAGS.json miniunicorn/templates/memory/POLICY.md tests/agent/test_memory_models.py
+git add erza/agent/memory_models.py erza/templates/memory/TAGS.json erza/templates/memory/POLICY.md tests/agent/test_memory_models.py
 git commit -m "feat(memory): define governed memory schema"
 ```
 
@@ -252,7 +252,7 @@ git commit -m "feat(memory): define governed memory schema"
 
 **Files:**
 
-- Create: `miniunicorn/agent/memory_repository.py`
+- Create: `erza/agent/memory_repository.py`
 - Test: `tests/agent/test_memory_repository.py`
 
 **Interfaces:**
@@ -362,7 +362,7 @@ Translate `filelock.Timeout` to `MemoryLockTimeout`, revision mismatch to `Memor
 ```powershell
 pytest tests/agent/test_memory_repository.py -q
 pytest tests/agent/test_memory_models.py tests/agent/test_memory_repository.py -q
-ruff check miniunicorn/agent/memory_repository.py tests/agent/test_memory_repository.py
+ruff check erza/agent/memory_repository.py tests/agent/test_memory_repository.py
 ```
 
 Expected: all tests pass; Ruff exits 0.
@@ -370,7 +370,7 @@ Expected: all tests pass; Ruff exits 0.
 - [ ] **Step 5: Commit repository**
 
 ```powershell
-git add miniunicorn/agent/memory_repository.py tests/agent/test_memory_repository.py
+git add erza/agent/memory_repository.py tests/agent/test_memory_repository.py
 git commit -m "feat(memory): add atomic memory journal"
 ```
 
@@ -380,7 +380,7 @@ git commit -m "feat(memory): add atomic memory journal"
 
 **Files:**
 
-- Create: `miniunicorn/agent/memory_lifecycle.py`
+- Create: `erza/agent/memory_lifecycle.py`
 - Test: `tests/agent/test_memory_lifecycle.py`
 
 **Interfaces:**
@@ -502,7 +502,7 @@ Conflict promotion must construct all changed record snapshots first, put them i
 
 ```powershell
 pytest tests/agent/test_memory_lifecycle.py tests/agent/test_memory_repository.py -q
-ruff check miniunicorn/agent/memory_lifecycle.py tests/agent/test_memory_lifecycle.py
+ruff check erza/agent/memory_lifecycle.py tests/agent/test_memory_lifecycle.py
 ```
 
 Expected: all tests pass; Ruff exits 0.
@@ -510,7 +510,7 @@ Expected: all tests pass; Ruff exits 0.
 - [ ] **Step 5: Commit lifecycle**
 
 ```powershell
-git add miniunicorn/agent/memory_lifecycle.py tests/agent/test_memory_lifecycle.py
+git add erza/agent/memory_lifecycle.py tests/agent/test_memory_lifecycle.py
 git commit -m "feat(memory): govern memory lifecycle"
 ```
 
@@ -520,7 +520,7 @@ git commit -m "feat(memory): govern memory lifecycle"
 
 **Files:**
 
-- Create: `miniunicorn/agent/memory_recall.py`
+- Create: `erza/agent/memory_recall.py`
 - Test: `tests/agent/test_memory_recall.py`
 
 **Interfaces:**
@@ -618,7 +618,7 @@ Filter in the normative order before scoring. Route categories do not stack; tak
 ```powershell
 pytest tests/agent/test_memory_recall.py -q
 pytest tests/agent/test_memory_models.py tests/agent/test_memory_repository.py tests/agent/test_memory_lifecycle.py tests/agent/test_memory_recall.py -q
-ruff check miniunicorn/agent/memory_recall.py tests/agent/test_memory_recall.py
+ruff check erza/agent/memory_recall.py tests/agent/test_memory_recall.py
 ```
 
 Expected: all tests pass; Ruff exits 0.
@@ -626,7 +626,7 @@ Expected: all tests pass; Ruff exits 0.
 - [ ] **Step 5: Commit recall**
 
 ```powershell
-git add miniunicorn/agent/memory_recall.py tests/agent/test_memory_recall.py
+git add erza/agent/memory_recall.py tests/agent/test_memory_recall.py
 git commit -m "feat(memory): add deterministic memory recall"
 ```
 
@@ -636,10 +636,10 @@ git commit -m "feat(memory): add deterministic memory recall"
 
 **Files:**
 
-- Modify: `miniunicorn/config/schema.py`
-- Modify: `miniunicorn/agent/memory.py`
-- Modify: `miniunicorn/agent/loop.py`
-- Modify: `miniunicorn/agent/loop_builder.py`
+- Modify: `erza/config/schema.py`
+- Modify: `erza/agent/memory.py`
+- Modify: `erza/agent/loop.py`
+- Modify: `erza/agent/loop_builder.py`
 - Test: `tests/config/test_structured_memory_config.py`
 - Test: `tests/agent/test_memory_store.py`
 
@@ -712,7 +712,7 @@ Add the four structured files to `_WRITER_WHITELIST` and GitStore tracked files.
 ```powershell
 pytest tests/config/test_structured_memory_config.py tests/agent/test_memory_store.py -q
 pytest tests/config/test_dream_config.py tests/agent/test_context_builder.py -q
-ruff check miniunicorn/config/schema.py miniunicorn/agent/memory.py miniunicorn/agent/loop.py miniunicorn/agent/loop_builder.py
+ruff check erza/config/schema.py erza/agent/memory.py erza/agent/loop.py erza/agent/loop_builder.py
 ```
 
 Expected: all tests pass; Ruff exits 0.
@@ -720,7 +720,7 @@ Expected: all tests pass; Ruff exits 0.
 - [ ] **Step 5: Commit shadow-mode wiring**
 
 ```powershell
-git add miniunicorn/config/schema.py miniunicorn/agent/memory.py miniunicorn/agent/loop.py miniunicorn/agent/loop_builder.py tests/config/test_structured_memory_config.py tests/agent/test_memory_store.py
+git add erza/config/schema.py erza/agent/memory.py erza/agent/loop.py erza/agent/loop_builder.py tests/config/test_structured_memory_config.py tests/agent/test_memory_store.py
 git commit -m "feat(memory): wire governed memory shadow mode"
 ```
 
@@ -730,11 +730,11 @@ git commit -m "feat(memory): wire governed memory shadow mode"
 
 **Files:**
 
-- Create: `miniunicorn/agent/memory_extraction.py`
-- Modify: `miniunicorn/agent/memory.py:1500` (`Dream`)
-- Modify: `miniunicorn/templates/agent/dream_phase1.md`
-- Modify: `miniunicorn/templates/agent/dream_phase2.md`
-- Modify: `miniunicorn/templates/agent/reflection_system.md`
+- Create: `erza/agent/memory_extraction.py`
+- Modify: `erza/agent/memory.py:1500` (`Dream`)
+- Modify: `erza/templates/agent/dream_phase1.md`
+- Modify: `erza/templates/agent/dream_phase2.md`
+- Modify: `erza/templates/agent/reflection_system.md`
 - Test: `tests/agent/test_memory_extraction.py`
 - Test: `tests/agent/test_dream_structured_memory.py`
 - Test: `tests/agent/test_dream.py`
@@ -796,7 +796,7 @@ The Phase 1 system prompt must demand this exact top-level shape and no Markdown
       "proposal_index": 0,
       "kind": "decision",
       "scope_hint": "project",
-      "subject": "MiniUnicorn",
+      "subject": "Erza",
       "slot": "memory.retrieval.strategy",
       "statement": "Main uses deterministic structured recall.",
       "detail": "No embeddings are used.",
@@ -823,7 +823,7 @@ Remove `EditFileTool` from Dream's structured fact path. If the existing skill-c
 ```powershell
 pytest tests/agent/test_memory_extraction.py tests/agent/test_dream_structured_memory.py tests/agent/test_dream.py -q
 pytest tests/command/test_builtin_dream.py tests/config/test_dream_config.py -q
-ruff check miniunicorn/agent/memory_extraction.py miniunicorn/agent/memory.py tests/agent/test_memory_extraction.py tests/agent/test_dream_structured_memory.py
+ruff check erza/agent/memory_extraction.py erza/agent/memory.py tests/agent/test_memory_extraction.py tests/agent/test_dream_structured_memory.py
 ```
 
 Expected: all tests pass; Ruff exits 0.
@@ -831,7 +831,7 @@ Expected: all tests pass; Ruff exits 0.
 - [ ] **Step 5: Commit Dream integration**
 
 ```powershell
-git add miniunicorn/agent/memory_extraction.py miniunicorn/agent/memory.py miniunicorn/templates/agent/dream_phase1.md miniunicorn/templates/agent/dream_phase2.md miniunicorn/templates/agent/reflection_system.md tests/agent/test_memory_extraction.py tests/agent/test_dream_structured_memory.py tests/agent/test_dream.py
+git add erza/agent/memory_extraction.py erza/agent/memory.py erza/templates/agent/dream_phase1.md erza/templates/agent/dream_phase2.md erza/templates/agent/reflection_system.md tests/agent/test_memory_extraction.py tests/agent/test_dream_structured_memory.py tests/agent/test_dream.py
 git commit -m "feat(memory): route dream through governed candidates"
 ```
 
@@ -841,7 +841,7 @@ git commit -m "feat(memory): route dream through governed candidates"
 
 **Files:**
 
-- Create: `miniunicorn/agent/memory_migration.py`
+- Create: `erza/agent/memory_migration.py`
 - Test: `tests/agent/test_memory_migration.py`
 
 **Interfaces:**
@@ -925,7 +925,7 @@ For imported active legacy records, actor=`migration`, evidence kind=`file` or t
 ```powershell
 pytest tests/agent/test_memory_migration.py -q
 pytest tests/agent/test_memory_repository.py tests/agent/test_memory_lifecycle.py -q
-ruff check miniunicorn/agent/memory_migration.py tests/agent/test_memory_migration.py
+ruff check erza/agent/memory_migration.py tests/agent/test_memory_migration.py
 ```
 
 Expected: all tests pass; Ruff exits 0.
@@ -933,7 +933,7 @@ Expected: all tests pass; Ruff exits 0.
 - [ ] **Step 5: Commit migration**
 
 ```powershell
-git add miniunicorn/agent/memory_migration.py tests/agent/test_memory_migration.py
+git add erza/agent/memory_migration.py tests/agent/test_memory_migration.py
 git commit -m "feat(memory): add safe legacy memory migration"
 ```
 
@@ -943,8 +943,8 @@ git commit -m "feat(memory): add safe legacy memory migration"
 
 **Files:**
 
-- Modify: `miniunicorn/agent/context.py`
-- Modify: `miniunicorn/agent/loop.py`
+- Modify: `erza/agent/context.py`
+- Modify: `erza/agent/loop.py`
 - Test: `tests/agent/test_context_structured_memory.py`
 - Test: `tests/agent/test_context_builder.py`
 - Test: `tests/agent/test_context_prompt_cache.py`
@@ -1033,7 +1033,7 @@ In governed mode, repository degraded health produces no facts and one concise d
 ```powershell
 pytest tests/agent/test_context_structured_memory.py tests/agent/test_context_builder.py tests/agent/test_context_prompt_cache.py -q
 pytest tests/agent/test_loop_save_turn.py tests/agent/test_consolidator.py -q
-ruff check miniunicorn/agent/context.py miniunicorn/agent/loop.py tests/agent/test_context_structured_memory.py
+ruff check erza/agent/context.py erza/agent/loop.py tests/agent/test_context_structured_memory.py
 ```
 
 Expected: all tests pass; Ruff exits 0.
@@ -1041,7 +1041,7 @@ Expected: all tests pass; Ruff exits 0.
 - [ ] **Step 5: Commit context integration**
 
 ```powershell
-git add miniunicorn/agent/context.py miniunicorn/agent/loop.py tests/agent/test_context_structured_memory.py tests/agent/test_context_builder.py tests/agent/test_context_prompt_cache.py
+git add erza/agent/context.py erza/agent/loop.py tests/agent/test_context_structured_memory.py tests/agent/test_context_builder.py tests/agent/test_context_prompt_cache.py
 git commit -m "feat(memory): inject governed deterministic recall"
 ```
 
@@ -1051,7 +1051,7 @@ git commit -m "feat(memory): inject governed deterministic recall"
 
 **Files:**
 
-- Modify: `miniunicorn/command/builtin.py`
+- Modify: `erza/command/builtin.py`
 - Test: `tests/command/test_builtin_memory.py`
 
 **Interfaces:**
@@ -1082,7 +1082,7 @@ async def test_show_redacts_long_evidence_excerpt(command_context, record_with_l
 
 
 async def test_correct_uses_explicit_correction_and_becomes_active(command_context):
-    out = await cmd_memory_correct(command_context.with_args("MiniUnicorn|memory.retrieval.strategy|Do not use embeddings"))
+    out = await cmd_memory_correct(command_context.with_args("Erza|memory.retrieval.strategy|Do not use embeddings"))
     assert "active" in out.content
     assert "explicit_correction" in out.content
 ```
@@ -1118,7 +1118,7 @@ All mutation handlers use actor `user`, require repository health, catch only ty
 
 ```powershell
 pytest tests/command/test_builtin_memory.py tests/command/test_builtin_dream.py tests/command/test_model_command.py -q
-ruff check miniunicorn/command/builtin.py tests/command/test_builtin_memory.py
+ruff check erza/command/builtin.py tests/command/test_builtin_memory.py
 ```
 
 Expected: all tests pass; Ruff exits 0.
@@ -1126,7 +1126,7 @@ Expected: all tests pass; Ruff exits 0.
 - [ ] **Step 5: Commit governance commands**
 
 ```powershell
-git add miniunicorn/command/builtin.py tests/command/test_builtin_memory.py
+git add erza/command/builtin.py tests/command/test_builtin_memory.py
 git commit -m "feat(memory): add memory governance commands"
 ```
 
@@ -1136,8 +1136,8 @@ git commit -m "feat(memory): add memory governance commands"
 
 **Files:**
 
-- Modify: `miniunicorn/agent/memory.py`
-- Modify: `miniunicorn/skills/memory/SKILL.md`
+- Modify: `erza/agent/memory.py`
+- Modify: `erza/skills/memory/SKILL.md`
 - Modify: `docs/memory.md`
 - Modify: `docs/configuration.md`
 - Modify: `docs/chat-commands.md`
@@ -1154,7 +1154,7 @@ git commit -m "feat(memory): add memory governance commands"
 ```python
 def test_main_memory_runtime_contains_no_vector_or_embedding_imports():
     forbidden_imports = ("faiss", "chromadb", "qdrant", "weaviate", "pinecone", "pgvector", "sentence_transformers")
-    runtime_files = list(Path("miniunicorn/agent").glob("memory*.py")) + [Path("miniunicorn/agent/context.py")]
+    runtime_files = list(Path("erza/agent").glob("memory*.py")) + [Path("erza/agent/context.py")]
     text = "\n".join(path.read_text(encoding="utf-8").casefold() for path in runtime_files)
     for name in forbidden_imports:
         assert name not in text
@@ -1198,7 +1198,7 @@ Update the memory skill so the agent references stable IDs, uses `/memory-correc
 Run in this exact order:
 
 ```powershell
-ruff check miniunicorn tests
+ruff check erza tests
 pytest tests/agent/test_memory_models.py tests/agent/test_memory_repository.py tests/agent/test_memory_lifecycle.py tests/agent/test_memory_recall.py tests/agent/test_memory_extraction.py tests/agent/test_memory_migration.py tests/agent/test_context_structured_memory.py tests/agent/test_dream_structured_memory.py tests/command/test_builtin_memory.py tests/config/test_structured_memory_config.py tests/agent/test_structured_memory_boundary.py -q
 pytest -q
 git diff --check
@@ -1216,7 +1216,7 @@ Expected:
 - [ ] **Step 5: Commit final integration and documentation**
 
 ```powershell
-git add miniunicorn/agent/memory.py miniunicorn/skills/memory/SKILL.md docs/memory.md docs/configuration.md docs/chat-commands.md tests/agent/test_structured_memory_boundary.py
+git add erza/agent/memory.py erza/skills/memory/SKILL.md docs/memory.md docs/configuration.md docs/chat-commands.md tests/agent/test_structured_memory_boundary.py
 git commit -m "docs(memory): document governed structured memory"
 ```
 

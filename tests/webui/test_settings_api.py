@@ -4,9 +4,9 @@ import json
 
 import pytest
 
-from miniunicorn.config.loader import load_config, save_config
-from miniunicorn.config.schema import Config, ModelPresetConfig
-from miniunicorn.webui.settings_api import (
+from erza.config.loader import load_config, save_config
+from erza.config.schema import Config, ModelPresetConfig
+from erza.webui.settings_api import (
     WebUISettingsError,
     create_model_configuration,
     settings_payload,
@@ -26,7 +26,7 @@ def test_create_model_configuration_writes_label_and_selects(
     config.agents.defaults.provider = "deepseek"
     config.providers.deepseek.api_key = "sk-test"
     save_config(config, config_path)
-    monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("erza.config.loader._current_config_path", config_path)
 
     payload = create_model_configuration(
         {
@@ -64,7 +64,7 @@ def test_create_model_configuration_rejects_unconfigured_provider(
 ) -> None:
     config_path = tmp_path / "config.json"
     save_config(Config(), config_path)
-    monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("erza.config.loader._current_config_path", config_path)
 
     with pytest.raises(WebUISettingsError, match="provider is not configured"):
         create_model_configuration(
@@ -83,7 +83,7 @@ def test_update_agent_settings_accepts_context_window_options(
     config_path = tmp_path / "config.json"
     config = Config()
     save_config(config, config_path)
-    monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("erza.config.loader._current_config_path", config_path)
 
     payload = update_agent_settings({"context_window_tokens": ["262144"]})
 
@@ -104,7 +104,7 @@ def test_update_model_configuration_accepts_context_window_options(
         model="deepseek/deepseek-chat",
     )
     save_config(config, config_path)
-    monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("erza.config.loader._current_config_path", config_path)
 
     payload = update_model_configuration(
         {
@@ -124,7 +124,7 @@ def test_update_context_window_rejects_unknown_values(
 ) -> None:
     config_path = tmp_path / "config.json"
     save_config(Config(), config_path)
-    monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("erza.config.loader._current_config_path", config_path)
 
     with pytest.raises(WebUISettingsError, match="context_window_tokens must be 65536 or 262144"):
         update_agent_settings({"context_window_tokens": ["128000"]})
@@ -136,7 +136,7 @@ def test_update_model_configuration_rejects_default_preset(
 ) -> None:
     config_path = tmp_path / "config.json"
     save_config(Config(), config_path)
-    monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("erza.config.loader._current_config_path", config_path)
 
     with pytest.raises(WebUISettingsError, match="model configuration is required"):
         update_model_configuration({"name": ["default"], "model": ["deepseek/deepseek-chat"]})
@@ -151,8 +151,8 @@ def test_settings_payload_includes_network_safety_fields(
     config.tools.webui_allow_local_service_access = False
     config.tools.ssrf_whitelist = ["100.64.0.0/10"]
     save_config(config, config_path)
-    monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
-    monkeypatch.setattr("miniunicorn.webui.workspaces.get_webui_dir", lambda: tmp_path / "webui")
+    monkeypatch.setattr("erza.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("erza.webui.workspaces.get_webui_dir", lambda: tmp_path / "webui")
 
     payload = settings_payload()
 
@@ -169,8 +169,8 @@ def test_update_network_safety_settings_writes_local_service_flag(
 ) -> None:
     config_path = tmp_path / "config.json"
     save_config(Config(), config_path)
-    monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
-    monkeypatch.setattr("miniunicorn.webui.workspaces.get_webui_dir", lambda: tmp_path / "webui")
+    monkeypatch.setattr("erza.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("erza.webui.workspaces.get_webui_dir", lambda: tmp_path / "webui")
 
     payload = update_network_safety_settings(
         {
@@ -195,8 +195,8 @@ def test_update_network_safety_settings_accepts_legacy_restricted_default_access
 ) -> None:
     config_path = tmp_path / "config.json"
     save_config(Config(), config_path)
-    monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
-    monkeypatch.setattr("miniunicorn.webui.workspaces.get_webui_dir", lambda: tmp_path / "webui")
+    monkeypatch.setattr("erza.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("erza.webui.workspaces.get_webui_dir", lambda: tmp_path / "webui")
 
     payload = update_network_safety_settings({"webui_default_access_mode": ["restricted"]})
 
@@ -210,8 +210,8 @@ def test_update_network_safety_settings_default_access_is_webui_only(
     config_path = tmp_path / "config.json"
     save_config(Config(), config_path)
     before = config_path.read_text(encoding="utf-8")
-    monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
-    monkeypatch.setattr("miniunicorn.webui.workspaces.get_webui_dir", lambda: tmp_path / "webui")
+    monkeypatch.setattr("erza.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("erza.webui.workspaces.get_webui_dir", lambda: tmp_path / "webui")
 
     payload = update_network_safety_settings({"webui_default_access_mode": ["full"]})
 

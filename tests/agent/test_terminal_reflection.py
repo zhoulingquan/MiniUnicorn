@@ -13,8 +13,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
-from miniunicorn.providers.base import LLMProvider, LLMResponse
+from erza.agent.runner import AgentRunner, AgentRunSpec
+from erza.providers.base import LLMProvider, LLMResponse
 
 
 def _provider(content: str = "done") -> MagicMock:

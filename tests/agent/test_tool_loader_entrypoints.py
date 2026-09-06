@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
-from miniunicorn.tools.base import Tool
-from miniunicorn.tools.loader import ToolLoader
+from erza.tools.base import Tool
+from erza.tools.loader import ToolLoader
 
 
 def test_loader_discovers_entry_point_tools():
@@ -39,7 +39,7 @@ def test_loader_discovers_entry_point_tools():
 
     mock_ep.load.return_value = _FakeTool
 
-    with patch("miniunicorn.tools.loader.entry_points", return_value=[mock_ep]):
+    with patch("erza.tools.loader.entry_points", return_value=[mock_ep]):
         loader = ToolLoader()
         discovered = loader._discover_plugins()
 
@@ -69,7 +69,7 @@ def test_loader_skips_abstract_entry_point_tools():
 
     mock_ep.load.return_value = _AbstractTool
 
-    with patch("miniunicorn.tools.loader.entry_points", return_value=[mock_ep]):
+    with patch("erza.tools.loader.entry_points", return_value=[mock_ep]):
         loader = ToolLoader()
         discovered = loader._discover_plugins()
 

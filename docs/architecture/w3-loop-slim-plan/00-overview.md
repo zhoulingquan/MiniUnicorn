@@ -60,8 +60,8 @@ W2 收官后,遗留的最大架构文档是 `docs/architecture/agent-core-tool-l
 
 ```
 .venv\Scripts\python.exe -m pytest tests/ -q        # 0 failed,passed >= 4104(新测试只增不减;W3-1 合并后基线)
-.venv\Scripts\python.exe -m ruff check miniunicorn/  # 零输出
-.venv\Scripts\python.exe -m ruff format --check miniunicorn/
+.venv\Scripts\python.exe -m ruff check erza/  # 零输出
+.venv\Scripts\python.exe -m ruff format --check erza/
 ```
 
 注意:必须用项目 venv 的 Python 3.12(`.venv\Scripts\python.exe`),系统默认 Python 3.10 缺 `typing.Self` 会导致收集错误。全量测试约 8-13 分钟,后台运行重定向到临时文件后轮询,不要放弃全量。

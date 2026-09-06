@@ -17,15 +17,15 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.planner import Plan, PlanStep, StepStatus
-from miniunicorn.agent.planning_policy import PlanningMode, PlanningPolicy
-from miniunicorn.agent.runner import AgentRunner, AgentRunSpec, _TurnState
-from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
-from miniunicorn.tools.activate_plan import ActivatePlanTool, take_pending_plan
-from miniunicorn.tools.context import ToolContext
-from miniunicorn.tools.filesystem import WriteFileTool
-from miniunicorn.tools.loader import ToolLoader
-from miniunicorn.tools.registry import ToolRegistry
+from erza.agent.planner import Plan, PlanStep, StepStatus
+from erza.agent.planning_policy import PlanningMode, PlanningPolicy
+from erza.agent.runner import AgentRunner, AgentRunSpec, _TurnState
+from erza.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from erza.tools.activate_plan import ActivatePlanTool, take_pending_plan
+from erza.tools.context import ToolContext
+from erza.tools.filesystem import WriteFileTool
+from erza.tools.loader import ToolLoader
+from erza.tools.registry import ToolRegistry
 
 _MAX_RESULT_CHARS = 10000
 
@@ -457,7 +457,7 @@ async def test_managed_turn_activation_emits_activated_snapshot(tmp_path) -> Non
 
 
 def test_delegate_plan_alias_unchanged() -> None:
-    from miniunicorn.tools.execute_plan import ExecutePlanTool
+    from erza.tools.execute_plan import ExecutePlanTool
 
     tool = ExecutePlanTool(manager=MagicMock())
     assert tool.name == "delegate_plan"

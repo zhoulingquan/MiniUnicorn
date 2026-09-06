@@ -4,45 +4,45 @@
 
 ## 删除清单（整目录/整文件）
 
-1. `miniunicorn/tools/web_search/`（12 文件）
-2. `miniunicorn/tools/deep_research/`（5 文件）
-3. `miniunicorn/tools/image_generation/`（10 文件，含 providers/ 子目录）
-4. `miniunicorn/webui/web_search_api.py`
-5. `miniunicorn/webui/image_generation_api.py`
+1. `erza/tools/web_search/`（12 文件）
+2. `erza/tools/deep_research/`（5 文件）
+3. `erza/tools/image_generation/`（10 文件，含 providers/ 子目录）
+4. `erza/webui/web_search_api.py`
+5. `erza/webui/image_generation_api.py`
 6. `tests/agent/tools/test_deep_research.py`
 7. `tests/agent/tools/test_image_generation.py`
 
 ## 修改清单（逐文件）
 
-### miniunicorn/config/schema.py
+### erza/config/schema.py
 
 - 删除 ToolsConfig 的三个字段定义：`web_search`（约 568-572 行）、`deep_research`（约 573-577 行）、`image_generation`（约 578-582 行）。
 - 删除文件顶部 TYPE_CHECKING / 前向引用块中三处 import（约 17-23 行：DeepResearchConfig、ImageGenerationConfig、WebSearchConfig）。
 - 删除文件底部 model_rebuild 段中三处 import 与引用（约 828-834 行）。
 - 全文 rg 确认无 `web_search|deep_research|image_generation|WebSearchConfig|DeepResearchConfig|ImageGenerationConfig` 残留。
 
-### miniunicorn/webui/settings_api.py
+### erza/webui/settings_api.py
 
 - 删除 `from .image_generation_api import (...)` 与 `from .web_search_api import (...)` 两个 import 块。
 - 删除 `payload.update(web_search_payload(config))` 与 `payload.update(image_generation_payload(config))`（约 71/74 行）。
 - 删除 `__all__` 中的 `image_generation_payload`、`update_image_generation_settings`、`update_web_search_settings`、`web_search_payload`（约 95-110 行）。
 - 模块 docstring 中提到 web_search_api 的说明（约 7 行）同步删改。
 
-### miniunicorn/channels/websocket/handlers/settings.py
+### erza/channels/websocket/handlers/settings.py
 
 - 删除 imports 中 `update_image_generation_settings`、`update_web_search_settings`（约 19/25 行）。
 - 删除路由函数 `web_search_update`（约 162 行起）与 `image_generation_update`（约 173 行起）。
 - 检查路由注册表：若有这两个路由的 URL 注册项（如 `/api/settings/web_search`、`/api/settings/image_generation`），一并删除。
 
-### miniunicorn/agent/runner_strategies.py
+### erza/agent/runner_strategies.py
 
 - 第 34 行工具名单删除 `"web_search",` 一项。
 
-### miniunicorn/agent/agent_generator.py
+### erza/agent/agent_generator.py
 
 - 第 40-41 行工具名单删除 `"web_search",` 与 `"deep_research",` 两项。
 
-### miniunicorn/webui/mcp_presets_api.py
+### erza/webui/mcp_presets_api.py
 
 - 第 228 行附近注释提到 "brave-search / tavily 已移至 web_search backends"：该注释指向已删除的功能，改写或删除该注释。若周边有 brave-search / tavily 相关 MCP preset 逻辑仅为 web_search 服务，一并评估删除；若是独立 MCP preset 功能则仅清理注释。
 
@@ -66,13 +66,13 @@
 
 ### 特别检查：self.py（my 工具）
 
-`miniunicorn/tools/self.py` 若在配置展示/设置白名单中含 `web_search` / `image_generation` 键（之前 W2-1 建立的 allow-list），删除对应键与展示分支。rg 确认。
+`erza/tools/self.py` 若在配置展示/设置白名单中含 `web_search` / `image_generation` 键（之前 W2-1 建立的 allow-list），删除对应键与展示分支。rg 确认。
 
 ## 验证步骤（顺序执行）
 
 1. 冷导入验证：
    ```
-   .venv\Scripts\python.exe -c "import miniunicorn.agent, miniunicorn.config.schema, miniunicorn.webui.settings_api, miniunicorn.channels.websocket.handlers.settings; print('ok')"
+   .venv\Scripts\python.exe -c "import erza.agent, erza.config.schema, erza.webui.settings_api, erza.channels.websocket.handlers.settings; print('ok')"
    ```
 2. 守护测试：
    ```
@@ -86,7 +86,7 @@
    预期全绿。失败数应仅来自漏删引用，修复后复跑。
 4. 残留扫描（必须零命中，docs/ 与 webui/src 除外——属批次 2）：
    ```
-   rg -n "web_search|deep_research|image_generation|WebSearch|DeepResearch|ImageGeneration" miniunicorn tests
+   rg -n "web_search|deep_research|image_generation|WebSearch|DeepResearch|ImageGeneration" erza tests
    ```
    注意：`tools/web.py` 的 WebFetchTool 与 `WebToolsConfig` 属 web_fetch（保留功能），名字相近勿误删；扫描命中 `web_search` 字样的才算本任务残留。
 

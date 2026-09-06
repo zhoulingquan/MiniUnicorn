@@ -71,7 +71,7 @@ export async function fetchBootstrap(
 ): Promise<BootstrapResponse> {
   const headers: Record<string, string> = {};
   if (secret) {
-    headers["x-miniunicorn-Auth"] = secret;
+    headers["x-erza-Auth"] = secret;
   }
   let res: Response;
   try {
@@ -170,7 +170,7 @@ export function deriveWsUrl(
   wsUrl?: string | null,
 ): string {
   const query = `?token=${encodeURIComponent(token)}`;
-  if (wsUrl && /^(wss?|miniunicorn-host):\/\//i.test(wsUrl)) {
+  if (wsUrl && /^(wss?|erza-host):\/\//i.test(wsUrl)) {
     const join = wsUrl.includes("?") ? "&" : "?";
     return `${wsUrl}${join}token=${encodeURIComponent(token)}`;
   }

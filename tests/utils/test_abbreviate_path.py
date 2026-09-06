@@ -2,7 +2,7 @@
 
 import os
 
-from miniunicorn.utils.path import abbreviate_path
+from erza.utils.path import abbreviate_path
 
 
 class TestAbbreviatePathShort:
@@ -55,14 +55,14 @@ class TestAbbreviatePathLong:
 
 class TestAbbreviatePathWindows:
     def test_windows_drive_path(self):
-        path = "D:\\Documents\\GitHub\\miniunicorn\\src\\utils\\helpers.py"
+        path = "D:\\Documents\\GitHub\\erza\\src\\utils\\helpers.py"
         result = abbreviate_path(path, max_len=40)
         assert result.endswith("helpers.py")
-        assert "miniunicorn" in result
+        assert "erza" in result
 
     def test_windows_home(self):
         home = os.path.expanduser("~")
-        path = os.path.join(home, ".miniunicorn", "workspace", "log.txt")
+        path = os.path.join(home, ".erza", "workspace", "log.txt")
         result = abbreviate_path(path)
         assert result.startswith("~/")
         assert "log.txt" in result

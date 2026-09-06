@@ -26,9 +26,9 @@ Library 精简评估发现三个可选子包合计 27 文件 / 3.5k loc，占 to
 ## 兼容性结论（勘察确认，执行时不必重查）
 
 1. `config/schema.py` 的 `Base`（26 行）未设 extra 策略，pydantic 默认 ignore 未知字段——删除 ToolsConfig 三字段后，用户 config.json 里残留的 `web_search` / `deep_research` / `image_generation` 段会被**静默忽略，不报错**。不需要任何迁移代码。
-2. 当前用户 `~/.miniunicorn/config.json` 无这三字段配置。
+2. 当前用户 `~/.erza/config.json` 无这三字段配置。
 3. ToolLoader 的 `_SKIP_MODULES` 不含三个子包名（它们经 pkgutil 目录扫描发现）；删除目录后工具自然消失，loader 零改动。
-4. `pyproject.toml` 的 `[project.entry-points."miniunicorn.tools"]` 为注释示例，无需改动。
+4. `pyproject.toml` 的 `[project.entry-points."erza.tools"]` 为注释示例，无需改动。
 5. deep_research 依赖 web_search（`DeepResearchTool.enabled` 检查 web_search 可用性），两者同批删除，无残留依赖。
 
 ## 批次划分

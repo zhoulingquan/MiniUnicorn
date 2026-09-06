@@ -15,14 +15,14 @@ def workspace(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def bus():
-    from miniunicorn.bus.queue import MessageBus
+    from erza.bus.queue import MessageBus
 
     return MessageBus()
 
 
 @pytest.fixture
 def provider():
-    from miniunicorn.providers.base import GenerationSettings
+    from erza.providers.base import GenerationSettings
 
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
@@ -51,7 +51,7 @@ class _CaptureRunner:
 
 
 def _build_loop(bus, provider, workspace):
-    from miniunicorn.agent.loop_builder import AgentLoopBuilder
+    from erza.agent.loop_builder import AgentLoopBuilder
 
     return AgentLoopBuilder(bus, provider, workspace).build()
 

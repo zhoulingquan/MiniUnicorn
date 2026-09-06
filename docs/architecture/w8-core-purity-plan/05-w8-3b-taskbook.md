@@ -73,9 +73,9 @@ runner 条目若有方法清单/别名说明,同步(如无则跳过,如实记录
 
 ```powershell
 # 门 1:壳与别名零残留
-rg -n -e "compat alias" miniunicorn/agent/runner.py
+rg -n -e "compat alias" erza/agent/runner.py
 # 期望:仅 5 行实例级(self._x = self.x)
-rg -n -e "def run_tool" -e "def normalize_tool_result" -e "def partition_tool_batches" miniunicorn/agent/runner.py
+rg -n -e "def run_tool" -e "def normalize_tool_result" -e "def partition_tool_batches" erza/agent/runner.py
 # 期望:零命中(方法壳已删)
 
 # 门 2:定向测试
@@ -86,8 +86,8 @@ rg -n -e "def run_tool" -e "def normalize_tool_result" -e "def partition_tool_ba
 # 期望 4147 passed / 0 failed / 29 skipped(无测试增删,数字不变)
 
 # 门 4:双 ruff 零
-.venv\Scripts\python.exe -m ruff check miniunicorn/ tests/
-.venv\Scripts\python.exe -m ruff format --check miniunicorn/ tests/
+.venv\Scripts\python.exe -m ruff check erza/ tests/
+.venv\Scripts\python.exe -m ruff format --check erza/ tests/
 ```
 
 ## 3. 提交

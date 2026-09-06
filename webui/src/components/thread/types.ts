@@ -7,7 +7,7 @@ import type {
   WorkspaceScopePayload,
   WorkspacesPayload,
 } from "@/lib/types";
-import type { SendImage, SendOptions } from "@/hooks/useMiniunicornStream";
+import type { SendImage, SendOptions } from "@/hooks/useErzaStream";
 
 /** 主组件 ThreadComposer 的 props 类型。 */
 export interface ThreadComposerProps {

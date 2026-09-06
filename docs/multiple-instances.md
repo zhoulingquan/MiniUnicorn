@@ -1,6 +1,6 @@
 # Multiple Instances
 
-Run multiple MiniUnicorn instances simultaneously with separate configs and runtime data. Use `--config` as the main entrypoint. Optionally pass `--workspace` during `onboard` when you want to initialize or update the saved workspace for a specific instance.
+Run multiple Erza instances simultaneously with separate configs and runtime data. Use `--config` as the main entrypoint. Optionally pass `--workspace` during `onboard` when you want to initialize or update the saved workspace for a specific instance.
 
 ## Quick Start
 
@@ -10,50 +10,50 @@ If you want each instance to have its own dedicated workspace from the start, pa
 
 ```bash
 # Create separate instance configs and workspaces
-miniunicorn onboard --config ~/.miniunicorn-telegram/config.json --workspace ~/.miniunicorn-telegram/workspace
-miniunicorn onboard --config ~/.miniunicorn-discord/config.json --workspace ~/.miniunicorn-discord/workspace
-miniunicorn onboard --config ~/.miniunicorn-feishu/config.json --workspace ~/.miniunicorn-feishu/workspace
+erza onboard --config ~/.erza-telegram/config.json --workspace ~/.erza-telegram/workspace
+erza onboard --config ~/.erza-discord/config.json --workspace ~/.erza-discord/workspace
+erza onboard --config ~/.erza-feishu/config.json --workspace ~/.erza-feishu/workspace
 ```
 
 **Configure each instance:**
 
-Edit `~/.miniunicorn-telegram/config.json`, `~/.miniunicorn-discord/config.json`, etc. with different channel settings. The workspace you passed during `onboard` is saved into each config as that instance's default workspace.
+Edit `~/.erza-telegram/config.json`, `~/.erza-discord/config.json`, etc. with different channel settings. The workspace you passed during `onboard` is saved into each config as that instance's default workspace.
 
 **Run instances:**
 
 ```bash
 # Instance A - Telegram bot
-miniunicorn gateway --config ~/.miniunicorn-telegram/config.json
+erza gateway --config ~/.erza-telegram/config.json
 
 # Instance B - Discord bot
-miniunicorn gateway --config ~/.miniunicorn-discord/config.json
+erza gateway --config ~/.erza-discord/config.json
 
 # Instance C - Feishu bot with custom port
-miniunicorn gateway --config ~/.miniunicorn-feishu/config.json --port 18792
+erza gateway --config ~/.erza-feishu/config.json --port 18792
 ```
 
 ## Path Resolution
 
-When using `--config`, MiniUnicorn derives its runtime data directory from the config file location. The workspace still comes from `agents.defaults.workspace` unless you override it with `--workspace`.
+When using `--config`, Erza derives its runtime data directory from the config file location. The workspace still comes from `agents.defaults.workspace` unless you override it with `--workspace`.
 
 To open a CLI session against one of these instances locally:
 
 ```bash
-miniunicorn agent -c ~/.miniunicorn-telegram/config.json -m "Hello from Telegram instance"
-miniunicorn agent -c ~/.miniunicorn-discord/config.json -m "Hello from Discord instance"
+erza agent -c ~/.erza-telegram/config.json -m "Hello from Telegram instance"
+erza agent -c ~/.erza-discord/config.json -m "Hello from Discord instance"
 
 # Optional one-off workspace override
-miniunicorn agent -c ~/.miniunicorn-telegram/config.json -w /tmp/miniunicorn-telegram-test
+erza agent -c ~/.erza-telegram/config.json -w /tmp/erza-telegram-test
 ```
 
-> `miniunicorn agent` starts a local CLI agent using the selected workspace/config. It does not attach to or proxy through an already running `miniunicorn gateway` process.
+> `erza agent` starts a local CLI agent using the selected workspace/config. It does not attach to or proxy through an already running `erza gateway` process.
 
 | Component | Resolved From | Example |
 |-----------|---------------|---------|
-| **Config** | `--config` path | `~/.miniunicorn-A/config.json` |
-| **Workspace** | `--workspace` or config | `~/.miniunicorn-A/workspace/` |
-| **Cron Jobs** | config directory | `~/.miniunicorn-A/cron/` |
-| **Media / runtime state** | config directory | `~/.miniunicorn-A/media/` |
+| **Config** | `--config` path | `~/.erza-A/config.json` |
+| **Workspace** | `--workspace` or config | `~/.erza-A/workspace/` |
+| **Cron Jobs** | config directory | `~/.erza-A/cron/` |
+| **Media / runtime state** | config directory | `~/.erza-A/media/` |
 
 ## How It Works
 
@@ -73,7 +73,7 @@ Example config:
 {
   "agents": {
     "defaults": {
-      "workspace": "~/.miniunicorn-telegram/workspace",
+      "workspace": "~/.erza-telegram/workspace",
       "model": "anthropic/claude-sonnet-4-6"
     }
   },
@@ -92,8 +92,8 @@ Example config:
 Start separate instances:
 
 ```bash
-miniunicorn gateway --config ~/.miniunicorn-telegram/config.json
-miniunicorn gateway --config ~/.miniunicorn-discord/config.json
+erza gateway --config ~/.erza-telegram/config.json
+erza gateway --config ~/.erza-discord/config.json
 ```
 
 Each gateway instance binds to `gateway.host` (default `127.0.0.1`),
@@ -106,7 +106,7 @@ public or LAN-facing address.
 Override workspace for one-off runs when needed:
 
 ```bash
-miniunicorn gateway --config ~/.miniunicorn-telegram/config.json --workspace /tmp/miniunicorn-telegram-test
+erza gateway --config ~/.erza-telegram/config.json --workspace /tmp/erza-telegram-test
 ```
 
 ## Common Use Cases

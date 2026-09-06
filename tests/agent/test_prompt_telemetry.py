@@ -12,11 +12,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniunicorn.agent import turn_telemetry
-from miniunicorn.agent.context_governor import PressureLevel
-from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
-from miniunicorn.agent.turn_telemetry import PromptComponentTokens, TurnTelemetry
-from miniunicorn.providers.base import LLMProvider
+from erza.agent import turn_telemetry
+from erza.agent.context_governor import PressureLevel
+from erza.agent.runner import AgentRunner, AgentRunSpec
+from erza.agent.turn_telemetry import PromptComponentTokens, TurnTelemetry
+from erza.providers.base import LLMProvider
 
 
 def _spec(context_window_tokens: int | None = 1000) -> AgentRunSpec:

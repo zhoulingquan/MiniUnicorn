@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { fetchWorkspaces } from "@/lib/api";
-import type { MiniunicornClient } from "@/lib/miniunicorn-client";
+import type { ErzaClient } from "@/lib/erza-client";
 import type {
   ChatSummary,
   WorkspaceScopePayload,
@@ -33,7 +33,7 @@ export function normalizeWorkspaceScope(
 
 export interface UseWorkspaceScopeOptions {
   token: string;
-  client: MiniunicornClient;
+  client: ErzaClient;
   sessions: ChatSummary[];
   loading: boolean;
   activeSession: ChatSummary | null;

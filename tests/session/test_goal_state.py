@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from miniunicorn.session.goal_state import (
+from erza.session.goal_state import (
     GOAL_STATE_KEY,
     discard_legacy_goal_state_key,
     goal_state_runtime_lines,
@@ -11,7 +11,7 @@ from miniunicorn.session.goal_state import (
     runner_wall_llm_timeout_s,
     sustained_goal_active,
 )
-from miniunicorn.session.manager import SessionManager
+from erza.session.manager import SessionManager
 
 
 def test_runtime_lines_empty_when_no_metadata():

@@ -6,14 +6,14 @@ import os
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from miniunicorn.config.schema import AgentDefaults
-from miniunicorn.providers.base import LLMResponse, ToolCallRequest
+from erza.config.schema import AgentDefaults
+from erza.providers.base import LLMResponse, ToolCallRequest
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
 
 async def test_runner_persists_large_tool_results_for_follow_up_calls(tmp_path):
-    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
+    from erza.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     captured_second_call: list[dict] = []
@@ -54,13 +54,13 @@ async def test_runner_persists_large_tool_results_for_follow_up_calls(tmp_path):
     tool_message = next(msg for msg in captured_second_call if msg.get("role") == "tool")
     assert "[tool output persisted]" in tool_message["content"]
     assert "tool-results" in tool_message["content"]
-    assert (tmp_path / ".miniunicorn" / "tool-results" / "test_runner" / "call_big.txt").exists()
+    assert (tmp_path / ".erza" / "tool-results" / "test_runner" / "call_big.txt").exists()
 
 
 def test_persist_tool_result_prunes_old_session_buckets(tmp_path):
-    from miniunicorn.utils.helpers import maybe_persist_tool_result
+    from erza.utils.helpers import maybe_persist_tool_result
 
-    root = tmp_path / ".miniunicorn" / "tool-results"
+    root = tmp_path / ".erza" / "tool-results"
     old_bucket = root / "old_session"
     recent_bucket = root / "recent_session"
     old_bucket.mkdir(parents=True)
@@ -87,9 +87,9 @@ def test_persist_tool_result_prunes_old_session_buckets(tmp_path):
 
 
 def test_persist_tool_result_leaves_no_temp_files(tmp_path):
-    from miniunicorn.utils.helpers import maybe_persist_tool_result
+    from erza.utils.helpers import maybe_persist_tool_result
 
-    root = tmp_path / ".miniunicorn" / "tool-results"
+    root = tmp_path / ".erza" / "tool-results"
     maybe_persist_tool_result(
         tmp_path,
         "current:session",
@@ -103,16 +103,16 @@ def test_persist_tool_result_leaves_no_temp_files(tmp_path):
 
 
 def test_persist_tool_result_logs_cleanup_failures(monkeypatch, tmp_path):
-    from miniunicorn.utils.helpers import maybe_persist_tool_result
+    from erza.utils.helpers import maybe_persist_tool_result
 
     warnings: list[str] = []
 
     monkeypatch.setattr(
-        "miniunicorn.utils.helpers._cleanup_tool_result_buckets",
+        "erza.utils.helpers._cleanup_tool_result_buckets",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("busy")),
     )
     monkeypatch.setattr(
-        "miniunicorn.utils.helpers.logger.exception",
+        "erza.utils.helpers.logger.exception",
         lambda message, *args: warnings.append(message.format(*args)),
     )
 
@@ -129,7 +129,7 @@ def test_persist_tool_result_logs_cleanup_failures(monkeypatch, tmp_path):
 
 
 async def test_runner_keeps_going_when_tool_result_persistence_fails():
-    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
+    from erza.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     captured_second_call: list[dict] = []
@@ -153,7 +153,7 @@ async def test_runner_keeps_going_when_tool_result_persistence_fails():
 
     runner = AgentRunner(provider)
     with patch(
-        "miniunicorn.agent.execution.tool_execution.maybe_persist_tool_result",
+        "erza.agent.execution.tool_execution.maybe_persist_tool_result",
         side_effect=RuntimeError("disk full"),
     ):
         result = await runner.run(

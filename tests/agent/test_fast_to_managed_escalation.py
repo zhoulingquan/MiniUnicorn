@@ -14,15 +14,15 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.plan_snapshot import PlanSnapshot
-from miniunicorn.agent.planner import (
+from erza.agent.plan_snapshot import PlanSnapshot
+from erza.agent.planner import (
     Plan,
     PlanStep,
     StepStatus,
 )
-from miniunicorn.agent.planning_policy import PlanningMode, PlanningPolicy
-from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
-from miniunicorn.providers.base import LLMResponse
+from erza.agent.planning_policy import PlanningMode, PlanningPolicy
+from erza.agent.runner import AgentRunner, AgentRunSpec
+from erza.providers.base import LLMResponse
 
 
 def _make_tools() -> MagicMock:

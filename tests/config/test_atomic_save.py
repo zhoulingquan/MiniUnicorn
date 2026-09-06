@@ -15,8 +15,8 @@ from unittest.mock import patch
 
 import pytest
 
-from miniunicorn.config.loader import save_config
-from miniunicorn.config.schema import Config
+from erza.config.loader import save_config
+from erza.config.schema import Config
 
 
 def _write_initial(path: Path) -> dict:
@@ -61,7 +61,7 @@ def test_save_config_preserves_original_on_write_failure(tmp_path: Path) -> None
     def boom(src, dst):  # noqa: ANN001
         raise OSError("simulated replace failure")
 
-    with patch("miniunicorn.config.loader.os.replace", side_effect=boom):
+    with patch("erza.config.loader.os.replace", side_effect=boom):
         with pytest.raises(OSError):
             save_config(cfg, path)
 
@@ -91,7 +91,7 @@ def test_save_config_preserves_original_on_fsync_failure(tmp_path: Path) -> None
     def failing_fsync(_fd):
         raise OSError("simulated fsync failure")
 
-    with patch("miniunicorn.config.loader.os.fsync", side_effect=failing_fsync):
+    with patch("erza.config.loader.os.fsync", side_effect=failing_fsync):
         with pytest.raises(OSError):
             save_config(cfg, path)
 

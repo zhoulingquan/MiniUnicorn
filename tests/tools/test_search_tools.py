@@ -10,10 +10,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.agent.subagent import SubagentManager, SubagentStatus
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.tools.search import FindFilesTool, GrepTool
+from erza.agent.loop import AgentLoop
+from erza.agent.subagent import SubagentManager, SubagentStatus
+from erza.bus.queue import MessageBus
+from erza.tools.search import FindFilesTool, GrepTool
 
 
 @pytest.mark.asyncio

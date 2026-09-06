@@ -1,13 +1,13 @@
 {
   "app": {
-    "brand": "MiniUnicorn",
+    "brand": "Erza",
     "loading": {
-      "connecting": "正在连接 MiniUnicorn…",
-      "boot": "正在加载 MiniUnicorn…"
+      "connecting": "正在连接 Erza…",
+      "boot": "正在加载 Erza…"
     },
     "error": {
-      "title": "无法连接到 MiniUnicorn",
-      "gatewayHint": "请确认 gateway 已启动（`miniunicorn gateway`），并且当前页面与 gateway 运行在同一台机器上。"
+      "title": "无法连接到 Erza",
+      "gatewayHint": "请确认 gateway 已启动（`erza gateway`），并且当前页面与 gateway 运行在同一台机器上。"
     },
     "auth": {
       "title": "需要验证",
@@ -23,8 +23,8 @@
     },
     "system": {
       "section": "系统",
-      "restartHint": "重启 MiniUnicorn 以应用运行时更改。",
-      "restart": "重启 MiniUnicorn",
+      "restartHint": "重启 Erza 以应用运行时更改。",
+      "restart": "重启 Erza",
       "restarting": "正在重启...",
       "restartEngine": "重启引擎",
       "restartingEngine": "正在重启引擎..."
@@ -33,11 +33,11 @@
       "completed": "重启已完成，用时 {{seconds}} 秒。"
     },
     "documentTitle": {
-      "base": "MiniUnicorn",
-      "chat": "{{title}} · MiniUnicorn"
+      "base": "Erza",
+      "chat": "{{title}} · Erza"
     },
     "meta": {
-      "description": "MiniUnicorn Web UI —— 与你的 MiniUnicorn 工作区对话。"
+      "description": "Erza Web UI —— 与你的 Erza 工作区对话。"
     }
   },
   "sidebar": {
@@ -114,7 +114,7 @@
       "language": "语言",
       "provider": "提供商",
       "model": "模型",
-      "restart": "重启 MiniUnicorn",
+      "restart": "重启 Erza",
       "configPath": "配置路径",
       "activePreset": "当前预设",
       "gateway": "网关",
@@ -141,9 +141,9 @@
       "theme": "在浅色和深色外观之间切换。",
       "language": "选择 WebUI 使用的语言。",
       "provider": "选择新模型请求使用的服务商。",
-      "model": "设置 MiniUnicorn 默认使用的模型名称。",
+      "model": "设置 Erza 默认使用的模型名称。",
       "configPath": "当前网关正在使用的配置文件。",
-      "currentModel": "选择 MiniUnicorn 接下来回复时使用的模型。",
+      "currentModel": "选择 Erza 接下来回复时使用的模型。",
       "contextWindow": "保存模型时自动从 HuggingFace 查询上下文窗口大小并永久记录。未配置时显示已学习的结果;已配置时显示配置值。闭源模型查不到时需手动设置。",
       "selectedModelProvider": "由当前模型决定。",
       "selectedModelValue": "由当前模型决定。",
@@ -197,10 +197,10 @@
       "loadError": "无法加载设置",
       "unsaved": "有未保存的更改。",
       "upToDate": "已是最新。",
-      "savedRestart": "已保存。重启 MiniUnicorn 后生效。",
+      "savedRestart": "已保存。重启 Erza 后生效。",
       "restartAfterSaving": "保存后，可在合适时重启。",
       "savedRestartApply": "已保存，可稍后重启。",
-      "hostRestartAfterSaving": "保存后，MiniUnicorn 会自动重启引擎。",
+      "hostRestartAfterSaving": "保存后，Erza 会自动重启引擎。",
       "hostRestartPending": "已保存，将在合适时重启引擎。",
       "hostApiUnavailable": "宿主操作只能在原生 App 内使用。",
       "logsOpened": "已打开日志文件夹。",
@@ -221,7 +221,7 @@
       "exporting": "导出中..."
     },
     "byok": {
-      "description": "MiniUnicorn 会从当前 config 读取这些值，只有已配置的服务商才能在通用设置里选择。",
+      "description": "Erza 会从当前 config 读取这些值，只有已配置的服务商才能在通用设置里选择。",
       "configured": "已配置",
       "notConfigured": "未配置",
       "configuredSection": "已配置",
@@ -347,7 +347,7 @@
     },
     "legal": {},
     "apps": {
-      "description": "管理 MiniUnicorn 可启用的 MCP 预设服务。",
+      "description": "管理 Erza 可启用的 MCP 预设服务。",
       "mcpLabel": "MCP",
       "caption": "{{mcp}} MCP",
       "refresh": "刷新",
@@ -534,7 +534,7 @@
             "description": "取消这个对话中正在运行的 agent 回合。"
           },
           "restart": {
-            "title": "重启 MiniUnicorn",
+            "title": "重启 Erza",
             "description": "原地重启 bot 进程。"
           },
           "status": {
@@ -660,7 +660,7 @@
       "description": "当前版本 v{{current}},最新版本 v{{latest}}。请根据你的部署方式选择对应的升级命令。",
       "upgradeMethods": "选择你的部署方式:",
       "source": "源码",
-      "restartHint": "升级后请重启服务:miniunicorn gateway",
+      "restartHint": "升级后请重启服务:erza gateway",
       "viewRelease": "查看发布说明"
     }
   },
@@ -671,7 +671,7 @@
     },
     "workspaceScopeRejected": {
       "title": "工作区未更改",
-      "body": "网关拒绝了请求的项目或访问权限，MiniUnicorn 已继续使用之前的工作区。"
+      "body": "网关拒绝了请求的项目或访问权限，Erza 已继续使用之前的工作区。"
     }
   },
   "workspace": {
@@ -811,7 +811,7 @@
       "skill-creator": "创建或更新 Agent 技能",
       "summarize": "从 URL、播客和本地文件提取摘要或转录文本",
       "tmux": "通过发送按键和抓取输出远程控制 tmux 会话",
-      "update-setup": "MiniUnicorn 升级技能的一次性设置向导",
+      "update-setup": "Erza 升级技能的一次性设置向导",
       "weather": "获取当前天气和预报（无需 API key）"
     }
   },
@@ -1123,7 +1123,7 @@
         "token": "Token",
         "token_desc": "登录凭证（可手动填写或扫码后自动获取）",
         "state_dir": "状态目录",
-        "state_dir_desc": "保存登录态的目录（留空使用默认 ~/.miniunicorn/weixin/）",
+        "state_dir_desc": "保存登录态的目录（留空使用默认 ~/.erza/weixin/）",
         "poll_timeout": "长轮询超时",
         "poll_timeout_desc": "长轮询超时秒数"
       }

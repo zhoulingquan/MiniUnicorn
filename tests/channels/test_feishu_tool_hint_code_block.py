@@ -8,7 +8,7 @@ from pytest import mark
 
 # Check optional Feishu dependencies before running tests
 try:
-    from miniunicorn.channels import feishu
+    from erza.channels import feishu
 
     FEISHU_AVAILABLE = getattr(feishu, "FEISHU_AVAILABLE", False)
 except ImportError:
@@ -17,8 +17,8 @@ except ImportError:
 if not FEISHU_AVAILABLE:
     pytest.skip("Feishu dependencies not installed (lark-oapi)", allow_module_level=True)
 
-from miniunicorn.bus.events import OutboundMessage
-from miniunicorn.channels.feishu import FeishuChannel
+from erza.bus.events import OutboundMessage
+from erza.channels.feishu import FeishuChannel
 
 
 @pytest.fixture

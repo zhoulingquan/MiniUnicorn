@@ -13,13 +13,13 @@ import pytest_asyncio
 # skip the whole module when aiohttp (or the api_compat package) is absent.
 pytest.importorskip("aiohttp")
 
-from miniunicorn.api_compat.server import (
+from erza.api_compat.server import (
     _FileSizeExceededError,
     _parse_json_content,
     _save_base64_data_url,
     create_app,
 )
-from miniunicorn.utils.document import extract_documents
+from erza.utils.document import extract_documents
 
 try:
     from aiohttp.test_utils import TestClient, TestServer
@@ -396,7 +396,7 @@ async def test_json_base64_image_upload(aiohttp_client, mock_agent, tmp_path) ->
 
 
 # ---------------------------------------------------------------------------
-# extract_documents tests (now in miniunicorn.utils.document)
+# extract_documents tests (now in erza.utils.document)
 # ---------------------------------------------------------------------------
 
 
@@ -424,7 +424,7 @@ def test_extract_documents_skips_extraction_errors(tmp_path, monkeypatch) -> Non
     bad_file = tmp_path / "broken.docx"
     bad_file.write_text("not a docx", encoding="utf-8")
 
-    import miniunicorn.utils.document as _doc
+    import erza.utils.document as _doc
 
     monkeypatch.setattr(
         _doc,

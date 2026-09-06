@@ -11,7 +11,7 @@ W5–W7 完成了"库外置"(tools/memory/ledger),agent 核心已是纯编排。
 
 `test_business_modules_do_not_import_composition` 的匹配逻辑是
 `target.split(".")[0] == "composition"`——只匹配裸 `import composition.X`,
-**漏掉 `from miniunicorn.composition.X import Y` 全限定形式**。
+**漏掉 `from erza.composition.X import Y` 全限定形式**。
 module-boundaries.md §1.1 第一行声称"✅ 现状无",实为守护失明。
 
 修正扫描后的真实违规清单(全仓仅 2 处,均在 agent):

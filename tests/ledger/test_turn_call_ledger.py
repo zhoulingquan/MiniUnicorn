@@ -8,22 +8,22 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.execution.model_request import ModelRequestExecutor
-from miniunicorn.agent.hook import AgentHook, AgentHookContext
-from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.agent.reflection import Reflection
-from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
-from miniunicorn.bus.events import InboundMessage
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.ledger import (
+from erza.agent.execution.model_request import ModelRequestExecutor
+from erza.agent.hook import AgentHook, AgentHookContext
+from erza.agent.loop import AgentLoop
+from erza.agent.reflection import Reflection
+from erza.agent.runner import AgentRunner, AgentRunSpec
+from erza.bus.events import InboundMessage
+from erza.bus.queue import MessageBus
+from erza.ledger import (
     CallLedger,
     CallPurpose,
     bind_call_ledger,
     call_purpose,
     current_call_ledger,
 )
-from miniunicorn.ledger.turn_budget import TurnBudget
-from miniunicorn.providers.base import GenerationSettings, LLMProvider, LLMResponse
+from erza.ledger.turn_budget import TurnBudget
+from erza.providers.base import GenerationSettings, LLMProvider, LLMResponse
 
 
 def _usage(prompt: int, completion: int, cost: float | None = None) -> dict[str, int | float]:
@@ -494,7 +494,7 @@ class TestTurnCallLedger:
             return await asyncio.create_task(coro)
 
         monkeypatch.setattr(
-            "miniunicorn.agent.execution.model_request.asyncio.wait_for",
+            "erza.agent.execution.model_request.asyncio.wait_for",
             task_hopping_wait_for,
         )
 

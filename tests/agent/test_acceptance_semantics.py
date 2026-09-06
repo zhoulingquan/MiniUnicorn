@@ -15,18 +15,18 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.planner import PlanStep, StepStatus, effective_evidence_level
-from miniunicorn.agent.planning_policy import PlanningMode, PlanningPolicy
-from miniunicorn.agent.progress_policy import ProgressAction, ProgressPolicy, ProgressTracker
-from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
-from miniunicorn.agent.step_acceptance import (
+from erza.agent.planner import PlanStep, StepStatus, effective_evidence_level
+from erza.agent.planning_policy import PlanningMode, PlanningPolicy
+from erza.agent.progress_policy import ProgressAction, ProgressPolicy, ProgressTracker
+from erza.agent.runner import AgentRunner, AgentRunSpec
+from erza.agent.step_acceptance import (
     StepAcceptancePolicy,
     ToolObservation,
     observations_digest,
 )
-from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
-from miniunicorn.tools.filesystem import WriteFileTool
-from miniunicorn.tools.registry import ToolRegistry
+from erza.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from erza.tools.filesystem import WriteFileTool
+from erza.tools.registry import ToolRegistry
 
 _MAX_RESULT_CHARS = 10000
 

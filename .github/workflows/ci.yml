@@ -29,9 +29,9 @@ jobs:
         run: uv sync --all-extras
       # Full ruff check (all rules enabled in pyproject.toml), not just pyflakes (F).
       - name: Lint with ruff (full check)
-        run: uv run ruff check miniunicorn
+        run: uv run ruff check erza
       - name: Format check with ruff
-        run: uv run ruff format --check miniunicorn
+        run: uv run ruff format --check erza
 
   test:
     runs-on: ${{ matrix.os }}

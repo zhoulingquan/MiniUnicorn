@@ -17,13 +17,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from loguru import logger as loguru_logger
 
-from miniunicorn.agent.plan_snapshot import PlanSnapshot
-from miniunicorn.agent.planner import Plan, PlanStep, StepStatus
-from miniunicorn.agent.planning_policy import PlanningMode, PlanningPolicy
-from miniunicorn.agent.runner import AgentRunner, AgentRunSpec, _TurnState
-from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
-from miniunicorn.tools.filesystem import WriteFileTool
-from miniunicorn.tools.registry import ToolRegistry
+from erza.agent.plan_snapshot import PlanSnapshot
+from erza.agent.planner import Plan, PlanStep, StepStatus
+from erza.agent.planning_policy import PlanningMode, PlanningPolicy
+from erza.agent.runner import AgentRunner, AgentRunSpec, _TurnState
+from erza.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from erza.tools.filesystem import WriteFileTool
+from erza.tools.registry import ToolRegistry
 
 
 def _make_tools() -> MagicMock:

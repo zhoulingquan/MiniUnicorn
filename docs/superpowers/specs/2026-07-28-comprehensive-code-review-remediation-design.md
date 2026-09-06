@@ -35,7 +35,7 @@ Every implementation task must state all of the following:
 - Do not install, connect, configure, remove, or modify any MCP server.
 - Do not install or modify Codex plugins, skills, or external development
   tools.
-- Do not change MiniUnicorn's MCP catalog, MCP presets, MCP registration,
+- Do not change Erza's MCP catalog, MCP presets, MCP registration,
   MCP lifecycle, or configured MCP servers.
 - Preserve automatic online model-context discovery. It is intentional product
   behavior, not a defect.
@@ -69,8 +69,8 @@ Each item is a separate task and commit.
 
 Replace the duplicate implementations in:
 
-- `miniunicorn/agent/context.py`
-- `miniunicorn/agent/runner.py`
+- `erza/agent/context.py`
+- `erza/agent/runner.py`
 
 with one shared function. Preserve:
 
@@ -86,15 +86,15 @@ Both call sites receive parity tests before extraction.
 
 Use one helper for the duplicate signature checks in:
 
-- `miniunicorn/agent/progress_hook.py`
-- `miniunicorn/utils/progress_events.py`
+- `erza/agent/progress_hook.py`
+- `erza/utils/progress_events.py`
 
 Preserve failure behavior for uninspectable callables, explicit named
 parameters, and `**kwargs`.
 
 ### 4.3 Chunked Header Collection
 
-Make `miniunicorn/channels/websocket/_chunked_header.py` the canonical collector.
+Make `erza/channels/websocket/_chunked_header.py` the canonical collector.
 The limited HTTP version reuses collection but retains its own count and UTF-8
 byte checks.
 
@@ -117,7 +117,7 @@ Create or reuse a dependency-neutral WebUI HTTP helper for the duplicate
 response, error, and case-insensitive header functions currently split between
 media and WebSocket modules.
 
-Reuse `miniunicorn/webui/_query.py::_query_first` instead of maintaining the
+Reuse `erza/webui/_query.py::_query_first` instead of maintaining the
 duplicate in `_http_routes.py`.
 
 Preserve status line, header order, content length, reason text, UTF-8 encoding,
@@ -126,7 +126,7 @@ and `Connection: close`.
 ### 4.5 Dead Backend Code
 
 Delete only the confirmed unused private `_lines_to_text` helper in
-`miniunicorn/agent/tools/apply_patch.py`.
+`erza/agent/tools/apply_patch.py`.
 
 Do not remove public or test-imported helpers solely because production `rg`
 shows no call. Those symbols are not proven dead and are excluded from this
@@ -348,10 +348,10 @@ Every behavior change follows red-green-refactor:
 Backend verification includes:
 
 ```powershell
-$env:MINIUNICORN_NO_AUTO_LOOKUP = "1"
+$env:ERZA_NO_AUTO_LOOKUP = "1"
 $env:PYTHONDONTWRITEBYTECODE = "1"
-python -m ruff check miniunicorn tests
-python -m ruff format --check miniunicorn tests
+python -m ruff check erza tests
+python -m ruff format --check erza tests
 python -m pytest -p no:cacheprovider -q
 ```
 

@@ -15,11 +15,11 @@ import inspect
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from miniunicorn.agent.loop import AgentLoop, AgentLoopConfig
-from miniunicorn.agent.planning_policy import PlanningMode, PlanningPolicy
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.config.schema import AgentDefaults
-from miniunicorn.tools.mcp_runtime import McpRuntime
+from erza.agent.loop import AgentLoop, AgentLoopConfig
+from erza.agent.planning_policy import PlanningMode, PlanningPolicy
+from erza.bus.queue import MessageBus
+from erza.config.schema import AgentDefaults
+from erza.tools.mcp_runtime import McpRuntime
 from tests.agent.conftest import make_loop, make_provider
 
 # Assembly order is the core invariant of the W3-1 split.

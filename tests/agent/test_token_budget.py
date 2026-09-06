@@ -11,10 +11,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.bus.events import InboundMessage
-from miniunicorn.config.schema import Config
-from miniunicorn.providers.base import LLMResponse
+from erza.agent.loop import AgentLoop
+from erza.bus.events import InboundMessage
+from erza.config.schema import Config
+from erza.providers.base import LLMResponse
 
 
 class _FakeProvider:
@@ -176,9 +176,9 @@ class TestTokenBudgetConfig:
     @pytest.mark.asyncio
     async def test_red_pressure_halves_effective_budget(self) -> None:
         """RED pressure halves the effective tool result budget (chars halved)."""
-        from miniunicorn.agent.context_governor import PressureLevel
-        from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
-        from miniunicorn.tools.registry import ToolRegistry
+        from erza.agent.context_governor import PressureLevel
+        from erza.agent.runner import AgentRunner, AgentRunSpec
+        from erza.tools.registry import ToolRegistry
 
         provider = _FakeProvider()
         runner = AgentRunner(provider)
@@ -213,7 +213,7 @@ class TestTokenBudgetConfig:
             {"role": "tool", "tool_call_id": "c1", "name": "test", "content": long_result},
         ]
 
-        from miniunicorn.agent.context_governor import GovernanceContext, PressureSignal
+        from erza.agent.context_governor import GovernanceContext, PressureSignal
 
         ctx = GovernanceContext(
             spec=spec,
@@ -224,7 +224,7 @@ class TestTokenBudgetConfig:
         )
         ctx.pressure = PressureSignal(85, 100, 0.85, PressureLevel.RED)
 
-        from miniunicorn.agent.runner_strategies import ApplyToolResultBudgetStrategy
+        from erza.agent.runner_strategies import ApplyToolResultBudgetStrategy
 
         strategy = ApplyToolResultBudgetStrategy()
         result = strategy.apply(messages, ctx)

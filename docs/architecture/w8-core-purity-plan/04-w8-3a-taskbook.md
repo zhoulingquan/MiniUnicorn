@@ -48,7 +48,7 @@
 
 ```powershell
 # 门 1:别名零残留
-rg -n "compat alias" miniunicorn/agent/runner.py
+rg -n "compat alias" erza/agent/runner.py
 # 期望:仅剩 __init__ 内 5 行实例级(若全部为类级则零命中)——如实记录实际剩余数并说明性质
 
 # 门 2:相关测试全绿
@@ -59,8 +59,8 @@ rg -n "compat alias" miniunicorn/agent/runner.py
 # 期望 4147 passed / 0 failed / 29 skipped(纯删除,数字不变)
 
 # 门 4:双 ruff 零
-.venv\Scripts\python.exe -m ruff check miniunicorn/ tests/
-.venv\Scripts\python.exe -m ruff format --check miniunicorn/ tests/
+.venv\Scripts\python.exe -m ruff check erza/ tests/
+.venv\Scripts\python.exe -m ruff format --check erza/ tests/
 ```
 
 ## 3. 提交

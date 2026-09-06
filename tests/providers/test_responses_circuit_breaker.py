@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from miniunicorn.providers.openai_compat_provider import (
+from erza.providers.openai_compat_provider import (
     _RESPONSES_FAILURE_THRESHOLD,
     _RESPONSES_PROBE_INTERVAL_S,
     OpenAICompatProvider,

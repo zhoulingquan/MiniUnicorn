@@ -7,10 +7,10 @@ from typing import Any
 
 import pytest
 
-from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.bus.events import InboundMessage
-from miniunicorn.config.schema import Config
-from miniunicorn.providers.base import LLMResponse
+from erza.agent.loop import AgentLoop
+from erza.bus.events import InboundMessage
+from erza.config.schema import Config
+from erza.providers.base import LLMResponse
 
 
 def _make_config(tmp_path) -> Config:

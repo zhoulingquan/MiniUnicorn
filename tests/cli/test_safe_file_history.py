@@ -3,7 +3,7 @@
 Surrogate characters in CLI input must not crash history file writes.
 """
 
-from miniunicorn.cli.commands import SafeFileHistory, _sanitize_surrogates
+from erza.cli.commands import SafeFileHistory, _sanitize_surrogates
 
 
 class TestSanitizeSurrogates:
@@ -23,7 +23,7 @@ class TestSanitizeSurrogates:
 
     def test_emoji_already_correct(self):
         """Properly encoded emoji should pass through unchanged."""
-        assert _sanitize_surrogates("hello 🧙 MiniUnicorn") == "hello 🧙 MiniUnicorn"
+        assert _sanitize_surrogates("hello 🧙 Erza") == "hello 🧙 Erza"
 
     def test_mixed_unicode_preserved(self):
         assert _sanitize_surrogates("你好 hello こんにちは 🎉") == "你好 hello こんにちは 🎉"
@@ -53,9 +53,9 @@ class TestSafeFileHistory:
 
     def test_emoji_preserved(self, tmp_path):
         hist = SafeFileHistory(str(tmp_path / "history"))
-        hist.store_string("hello 🧙 MiniUnicorn")
+        hist.store_string("hello 🧙 Erza")
         entries = list(hist.load_history_strings())
-        assert entries[0] == "hello 🧙 MiniUnicorn"
+        assert entries[0] == "hello 🧙 Erza"
 
     def test_mixed_unicode_preserved(self, tmp_path):
         """CJK + emoji + latin should all pass through cleanly."""

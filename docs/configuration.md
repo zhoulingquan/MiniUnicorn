@@ -1,11 +1,11 @@
 # Configuration
 
-Config file: `~/.miniunicorn/config.json`
+Config file: `~/.erza/config.json`
 
 > [!NOTE]
 > If your config file is older than the current schema, you can refresh it without overwriting your existing values:
-> run `miniunicorn onboard`, then answer `N` when asked whether to overwrite the config.
-> MiniUnicorn will merge in missing default fields and keep your current settings.
+> run `erza onboard`, then answer `N` when asked whether to overwrite the config.
+> Erza will merge in missing default fields and keep your current settings.
 
 ## Environment Variables for Secrets
 
@@ -26,9 +26,9 @@ Instead of storing secrets directly in `config.json`, you can use `${VAR_NAME}` 
 }
 ```
 
-Any string value in `config.json` can use `${VAR_NAME}`. Resolution runs once at startup, in memory only — resolved values are never written back to disk, so editing config through `miniunicorn onboard` or the WebUI preserves the placeholder.
+Any string value in `config.json` can use `${VAR_NAME}`. Resolution runs once at startup, in memory only — resolved values are never written back to disk, so editing config through `erza onboard` or the WebUI preserves the placeholder.
 
-If a referenced variable is unset, MiniUnicorn fails fast at startup with `ValueError: Environment variable 'NAME' referenced in config is not set`.
+If a referenced variable is unset, Erza fails fast at startup with `ValueError: Environment variable 'NAME' referenced in config is not set`.
 
 ### More examples
 
@@ -69,20 +69,20 @@ If a referenced variable is unset, MiniUnicorn fails fast at startup with `Value
 
 ### Loading variables at startup
 
-Pick whatever fits your deployment — MiniUnicorn only reads `os.environ` at startup, so any mechanism that populates the process environment works.
+Pick whatever fits your deployment — Erza only reads `os.environ` at startup, so any mechanism that populates the process environment works.
 
 **systemd** — use `EnvironmentFile=` in the service unit to load variables from a file that only the deploying user can read:
 
 ```ini
-# /etc/systemd/system/miniunicorn.service (excerpt)
+# /etc/systemd/system/erza.service (excerpt)
 [Service]
-EnvironmentFile=/home/youruser/miniunicorn_secrets.env
-User=miniunicorn
+EnvironmentFile=/home/youruser/erza_secrets.env
+User=erza
 ExecStart=...
 ```
 
 ```bash
-# /home/youruser/miniunicorn_secrets.env (mode 600, owned by youruser)
+# /home/youruser/erza_secrets.env (mode 600, owned by youruser)
 TELEGRAM_TOKEN=your-token-here
 IMAP_PASSWORD=your-password-here
 ```
@@ -90,9 +90,9 @@ IMAP_PASSWORD=your-password-here
 **Docker** — pass an env file to the locally built image (one `KEY=VALUE` per line), or use `-e KEY=value`:
 
 ```bash
-docker run --rm --env-file=./miniunicorn.env \
-  -v ~/.miniunicorn:/home/miniunicorn/.miniunicorn \
-  miniunicorn agent -m "Hello"
+docker run --rm --env-file=./erza.env \
+  -v ~/.erza:/home/erza/.erza \
+  erza agent -m "Hello"
 ```
 
 **direnv** — drop a `.envrc` in your working directory and run `direnv allow`:
@@ -107,22 +107,22 @@ export ANTHROPIC_API_KEY=...
 
 ```bash
 # 1Password — references in .env.tpl look like `op://Vault/Item/field`
-op run --env-file=.env.tpl -- miniunicorn agent
+op run --env-file=.env.tpl -- erza agent
 
 # pass (passwordstore.org)
-ANTHROPIC_API_KEY="$(pass show api/anthropic)" miniunicorn agent
+ANTHROPIC_API_KEY="$(pass show api/anthropic)" erza agent
 
 # Bitwarden
-ANTHROPIC_API_KEY="$(bw get password api/anthropic)" miniunicorn agent
+ANTHROPIC_API_KEY="$(bw get password api/anthropic)" erza agent
 ```
 
 ## Providers
 
 > [!TIP]
 > - **Voice transcription**: Voice messages (Telegram, WhatsApp) are automatically transcribed using Whisper. By default Groq is used (free tier). Set `"transcriptionProvider": "openai"` under `channels` to use OpenAI Whisper instead, and optionally set `"transcriptionLanguage": "en"` (or another ISO-639-1 code) for more accurate transcription. The API key is picked from the matching provider config.
-> - **MiniMax Coding Plan**: Exclusive discount links for the MiniUnicorn community: [Overseas](https://platform.minimax.io/subscribe/coding-plan?code=9txpdXw04g&source=link) · [Mainland China](https://platform.minimaxi.com/subscribe/token-plan?code=GILTJpMTqZ&source=link)
+> - **MiniMax Coding Plan**: Exclusive discount links for the Erza community: [Overseas](https://platform.minimax.io/subscribe/coding-plan?code=9txpdXw04g&source=link) · [Mainland China](https://platform.minimaxi.com/subscribe/token-plan?code=GILTJpMTqZ&source=link)
 > - **MiniMax (Mainland China)**: If your API key is from MiniMax's mainland China platform (minimaxi.com), set `"apiBase": "https://api.minimaxi.com/v1"` in your minimax provider config.
-> - **MiniMax thinking mode**: Use `providers.minimaxAnthropic` when you want `reasoningEffort` / thinking mode. MiniMax exposes that capability through its Anthropic-compatible endpoint, so MiniUnicorn keeps it as a separate provider instead of guessing MiniMax-specific thinking parameters on the generic OpenAI-compatible `minimax` endpoint. It uses the same `MINIMAX_API_KEY`. Default Anthropic-compatible base URL: `https://api.minimax.io/anthropic`; for mainland China use `https://api.minimaxi.com/anthropic`.
+> - **MiniMax thinking mode**: Use `providers.minimaxAnthropic` when you want `reasoningEffort` / thinking mode. MiniMax exposes that capability through its Anthropic-compatible endpoint, so Erza keeps it as a separate provider instead of guessing MiniMax-specific thinking parameters on the generic OpenAI-compatible `minimax` endpoint. It uses the same `MINIMAX_API_KEY`. Default Anthropic-compatible base URL: `https://api.minimax.io/anthropic`; for mainland China use `https://api.minimaxi.com/anthropic`.
 > - **VolcEngine / BytePlus Coding Plan**: Use dedicated providers `volcengineCodingPlan` or `byteplusCodingPlan` instead of the pay-per-use `volcengine` / `byteplus` providers.
 > - **Zhipu Coding Plan**: If you're on Zhipu's coding plan, set `"apiBase": "https://open.bigmodel.cn/api/coding/paas/v4"` in your zhipu provider config.
 > - **Alibaba Cloud BaiLian**: If you're using Alibaba Cloud BaiLian's OpenAI-compatible endpoint, set `"apiBase": "https://dashscope.aliyuncs.com/compatible-mode/v1"` in your dashscope provider config.
@@ -137,8 +137,8 @@ ANTHROPIC_API_KEY="$(bw get password api/anthropic)" miniunicorn agent
 | `openrouter` | LLM (recommended, access to all models) | [openrouter.ai](https://openrouter.ai) |
 | `huggingface` | LLM (Hugging Face Inference Providers) | [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) |
 | `skywork` | LLM (Skywork / APIFree API gateway) | [apifree.ai](https://www.apifree.ai) |
-| `volcengine` | LLM (VolcEngine, pay-per-use) | [Coding Plan](https://www.volcengine.com/activity/codingplan?utm_campaign=MiniUnicorn&utm_content=MiniUnicorn&utm_medium=devrel&utm_source=OWO&utm_term=MiniUnicorn) · [volcengine.com](https://www.volcengine.com) |
-| `byteplus` | LLM (VolcEngine international, pay-per-use) | [Coding Plan](https://www.byteplus.com/en/activity/codingplan?utm_campaign=MiniUnicorn&utm_content=MiniUnicorn&utm_medium=devrel&utm_source=OWO&utm_term=MiniUnicorn) · [byteplus.com](https://www.byteplus.com) |
+| `volcengine` | LLM (VolcEngine, pay-per-use) | [Coding Plan](https://www.volcengine.com/activity/codingplan?utm_campaign=Erza&utm_content=Erza&utm_medium=devrel&utm_source=OWO&utm_term=Erza) · [volcengine.com](https://www.volcengine.com) |
+| `byteplus` | LLM (VolcEngine international, pay-per-use) | [Coding Plan](https://www.byteplus.com/en/activity/codingplan?utm_campaign=Erza&utm_content=Erza&utm_medium=devrel&utm_source=OWO&utm_term=Erza) · [byteplus.com](https://www.byteplus.com) |
 | `anthropic` | LLM (Claude direct) | [console.anthropic.com](https://console.anthropic.com) |
 | `azure_openai` | LLM (Azure OpenAI) | [portal.azure.com](https://portal.azure.com) |
 | `bedrock` | LLM (AWS Bedrock Converse, Claude/Nova/Llama/etc.) | [aws.amazon.com/bedrock](https://aws.amazon.com/bedrock/) |
@@ -169,7 +169,7 @@ ANTHROPIC_API_KEY="$(bw get password api/anthropic)" miniunicorn agent
 <details>
 <summary><b>OpenAI</b></summary>
 
-OpenAI 官方端点通过 `custom` provider 配置（OpenAI 已不再作为内置 provider 字段存在）。默认 `apiType: "auto"`：Miniunicorn 调用 Chat Completions，并在 GPT-5/o 系列或显式 `reasoningEffort` 请求时路由到 Responses API。可强制指定 API surface：
+OpenAI 官方端点通过 `custom` provider 配置（OpenAI 已不再作为内置 provider 字段存在）。默认 `apiType: "auto"`：Erza 调用 Chat Completions，并在 GPT-5/o 系列或显式 `reasoningEffort` 请求时路由到 Responses API。可强制指定 API surface：
 
 ```json
 {
@@ -185,7 +185,7 @@ OpenAI 官方端点通过 `custom` provider 配置（OpenAI 已不再作为内�
 
 Valid `apiType` values are exactly `auto`, `chat_completions`, and `responses`.
 
-`extraBody` follows the selected OpenAI API surface. With Chat Completions, MiniUnicorn passes it through as the SDK `extra_body` value. With Responses, configure it in Responses API body shape; MiniUnicorn merges ordinary top-level fields into the Responses request body, appends `extraBody.tools` after generated function tools, and merges `extraBody.include` without duplicates:
+`extraBody` follows the selected OpenAI API surface. With Chat Completions, Erza passes it through as the SDK `extra_body` value. With Responses, configure it in Responses API body shape; Erza merges ordinary top-level fields into the Responses request body, appends `extraBody.tools` after generated function tools, and merges `extraBody.include` without duplicates:
 
 ```json
 {
@@ -257,7 +257,7 @@ Use the normal AWS credential chain (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KE
 }
 ```
 
-You can also set `providers.bedrock.apiKey` to a Bedrock API key; MiniUnicorn exports it as `AWS_BEARER_TOKEN_BEDROCK` for the AWS SDK.
+You can also set `providers.bedrock.apiKey` to a Bedrock API key; Erza exports it as `AWS_BEARER_TOKEN_BEDROCK` for the AWS SDK.
 
 Credential options:
 
@@ -348,13 +348,13 @@ With a named AWS profile:
 
 For regional routing, use one of Bedrock's inference IDs, for example `bedrock/us.anthropic.claude-opus-4-7`, `bedrock/eu.anthropic.claude-opus-4-7`, or `bedrock/jp.anthropic.claude-opus-4-7`.
 
-Claude Opus 4.7 does not accept `temperature`, `top_p`, or `top_k`; MiniUnicorn omits `temperature` automatically for this model. If `reasoningEffort` is set to `low`, `medium`, `high`, `max`, or `adaptive`, MiniUnicorn sends Bedrock's adaptive thinking parameter.
+Claude Opus 4.7 does not accept `temperature`, `top_p`, or `top_k`; Erza omits `temperature` automatically for this model. If `reasoningEffort` is set to `low`, `medium`, `high`, `max`, or `adaptive`, Erza sends Bedrock's adaptive thinking parameter.
 
 Anthropic models on Bedrock can also require Anthropic use-case registration and are subject to Anthropic-supported country/region restrictions. If Claude fails with a `ValidationException` about unsupported countries or regions, try a non-Anthropic Bedrock model such as Amazon Nova to verify the provider setup.
 
 **4. Model IDs**
 
-Use Bedrock model IDs or inference profile IDs with a `bedrock/` prefix in MiniUnicorn config. MiniUnicorn removes the prefix before calling AWS.
+Use Bedrock model IDs or inference profile IDs with a `bedrock/` prefix in Erza config. Erza removes the prefix before calling AWS.
 
 Examples:
 
@@ -370,7 +370,7 @@ Check the Bedrock console for the exact model ID and region availability. Some m
 
 **5. Advanced model fields**
 
-Model-specific fields can be supplied with `extraBody`; MiniUnicorn merges it into Converse `additionalModelRequestFields`:
+Model-specific fields can be supplied with `extraBody`; Erza merges it into Converse `additionalModelRequestFields`:
 
 ```json
 {
@@ -391,7 +391,7 @@ Model-specific fields can be supplied with `extraBody`; MiniUnicorn merges it in
 
 Use `apiBase` only for a custom Bedrock Runtime endpoint URL, such as a VPC endpoint or proxy. It is not needed for normal AWS regions.
 
-Current scope: Miniunicorn passes `messages`, `system`, `inferenceConfig`, `toolConfig`, and `additionalModelRequestFields`. Bedrock Prompt Management, Guardrails, `serviceTier`, and other top-level Converse options are not first-class config fields yet.
+Current scope: Erza passes `messages`, `system`, `inferenceConfig`, `toolConfig`, and `additionalModelRequestFields`. Bedrock Prompt Management, Guardrails, `serviceTier`, and other top-level Converse options are not first-class config fields yet.
 
 **6. Quick checks**
 
@@ -407,7 +407,7 @@ export AWS_REGION="us-east-1"
 Then run:
 
 ```bash
-miniunicorn agent -m "Reply with one short sentence."
+erza agent -m "Reply with one short sentence."
 ```
 
 </details>
@@ -416,7 +416,7 @@ miniunicorn agent -m "Reply with one short sentence."
 <details>
 <summary><b>LongCat (OpenAI-compatible)</b></summary>
 
-LongCat is available through MiniUnicorn's built-in OpenAI-compatible provider flow.
+LongCat is available through Erza's built-in OpenAI-compatible provider flow.
 The default API base already points to `https://api.longcat.chat/openai/v1`, so you
 usually only need to set `apiKey`.
 
@@ -506,7 +506,7 @@ Supported models include `step-3.5-flash`, `step-3.5-flash-2603`, and
 <details>
 <summary><b>Ant Ling (OpenAI-compatible)</b></summary>
 
-Ant Ling is available through MiniUnicorn's built-in OpenAI-compatible provider flow.
+Ant Ling is available through Erza's built-in OpenAI-compatible provider flow.
 The default API base points to `https://api.ant-ling.com/v1`, so you usually
 only need to set `apiKey`.
 
@@ -578,7 +578,7 @@ Connects directly to any OpenAI-compatible endpoint — llama.cpp, Together AI, 
 >
 > In short: **chat-completions-compatible endpoint → `custom`**; **Responses-compatible endpoint → `azure_openai`**.
 
-Some OpenAI-compatible gateways expose request-body extensions such as vLLM guided decoding or local sampling controls. Put those under `extraBody`; MiniUnicorn merges them into the chat-completions request body after its provider defaults:
+Some OpenAI-compatible gateways expose request-body extensions such as vLLM guided decoding or local sampling controls. Put those under `extraBody`; Erza merges them into the chat-completions request body after its provider defaults:
 
 ```json
 {
@@ -611,7 +611,7 @@ Run a local model with Ollama, then add to config:
 ollama run llama3.2
 ```
 
-**2. Add to config** (partial — merge into `~/.miniunicorn/config.json`):
+**2. Add to config** (partial — merge into `~/.erza/config.json`):
 ```json
 {
   "providers": {
@@ -643,7 +643,7 @@ ollama run llama3.2
 - Load a model (e.g., Llama, Mistral, Qwen)
 - Click "Start Server" (default port: 1234)
 
-**2. Add to config** (partial — merge into `~/.miniunicorn/config.json`):
+**2. Add to config** (partial — merge into `~/.erza/config.json`):
 ```json
 {
   "providers": {
@@ -670,7 +670,7 @@ ollama run llama3.2
 <details>
 <summary><b>Atomic Chat (local)</b></summary>
 
-[Atomic Chat](https://atomic.chat/) is a local-first desktop app that exposes an **OpenAI-compatible** HTTP API (default `http://localhost:1337/v1`). Use it when you want to run MiniUnicorn against a model on your own machine instead of a hosted API provider.
+[Atomic Chat](https://atomic.chat/) is a local-first desktop app that exposes an **OpenAI-compatible** HTTP API (default `http://localhost:1337/v1`). Use it when you want to run Erza against a model on your own machine instead of a hosted API provider.
 
 **1. Start Atomic Chat**
 
@@ -678,7 +678,7 @@ ollama run llama3.2
 - Open Atomic Chat, download a model, and keep the app running. The local API is enabled by default.
 - Copy the model ID exposed by the local API. For example, the model ID for `Qwen 3 32B` might be `qwen3-32b`.
 
-**2. Add to config** (partial — merge into `~/.miniunicorn/config.json`):
+**2. Add to config** (partial — merge into `~/.erza/config.json`):
 
 ```json
 {
@@ -756,7 +756,7 @@ docker run -d \
   --target_device GPU
 ```
 
-**3. Add to config** (partial — merge into `~/.miniunicorn/config.json`):
+**3. Add to config** (partial — merge into `~/.erza/config.json`):
 
 ```json
 {
@@ -789,7 +789,7 @@ Run your own model with vLLM or any OpenAI-compatible server, then add to config
 vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8000
 ```
 
-**2. Add to config** (partial — merge into `~/.miniunicorn/config.json`):
+**2. Add to config** (partial — merge into `~/.erza/config.json`):
 
 *Provider (set API key to null for local servers):*
 ```json
@@ -819,22 +819,22 @@ vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8000
 <details>
 <summary><b>Adding a New Provider (Developer Guide)</b></summary>
 
-MiniUnicorn uses a **Provider Registry** (`miniunicorn/providers/registry.py`) as the single source of truth.
+Erza uses a **Provider Registry** (`erza/providers/registry.py`) as the single source of truth.
 Adding a new provider only takes **2 steps** — no if-elif chains to touch.
 
-**Step 1.** Add a `ProviderSpec` entry to `PROVIDERS` in `miniunicorn/providers/registry.py`:
+**Step 1.** Add a `ProviderSpec` entry to `PROVIDERS` in `erza/providers/registry.py`:
 
 ```python
 ProviderSpec(
     name="myprovider",                   # config field name
     keywords=("myprovider", "mymodel"),  # model-name keywords for auto-matching
     env_key="MYPROVIDER_API_KEY",        # env var name
-    display_name="My Provider",          # shown in `miniunicorn status`
+    display_name="My Provider",          # shown in `erza status`
     default_api_base="https://api.myprovider.com/v1",  # OpenAI-compatible endpoint
 )
 ```
 
-**Step 2.** Add a field to `ProvidersConfig` in `miniunicorn/config/schema.py`:
+**Step 2.** Add a field to `ProvidersConfig` in `erza/config/schema.py`:
 
 ```python
 class ProvidersConfig(BaseModel):
@@ -842,7 +842,7 @@ class ProvidersConfig(BaseModel):
     myprovider: ProviderConfig = ProviderConfig()
 ```
 
-That's it! Environment variables, model routing, config matching, and `miniunicorn status` display will all work automatically.
+That's it! Environment variables, model routing, config matching, and `erza status` display will all work automatically.
 
 **Common `ProviderSpec` options:**
 
@@ -861,7 +861,7 @@ That's it! Environment variables, model routing, config matching, and `miniunico
 
 Model presets let you name a complete model configuration and switch it at runtime with `/model <preset>`.
 
-Existing configs do not need to change. If you do not set `modelPresets` or `agents.defaults.modelPreset`, MiniUnicorn keeps using `agents.defaults.*` exactly as before.
+Existing configs do not need to change. If you do not set `modelPresets` or `agents.defaults.modelPreset`, Erza keeps using `agents.defaults.*` exactly as before.
 
 ```json
 {
@@ -941,7 +941,7 @@ String entries are preset names, not raw model names. If you want to use a model
 
 Failover only runs when the primary provider returns a retryable model/provider error before any answer text has been streamed. Typical fallback cases include timeouts, connection errors, 5xx server errors, 429 rate limits, overloads, and quota/balance exhaustion. It does not run for malformed requests, authentication/permission errors, content filtering/refusals, or context-length/message-format errors.
 
-If fallback candidates use smaller `contextWindowTokens` values, MiniUnicorn builds context using the smallest window in the active chain so every candidate can receive the same prompt.
+If fallback candidates use smaller `contextWindowTokens` values, Erza builds context using the smallest window in the active chain so every candidate can receive the same prompt.
 
 Set `agents.defaults.modelPreset` to start with a named preset:
 
@@ -959,7 +959,7 @@ When `modelPreset` is `null` or omitted, startup uses the implicit `default` pre
 
 ## Channel Settings
 
-Global settings that apply to all channels. Configure under the `channels` section in `~/.miniunicorn/config.json`:
+Global settings that apply to all channels. Configure under the `channels` section in `~/.erza/config.json`:
 
 ```json
 {
@@ -1009,7 +1009,7 @@ global values stay as defaults for channels that do not set their own value:
 
 Retry is intentionally simple.
 
-When a channel `send()` raises, MiniUnicorn retries at the channel-manager layer. By default, `channels.sendMaxRetries` is `3`, and that count includes the initial send.
+When a channel `send()` raises, Erza retries at the channel-manager layer. By default, `channels.sendMaxRetries` is `3`, and that count includes the initial send.
 
 - **Attempt 1**: Send immediately
 - **Attempt 2**: Retry after `1s`
@@ -1023,11 +1023,11 @@ When a channel `send()` raises, MiniUnicorn retries at the channel-manager layer
 >
 > Some channels may still apply small API-specific retries internally. For example, Telegram separately retries timeout and flood-control errors before surfacing a final failure to the manager.
 >
-> If a channel is completely unreachable, MiniUnicorn cannot notify the user through that same channel. Watch logs for `Failed to send to {channel} after N attempts` to spot persistent delivery failures.
+> If a channel is completely unreachable, Erza cannot notify the user through that same channel. Watch logs for `Failed to send to {channel} after N attempts` to spot persistent delivery failures.
 
 ## Web Tools
 
-MiniUnicorn incorporates a basic tool for fetching arbitrary web pages in Markdown format. It is enabled by default, and can be configured in `~/.miniunicorn/config.json` under `tools.web`.
+Erza incorporates a basic tool for fetching arbitrary web pages in Markdown format. It is enabled by default, and can be configured in `~/.erza/config.json` under `tools.web`.
 
 If you want to disable it, which removes `web_fetch` from the tool list sent to the LLM, set `tools.web.enable` to `false`:
 
@@ -1073,7 +1073,7 @@ If you need to allow trusted private ranges such as Tailscale / CGNAT addresses,
 > { "tools": { "web": { "userAgent": "Not-A-Browser", "fetch": { "useJinaReader": false } } } }
 > ```
 
-MiniUnicorn by default uses [Jina Reader](https://jina.ai/reader/), a third-party API, to convert arbitrary pages into Markdown format for easy digestion by the LLM, with a local fallback based on [readability-lxml](https://github.com/buriy/python-readability) if the former fails.
+Erza by default uses [Jina Reader](https://jina.ai/reader/), a third-party API, to convert arbitrary pages into Markdown format for easy digestion by the LLM, with a local fallback based on [readability-lxml](https://github.com/buriy/python-readability) if the former fails.
 
 If you want to always use the local conversion, you can force it using:
 
@@ -1136,7 +1136,7 @@ The `write_stdin` / `list_exec_sessions` tools manage interactive long-running s
 > [!TIP]
 > The config format is compatible with Claude Desktop / Cursor. You can copy MCP server configs directly from any MCP server's README.
 
-MiniUnicorn supports [MCP](https://modelcontextprotocol.io/) — connect external tool servers and use them as native agent tools.
+Erza supports [MCP](https://modelcontextprotocol.io/) — connect external tool servers and use them as native agent tools.
 
 Add MCP servers to your `config.json`:
 
@@ -1197,7 +1197,7 @@ Use `enabledTools` to register only a subset of tools from an MCP server:
 }
 ```
 
-`enabledTools` accepts either the raw MCP tool name (for example `read_file`) or the wrapped MiniUnicorn tool name (for example `mcp_filesystem_write_file`).
+`enabledTools` accepts either the raw MCP tool name (for example `read_file`) or the wrapped Erza tool name (for example `mcp_filesystem_write_file`).
 
 - Omit `enabledTools`, or set it to `["*"]`, to register all tools.
 - Set `enabledTools` to `[]` to register no tools from that server.
@@ -1224,12 +1224,12 @@ For API keys, tokens, and other secrets, see [Environment Variables for Secrets]
 | `tools.exec.pathAppend` | `""` | Extra directories to append to `PATH` when running shell commands (e.g. `/usr/sbin` for `ufw`). |
 | `channels.*.allowFrom` | omitted | Access control per channel. Set `["*"]` to allow everyone, or list specific user IDs (exact match). Omitted or empty means every sender is denied. |
 
-**Docker security**: The official Docker image runs as a non-root user (`miniunicorn`, UID 1000) with bubblewrap pre-installed. When using `docker-compose.yml`, the container drops all Linux capabilities except `SYS_ADMIN` (required for bwrap's namespace isolation).
+**Docker security**: The official Docker image runs as a non-root user (`erza`, UID 1000) with bubblewrap pre-installed. When using `docker-compose.yml`, the container drops all Linux capabilities except `SYS_ADMIN` (required for bwrap's namespace isolation).
 
 
 ## Subagent Concurrency
 
-By default, MiniUnicorn only allows one spawned subagent at a time. When the limit is
+By default, Erza only allows one spawned subagent at a time. When the limit is
 reached, the `spawn` tool returns an error so the agent can decide to wait or
 rearrange its work. This protects local LLM servers from loading multiple KV caches
 at once. If your provider can handle more parallel work, raise the limit:
@@ -1251,7 +1251,7 @@ at once. If your provider can handle more parallel work, raise the limit:
 
 ## Execution Policy and Turn Budgets
 
-MiniUnicorn uses the lean FAST ReAct loop by default. Set `usePlanner` to `true`
+Erza uses the lean FAST ReAct loop by default. Set `usePlanner` to `true`
 only when every turn should opt into managed plan-and-execute mode:
 
 ```json
@@ -1293,12 +1293,12 @@ and finalization model calls. Provider retries contribute only the final respons
 once. Periodic reflection counts only when it completes before the owning turn
 closes; late fire-and-forget work cannot mutate a completed turn snapshot. A
 configured USD limit fails closed with `cost_tracking_unavailable` when
-the provider reports neither `cost_usd` nor model pricing; MiniUnicorn never
-silently treats an unknown cost as zero. If planning output is missing or malformed, MiniUnicorn records a stable
+the provider reports neither `cost_usd` nor model pricing; Erza never
+silently treats an unknown cost as zero. If planning output is missing or malformed, Erza records a stable
 diagnostic code and falls back to FAST mode instead of executing a fabricated
 managed plan.
 
-**FAST / MANAGED modes and runtime upgrade.** By default MiniUnicorn runs the
+**FAST / MANAGED modes and runtime upgrade.** By default Erza runs the
 lean FAST ReAct loop (`usePlanner: false`). When `usePlanner: true`, every turn
 opts into managed plan-and-execute mode. Additionally, FAST turns can be
 upgraded to MANAGED at runtime: if **two consecutive turns** produce **no tool
@@ -1316,7 +1316,7 @@ or verifier policy is a separate P1/P2 decision.
 
 ## Auto Compact
 
-When a user is idle for longer than a configured threshold, MiniUnicorn **proactively** compresses the older part of the session context into a summary while keeping a recent legal suffix of live messages. This reduces token cost and first-token latency when the user returns — instead of re-processing a long stale context with an expired KV cache, the model receives a compact summary, the most recent live context, and fresh input.
+When a user is idle for longer than a configured threshold, Erza **proactively** compresses the older part of the session context into a summary while keeping a recent legal suffix of live messages. This reduces token cost and first-token latency when the user returns — instead of re-processing a long stale context with an expired KV cache, the model receives a compact summary, the most recent live context, and fresh input.
 
 ```json
 {
@@ -1351,7 +1351,7 @@ How it works:
 
 Time is context. Context should be precise.
 
-By default, MiniUnicorn uses `UTC` for runtime time context. If you want the agent to think in your local time, set `agents.defaults.timezone` to a valid [IANA timezone name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones):
+By default, Erza uses `UTC` for runtime time context. If you want the agent to think in your local time, set `agents.defaults.timezone` to a valid [IANA timezone name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones):
 
 ```json
 {
@@ -1371,7 +1371,7 @@ Common examples: `UTC`, `America/New_York`, `America/Los_Angeles`, `Europe/Londo
 
 ## Unified Session
 
-By default, each channel × chat ID combination gets its own session. If you use MiniUnicorn across multiple channels (e.g. Telegram + Discord + CLI) and want them to share the same conversation, enable `unifiedSession`:
+By default, each channel × chat ID combination gets its own session. If you use Erza across multiple channels (e.g. Telegram + Discord + CLI) and want them to share the same conversation, enable `unifiedSession`:
 
 ```json
 {
@@ -1397,7 +1397,7 @@ When enabled, all incoming messages — regardless of which channel they arrive 
 
 ## Disabled Skills
 
-MiniUnicorn ships with built-in skills, and your workspace can also define custom skills under `skills/`. If you want to hide specific skills from the agent, set `agents.defaults.disabledSkills` to a list of skill directory names:
+Erza ships with built-in skills, and your workspace can also define custom skills under `skills/`. If you want to hide specific skills from the agent, set `agents.defaults.disabledSkills` to a list of skill directory names:
 
 ```json
 {
@@ -1457,6 +1457,6 @@ The governed SQLite-backed memory system is always enabled. Configure its tuning
 }
 ```
 
-MiniUnicorn injects only customized policy plus deterministic active-record recall. Recall uses exact session, project, user, and shared scopes; candidate records never enter prompts. Governed structured memory is always active and has no mode switch or migration gate.
+Erza injects only customized policy plus deterministic active-record recall. Recall uses exact session, project, user, and shared scopes; candidate records never enter prompts. Governed structured memory is always active and has no mode switch or migration gate.
 
 When `recallAuditEnabled` is true, structured recall writes a redacted, local `memory/structured/recall-audit.jsonl`. Each row records only: the timestamp, SHA-256 hashes of the allowed scope keys, hit IDs with their scores and reason categories, candidate and filtered counts, budget-excluded hits, token totals, plus any degraded state and error code. Raw query text, memory statements and evidence excerpts are never written. The file keeps the latest 1000 rows and is not committed by memory Git history. This implementation intentionally has no embedding model, vector database, or vector-runtime setting.

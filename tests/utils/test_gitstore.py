@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from miniunicorn.utils.gitstore import GitStore
+from erza.utils.gitstore import GitStore
 
 
 @pytest.fixture
@@ -56,7 +56,7 @@ class TestLineAges:
         git.auto_commit("initial")
 
         future_now = datetime.now(tz=timezone.utc) + timedelta(days=30)
-        with patch("miniunicorn.utils.gitstore.datetime") as mock_dt:
+        with patch("erza.utils.gitstore.datetime") as mock_dt:
             mock_dt.now.return_value = future_now
             mock_dt.fromtimestamp = datetime.fromtimestamp
             ages = git.line_ages("notes.md")

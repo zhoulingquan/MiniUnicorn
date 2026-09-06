@@ -1,10 +1,10 @@
-# MiniUnicorn implementation task - W6-1 vocabulary sink batch (RiskLevel direct imports + ledger package extraction)
+# Erza implementation task - W6-1 vocabulary sink batch (RiskLevel direct imports + ledger package extraction)
 
 ## Role and context
 
-You are a senior Python implementation engineer on the MiniUnicorn project (business-intelligence agent; core values: efficiency, leanness, maintainability). This batch closes two vocabulary-level reverse dependencies left after W5: (a) 14 tools/ files still import RiskLevel through the agent.safety_policy re-export instead of the security.risk leaf; (b) the call_ledger/turn_budget modules live inside agent/ while being imported by providers/utils/tools - they must become a top-level `miniunicorn/ledger/` package. The work is purely mechanical plus one narrowly-specified signature change. Implement independently, verify independently, commit independently, then STOP.
+You are a senior Python implementation engineer on the Erza project (business-intelligence agent; core values: efficiency, leanness, maintainability). This batch closes two vocabulary-level reverse dependencies left after W5: (a) 14 tools/ files still import RiskLevel through the agent.safety_policy re-export instead of the security.risk leaf; (b) the call_ledger/turn_budget modules live inside agent/ while being imported by providers/utils/tools - they must become a top-level `erza/ledger/` package. The work is purely mechanical plus one narrowly-specified signature change. Implement independently, verify independently, commit independently, then STOP.
 
-Working directory: D:\MyProject\MiniUnicorn
+Working directory: D:\MyProject\Erza
 
 Prerequisite: `git log --oneline -3` shows a clean main; working tree clean apart from untracked temp/analysis dirs and docs/architecture/w6-vocab-sink-plan/ (untracked taskbook). If tracked files are modified, stop and report.
 
@@ -24,30 +24,30 @@ Prerequisite: `git log --oneline -3` shows a clean main; working tree clean apar
 ### Global red lines
 
 1. TWO sub-batches, TWO commits, in order: W6-1a (14 RiskLevel import rewrites) then W6-1b (ledger extraction). Commit 1 as soon as W6-1a's gate passes - do not batch both commits together
-2. W6-1a: only swap `from miniunicorn.agent.safety_policy import RiskLevel` -> `from miniunicorn.security.risk import RiskLevel` at the 14 listed sites (tools/base.py line 14 sits inside a TYPE_CHECKING block - keep the indentation). Do NOT touch any other agent imports in those files (planner/subagent/agent_generator imports are the W5-sanctioned legal direction). Do NOT touch agent/safety_policy.py itself
-3. W6-1b: `git mv miniunicorn/agent/call_ledger.py miniunicorn/ledger/call_ledger.py` and `git mv miniunicorn/agent/turn_budget.py miniunicorn/ledger/turn_budget.py` (create the ledger dir first). Content changes allowed: (i) call_ledger.py's turn_budget import becomes `from miniunicorn.ledger.turn_budget import TurnBudget`; (ii) a new `miniunicorn/ledger/__init__.py` re-exporting with `# noqa: F401`: CallPurpose, CallRecord, CallLedger, TurnBudget, current_call_ledger, bind_call_ledger, reset_call_ledger, call_purpose, allow_call_ledger_child_tasks (style follows the agent/memory.py facade). NO compat shim in agent/ - all importers switch to `from miniunicorn.ledger import ...`
+2. W6-1a: only swap `from erza.agent.safety_policy import RiskLevel` -> `from erza.security.risk import RiskLevel` at the 14 listed sites (tools/base.py line 14 sits inside a TYPE_CHECKING block - keep the indentation). Do NOT touch any other agent imports in those files (planner/subagent/agent_generator imports are the W5-sanctioned legal direction). Do NOT touch agent/safety_policy.py itself
+3. W6-1b: `git mv erza/agent/call_ledger.py erza/ledger/call_ledger.py` and `git mv erza/agent/turn_budget.py erza/ledger/turn_budget.py` (create the ledger dir first). Content changes allowed: (i) call_ledger.py's turn_budget import becomes `from erza.ledger.turn_budget import TurnBudget`; (ii) a new `erza/ledger/__init__.py` re-exporting with `# noqa: F401`: CallPurpose, CallRecord, CallLedger, TurnBudget, current_call_ledger, bind_call_ledger, reset_call_ledger, call_purpose, allow_call_ledger_child_tasks (style follows the agent/memory.py facade). NO compat shim in agent/ - all importers switch to `from erza.ledger import ...`
 4. Importer updates (production): agent/agent_generator.py:20, agent/execution/planning.py:21, agent/execution/model_request.py:20 (multi-line), agent/loop.py:299 (lazy, inside method), agent/memory_consolidator.py:13, agent/memory_dream.py:13, agent/planner.py:23, agent/reflection.py:25, agent/runner.py:14 (multi-line) plus the stale comment path at runner.py:~114 (comment text only - do NOT change the `turn_budget: Any | None` annotation), agent/step_acceptance.py:251 (lazy), agent/turn_orchestrator.py:30 and :45 (TYPE_CHECKING), providers/base.py:632 and :690 (lazy x2), tools/deep_research/tool.py:21, utils/evaluator.py:13
 5. Importer updates (tests): move tests/agent/test_call_ledger.py and tests/agent/test_turn_call_ledger.py into a new tests/ledger/ directory (with `__init__.py`, mirroring the tests/tools convention) and update their imports (test_call_ledger.py has 17 scattered import statements incl. function-level ones - update ALL); tests/providers/test_call_ledger_integration.py:5 and tests/agent/test_upgrade_integration.py:30 stay in place, imports updated
-6. Signature change (the only non-mechanical edit): in utils/progress_events.py remove the `from miniunicorn.agent.hook import AgentHookContext` import and change `build_tool_event_finish_payloads(context)` to take `(tool_calls, tool_results, tool_events)` directly (rename the three `context.X` uses inside accordingly); update the single caller agent/progress_hook.py:162 to pass `context.tool_calls, context.tool_results, context.tool_events`. Zero behavior change
-7. New guard rule in tests/architecture/test_dependency_direction.py, imitating the existing tests' AST-scan style: packages providers / utils / security / config / bus / ledger must have ZERO imports of miniunicorn.agent or miniunicorn.agent.* (no exemptions table needed - after this batch it holds with none)
-8. New test file tests/ledger/test_ledger_package_split.py (mirror tests/tools/test_tools_package_split.py): (1) after `import miniunicorn.ledger`, assert no `miniunicorn.agent` module is in sys.modules; (2) all 9 re-exported public names exist; (3) `miniunicorn.ledger.turn_budget` imports standalone without pulling agent
+6. Signature change (the only non-mechanical edit): in utils/progress_events.py remove the `from erza.agent.hook import AgentHookContext` import and change `build_tool_event_finish_payloads(context)` to take `(tool_calls, tool_results, tool_events)` directly (rename the three `context.X` uses inside accordingly); update the single caller agent/progress_hook.py:162 to pass `context.tool_calls, context.tool_results, context.tool_events`. Zero behavior change
+7. New guard rule in tests/architecture/test_dependency_direction.py, imitating the existing tests' AST-scan style: packages providers / utils / security / config / bus / ledger must have ZERO imports of erza.agent or erza.agent.* (no exemptions table needed - after this batch it holds with none)
+8. New test file tests/ledger/test_ledger_package_split.py (mirror tests/tools/test_tools_package_split.py): (1) after `import erza.ledger`, assert no `erza.agent` module is in sys.modules; (2) all 9 re-exported public names exist; (3) `erza.ledger.turn_budget` imports standalone without pulling agent
 9. Docs: register the ledger package in docs/architecture/module-boundaries.md following the section-2.6 (bus) entry pattern; add one sentence noting tools now import RiskLevel from security.risk directly. Do NOT edit docs/superpowers/ dated historical specs
 10. Use ONLY `.venv\Scripts\python.exe` (3.12). System Python 3.10 fails collection with ImportErrors - environment problem, not code problem
 
 ## Execution flow
 
 1. Read the task book -> verify anchors (run the two rg checks below). If the 14-site list or the importer inventory mismatches reality, stop and report:
-   - `rg -n "from miniunicorn.agent.safety_policy import" miniunicorn/tools/` (expect exactly 14 hits at the listed lines)
-   - `rg -n "miniunicorn.agent.call_ledger|miniunicorn.agent.turn_budget" miniunicorn/ tests/` (expect only the inventoried hits)
-2. W6-1a: apply the 14 rewrites -> gate: rg zero hits in tools/; `.venv\Scripts\python.exe -m ruff check miniunicorn/ tests/` zero; `pytest tests/tools/ tests/security/ -q` all pass -> COMMIT 1: `refactor(tools): import RiskLevel directly from security.risk (14 sites)` (git add only the 14 files)
+   - `rg -n "from erza.agent.safety_policy import" erza/tools/` (expect exactly 14 hits at the listed lines)
+   - `rg -n "erza.agent.call_ledger|erza.agent.turn_budget" erza/ tests/` (expect only the inventoried hits)
+2. W6-1a: apply the 14 rewrites -> gate: rg zero hits in tools/; `.venv\Scripts\python.exe -m ruff check erza/ tests/` zero; `pytest tests/tools/ tests/security/ -q` all pass -> COMMIT 1: `refactor(tools): import RiskLevel directly from security.risk (14 sites)` (git add only the 14 files)
 3. W6-1b: git mv the two modules -> write ledger/__init__.py -> update all listed importers (production + tests) -> move the two test files -> progress_events signature change -> new guard rule -> new package test -> module-boundaries.md registration
 4. Verification gate (all must pass before COMMIT 2):
    - `.venv\Scripts\python.exe -m pytest tests/ -q` -> 0 failed, 29 skipped unchanged, passed = 4135 + this batch's new tests (~4: 1 guard rule + 3 package tests) - report the exact number
-   - `.venv\Scripts\python.exe -m ruff check miniunicorn/ tests/` -> zero output
-   - `.venv\Scripts\python.exe -m ruff format --check miniunicorn/ tests/` -> zero output
-   - `rg "miniunicorn.agent.(call_ledger|turn_budget)" miniunicorn/ tests/` -> zero output (comments too)
+   - `.venv\Scripts\python.exe -m ruff check erza/ tests/` -> zero output
+   - `.venv\Scripts\python.exe -m ruff format --check erza/ tests/` -> zero output
+   - `rg "erza.agent.(call_ledger|turn_budget)" erza/ tests/` -> zero output (comments too)
    - `pytest tests/architecture/test_dependency_direction.py -q` -> all pass including the new rule
-   - `git status` -> only the declared paths (new miniunicorn/ledger/ + tests/ledger/, edited agent/tests/providers/utils/tools files, module-boundaries.md)
+   - `git status` -> only the declared paths (new erza/ledger/ + tests/ledger/, edited agent/tests/providers/utils/tools files, module-boundaries.md)
 5. COMMIT 2: `refactor(ledger): extract call_ledger and turn_budget into top-level ledger package` (git add the specific paths - never `git add .`)
 
 ### Session-survival rules (MANDATORY - violations killed previous sessions)
@@ -62,7 +62,7 @@ Prerequisite: `git log --oneline -3` shows a clean main; working tree clean apar
 ## Batch report: W6-1 vocabulary sink
 1. Anchor check: 14 RiskLevel sites / ledger importer inventory matched / deviation: <explanation>
 2. W6-1a: 14 files rewritten; commit hash
-3. W6-1b: modules moved (git mv verified with `git log --follow -1 --oneline -- miniunicorn/ledger/call_ledger.py`), N importers updated (prod/tests breakdown), signature change applied, guard rule added, package test file added
+3. W6-1b: modules moved (git mv verified with `git log --follow -1 --oneline -- erza/ledger/call_ledger.py`), N importers updated (prod/tests breakdown), signature change applied, guard rule added, package test file added
 4. Verification gate: pytest <N passed / 0 failed / 29 skipped>; ruff check <zero>; ruff format <zero>; zero-residual rg <zero>; commit 2 hash
 5. Deviations from the task book: listed one by one / none
 6. Incidental findings (recorded only, not acted on): <list / none>

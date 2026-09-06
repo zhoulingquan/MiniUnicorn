@@ -11,9 +11,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.reflection import Reflection, new_reflection_id
-from miniunicorn.config.schema import StructuredMemoryConfig
-from miniunicorn.memory import MemoryStore, reflection_evidence_id
+from erza.agent.reflection import Reflection, new_reflection_id
+from erza.config.schema import StructuredMemoryConfig
+from erza.memory import MemoryStore, reflection_evidence_id
 
 _REFLECTION_ID_RE = re.compile(r"^rfl_[0-9a-f]{32}$")
 
@@ -238,7 +238,7 @@ async def test_rotation_prunes_consumed_prefix_and_resets_cursor(workspace, stor
 
 
 def test_rotation_failure_preserves_canonical_file_and_cursor(workspace, store, monkeypatch):
-    import miniunicorn.agent.reflection as reflection_module
+    import erza.agent.reflection as reflection_module
 
     path = workspace / "memory" / "reflections.jsonl"
     _write_entries(path, 501)
@@ -266,7 +266,7 @@ def test_rotation_cursor_reset_failure_does_not_renumber_file(workspace, store, 
     Otherwise the old physical cursor can skip the newly renumbered unconsumed
     prefix forever. Leaving the original file and cursor untouched is safe.
     """
-    import miniunicorn.agent.reflection as reflection_module
+    import erza.agent.reflection as reflection_module
 
     path = workspace / "memory" / "reflections.jsonl"
     cursor_path = workspace / "memory" / ".reflections_cursor"
@@ -322,7 +322,7 @@ def test_read_stale_cursor_falls_back_to_all_physical_lines(workspace, store):
 def test_store_prune_file_rewrite_failure_resets_cursor_before_renumbering(
     workspace, store, monkeypatch
 ):
-    import miniunicorn.memory.store as memory_module
+    import erza.memory.store as memory_module
 
     path = workspace / "memory" / "reflections.jsonl"
     cursor_path = workspace / "memory" / ".reflections_cursor"

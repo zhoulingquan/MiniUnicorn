@@ -13,9 +13,9 @@ from contextlib import AsyncExitStack
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
-from miniunicorn.agent.loop_builder import AgentLoopBuilder
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.tools.mcp_runtime import McpRuntime
+from erza.agent.loop_builder import AgentLoopBuilder
+from erza.bus.queue import MessageBus
+from erza.tools.mcp_runtime import McpRuntime
 
 
 def _provider() -> MagicMock:

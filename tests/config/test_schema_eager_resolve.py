@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from miniunicorn.config.schema import (
+from erza.config.schema import (
     _is_circular_import_error,
     _try_eager_resolve_tool_config_refs,
 )
@@ -25,7 +25,7 @@ def test_circular_import_error_is_recognized() -> None:
     assert _is_circular_import_error(
         ImportError(
             "cannot import name 'ExecToolConfig' from partially initialized "
-            "module 'miniunicorn.tools.shell' (most likely due to a circular import)"
+            "module 'erza.tools.shell' (most likely due to a circular import)"
         )
     )
     assert _is_circular_import_error(ImportError("(most likely due to a circular import)"))
@@ -34,7 +34,7 @@ def test_circular_import_error_is_recognized() -> None:
 def test_real_import_errors_are_not_circular() -> None:
     assert not _is_circular_import_error(ModuleNotFoundError("No module named 'broken_pkg'"))
     assert not _is_circular_import_error(
-        ImportError("cannot import name 'Nope' from 'miniunicorn.tools.shell'")
+        ImportError("cannot import name 'Nope' from 'erza.tools.shell'")
     )
 
 
@@ -44,7 +44,7 @@ def test_real_import_error_propagates_from_eager_resolve(
     def _broken() -> None:
         raise ModuleNotFoundError("No module named 'broken_pkg'")
 
-    monkeypatch.setattr("miniunicorn.config.schema._resolve_tool_config_refs", _broken)
+    monkeypatch.setattr("erza.config.schema._resolve_tool_config_refs", _broken)
     with pytest.raises(ModuleNotFoundError, match="broken_pkg"):
         _try_eager_resolve_tool_config_refs()
 
@@ -56,7 +56,7 @@ def test_circular_import_defers_without_raising(monkeypatch: pytest.MonkeyPatch)
             "(most likely due to a circular import)"
         )
 
-    monkeypatch.setattr("miniunicorn.config.schema._resolve_tool_config_refs", _cyclic)
+    monkeypatch.setattr("erza.config.schema._resolve_tool_config_refs", _cyclic)
     _try_eager_resolve_tool_config_refs()
 
 
@@ -65,8 +65,8 @@ def test_tool_first_import_order_still_builds_config() -> None:
     eager resolution (warning on stderr) and Config still builds via the lazy
     rebuild."""
     code = (
-        "from miniunicorn.tools.shell import ExecToolConfig; "
-        "from miniunicorn.config.schema import Config; "
+        "from erza.tools.shell import ExecToolConfig; "
+        "from erza.config.schema import Config; "
         "c = Config(); "
         "assert type(c.tools.exec).__name__ == 'ExecToolConfig'; "
         "print('OK')"

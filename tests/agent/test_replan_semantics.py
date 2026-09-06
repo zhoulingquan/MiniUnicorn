@@ -7,16 +7,16 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.hook import AgentHook, AgentHookContext
-from miniunicorn.agent.planner import (
+from erza.agent.hook import AgentHook, AgentHookContext
+from erza.agent.planner import (
     Plan,
     Planner,
     PlannerStatus,
     PlanStep,
     StepStatus,
 )
-from miniunicorn.agent.runner import AgentRunner, AgentRunSpec, _TurnState
-from miniunicorn.providers.base import LLMProvider, LLMResponse
+from erza.agent.runner import AgentRunner, AgentRunSpec, _TurnState
+from erza.providers.base import LLMProvider, LLMResponse
 
 
 def _valid_provider() -> MagicMock:

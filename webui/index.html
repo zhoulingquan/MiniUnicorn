@@ -7,7 +7,7 @@
     <meta name="color-scheme" content="light dark" />
     <meta
       name="description"
-      content="MiniUnicorn web UI — chat with your MiniUnicorn workspace."
+      content="Erza web UI — chat with your Erza workspace."
       data-i18n-meta="description"
     />
     <meta name="theme-color" content="#fafaf9" media="(prefers-color-scheme: light)" />
@@ -76,7 +76,7 @@
     <script>
       (function () {
         try {
-          var stored = localStorage.getItem("miniunicorn-webui.theme");
+          var stored = localStorage.getItem("erza-webui.theme");
           var dark =
             stored === "dark" ||
             (!stored &&
@@ -88,43 +88,43 @@
     </script>
     <script>
       (function () {
-        var localeKey = "miniunicorn.locale";
+        var localeKey = "erza.locale";
         var copy = {
           en: {
-            boot: "Loading MiniUnicorn…",
-            description: "MiniUnicorn web UI — chat with your MiniUnicorn workspace."
+            boot: "Loading Erza…",
+            description: "Erza web UI — chat with your Erza workspace."
           },
           "zh-CN": {
-            boot: "正在加载 MiniUnicorn…",
-            description: "MiniUnicorn Web UI —— 与你的 MiniUnicorn 工作区对话。"
+            boot: "正在加载 Erza…",
+            description: "Erza Web UI —— 与你的 Erza 工作区对话。"
           },
           "zh-TW": {
-            boot: "正在載入 MiniUnicorn…",
-            description: "MiniUnicorn Web UI —— 與你的 MiniUnicorn 工作區對話。"
+            boot: "正在載入 Erza…",
+            description: "Erza Web UI —— 與你的 Erza 工作區對話。"
           },
           fr: {
-            boot: "Chargement de MiniUnicorn…",
-            description: "Interface web MiniUnicorn — discutez avec votre espace de travail MiniUnicorn."
+            boot: "Chargement de Erza…",
+            description: "Interface web Erza — discutez avec votre espace de travail Erza."
           },
           ja: {
-            boot: "MiniUnicorn を読み込み中…",
-            description: "MiniUnicorn Web UI — MiniUnicorn ワークスペースと会話します。"
+            boot: "Erza を読み込み中…",
+            description: "Erza Web UI — Erza ワークスペースと会話します。"
           },
           ko: {
-            boot: "MiniUnicorn 불러오는 중…",
-            description: "MiniUnicorn 웹 UI — MiniUnicorn 작업공간과 대화하세요."
+            boot: "Erza 불러오는 중…",
+            description: "Erza 웹 UI — Erza 작업공간과 대화하세요."
           },
           es: {
-            boot: "Cargando MiniUnicorn…",
-            description: "Interfaz web de MiniUnicorn: conversa con tu espacio de trabajo de MiniUnicorn."
+            boot: "Cargando Erza…",
+            description: "Interfaz web de Erza: conversa con tu espacio de trabajo de Erza."
           },
           vi: {
-            boot: "Đang tải MiniUnicorn…",
-            description: "Giao diện web MiniUnicorn — trò chuyện với workspace MiniUnicorn của bạn."
+            boot: "Đang tải Erza…",
+            description: "Giao diện web Erza — trò chuyện với workspace Erza của bạn."
           },
           id: {
-            boot: "Memuat MiniUnicorn…",
-            description: "UI web MiniUnicorn — ngobrol dengan workspace MiniUnicorn Anda."
+            boot: "Memuat Erza…",
+            description: "UI web Erza — ngobrol dengan workspace Erza Anda."
           }
         };
 
@@ -166,14 +166,14 @@
         } catch {}
       })();
     </script>
-    <title>MiniUnicorn</title>
+    <title>Erza</title>
   </head>
   <body class="bg-background text-foreground antialiased">
     <div id="root">
       <div class="boot-splash">
         <div class="boot-splash-inner">
-          <img src="/logo.svg" alt="MiniUnicorn" class="boot-logo" />
-          <span data-boot-copy>Loading MiniUnicorn…</span>
+          <img src="/logo.svg" alt="Erza" class="boot-logo" />
+          <span data-boot-copy>Loading Erza…</span>
         </div>
       </div>
     </div>

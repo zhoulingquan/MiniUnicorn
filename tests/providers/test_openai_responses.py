@@ -5,13 +5,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from miniunicorn.providers.openai_responses.converters import (
+from erza.providers.openai_responses.converters import (
     convert_messages,
     convert_tools,
     convert_user_message,
     split_tool_call_id,
 )
-from miniunicorn.providers.openai_responses.parsing import (
+from erza.providers.openai_responses.parsing import (
     consume_sdk_stream,
     consume_sse,
     consume_sse_with_reasoning,
@@ -433,7 +433,7 @@ class TestParseResponseOutput:
             "status": "completed",
             "usage": {},
         }
-        with patch("miniunicorn.providers.openai_responses.parsing.logger") as mock_logger:
+        with patch("erza.providers.openai_responses.parsing.logger") as mock_logger:
             result = parse_response_output(resp)
         assert result.tool_calls[0].arguments == {"raw": "{bad json"}
         mock_logger.warning.assert_called_once()
@@ -899,7 +899,7 @@ class TestConsumeSdkStream:
             for e in [ev1, ev2, ev3, ev4]:
                 yield e
 
-        with patch("miniunicorn.providers.openai_responses.parsing.logger") as mock_logger:
+        with patch("erza.providers.openai_responses.parsing.logger") as mock_logger:
             _, tool_calls, _, _, _ = await consume_sdk_stream(stream())
         assert tool_calls[0].arguments == {"raw": "{bad"}
         mock_logger.warning.assert_called_once()

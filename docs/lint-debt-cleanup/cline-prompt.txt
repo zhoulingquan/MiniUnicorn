@@ -1,10 +1,10 @@
-# MiniUnicorn implementation task - Lint debt cleanup (tests-only, single batch)
+# Erza implementation task - Lint debt cleanup (tests-only, single batch)
 
 ## Role and context
 
-You are a senior Python implementation engineer on the MiniUnicorn project. The project's purpose: a business-intelligence agent for long-term use by a small enterprise, with core demands of efficiency, leanness, and maintainability. This task clears the historical ruff lint debt that accumulated across earlier batches: 16 check errors in 3 test files plus 52 test files needing reformatting. All of it lives under tests/ - zero production code is touched. Implement independently, verify independently, commit independently, then STOP.
+You are a senior Python implementation engineer on the Erza project. The project's purpose: a business-intelligence agent for long-term use by a small enterprise, with core demands of efficiency, leanness, and maintainability. This task clears the historical ruff lint debt that accumulated across earlier batches: 16 check errors in 3 test files plus 52 test files needing reformatting. All of it lives under tests/ - zero production code is touched. Implement independently, verify independently, commit independently, then STOP.
 
-Working directory: D:\MyProject\MiniUnicorn
+Working directory: D:\MyProject\Erza
 
 Prerequisite: `git log --oneline -4` must show `7a83f6b4` (chore(w5) closure, full-suite baseline) at most 4 commits back, with only docs commits from `docs/lint-debt-cleanup/` on top of it (all already pushed to origin/main). The working tree must be clean apart from untracked temp/analysis dirs. If tracked files are modified, stop and report.
 
@@ -23,7 +23,7 @@ Prerequisite: `git log --oneline -4` must show `7a83f6b4` (chore(w5) closure, fu
 ### Global red lines
 
 1. **TESTS-ONLY, PURELY MECHANICAL**: the 16 errors live in `tests/agent/test_prompt_telemetry_consumer.py` (12), `tests/agent/test_step_acceptance_verifier.py` (3), `tests/agent/test_tool_receipts.py` (1); the 52 format files are all under tests/ as well. Zero logic changes, zero assertion changes, zero test deletions, zero new tests
-2. **Fix order**: (a) `.venv\Scripts\python.exe -m ruff check tests/ --fix` (safe fixes only); (b) ONE manual edit - `tests/agent/test_prompt_telemetry_consumer.py` line ~122, `result = await runner.run(_spec(context_window_tokens=None))` becomes `await runner.run(_spec(context_window_tokens=None))` (keep the await call - it has side effects; only the unused assignment goes). Do NOT use `--unsafe-fixes`; (c) `.venv\Scripts\python.exe -m ruff format miniunicorn/ tests/` (whole tree - it only rewrites files that need it)
+2. **Fix order**: (a) `.venv\Scripts\python.exe -m ruff check tests/ --fix` (safe fixes only); (b) ONE manual edit - `tests/agent/test_prompt_telemetry_consumer.py` line ~122, `result = await runner.run(_spec(context_window_tokens=None))` becomes `await runner.run(_spec(context_window_tokens=None))` (keep the await call - it has side effects; only the unused assignment goes). Do NOT use `--unsafe-fixes`; (c) `.venv\Scripts\python.exe -m ruff format erza/ tests/` (whole tree - it only rewrites files that need it)
 3. F811 semantics you will see: ruff removes the unused module-level `from loguru import logger` at line ~12; the function-local imports at lines ~78 and ~145 stay (ruff reorders those local blocks too - that is expected)
 4. Do not touch pyproject.toml ruff config, do not change the ruff version (0.15.21, already aligned with uv.lock), do not "fix" anything you notice along the way that is not in the inventory
 5. Use ONLY the project venv Python: `.venv\Scripts\python.exe` (3.12). The system default Python is 3.10 and fails at collection with 14 ImportErrors - environment problem, not code problem
@@ -35,13 +35,13 @@ Prerequisite: `git log --oneline -4` must show `7a83f6b4` (chore(w5) closure, fu
 
 ## Execution flow
 
-1. Read the task book -> verify HEAD (`git log --oneline -3`) and clean tree -> run `.venv\Scripts\python.exe -m ruff check miniunicorn/ tests/ --output-format concise` and confirm it matches the 16-error inventory in the task book. If the counts/locations differ, stop and report
+1. Read the task book -> verify HEAD (`git log --oneline -3`) and clean tree -> run `.venv\Scripts\python.exe -m ruff check erza/ tests/ --output-format concise` and confirm it matches the 16-error inventory in the task book. If the counts/locations differ, stop and report
 2. Apply fix order from red line 2 (a -> b -> c)
 3. Quick sanity BEFORE the full suite: `.venv\Scripts\python.exe -m pytest tests/agent/test_prompt_telemetry_consumer.py tests/agent/test_step_acceptance_verifier.py tests/agent/test_tool_receipts.py -q` (the 3 directly-edited files must pass)
 4. Verification gate (all must pass before commit is allowed):
    - `.venv\Scripts\python.exe -m pytest tests/ -q` -> exactly 4135 passed / 0 failed (same count as baseline - no tests added or removed)
-   - `.venv\Scripts\python.exe -m ruff check miniunicorn/ tests/` -> zero output
-   - `.venv\Scripts\python.exe -m ruff format --check miniunicorn/ tests/` -> zero output
+   - `.venv\Scripts\python.exe -m ruff check erza/ tests/` -> zero output
+   - `.venv\Scripts\python.exe -m ruff format --check erza/ tests/` -> zero output
    - `git status` -> only tests/ paths changed
    - If exactly one unrelated timing-sensitive test fails, rerun it in isolation to confirm flakiness, then rerun the full suite once; report honestly either way
 5. As soon as the gate passes, `git add tests/` and COMMIT IMMEDIATELY - commit first, then write the report

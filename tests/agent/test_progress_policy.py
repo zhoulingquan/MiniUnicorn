@@ -15,19 +15,19 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-import miniunicorn.agent.progress_policy as progress_policy_module
-from miniunicorn.agent.hook import AgentHook, AgentHookContext
-from miniunicorn.agent.planner import Plan, Planner, PlanStep, StepStatus
-from miniunicorn.agent.planning_policy import PlanningMode, PlanningPolicy
-from miniunicorn.agent.progress_policy import (
+import erza.agent.progress_policy as progress_policy_module
+from erza.agent.hook import AgentHook, AgentHookContext
+from erza.agent.planner import Plan, Planner, PlanStep, StepStatus
+from erza.agent.planning_policy import PlanningMode, PlanningPolicy
+from erza.agent.progress_policy import (
     ProgressAction,
     ProgressPolicy,
     ProgressTracker,
     ProgressVerdict,
 )
-from miniunicorn.agent.runner import AgentRunner, AgentRunSpec, _TurnState
-from miniunicorn.agent.step_acceptance import StepEvidence
-from miniunicorn.providers.base import LLMProvider, LLMResponse
+from erza.agent.runner import AgentRunner, AgentRunSpec, _TurnState
+from erza.agent.step_acceptance import StepEvidence
+from erza.providers.base import LLMProvider, LLMResponse
 
 
 def _tracker() -> ProgressTracker:

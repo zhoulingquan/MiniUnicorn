@@ -30,10 +30,10 @@
 
 ### 新建文件
 
-- `miniunicorn/agent/memory_sqlite_schema.py`：连接工厂、DDL、PRAGMA、schema version 和升级。
-- `miniunicorn/agent/memory_jsonl_import.py`：旧 journal 读取、校验、临时数据库导入和 manifest。
-- `miniunicorn/agent/memory_audit_export.py`：按 tx_seq 分段导出和重建 JSONL audit。
-- `miniunicorn/agent/memory_backup.py`：SQLite 在线备份、验证和恢复。
+- `erza/agent/memory_sqlite_schema.py`：连接工厂、DDL、PRAGMA、schema version 和升级。
+- `erza/agent/memory_jsonl_import.py`：旧 journal 读取、校验、临时数据库导入和 manifest。
+- `erza/agent/memory_audit_export.py`：按 tx_seq 分段导出和重建 JSONL audit。
+- `erza/agent/memory_backup.py`：SQLite 在线备份、验证和恢复。
 - `tests/agent/test_memory_sqlite_schema.py`：schema、索引、PRAGMA 和升级测试。
 - `tests/agent/test_memory_jsonl_import.py`：迁移成功、失败、幂等和数据等价测试。
 - `tests/agent/test_memory_audit_export.py`：分段、校验、lag 和重建测试。
@@ -42,17 +42,17 @@
 
 ### 重点修改文件
 
-- `miniunicorn/agent/memory_repository.py`：由 JSONL+进程内索引改为 SQLite Repository。
-- `miniunicorn/agent/memory_models.py`：增加存储健康/统计模型，不改现有记录字段。
-- `miniunicorn/agent/memory_recall.py`：使用 Repository 的 scoped candidate 查询。
-- `miniunicorn/agent/memory.py`：启动迁移、SQLite wiring、存储状态和文件所有权。
-- `miniunicorn/command/memory.py`：新增 log/backup/restore/export 命令，更新 status。
-- `miniunicorn/command/builtin.py` 或 Dream 命令注册文件：移除 `/dream-log`、`/dream-restore`。
-- `miniunicorn/utils/gitstore.py`：停止跟踪旧 journal；忽略 SQLite 运行文件。
-- `miniunicorn/templates/AGENTS.md`
-- `miniunicorn/templates/agent/identity.md`
-- `miniunicorn/templates/memory/POLICY.md`
-- `miniunicorn/skills/memory/SKILL.md`
+- `erza/agent/memory_repository.py`：由 JSONL+进程内索引改为 SQLite Repository。
+- `erza/agent/memory_models.py`：增加存储健康/统计模型，不改现有记录字段。
+- `erza/agent/memory_recall.py`：使用 Repository 的 scoped candidate 查询。
+- `erza/agent/memory.py`：启动迁移、SQLite wiring、存储状态和文件所有权。
+- `erza/command/memory.py`：新增 log/backup/restore/export 命令，更新 status。
+- `erza/command/builtin.py` 或 Dream 命令注册文件：移除 `/dream-log`、`/dream-restore`。
+- `erza/utils/gitstore.py`：停止跟踪旧 journal；忽略 SQLite 运行文件。
+- `erza/templates/AGENTS.md`
+- `erza/templates/agent/identity.md`
+- `erza/templates/memory/POLICY.md`
+- `erza/skills/memory/SKILL.md`
 - `docs/memory.md`
 - `tests/agent/test_memory_repository.py`
 - `tests/agent/test_memory_lifecycle.py`
@@ -69,7 +69,7 @@
 ### Task 1: 固化 Repository 契约和 SQLite 健康模型
 
 **Files:**
-- Modify: `miniunicorn/agent/memory_models.py`
+- Modify: `erza/agent/memory_models.py`
 - Modify: `tests/agent/test_memory_models.py`
 - Create: `tests/agent/test_memory_repository_contract.py`
 
@@ -82,7 +82,7 @@
 在 `tests/agent/test_memory_models.py` 增加：
 
 ```python
-from miniunicorn.agent.memory_models import MemoryStorageStats
+from erza.agent.memory_models import MemoryStorageStats
 
 
 def test_memory_storage_stats_is_sqlite_and_non_negative() -> None:
@@ -162,7 +162,7 @@ REQUIRED_METHODS = {
 
 
 def test_repository_public_contract() -> None:
-    from miniunicorn.agent.memory_repository import StructuredMemoryRepository
+    from erza.agent.memory_repository import StructuredMemoryRepository
 
     assert REQUIRED_METHODS <= set(dir(StructuredMemoryRepository))
 ```
@@ -179,7 +179,7 @@ Expected: PASS。
 - [ ] **Step 7: 提交**
 
 ```bash
-git add miniunicorn/agent/memory_models.py tests/agent/test_memory_models.py tests/agent/test_memory_repository_contract.py
+git add erza/agent/memory_models.py tests/agent/test_memory_models.py tests/agent/test_memory_repository_contract.py
 git commit -m "test(memory): define sqlite repository contract"
 ```
 
@@ -188,7 +188,7 @@ git commit -m "test(memory): define sqlite repository contract"
 ### Task 2: 建立 SQLite schema 和连接工厂
 
 **Files:**
-- Create: `miniunicorn/agent/memory_sqlite_schema.py`
+- Create: `erza/agent/memory_sqlite_schema.py`
 - Create: `tests/agent/test_memory_sqlite_schema.py`
 
 **Interfaces:**
@@ -271,13 +271,13 @@ CREATE INDEX ix_memory_tags_tag ON memory_tags(tag, memory_id, revision);
 
 Run: `pytest tests/agent/test_memory_sqlite_schema.py -q`
 Expected: PASS。
-Run: `ruff check miniunicorn/agent/memory_sqlite_schema.py tests/agent/test_memory_sqlite_schema.py`
+Run: `ruff check erza/agent/memory_sqlite_schema.py tests/agent/test_memory_sqlite_schema.py`
 Expected: PASS。
 
 - [ ] **Step 7: 提交**
 
 ```bash
-git add miniunicorn/agent/memory_sqlite_schema.py tests/agent/test_memory_sqlite_schema.py
+git add erza/agent/memory_sqlite_schema.py tests/agent/test_memory_sqlite_schema.py
 git commit -m "feat(memory): add sqlite schema and connection policy"
 ```
 
@@ -286,7 +286,7 @@ git commit -m "feat(memory): add sqlite schema and connection policy"
 ### Task 3: 用 SQLite 实现 Repository 读取路径
 
 **Files:**
-- Modify: `miniunicorn/agent/memory_repository.py`
+- Modify: `erza/agent/memory_repository.py`
 - Modify: `tests/agent/test_memory_repository.py`
 
 **Interfaces:**
@@ -352,7 +352,7 @@ Expected: 尚未改写的 JSONL 写入测试可以失败；所有读取、排序
 - [ ] **Step 8: 提交**
 
 ```bash
-git add miniunicorn/agent/memory_repository.py tests/agent/test_memory_repository.py
+git add erza/agent/memory_repository.py tests/agent/test_memory_repository.py
 git commit -m "refactor(memory): serve repository reads from sqlite"
 ```
 
@@ -361,7 +361,7 @@ git commit -m "refactor(memory): serve repository reads from sqlite"
 ### Task 4: 实现 SQLite 原子写入、幂等和并发
 
 **Files:**
-- Modify: `miniunicorn/agent/memory_repository.py`
+- Modify: `erza/agent/memory_repository.py`
 - Modify: `tests/agent/test_memory_repository.py`
 - Modify: `tests/agent/test_memory_lifecycle.py`
 
@@ -436,7 +436,7 @@ Expected: PASS；旧测试中直接检查 journal 文本的断言改为检查 `t
 - [ ] **Step 9: 提交**
 
 ```bash
-git add miniunicorn/agent/memory_repository.py tests/agent/test_memory_repository.py tests/agent/test_memory_lifecycle.py
+git add erza/agent/memory_repository.py tests/agent/test_memory_repository.py tests/agent/test_memory_lifecycle.py
 git commit -m "feat(memory): commit governed revisions atomically in sqlite"
 ```
 
@@ -445,9 +445,9 @@ git commit -m "feat(memory): commit governed revisions atomically in sqlite"
 ### Task 5: 实现旧 journal 一次性、可验证迁移
 
 **Files:**
-- Create: `miniunicorn/agent/memory_jsonl_import.py`
+- Create: `erza/agent/memory_jsonl_import.py`
 - Create: `tests/agent/test_memory_jsonl_import.py`
-- Modify: `miniunicorn/agent/memory_repository.py`
+- Modify: `erza/agent/memory_repository.py`
 
 **Interfaces:**
 - Produces: `JsonlImportResult`、`migrate_legacy_journal(workspace, lock_timeout_s) -> JsonlImportResult`。
@@ -532,7 +532,7 @@ Expected: PASS。
 - [ ] **Step 8: 提交**
 
 ```bash
-git add miniunicorn/agent/memory_jsonl_import.py miniunicorn/agent/memory_repository.py tests/agent/test_memory_jsonl_import.py
+git add erza/agent/memory_jsonl_import.py erza/agent/memory_repository.py tests/agent/test_memory_jsonl_import.py
 git commit -m "feat(memory): migrate legacy journal into sqlite"
 ```
 
@@ -541,9 +541,9 @@ git commit -m "feat(memory): migrate legacy journal into sqlite"
 ### Task 6: 实现可重建的分段 JSONL 审计导出
 
 **Files:**
-- Create: `miniunicorn/agent/memory_audit_export.py`
+- Create: `erza/agent/memory_audit_export.py`
 - Create: `tests/agent/test_memory_audit_export.py`
-- Modify: `miniunicorn/agent/memory_repository.py`
+- Modify: `erza/agent/memory_repository.py`
 
 **Interfaces:**
 - Produces: `MemoryAuditExporter.export_pending()`、`MemoryAuditExporter.rebuild()`、`AuditExportResult`。
@@ -610,7 +610,7 @@ Expected: PASS。
 - [ ] **Step 8: 提交**
 
 ```bash
-git add miniunicorn/agent/memory_audit_export.py miniunicorn/agent/memory_repository.py tests/agent/test_memory_audit_export.py tests/agent/test_dream_structured_memory.py tests/agent/test_memory_commands.py
+git add erza/agent/memory_audit_export.py erza/agent/memory_repository.py tests/agent/test_memory_audit_export.py tests/agent/test_dream_structured_memory.py tests/agent/test_memory_commands.py
 git commit -m "feat(memory): export rebuildable segmented audit journals"
 ```
 
@@ -619,7 +619,7 @@ git commit -m "feat(memory): export rebuildable segmented audit journals"
 ### Task 7: 将召回候选过滤下推到 SQLite
 
 **Files:**
-- Modify: `miniunicorn/agent/memory_recall.py`
+- Modify: `erza/agent/memory_recall.py`
 - Modify: `tests/agent/test_memory_recall.py`
 - Modify: `tests/agent/test_context_structured_memory.py`
 - Modify: `tests/agent/test_workspace_memory_routing.py`
@@ -685,7 +685,7 @@ Expected: PASS，prompt 快照除 candidates/filtered 诊断计数外无变化�
 - [ ] **Step 7: 提交**
 
 ```bash
-git add miniunicorn/agent/memory_recall.py tests/agent/test_memory_recall.py tests/agent/test_context_structured_memory.py tests/agent/test_workspace_memory_routing.py
+git add erza/agent/memory_recall.py tests/agent/test_memory_recall.py tests/agent/test_context_structured_memory.py tests/agent/test_workspace_memory_routing.py
 git commit -m "perf(memory): prefilter recall candidates in sqlite"
 ```
 
@@ -694,8 +694,8 @@ git commit -m "perf(memory): prefilter recall candidates in sqlite"
 ### Task 8: 接入 MemoryStore 单路径和文件所有权
 
 **Files:**
-- Modify: `miniunicorn/agent/memory.py`
-- Modify: `miniunicorn/utils/gitstore.py`
+- Modify: `erza/agent/memory.py`
+- Modify: `erza/utils/gitstore.py`
 - Modify: `tests/agent/test_memory_store.py`
 - Modify: `tests/agent/test_git_store.py`
 - Modify: `tests/agent/test_structured_memory_boundary.py`
@@ -760,7 +760,7 @@ Expected: PASS。
 - [ ] **Step 7: 提交**
 
 ```bash
-git add miniunicorn/agent/memory.py miniunicorn/utils/gitstore.py tests/agent/test_memory_store.py tests/agent/test_git_store.py tests/agent/test_structured_memory_boundary.py tests/agent/test_workspace_memory_routing.py
+git add erza/agent/memory.py erza/utils/gitstore.py tests/agent/test_memory_store.py tests/agent/test_git_store.py tests/agent/test_structured_memory_boundary.py tests/agent/test_workspace_memory_routing.py
 git commit -m "refactor(memory): wire sqlite as the only runtime store"
 ```
 
@@ -769,10 +769,10 @@ git commit -m "refactor(memory): wire sqlite as the only runtime store"
 ### Task 9: 增加数据库日志、备份、恢复和审计命令
 
 **Files:**
-- Create: `miniunicorn/agent/memory_backup.py`
+- Create: `erza/agent/memory_backup.py`
 - Create: `tests/agent/test_memory_backup.py`
-- Modify: `miniunicorn/command/memory.py`
-- Modify: `miniunicorn/command/builtin.py`
+- Modify: `erza/command/memory.py`
+- Modify: `erza/command/builtin.py`
 - Modify: `tests/agent/test_memory_commands.py`
 - Modify: `tests/command/test_builtin_dream.py`
 
@@ -842,7 +842,7 @@ Expected: PASS。
 - [ ] **Step 8: 提交**
 
 ```bash
-git add miniunicorn/agent/memory_backup.py miniunicorn/command/memory.py miniunicorn/command/builtin.py tests/agent/test_memory_backup.py tests/agent/test_memory_commands.py tests/command/test_builtin_dream.py
+git add erza/agent/memory_backup.py erza/command/memory.py erza/command/builtin.py tests/agent/test_memory_backup.py tests/agent/test_memory_commands.py tests/command/test_builtin_dream.py
 git commit -m "feat(memory): add sqlite audit backup and restore commands"
 ```
 
@@ -851,13 +851,13 @@ git commit -m "feat(memory): add sqlite audit backup and restore commands"
 ### Task 10: 清理 JSONL 运行时实现和更新全部说明
 
 **Files:**
-- Modify: `miniunicorn/agent/memory_repository.py`
-- Modify: `miniunicorn/templates/AGENTS.md`
-- Modify: `miniunicorn/templates/agent/identity.md`
-- Modify: `miniunicorn/templates/memory/POLICY.md`
-- Modify: `miniunicorn/skills/memory/SKILL.md`
+- Modify: `erza/agent/memory_repository.py`
+- Modify: `erza/templates/AGENTS.md`
+- Modify: `erza/templates/agent/identity.md`
+- Modify: `erza/templates/memory/POLICY.md`
+- Modify: `erza/skills/memory/SKILL.md`
 - Modify: `docs/memory.md`
-- Modify: `miniunicorn/channels/websocket/handlers/bootstrap_file.py`
+- Modify: `erza/channels/websocket/handlers/bootstrap_file.py`
 - Modify: `tests/agent/test_context_prompt_cache.py`
 - Modify: `tests/agent/test_onboard_logic.py`
 - Modify: `tests/agent/test_memory_store.py`
@@ -909,13 +909,13 @@ Expected: PASS。
 
 - [ ] **Step 7: 执行残留搜索**
 
-Run: `rg -n "journal\.jsonl|dream-log|dream-restore|_synchronize_locked|_replay_line" miniunicorn docs tests`
+Run: `rg -n "journal\.jsonl|dream-log|dream-restore|_synchronize_locked|_replay_line" erza docs tests`
 Expected: `journal.jsonl` 只出现在迁移相关位置；旧命令和旧私有方法零结果。
 
 - [ ] **Step 8: 提交**
 
 ```bash
-git add miniunicorn/agent/memory_repository.py miniunicorn/templates miniunicorn/skills/memory/SKILL.md docs/memory.md miniunicorn/channels/websocket/handlers/bootstrap_file.py tests/agent/test_structured_memory_boundary.py tests/agent/test_context_prompt_cache.py tests/agent/test_onboard_logic.py tests/agent/test_memory_store.py
+git add erza/agent/memory_repository.py erza/templates erza/skills/memory/SKILL.md docs/memory.md erza/channels/websocket/handlers/bootstrap_file.py tests/agent/test_structured_memory_boundary.py tests/agent/test_context_prompt_cache.py tests/agent/test_onboard_logic.py tests/agent/test_memory_store.py
 git commit -m "docs(memory): document sqlite single-path storage"
 ```
 
@@ -1035,9 +1035,9 @@ Expected: tests PASS，build exit 0。
 
 - [ ] **Step 4: 运行静态和编译检查**
 
-Run: `ruff check miniunicorn tests scripts/benchmark_memory_sqlite.py`
+Run: `ruff check erza tests scripts/benchmark_memory_sqlite.py`
 Expected: PASS。
-Run: `python -m compileall -q miniunicorn`
+Run: `python -m compileall -q erza`
 Expected: exit 0。
 
 - [ ] **Step 5: 做真实旧 journal 迁移演练**
@@ -1056,7 +1056,7 @@ Run: `git diff --check`
 Expected: 无 whitespace error。
 Run: `git status --short`
 Expected: 只有本方案相关文件。
-Run: `rg -n "legacy|shadow|governed.*mode|vectorPath|embeddingPath|journal is.*source|journal.*唯一.*事实" miniunicorn docs tests`
+Run: `rg -n "legacy|shadow|governed.*mode|vectorPath|embeddingPath|journal is.*source|journal.*唯一.*事实" erza docs tests`
 Expected: 无旧三模式、向量入口或 journal 事实源残留；迁移语境中的 `legacy journal` 允许存在。
 
 - [ ] **Step 7: 对照设计完成定义逐项审查**

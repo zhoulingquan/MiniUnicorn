@@ -13,13 +13,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.agent.planning_policy import PlanningMode, PlanningPolicy
-from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
-from miniunicorn.bus.events import InboundMessage
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.config.schema import Config
-from miniunicorn.providers.base import LLMProvider, LLMResponse
+from erza.agent.loop import AgentLoop
+from erza.agent.planning_policy import PlanningMode, PlanningPolicy
+from erza.agent.runner import AgentRunner, AgentRunSpec
+from erza.bus.events import InboundMessage
+from erza.bus.queue import MessageBus
+from erza.config.schema import Config
+from erza.providers.base import LLMProvider, LLMResponse
 
 
 class FakeProvider:

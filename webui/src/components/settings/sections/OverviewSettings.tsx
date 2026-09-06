@@ -72,7 +72,7 @@ export function OverviewSettings({
           <div className="flex flex-row items-center justify-between gap-4 px-5 py-5">
             <div className="flex min-w-0 items-center gap-3">
               <div className="min-w-0">
-                <div className="text-[12px] font-medium text-muted-foreground">MiniUnicorn</div>
+                <div className="text-[12px] font-medium text-muted-foreground">Erza</div>
                 <div className="mt-0.5 truncate text-[18px] font-semibold leading-6 text-foreground">
                   {settings.agent.model}
                 </div>

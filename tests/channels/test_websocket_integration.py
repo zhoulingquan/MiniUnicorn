@@ -14,8 +14,8 @@ import pytest
 import websockets
 from ws_test_client import WsTestClient, issue_token, issue_token_ok
 
-from miniunicorn.bus.events import OutboundMessage
-from miniunicorn.channels.websocket import WebSocketChannel
+from erza.bus.events import OutboundMessage
+from erza.channels.websocket import WebSocketChannel
 
 
 def _ch(bus: Any, port: int, **kw: Any) -> WebSocketChannel:

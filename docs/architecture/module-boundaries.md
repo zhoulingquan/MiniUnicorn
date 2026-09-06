@@ -12,7 +12,7 @@
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  composition(唯一知道一切的装配层)                         │
-│  miniunicorn/composition/{__init__,gateway,agent_app}.py │
+│  erza/composition/{__init__,gateway,agent_app}.py │
 └──────────────────────────────┬──────────────────────────┘
                                ▼
 ┌─────────────────────────────────────────────────────────┐
@@ -25,27 +25,27 @@
 └─────────────────────────────────────────────────────────┘
 ```
 
-- `composition` 只允许被入口(CLI `miniunicorn/cli/*`、SDK `miniunicorn/miniunicorn.py`、WebUI 边界)引用。
+- `composition` 只允许被入口(CLI `erza/cli/*`、SDK `erza/erza.py`、WebUI 边界)引用。
 - `composition` 可引用任意业务模块与基础库(它是装配层,唯一知道所有模块如何组装的地方)。
 
 ### 1.1 禁止依赖清单(Phase 1 起即禁止)
 
 | 禁止依赖 | 原因 | 现状 |
 |---|---|---|
-| 业务模块 `import miniunicorn.composition` | 避免业务代码自举装配、破坏单一组合根 | ✅ 现状无(W8-1 修复架构守护的匹配盲区,裸 `composition` 与全限定 `miniunicorn.composition.*` 两种形式同判;此前 agent/loop 与 loop_builder 对 `composition.mcp_runtime` 的最后两处违例随 McpRuntime 归位 tools 消解,守护修复后为真实 ✅) |
+| 业务模块 `import erza.composition` | 避免业务代码自举装配、破坏单一组合根 | ✅ 现状无(W8-1 修复架构守护的匹配盲区,裸 `composition` 与全限定 `erza.composition.*` 两种形式同判;此前 agent/loop 与 loop_builder 对 `composition.mcp_runtime` 的最后两处违例随 McpRuntime 归位 tools 消解,守护修复后为真实 ✅) |
 | `session` import `agent` | 会话层不依赖代理执行细节 | ✅ 现状经 bus 解耦 |
-| `channels` import `agent` | 通道层经 bus 解耦,不直接持有 agent | ✅ 现状无(原过渡期豁免 `channels/websocket/channel → agent.tools.mcp` 随 W5 工具库外置 `miniunicorn/tools` 后消解,channel.py 不再 import agent) |
+| `channels` import `agent` | 通道层经 bus 解耦,不直接持有 agent | ✅ 现状无(原过渡期豁免 `channels/websocket/channel → agent.tools.mcp` 随 W5 工具库外置 `erza/tools` 后消解,channel.py 不再 import agent) |
 | 模块间读取对方下划线私有属性 | 模块边界 = 公开 API 边界 | ⚠️ 已知例外见 §4 |
 | 业务模块反向 import `cli/*`(除 `cli` 作为入口的调用方向) | 保持入口 → 业务单向 | ⚠️ 组合根内为测试兼容保留的 late-binding 例外,见 §4.1 |
-| sink 八包(providers/utils/security/config/bus/ledger/memory/tools)import `cli` | 模型目录等基础设施知识归位 providers,入口层不被下层咬住 | ✅ 现状无(W8-2 模型目录自 cli 下沉 providers 消 6 处反向导入;AST 守护 `test_base_layer_does_not_import_cli` 固化,裸 `cli.*` 与全限定 `miniunicorn.cli.*` 同判) |
+| sink 八包(providers/utils/security/config/bus/ledger/memory/tools)import `cli` | 模型目录等基础设施知识归位 providers,入口层不被下层咬住 | ✅ 现状无(W8-2 模型目录自 cli 下沉 providers 消 6 处反向导入;AST 守护 `test_base_layer_does_not_import_cli` 固化,裸 `cli.*` 与全限定 `erza.cli.*` 同判) |
 
 ### 1.2 例外声明(必须逐项登记)
 
-- `miniunicorn/composition/agent_app.py` 与 `miniunicorn/composition/gateway.py` 在**调用时**
-  经 `miniunicorn.cli.commands.<name>` 解析 `AgentLoop` / `sync_workspace_templates` /
-  `_migrate_cron_store` 等名称。原因:现有测试在 `miniunicorn.cli.commands` 命名空间上 patch
+- `erza/composition/agent_app.py` 与 `erza/composition/gateway.py` 在**调用时**
+  经 `erza.cli.commands.<name>` 解析 `AgentLoop` / `sync_workspace_templates` /
+  `_migrate_cron_store` 等名称。原因:现有测试在 `erza.cli.commands` 命名空间上 patch
   这些名字(late binding),且组合根被允许知道入口层。Phase 6 评估是否可收敛。
-- `miniunicorn/composition/gateway.py` 从 `miniunicorn.cli._gateway_runner` 调用时导入
+- `erza/composition/gateway.py` 从 `erza.cli._gateway_runner` 调用时导入
   `on_cron_job` / `_pick_heartbeat_target` / `_dream_backlog_total`。原因:cron 处理器与
   gateway 装配的历史同居一模块,Phase 1 只移动装配不动处理器;Phase 2 起评估迁移归属。
 - `channels/websocket/_http_router.py` 与 `tools/mcp.py` 读写 `agent` 私有状态的历史耦合,
@@ -59,7 +59,7 @@
 
 ### 2.1 composition
 
-- 位置:`miniunicorn/composition/`
+- 位置:`erza/composition/`
 - 公开 API:
   - `build_agent_application(config, bus=None, cron_service=None, **overrides) -> AgentLoop`
   - `GatewayApplication` / `build_gateway_application(config, *, open_browser_url=…, webui_static_dist=…, webui_runtime_surface=…, webui_runtime_capabilities=…)`
@@ -72,7 +72,7 @@
 
 ### 2.2 agent
 
-- 位置:`miniunicorn/agent/`
+- 位置:`erza/agent/`
 - 公开 API(稳定契约):`AgentLoop`(`run` / `stop` / `process_direct` / `from_config` /
   `memory_for` / `set_model_preset` / `close_mcp` / `all_dreams` / `run_all_dreams` /
   `current_iteration` / `tool_names` / `llm_runtime` / `model_preset`),
@@ -86,14 +86,14 @@
   `_pending_turn_latency_ms`)——归 `ResponseAssembler`(AgentLoop 保留读写委托,
   `_current_iteration` 仍为 loop 自有)。
 - 生命周期所有者:`composition`(Phase 2 起逐步迁往各应用服务)。
-- 注:memory 家族已于 W7-1 外置为顶层 `miniunicorn/memory/` 包(见 §2.19),
+- 注:memory 家族已于 W7-1 外置为顶层 `erza/memory/` 包(见 §2.19),
   `agent/__init__.py` 不再 re-export `MemoryStore` / `Dream`。
 - 已知反向依赖(Phase 3 处理):`agent/context.py:45-46` 读 `_mcp_servers/_mcp_stacks`;
   `agent/tools/mcp.py:935` 写 `state._mcp_servers`;`agent/tools/runtime_state.py` Protocol。
 
 ### 2.3 channels
 
-- 位置:`miniunicorn/channels/`
+- 位置:`erza/channels/`
 - 公开 API:`ChannelManager(config, bus, *, session_manager=…, webui_* …)`,
   `start_all()` / `stop_all()`,`enabled_channels`,各 channel 的 `BaseChannel` 协议。
 - 拥有的状态:`channels` 映射、`_dispatch_task`、`_background_tasks`、
@@ -102,7 +102,7 @@
 
 ### 2.4 session
 
-- 位置:`miniunicorn/session/`
+- 位置:`erza/session/`
 - 公开 API:`SessionManager(workspace)`(get_or_create / save / flush_all / list_sessions /
   invalidate 等),`Session` 模型。
 - 拥有的状态:内存会话缓存、JSONL 文件(持久化格式为兼容契约,不得改动)。
@@ -112,7 +112,7 @@
 
 ### 2.5 providers
 
-- 位置:`miniunicorn/providers/`
+- 位置:`erza/providers/`
 - 公开 API:`build_provider_snapshot(config)`, `load_provider_snapshot(config_path=None)`,
   `make_provider(config)`, `ProviderSnapshot`, `LLMProvider`。
 - 拥有的状态:provider/model/context_window 的选择与构建结果(快照)。
@@ -120,18 +120,18 @@
   agent 的 `_provider_snapshot_loader` 驱动)。
 - 本次登记(W8-2):`providers/model_catalog.py` — 模型元数据目录服务(模型 ID /
   上下文窗口解析、HF-ModelScope 自动查询、学习表;自包含,仅依赖 `config`)。
-  自 `miniunicorn/cli/models.py` 整文件归位至此;消费方(`providers/factory` /
+  自 `erza/cli/models.py` 整文件归位至此;消费方(`providers/factory` /
   `agent/loop` / `agent/_provider_switching` / `agent/model_presets` /
   `webui/model_settings_api` / `cli/onboard` / `tests/conftest.py`)随之改指新家,
   共消 6 处下层对 cli 入口层的反向导入。
 - 新守护(W8-2):sink 八包(providers / utils / security / config / bus / ledger /
-  memory / tools)禁止 import cli(裸形式与全限定 `miniunicorn.cli.*` 同判),
+  memory / tools)禁止 import cli(裸形式与全限定 `erza.cli.*` 同判),
   由 `tests/architecture/test_dependency_direction.py::test_base_layer_does_not_import_cli`
   固化。
 
 ### 2.6 bus
 
-- 位置:`miniunicorn/bus/`
+- 位置:`erza/bus/`
 - 公开 API:`MessageBus`(publish_inbound / consume_inbound / publish_outbound /
   consume_outbound),事件 `InboundMessage` / `OutboundMessage`。
 - 拥有的状态:`inbound` / `outbound` 两个 `asyncio.Queue`(容量 1000,背压)。
@@ -140,7 +140,7 @@
 
 ### 2.7 command
 
-- 位置:`miniunicorn/command/`
+- 位置:`erza/command/`
 - 公开 API:`CommandRouter`,内置命令注册(`register_builtin_commands`),`CommandContext`,
   `CommandApplicationService`(命令应用服务,见 §2.12)。
 - 拥有的状态:命令路由表(注册在内置命令模块);`CommandApplicationService` 持有
@@ -150,7 +150,7 @@
 
 ### 2.8 cron
 
-- 位置:`miniunicorn/cron/`
+- 位置:`erza/cron/`
 - 公开 API:`CronService(store_path)`,`on_job`(可赋值回调),`start()` / `stop()` /
   `await_stop()`, `register_system_job(job)`, `status()`,作业持久化(store JSON)。
 - 拥有的状态:作业存储(workspace `cron/jobs.json`)、`_timer_task` / `_exec_tasks`、
@@ -169,14 +169,14 @@
 
 ### 2.10 agent/dispatch(MessageDispatcher,PR-2a)
 
-- 位置:`miniunicorn/agent/dispatch.py`
+- 位置:`erza/agent/dispatch.py`
 - 公开 API:`MessageDispatcher(agent, bus, commands=None)`;`run()`(消费循环 +
   优先级命令分支)、`stop()`、`_dispatch(msg)`、`_dispatch_command_inline(...)`(兼容委托)、
   `_effective_session_key(msg)`、`_schedule_background(coro)`、
   `_process_system_message(...)`;只读状态属性 `_running` / `_active_tasks` /
   `_background_tasks` / `_session_locks` / `_pending_queues` / `_concurrency_gate`。
 - 自有状态:运行标志、per-session 活跃任务与弱引用锁、mid-turn pending 队列、
-  后台任务集合、全局并发信号量(`MINIUNICORN_MAX_CONCURRENT_REQUESTS`)。
+  后台任务集合、全局并发信号量(`ERZA_MAX_CONCURRENT_REQUESTS`)。
 - 生命周期:与宿主 AgentLoop 同生同灭;`stop()` 停循环;`/stop` 取消任务走
   `_cancel_active_tasks`。
 - 依赖方向:持有 `DispatchHost` 协议(显式小接口,当前实现为 AgentLoop)、
@@ -184,7 +184,7 @@
 
 ### 2.11 agent/session_turn(SessionTurnService,PR-2b)
 
-- 位置:`miniunicorn/agent/session_turn.py`
+- 位置:`erza/agent/session_turn.py`
 - 公开 API:`SessionTurnService(sessions, *, workspace=None, webui_turns=None,
   max_tool_result_chars=None)`;`_persist_user_message_early` / `_save_turn` /
   `_sanitize_persisted_blocks` / `_persist_subagent_followup` / checkpoint 族
@@ -199,7 +199,7 @@
 
 ### 2.12 command/service(CommandApplicationService,PR-2d)
 
-- 位置:`miniunicorn/command/service.py`
+- 位置:`erza/command/service.py`
 - 公开 API:`CommandApplicationService(bus, router)`;`is_priority_command(raw)` /
   `is_dispatchable_command(raw)` / `dispatch_priority_inline(host, msg, key, raw)` /
   `dispatch_inline(host, msg, key, raw)`。
@@ -213,7 +213,7 @@
 
 ### 2.13 agent/runtime_resources(RuntimeResourceRegistry,PR-2c)
 
-- 位置:`miniunicorn/agent/runtime_resources.py`
+- 位置:`erza/agent/runtime_resources.py`
 - 公开 API:`RuntimeResourceRegistry(workspace, *, context, workspace_scopes, sessions,
   provider, model, context_window_tokens, tools, max_completion_tokens, ...)`;
   `memory_for(workspace=None)` / `_consolidator_for(workspace)` / `_dream_for(workspace)` /
@@ -229,7 +229,7 @@
 
 ### 2.14 agent/response(ResponseAssembler,PR-2e)
 
-- 位置:`miniunicorn/agent/response.py`
+- 位置:`erza/agent/response.py`
 - 公开 API:`ResponseAssembler(bus, tools)`;`_assemble_outbound(...)`、
   `build_stream_closures(msg)`(on_stream/on_stream_end 闭包)、
   `record_last_usage(result)`、`record_pending_turn_latency(key, latency_ms)`、
@@ -245,7 +245,7 @@
 
 ### 2.15 agent/safety(SafetyPolicy)
 
-- 位置:`miniunicorn/agent/safety_policy.py`
+- 位置:`erza/agent/safety_policy.py`
 - 公开 API:`SafetyPolicy`(class),`RiskLevel`(enum: `LOW` / `MEDIUM` / `HIGH` / `CRITICAL`),`assess_risk(tool_name, args, context) -> RiskLevel`,`should_block(risk: RiskLevel) -> bool`,`should_require_approval(risk: RiskLevel) -> bool`。
 - 拥有的状态:风险规则表(内置,可通过配置扩展)、审批回调注册表。
 - 生命周期所有者:`composition`(构建 `AgentLoop` 时注入 `AgentRunner`)。
@@ -254,7 +254,7 @@
 
 ### 2.16 agent/planning(PlanningPolicy)
 
-- 位置:`miniunicorn/agent/planning_policy.py`
+- 位置:`erza/agent/planning_policy.py`
 - 公开 API:`PlanningPolicy`(class),`ExecutionMode`(enum: `FAST` / `MANAGED`),`select_mode(config, turn_context) -> ExecutionMode`,`should_upgrade(turn_context) -> bool`,`build_upgrade_context(turn_context) -> UpgradeContext`。
 - 拥有的状态:模式选择规则(含运行时升级判定)、`max_replans` 计数器(仅 MANAGED 模式生效)。
 - 生命周期所有者:`composition`(经 `AgentRunner` 持有,`PlanningReflectionService` 回调使用)。
@@ -266,7 +266,7 @@
 
 ### 2.17 agent/tools/execute_plan(ExecutePlanTool)
 
-- 位置:`miniunicorn/agent/tools/execute_plan.py`
+- 位置:`erza/agent/tools/execute_plan.py`
 - 公开 API:`ExecutePlanTool`(class,继承 `Tool` 与 `ContextAware`),注册工具名 `delegate_plan`(别名 `execute_plan`);核心方法 `execute(plan, execution) -> str`,`create(ctx)` 经 `ctx.subagent_manager` 注入管理器。
 - 拥有的状态:请求上下文 ContextVar(origin_channel / origin_chat_id / session_key / origin_message_id)与 subagent 管理器引用;无跨请求业务状态。
 - 生命周期:随工具注册表构建;作用域 `_scopes = {"core"}`,不对 subagent 开放(避免递归)。
@@ -275,7 +275,7 @@
 
 ### 2.18 ledger(词法叶子包)
 
-- 位置:`miniunicorn/ledger/`
+- 位置:`erza/ledger/`
 - 公开 API:`CallPurpose` / `CallRecord` / `CallLedger` / `TurnBudget` /
   `current_call_ledger` / `bind_call_ledger` / `reset_call_ledger` /
   `call_purpose` / `allow_call_ledger_child_tasks`(`__init__` 门面 re-export)。
@@ -283,13 +283,13 @@
   常量;无跨请求可变业务状态。
 - 生命周期所有者:`agent`(每轮 turn 构造 `CallLedger` 并 `bind_call_ledger`);
   `providers/base` 运行时只读消费(`current_call_ledger()`)。
-- 依赖方向:叶子包,**不 import `miniunicorn.agent.*`**(W6-1b 自 agent 外置,
+- 依赖方向:叶子包,**不 import `erza.agent.*`**(W6-1b 自 agent 外置,
   依赖单向:agent / providers / utils / tools → ledger,永不反向);守护规则见
   `tests/architecture/test_dependency_direction.py`(sink 包零 agent import)。
 
 ### 2.19 memory(词法叶子包,W7-1)
 
-- 位置:`miniunicorn/memory/`(W7-1 自 `miniunicorn/agent/` 外置;13 个模块
+- 位置:`erza/memory/`(W7-1 自 `erza/agent/` 外置;13 个模块
   同步瘦身改名:store / models / repository / recall / lifecycle / extraction /
   jsonl_import / audit_export / consolidator / dream / backup / sqlite_schema)。
 - 公开 API(门面 `__init__` re-export):`MemoryStore` /
@@ -304,15 +304,15 @@
 - 生命周期所有者:`agent`(`RuntimeResourceRegistry` 持有 Consolidator / Dream /
   MemoryStore 实例;`agent/context.py` 构造 MemoryStore 注入 prompt 装配)。
 - 依赖方向:叶子包,依赖仅 `utils` / `config` / `session` / `bus` /
-  `providers` / `ledger`,**零 `miniunicorn.agent` 依赖**(W7-0 实证,W7-1 由
+  `providers` / `ledger`,**零 `erza.agent` 依赖**(W7-0 实证,W7-1 由
   `tests/architecture/test_dependency_direction.py` sink 集合固化 + 包结构守护
   `tests/memory/test_memory_package_split.py` 冷导入/AST 双重锁定)。
 - `agent/__init__.py` 门面收窄:不再 re-export `MemoryStore` / `Dream`;消费方
-  一律从 `miniunicorn.memory` 门面或具名子模块导入。
+  一律从 `erza.memory` 门面或具名子模块导入。
 
 ### 2.20 tools(工具库,W8-1 起登记)
 
-- 位置:`miniunicorn/tools/`(W5 起自 `agent/tools` 外置的纯工具库)。
+- 位置:`erza/tools/`(W5 起自 `agent/tools` 外置的纯工具库)。
 - 本次登记:`tools/mcp_runtime.py` — `McpRuntime`:MCP 连接栈运行时(持有 `_mcp_servers`
   / `_mcp_stacks` 等可变状态,提供 `connect_missing` / `close_all`,原生满足
   `tools.mcp` 的 `RuntimeState` 协议;依赖仅 `tools.registry` / `tools.mcp`,
@@ -371,11 +371,11 @@
 
 ## 5. 验收对照
 
-- [x] `miniunicorn/composition/` 存在且为唯一装配点
+- [x] `erza/composition/` 存在且为唯一装配点
 - [x] 四入口(gateway / agent / serve / SDK)均经组合根
 - [x] 组装冒烟测试(5 例)通过
 - [x] 本文件落地
-- [x] 未触碰 `.trae-html-share-packages/`、`arch-eval-miniunicorn-vs-aniyaa/`
+- [x] 未触碰 `.trae-html-share-packages/`、`arch-eval-erza-vs-aniyaa/`
 
 ## 6. Phase 2 验收对照(PR-2a…2e)
 
@@ -396,7 +396,7 @@
 
 ### 7.1 状态机归属
 
-- 位置:`miniunicorn/agent/turn_orchestrator.py`
+- 位置:`erza/agent/turn_orchestrator.py`
 - 公开 API:`TurnOrchestrator(deps: TurnDeps)`、`process_turn(...)`(原
   `_process_message` 驱动循环)、`TurnDeps`(显式依赖束 dataclass)、
   `StateMixin`(薄委托)、`TurnState` / `TurnContext` / `StateTraceEntry` /
@@ -404,12 +404,12 @@
 - `loop.py` 经 `StateMixin` 多继承保留 `_state_restore`…`_state_respond` /
   `_prepare_message_media` 表面;`_process_message` 仅委托给
   `self._turn_orchestrator.process_turn(...)`(签名不变,`DispatchHost` 协议不变)。
-- 兼容层:`miniunicorn/agent/_state_machine.py` 保留为 re-export 模块
+- 兼容层:`erza/agent/_state_machine.py` 保留为 re-export 模块
   (导出 `StateMixin` / `StateTraceEntry` / `TurnContext` / `TurnState` /
-  `extract_documents`),供既有测试导入;`rg "_state_machine" miniunicorn/` 为 0
+  `extract_documents`),供既有测试导入;`rg "_state_machine" erza/` 为 0
   (re-export 模块内容不含该字面量,生产代码一律从 `turn_orchestrator` 导入)。
 - `test_document_extraction_toggle.py` 的 patch 目标迁移为
-  `miniunicorn.agent.turn_orchestrator.extract_documents`(机械搬家,名称查找按
+  `erza.agent.turn_orchestrator.extract_documents`(机械搬家,名称查找按
   模块 globals)。
 
 ### 7.2 TurnDeps 字段与来源
@@ -498,8 +498,8 @@
 - [x] 四验收测试全绿(`test_stop_preserves_context` / `test_loop_save_turn` /
   `test_runner_injections` / `test_document_extraction_toggle`)+
   `test_workspace_memory_routing`
-- [x] `rg "_state_machine" miniunicorn/` 为 0(仅保留无字面量的 re-export 模块)
-- [x] `rg "AgentLoop" miniunicorn/agent/turn_orchestrator.py` 为 0
+- [x] `rg "_state_machine" erza/` 为 0(仅保留无字面量的 re-export 模块)
+- [x] `rg "AgentLoop" erza/agent/turn_orchestrator.py` 为 0
 - [x] 定向回归(tests/agent + tests/session + tests/command)通过
 - [x] 未改动 Phase 1/2 行为与持久化格式;未加第三方依赖
 
@@ -529,7 +529,7 @@
 ### 8.4 架构守卫(Phase 6)
 
 `tests/architecture/test_dependency_direction.py`(纯 `ast`,零第三方依赖):
-- A. 业务模块禁 import `miniunicorn.composition`(入口豁免);
+- A. 业务模块禁 import `erza.composition`(入口豁免);
 - B. `session` / `channels` 禁 import `agent`(单向依赖);
 - C. 跨顶层包下划线私有访问禁令 + 显式豁免清单(每项须随耦合解除移除)。
 

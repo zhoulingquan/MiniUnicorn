@@ -1,8 +1,8 @@
-from miniunicorn.tools.apply_patch import ApplyPatchTool
-from miniunicorn.tools.exec_session import ListExecSessionsTool, WriteStdinTool
-from miniunicorn.tools.filesystem import EditFileTool, ReadFileTool, WriteFileTool
-from miniunicorn.tools.search import FindFilesTool, GrepTool
-from miniunicorn.tools.shell import ExecTool
+from erza.tools.apply_patch import ApplyPatchTool
+from erza.tools.exec_session import ListExecSessionsTool, WriteStdinTool
+from erza.tools.filesystem import EditFileTool, ReadFileTool, WriteFileTool
+from erza.tools.search import FindFilesTool, GrepTool
+from erza.tools.shell import ExecTool
 
 
 def test_coding_tool_descriptions_steer_editing_priority() -> None:

@@ -21,7 +21,7 @@ def _fake_provider():
 
 
 def _make_config(tmp_path: Path):
-    from miniunicorn.config.schema import Config
+    from erza.config.schema import Config
 
     config = Config()
     config.agents.defaults.workspace = str(tmp_path / "workspace")
@@ -31,12 +31,12 @@ def _make_config(tmp_path: Path):
 
 def test_build_agent_application_reuses_explicit_bus(tmp_path, monkeypatch):
     """Passing an explicit bus must not create a second MessageBus."""
-    from miniunicorn.bus.queue import MessageBus
-    from miniunicorn.composition.agent_app import build_agent_application
+    from erza.bus.queue import MessageBus
+    from erza.composition.agent_app import build_agent_application
 
     config = _make_config(tmp_path)
     monkeypatch.setattr(
-        "miniunicorn.providers.factory.make_provider", lambda _config: _fake_provider()
+        "erza.providers.factory.make_provider", lambda _config: _fake_provider()
     )
 
     created: list[MessageBus] = []
@@ -59,12 +59,12 @@ def test_build_agent_application_reuses_explicit_bus(tmp_path, monkeypatch):
 
 def test_build_agent_application_creates_default_bus(tmp_path, monkeypatch):
     """Without an explicit bus, build_agent_application creates exactly one."""
-    from miniunicorn.bus.queue import MessageBus
-    from miniunicorn.composition.agent_app import build_agent_application
+    from erza.bus.queue import MessageBus
+    from erza.composition.agent_app import build_agent_application
 
     config = _make_config(tmp_path)
     monkeypatch.setattr(
-        "miniunicorn.providers.factory.make_provider", lambda _config: _fake_provider()
+        "erza.providers.factory.make_provider", lambda _config: _fake_provider()
     )
 
     created: list[MessageBus] = []
@@ -84,11 +84,11 @@ def test_build_agent_application_creates_default_bus(tmp_path, monkeypatch):
 
 def test_build_agent_application_forwards_extra_overrides(tmp_path, monkeypatch):
     """Extra keyword arguments are forwarded to AgentLoop.from_config."""
-    from miniunicorn.composition.agent_app import build_agent_application
+    from erza.composition.agent_app import build_agent_application
 
     config = _make_config(tmp_path)
     provider = _fake_provider()
-    monkeypatch.setattr("miniunicorn.providers.factory.make_provider", lambda _config: provider)
+    monkeypatch.setattr("erza.providers.factory.make_provider", lambda _config: provider)
 
     sentinel_session_manager = object()
 

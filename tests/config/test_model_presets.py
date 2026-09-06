@@ -1,6 +1,6 @@
 import pytest
 
-from miniunicorn.config.schema import Config
+from erza.config.schema import Config
 
 
 def test_resolve_preset_returns_defaults_when_no_preset() -> None:

@@ -8,9 +8,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.config.schema import StructuredMemoryConfig
-from miniunicorn.memory import Dream, MemoryStore
-from miniunicorn.memory.models import MemoryWriteError, ScopeKind
+from erza.config.schema import StructuredMemoryConfig
+from erza.memory import Dream, MemoryStore
+from erza.memory.models import MemoryWriteError, ScopeKind
 
 
 @pytest.fixture
@@ -41,7 +41,7 @@ def proposal(**overrides):
         "proposal_index": 0,
         "kind": "decision",
         "scope_hint": "project",
-        "subject": "MiniUnicorn",
+        "subject": "Erza",
         "slot": "memory.retrieval.strategy",
         "statement": "Main uses deterministic structured recall.",
         "detail": "No embeddings are used.",
@@ -122,9 +122,9 @@ def reflection_entry(
 def seed_record(store, scope_kind: ScopeKind, scope_key: str, statement: str) -> None:
     from datetime import datetime, timezone
 
-    from miniunicorn.memory.extraction import parse_extraction_batch
-    from miniunicorn.memory.lifecycle import IngestContext
-    from miniunicorn.memory.models import (
+    from erza.memory.extraction import parse_extraction_batch
+    from erza.memory.lifecycle import IngestContext
+    from erza.memory.models import (
         ActorKind,
         EvidenceKind,
         EvidenceRef,
@@ -517,14 +517,14 @@ class TestEvidencePromptContract:
 
 class TestDreamSourceBatch:
     def test_evidence_set_batch_is_order_stable(self):
-        from miniunicorn.memory import _dream_source_batch
+        from erza.memory import _dream_source_batch
 
         refs = ["history:7", "reflection:rfl_abc"]
         assert _dream_source_batch(refs) == _dream_source_batch(reversed(refs))
         assert re.fullmatch(r"dream:[0-9a-f]{24}", _dream_source_batch(refs))
 
     def test_evidence_set_batch_changes_when_refs_change(self):
-        from miniunicorn.memory import _dream_source_batch
+        from erza.memory import _dream_source_batch
 
         base = _dream_source_batch(["history:1", "history:2"])
         assert _dream_source_batch(["history:1"]) != base
@@ -957,9 +957,9 @@ class TestDreamBounds:
     async def test_tiny_budget_keeps_prompt_catalog_batch_and_cursor_in_sync(
         self, store, mock_provider, monkeypatch
     ):
-        from miniunicorn.memory import _dream_source_batch
-        from miniunicorn.memory.models import MemoryScope
-        from miniunicorn.utils.helpers import estimate_message_tokens
+        from erza.memory import _dream_source_batch
+        from erza.memory.models import MemoryScope
+        from erza.utils.helpers import estimate_message_tokens
 
         store.append_history("First governed fact.")
         store.append_history("Second governed fact.")
@@ -1032,8 +1032,8 @@ class TestDreamBounds:
         assert store.get_last_reflections_cursor() == 0
 
     async def test_budget_too_small_for_evidence_body_defers_batch(self, store, mock_provider):
-        from miniunicorn.memory.models import MemoryScope
-        from miniunicorn.utils.helpers import estimate_message_tokens
+        from erza.memory.models import MemoryScope
+        from erza.utils.helpers import estimate_message_tokens
 
         store.append_history("The model must receive this governed fact.")
         dream = Dream(
@@ -1066,8 +1066,8 @@ class TestDreamBounds:
     async def test_budget_shrink_does_not_skip_valid_reflection_after_invalid(
         self, store, mock_provider
     ):
-        from miniunicorn.memory.models import MemoryScope
-        from miniunicorn.utils.helpers import estimate_message_tokens
+        from erza.memory.models import MemoryScope
+        from erza.utils.helpers import estimate_message_tokens
 
         write_history_direct(
             store,
@@ -1176,7 +1176,7 @@ class TestDreamBounds:
             context_window_tokens=2000,
             max_completion_tokens=512,
         )
-        from miniunicorn.utils.helpers import estimate_message_tokens
+        from erza.utils.helpers import estimate_message_tokens
 
         store.append_history("A" * 4000)
         set_provider_response(mock_provider, raw_batch(proposal()))
@@ -1254,7 +1254,7 @@ class TestProviderResponseGuards:
     async def test_truncated_response_fails_before_parse(
         self, store, dream, mock_provider, monkeypatch
     ):
-        import miniunicorn.memory.extraction as extraction_module
+        import erza.memory.extraction as extraction_module
 
         store.append_history("A fact that must not be half-parsed.")
         mock_provider.chat_with_retry.return_value = MagicMock(

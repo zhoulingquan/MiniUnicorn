@@ -56,7 +56,7 @@
 ### 1.3 测试改指(1 文件)
 
 tests/agent/test_runner_safety.py:5 处 ``AgentRunner._is_ssrf_violation(...)``
-(77/79/87/92/94 行附近)→ ``from miniunicorn.agent.execution.tool_execution import
+(77/79/87/92/94 行附近)→ ``from erza.agent.execution.tool_execution import
 is_ssrf_violation`` 后直呼 ``is_ssrf_violation(...)``。
 
 ### 1.4 文档(module-boundaries.md)
@@ -67,7 +67,7 @@ runner/execution 服务描述若提及 classify_violation 归属,同步(如无�
 
 ```powershell
 # 门 1:runner 零残留
-rg -n -e "classify_violation" -e "ssrf_violation" -e "SSRF_BOUNDARY_NOTE" -e "extract_task_from_messages" -e "inject_step_guidance" miniunicorn/agent/runner.py
+rg -n -e "classify_violation" -e "ssrf_violation" -e "SSRF_BOUNDARY_NOTE" -e "extract_task_from_messages" -e "inject_step_guidance" erza/agent/runner.py
 # 期望:零命中
 
 # 门 2:定向测试
@@ -78,11 +78,11 @@ rg -n -e "classify_violation" -e "ssrf_violation" -e "SSRF_BOUNDARY_NOTE" -e "ex
 # 期望 4147 passed / 0 failed / 29 skipped(无测试增删)
 
 # 门 4:双 ruff 零
-.venv\Scripts\python.exe -m ruff check miniunicorn/ tests/
-.venv\Scripts\python.exe -m ruff format --check miniunicorn/ tests/
+.venv\Scripts\python.exe -m ruff check erza/ tests/
+.venv\Scripts\python.exe -m ruff format --check erza/ tests/
 
 # 门 5:冷导入
-.venv\Scripts\python.exe -c "import miniunicorn.agent.runner, miniunicorn.agent.execution.tool_execution, miniunicorn.agent.execution.planning; print('ok')"
+.venv\Scripts\python.exe -c "import erza.agent.runner, erza.agent.execution.tool_execution, erza.agent.execution.planning; print('ok')"
 ```
 
 ## 3. 提交

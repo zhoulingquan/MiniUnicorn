@@ -1,4 +1,4 @@
-"""Hatch build hook that bundles the webui (Vite) into miniunicorn/web/dist.
+"""Hatch build hook that bundles the webui (Vite) into erza/web/dist.
 
 Triggered automatically by `python -m build` (and any other hatch-driven build)
 so published wheels and sdists ship a fresh webui without requiring developers
@@ -10,10 +10,10 @@ Behaviour:
   development; webui contributors use `cd webui && bun run dev` (Vite HMR) and
   do not need a packaged `dist/`.
 - No-op when `webui/package.json` is absent (e.g. installing from an sdist that
-  already contains a prebuilt `miniunicorn/web/dist/`).
-- Skips when `MINIUNICORN_SKIP_WEBUI_BUILD=1` is set.
-- Skips when `miniunicorn/web/dist/index.html` already exists, unless
-  `MINIUNICORN_FORCE_WEBUI_BUILD=1` is set.
+  already contains a prebuilt `erza/web/dist/`).
+- Skips when `ERZA_SKIP_WEBUI_BUILD=1` is set.
+- Skips when `erza/web/dist/index.html` already exists, unless
+  `ERZA_FORCE_WEBUI_BUILD=1` is set.
 - Uses `bun` when available, otherwise falls back to `npm`. The chosen tool
   performs `install` followed by `run build`.
 """
@@ -35,7 +35,7 @@ class WebUIBuildHook(BuildHookInterface):
         root = Path(self.root)
         webui_dir = root / "webui"
         package_json = webui_dir / "package.json"
-        dist_dir = root / "miniunicorn" / "web" / "dist"
+        dist_dir = root / "erza" / "web" / "dist"
         index_html = dist_dir / "index.html"
 
         # `pip install -e .` builds an editable wheel; skip the (slow) webui
@@ -48,21 +48,21 @@ class WebUIBuildHook(BuildHookInterface):
             )
             return
 
-        if os.environ.get("MINIUNICORN_SKIP_WEBUI_BUILD") == "1":
-            self.app.display_info("[webui-build] skipped via MINIUNICORN_SKIP_WEBUI_BUILD=1")
+        if os.environ.get("ERZA_SKIP_WEBUI_BUILD") == "1":
+            self.app.display_info("[webui-build] skipped via ERZA_SKIP_WEBUI_BUILD=1")
             return
 
         if not package_json.is_file():
             self.app.display_info(
-                "[webui-build] no webui/ source tree, assuming prebuilt miniunicorn/web/dist/"
+                "[webui-build] no webui/ source tree, assuming prebuilt erza/web/dist/"
             )
             return
 
-        force = os.environ.get("MINIUNICORN_FORCE_WEBUI_BUILD") == "1"
+        force = os.environ.get("ERZA_FORCE_WEBUI_BUILD") == "1"
         if index_html.is_file() and not force:
             self.app.display_info(
                 f"[webui-build] reusing existing build at {dist_dir} "
-                "(set MINIUNICORN_FORCE_WEBUI_BUILD=1 to rebuild)"
+                "(set ERZA_FORCE_WEBUI_BUILD=1 to rebuild)"
             )
             return
 
@@ -70,7 +70,7 @@ class WebUIBuildHook(BuildHookInterface):
         if runner is None:
             raise RuntimeError(
                 "[webui-build] neither `bun` nor `npm` is available on PATH; "
-                "install one or set MINIUNICORN_SKIP_WEBUI_BUILD=1 to bypass."
+                "install one or set ERZA_SKIP_WEBUI_BUILD=1 to bypass."
             )
 
         self.app.display_info(f"[webui-build] using {runner} to build webui")

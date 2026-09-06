@@ -5,8 +5,8 @@
 
 ## 一、现状锚点（为什么现在不是惰性的）
 
-1. `miniunicorn/agent/loop.py` 约 360 行：`self.tools = ToolRegistry()`（构造期）。
-2. `miniunicorn/agent/loop.py` 约 562 行（`AgentLoop.__init__` 内，构造起始于约 333 行）：`self._register_default_tools()` —— **构造期立即执行**。
+1. `erza/agent/loop.py` 约 360 行：`self.tools = ToolRegistry()`（构造期）。
+2. `erza/agent/loop.py` 约 562 行（`AgentLoop.__init__` 内，构造起始于约 333 行）：`self._register_default_tools()` —— **构造期立即执行**。
 3. `_mcp_lifecycle.py` 约 34-61 行：`_register_default_tools` 构建 `ToolContext` 并 `ToolLoader().load(ctx, self.tools)`。
 4. `tools/loader.py` 的 `discover()`：`pkgutil.iter_modules` + `importlib.import_module` **逐一导入全部工具模块**，再逐类 `tool_cls.create(ctx)` 实例化。
 
@@ -64,7 +64,7 @@ self.tools: ToolRegistry = LazyToolRegistry(load_hook=self._register_default_too
 
 - 全部在 `__init__` 约 473-526 行之间赋值，任何合法的首次工具访问都发生在 `__init__` 返回之后 → 安全。
 - 审计 `__init__` 尾部（约 539-596 行）是否有代码在赋值 `self.tools` 之后**读取**工具（如 `RuntimeResourceRegistry(tools=self.tools)` 只是传引用不算读；若内部 start() 调 get_definitions 则会提前触发装载——**正确性无碍，允许提前装载**，惰性是尽力而为）。
-- `rg -n "self\.tools" miniunicorn/agent/loop.py` 全量过目并在批次报告列出每一处是否构成"构造期读取"。
+- `rg -n "self\.tools" erza/agent/loop.py` 全量过目并在批次报告列出每一处是否构成"构造期读取"。
 
 ### 2.4 MCP / MyTool 注册顺序兼容
 

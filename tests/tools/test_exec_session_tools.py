@@ -6,12 +6,12 @@ import shlex
 import subprocess
 import sys
 
-from miniunicorn.tools.exec_session import (
+from erza.tools.exec_session import (
     ExecSessionManager,
     ListExecSessionsTool,
     WriteStdinTool,
 )
-from miniunicorn.tools.shell import ExecTool
+from erza.tools.shell import ExecTool
 
 
 def _python_command(code: str) -> str:

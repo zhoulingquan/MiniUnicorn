@@ -5,7 +5,7 @@ extras. These tests simulate a slim install (monkeypatching imports) and
 verify that:
 
 - ``discover_enabled`` raises ``ChannelDependencyError`` with an actionable
-  ``pip install miniunicorn-ai[<extra>]`` hint for enabled-but-missing channels
+  ``pip install erza-ai[<extra>]`` hint for enabled-but-missing channels
   (both via the ``find_spec`` preflight and via real import failures);
 - ``discover_all`` (CLI/WebUI enumeration) keeps skipping instead of raising;
 - ``ChannelManager._init_channels`` logs the error loudly yet still loads the
@@ -19,19 +19,19 @@ from unittest.mock import patch
 
 import pytest
 
-from miniunicorn.bus.events import OutboundMessage
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.channels.base import BaseChannel
-from miniunicorn.channels.registry import (
+from erza.bus.events import OutboundMessage
+from erza.bus.queue import MessageBus
+from erza.channels.base import BaseChannel
+from erza.channels.registry import (
     ChannelDependencyError,
     discover_all,
     discover_enabled,
     install_hint,
 )
-from miniunicorn.config.schema import ChannelsConfig
+from erza.config.schema import ChannelsConfig
 
 _EP_TARGET = "importlib.metadata.entry_points"
-_REGISTRY_IMPORTLIB = "miniunicorn.channels.registry.importlib"
+_REGISTRY_IMPORTLIB = "erza.channels.registry.importlib"
 
 
 def _broken_import_module(qualname: str):
@@ -57,11 +57,11 @@ def _make_fake_importlib(import_module=None, find_spec=None):
 @pytest.mark.parametrize(
     ("module_name", "expected"),
     [
-        ("feishu", "pip install miniunicorn-ai[feishu]"),
-        ("weixin", "pip install miniunicorn-ai[weixin]"),
-        ("dingtalk", "pip install miniunicorn-ai[dingtalk]"),
-        ("qq", "pip install miniunicorn-ai[qq]"),
-        ("wecom", "pip install miniunicorn-ai[wecom]"),
+        ("feishu", "pip install erza-ai[feishu]"),
+        ("weixin", "pip install erza-ai[weixin]"),
+        ("dingtalk", "pip install erza-ai[dingtalk]"),
+        ("qq", "pip install erza-ai[qq]"),
+        ("wecom", "pip install erza-ai[wecom]"),
     ],
 )
 def test_install_hint_maps_builtin_channels_to_matching_extra(module_name, expected):
@@ -69,7 +69,7 @@ def test_install_hint_maps_builtin_channels_to_matching_extra(module_name, expec
 
 
 def test_install_hint_falls_back_to_channel_name_for_unknown_module():
-    assert install_hint("somefuture") == "pip install miniunicorn-ai[somefuture]"
+    assert install_hint("somefuture") == "pip install erza-ai[somefuture]"
 
 
 # ---------------------------------------------------------------------------
@@ -87,7 +87,7 @@ def test_discover_enabled_raises_with_install_hint_when_sdk_absent(monkeypatch):
 
     msg = str(excinfo.value)
     assert "lark_oapi" in msg
-    assert "pip install miniunicorn-ai[feishu]" in msg
+    assert "pip install erza-ai[feishu]" in msg
 
 
 def test_discover_enabled_raises_when_module_import_fails(monkeypatch):
@@ -111,7 +111,7 @@ def test_discover_enabled_raises_when_module_import_fails(monkeypatch):
             discover_enabled({"qq"}, _names=["qq"])
 
     assert seen, "adapter module must actually be imported when preflight passes"
-    assert "pip install miniunicorn-ai[qq]" in str(excinfo.value)
+    assert "pip install erza-ai[qq]" in str(excinfo.value)
 
 
 def test_discover_enabled_does_not_probe_disabled_adapters(monkeypatch):
@@ -182,7 +182,7 @@ class _FakeOther(BaseChannel):
 
 def test_manager_reports_missing_dependency_and_still_loads_other_channels():
     """Missing extra logs a loud error with hint; healthy channels still load."""
-    from miniunicorn.channels.manager import ChannelManager
+    from erza.channels.manager import ChannelManager
 
     fake_config = SimpleNamespace(
         channels=ChannelsConfig.model_validate(
@@ -196,15 +196,15 @@ def test_manager_reports_missing_dependency_and_still_loads_other_channels():
     dependency_error = ChannelDependencyError(
         "Channel 'feishu' is enabled in config but its dependencies are missing "
         "(No module named 'lark_oapi'). Install them with: "
-        "pip install miniunicorn-ai[feishu]"
+        "pip install erza-ai[feishu]"
     )
 
     with (
         patch(
-            "miniunicorn.channels.registry.discover_enabled",
+            "erza.channels.registry.discover_enabled",
             side_effect=[dependency_error, {"fakeother": _FakeOther}],
         ) as mock_discover,
-        patch("miniunicorn.channels.manager.logger") as mock_logger,
+        patch("erza.channels.manager.logger") as mock_logger,
     ):
         mgr = ChannelManager.__new__(ChannelManager)
         mgr.config = fake_config
@@ -223,7 +223,7 @@ def test_manager_reports_missing_dependency_and_still_loads_other_channels():
     error_calls = mock_logger.error.call_args_list
     assert error_calls, "missing dependency must be logged at error level"
     joined = " ".join(str(a) for a in error_calls[0].args)
-    assert "pip install miniunicorn-ai[feishu]" in joined
+    assert "pip install erza-ai[feishu]" in joined
 
     # Healthy channel loaded; broken one skipped.
     assert "fakeother" in mgr.channels

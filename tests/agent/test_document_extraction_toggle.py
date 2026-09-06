@@ -5,12 +5,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.loop import AgentLoop, TurnContext, TurnState
-from miniunicorn.bus.events import InboundMessage
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.config.schema import ChannelsConfig
-from miniunicorn.providers.base import LLMResponse
-from miniunicorn.utils.document import reference_non_image_attachments
+from erza.agent.loop import AgentLoop, TurnContext, TurnState
+from erza.bus.events import InboundMessage
+from erza.bus.queue import MessageBus
+from erza.config.schema import ChannelsConfig
+from erza.providers.base import LLMResponse
+from erza.utils.document import reference_non_image_attachments
 
 
 def _make_loop(tmp_path: Path, channels_config: ChannelsConfig | None = None) -> AgentLoop:
@@ -41,7 +41,7 @@ async def test_state_restore_extracts_documents_by_default(
         return f"{content}\n\n[File: report.txt]\nQuarterly revenue is $5M", []
 
     monkeypatch.setattr(
-        "miniunicorn.agent.turn_orchestrator.extract_documents", fake_extract_documents
+        "erza.agent.turn_orchestrator.extract_documents", fake_extract_documents
     )
 
     ctx = TurnContext(
@@ -77,7 +77,7 @@ async def test_state_restore_references_documents_when_extraction_disabled(
         raise AssertionError("document extraction should be disabled")
 
     monkeypatch.setattr(
-        "miniunicorn.agent.turn_orchestrator.extract_documents", fail_extract_documents
+        "erza.agent.turn_orchestrator.extract_documents", fail_extract_documents
     )
 
     ctx = TurnContext(
@@ -123,7 +123,7 @@ async def test_pending_followup_references_documents_when_extraction_disabled(
         raise AssertionError("document extraction should be disabled")
 
     monkeypatch.setattr(
-        "miniunicorn.agent.turn_orchestrator.extract_documents", fail_extract_documents
+        "erza.agent.turn_orchestrator.extract_documents", fail_extract_documents
     )
 
     pending_queue: asyncio.Queue[InboundMessage] = asyncio.Queue()

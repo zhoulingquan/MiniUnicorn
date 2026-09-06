@@ -6,12 +6,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-import miniunicorn.agent.runner as runner_module
-from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.bus.events import InboundMessage
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.providers.base import LLMResponse, ToolCallRequest
-from miniunicorn.utils.progress_events import (
+import erza.agent.runner as runner_module
+from erza.agent.loop import AgentLoop
+from erza.bus.events import InboundMessage
+from erza.bus.queue import MessageBus
+from erza.providers.base import LLMResponse, ToolCallRequest
+from erza.utils.progress_events import (
     invoke_file_edit_progress,
     on_progress_accepts_file_edit_events,
 )
@@ -705,7 +705,7 @@ class TestToolEventProgress:
             return False
 
         monkeypatch.setattr(
-            "miniunicorn.session.webui_turns.maybe_generate_webui_title_after_turn",
+            "erza.session.webui_turns.maybe_generate_webui_title_after_turn",
             fake_title_after_turn,
         )
         scheduled_title: list[object] = []
@@ -756,7 +756,7 @@ class TestToolEventProgress:
             raise AssertionError("command-only turns should not generate titles")
 
         monkeypatch.setattr(
-            "miniunicorn.session.webui_turns.maybe_generate_webui_title_after_turn",
+            "erza.session.webui_turns.maybe_generate_webui_title_after_turn",
             fake_title_after_turn,
         )
         scheduled: list[object] = []

@@ -9,11 +9,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
-from miniunicorn.bus.events import OutboundMessage
-from miniunicorn.cli.commands import app
-from miniunicorn.config.schema import Config
-from miniunicorn.cron.types import CronJob, CronPayload
-from miniunicorn.providers.factory import ProviderSnapshot, make_provider
+from erza.bus.events import OutboundMessage
+from erza.cli.commands import app
+from erza.config.schema import Config
+from erza.cron.types import CronJob, CronPayload
+from erza.providers.factory import ProviderSnapshot, make_provider
 
 runner = CliRunner()
 
@@ -33,10 +33,10 @@ class _StopGatewayError(RuntimeError):
 def mock_paths():
     """Mock config/workspace paths for test isolation."""
     with (
-        patch("miniunicorn.config.loader.get_config_path") as mock_cp,
-        patch("miniunicorn.config.loader.save_config") as mock_sc,
-        patch("miniunicorn.config.loader.load_config") as mock_lc,
-        patch("miniunicorn.cli.commands.get_workspace_path") as mock_ws,
+        patch("erza.config.loader.get_config_path") as mock_cp,
+        patch("erza.config.loader.save_config") as mock_sc,
+        patch("erza.config.loader.load_config") as mock_lc,
+        patch("erza.cli.commands.get_workspace_path") as mock_ws,
     ):
         base_dir = Path("./test_onboard_data")
         if base_dir.exists():
@@ -72,7 +72,7 @@ def test_onboard_fresh_install(mock_paths):
     assert result.exit_code == 0
     assert "Created config" in result.stdout
     assert "Created workspace" in result.stdout
-    assert "MiniUnicorn is ready" in result.stdout
+    assert "Erza is ready" in result.stdout
     assert config_file.exists()
     assert (workspace_dir / "AGENTS.md").exists()
     assert (workspace_dir / "memory" / "history.jsonl").exists()
@@ -145,10 +145,10 @@ def test_onboard_help_shows_workspace_and_config_options():
 def test_onboard_interactive_discard_does_not_save_or_create_workspace(mock_paths, monkeypatch):
     config_file, workspace_dir, _ = mock_paths
 
-    from miniunicorn.cli.onboard import OnboardResult
+    from erza.cli.onboard import OnboardResult
 
     monkeypatch.setattr(
-        "miniunicorn.cli.onboard.run_onboard",
+        "erza.cli.onboard.run_onboard",
         lambda initial_config: OnboardResult(config=initial_config, should_save=False),
     )
 
@@ -164,7 +164,7 @@ def test_onboard_uses_explicit_config_and_workspace_paths(tmp_path, monkeypatch)
     config_path = tmp_path / "instance" / "config.json"
     workspace_path = tmp_path / "workspace"
 
-    monkeypatch.setattr("miniunicorn.channels.registry.discover_all", lambda: {})
+    monkeypatch.setattr("erza.channels.registry.discover_all", lambda: {})
 
     result = runner.invoke(
         app,
@@ -186,13 +186,13 @@ def test_onboard_wizard_preserves_explicit_config_in_next_steps(tmp_path, monkey
     config_path = tmp_path / "instance" / "config.json"
     workspace_path = tmp_path / "workspace"
 
-    from miniunicorn.cli.onboard import OnboardResult
+    from erza.cli.onboard import OnboardResult
 
     monkeypatch.setattr(
-        "miniunicorn.cli.onboard.run_onboard",
+        "erza.cli.onboard.run_onboard",
         lambda initial_config: OnboardResult(config=initial_config, should_save=True),
     )
-    monkeypatch.setattr("miniunicorn.channels.registry.discover_all", lambda: {})
+    monkeypatch.setattr("erza.channels.registry.discover_all", lambda: {})
 
     result = runner.invoke(
         app,
@@ -203,14 +203,14 @@ def test_onboard_wizard_preserves_explicit_config_in_next_steps(tmp_path, monkey
     stripped_output = _strip_ansi(result.stdout)
     compact_output = stripped_output.replace("\n", "")
     resolved_config = str(config_path.resolve())
-    assert f'miniunicorn agent -m "Hello!" --config {resolved_config}' in compact_output
-    assert f"miniunicorn gateway --config {resolved_config}" in compact_output
+    assert f'erza agent -m "Hello!" --config {resolved_config}' in compact_output
+    assert f"erza gateway --config {resolved_config}" in compact_output
 
 
 def test_openai_compat_provider_passes_model_through():
-    from miniunicorn.providers.openai_compat_provider import OpenAICompatProvider
+    from erza.providers.openai_compat_provider import OpenAICompatProvider
 
-    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("erza.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider(default_model="github-copilot/gpt-5.3-codex")
 
     assert provider.get_default_model() == "github-copilot/gpt-5.3-codex"
@@ -233,7 +233,7 @@ def test_make_provider_passes_extra_headers_to_custom_provider():
         }
     )
 
-    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI") as mock_async_openai:
+    with patch("erza.providers.openai_compat_provider.AsyncOpenAI") as mock_async_openai:
         provider = make_provider(config)
         asyncio.run(provider._ensure_client())
 
@@ -251,14 +251,14 @@ def mock_agent_runtime(tmp_path):
     config.agents.defaults.workspace = str(tmp_path / "default-workspace")
 
     with (
-        patch("miniunicorn.config.loader.load_config", return_value=config) as mock_load_config,
-        patch("miniunicorn.config.loader.resolve_config_env_vars", side_effect=lambda c: c),
-        patch("miniunicorn.cli.commands.sync_workspace_templates") as mock_sync_templates,
-        patch("miniunicorn.providers.factory.make_provider", return_value=_fake_provider()),
-        patch("miniunicorn.cli.commands._print_agent_response") as mock_print_response,
-        patch("miniunicorn.bus.queue.MessageBus"),
-        patch("miniunicorn.cron.service.CronService"),
-        patch("miniunicorn.cli.commands.AgentLoop.from_config") as mock_from_config,
+        patch("erza.config.loader.load_config", return_value=config) as mock_load_config,
+        patch("erza.config.loader.resolve_config_env_vars", side_effect=lambda c: c),
+        patch("erza.cli.commands.sync_workspace_templates") as mock_sync_templates,
+        patch("erza.providers.factory.make_provider", return_value=_fake_provider()),
+        patch("erza.cli.commands._print_agent_response") as mock_print_response,
+        patch("erza.bus.queue.MessageBus"),
+        patch("erza.cron.service.CronService"),
+        patch("erza.cli.commands.AgentLoop.from_config") as mock_from_config,
     ):
         agent_loop = MagicMock()
         agent_loop.channels_config = None
@@ -326,16 +326,16 @@ def test_agent_config_sets_active_path(monkeypatch, tmp_path: Path) -> None:
     seen: dict[str, Path] = {}
 
     monkeypatch.setattr(
-        "miniunicorn.config.loader.set_config_path",
+        "erza.config.loader.set_config_path",
         lambda path: seen.__setitem__("config_path", path),
     )
-    monkeypatch.setattr("miniunicorn.config.loader.load_config", lambda _path=None: config)
-    monkeypatch.setattr("miniunicorn.cli.commands.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("erza.config.loader.load_config", lambda _path=None: config)
+    monkeypatch.setattr("erza.cli.commands.sync_workspace_templates", lambda _path: None)
     monkeypatch.setattr(
-        "miniunicorn.providers.factory.make_provider", lambda _config: _fake_provider()
+        "erza.providers.factory.make_provider", lambda _config: _fake_provider()
     )
-    monkeypatch.setattr("miniunicorn.bus.queue.MessageBus", lambda: object())
-    monkeypatch.setattr("miniunicorn.cron.service.CronService", lambda _store: object())
+    monkeypatch.setattr("erza.bus.queue.MessageBus", lambda: object())
+    monkeypatch.setattr("erza.cron.service.CronService", lambda _store: object())
 
     class _FakeAgentLoop:
         @classmethod
@@ -351,9 +351,9 @@ def test_agent_config_sets_active_path(monkeypatch, tmp_path: Path) -> None:
         async def close_mcp(self) -> None:
             return None
 
-    monkeypatch.setattr("miniunicorn.cli.commands.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr("erza.cli.commands.AgentLoop", _FakeAgentLoop)
     monkeypatch.setattr(
-        "miniunicorn.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
+        "erza.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
     )
 
     result = runner.invoke(app, ["agent", "-m", "hello", "-c", str(config_file)])
@@ -371,13 +371,13 @@ def test_agent_uses_workspace_directory_for_cron_store(monkeypatch, tmp_path: Pa
     config.agents.defaults.workspace = str(tmp_path / "agent-workspace")
     seen: dict[str, Path] = {}
 
-    monkeypatch.setattr("miniunicorn.config.loader.set_config_path", lambda _path: None)
-    monkeypatch.setattr("miniunicorn.config.loader.load_config", lambda _path=None: config)
-    monkeypatch.setattr("miniunicorn.cli.commands.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("erza.config.loader.set_config_path", lambda _path: None)
+    monkeypatch.setattr("erza.config.loader.load_config", lambda _path=None: config)
+    monkeypatch.setattr("erza.cli.commands.sync_workspace_templates", lambda _path: None)
     monkeypatch.setattr(
-        "miniunicorn.providers.factory.make_provider", lambda _config: _fake_provider()
+        "erza.providers.factory.make_provider", lambda _config: _fake_provider()
     )
-    monkeypatch.setattr("miniunicorn.bus.queue.MessageBus", lambda: object())
+    monkeypatch.setattr("erza.bus.queue.MessageBus", lambda: object())
 
     class _FakeCron:
         def __init__(self, store_path: Path) -> None:
@@ -397,10 +397,10 @@ def test_agent_uses_workspace_directory_for_cron_store(monkeypatch, tmp_path: Pa
         async def close_mcp(self) -> None:
             return None
 
-    monkeypatch.setattr("miniunicorn.cron.service.CronService", _FakeCron)
-    monkeypatch.setattr("miniunicorn.cli.commands.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr("erza.cron.service.CronService", _FakeCron)
+    monkeypatch.setattr("erza.cli.commands.AgentLoop", _FakeAgentLoop)
     monkeypatch.setattr(
-        "miniunicorn.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
+        "erza.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
     )
 
     result = runner.invoke(app, ["agent", "-m", "hello", "-c", str(config_file)])
@@ -423,14 +423,14 @@ def test_agent_workspace_override_does_not_migrate_legacy_cron(monkeypatch, tmp_
     config = Config()
     seen: dict[str, Path] = {}
 
-    monkeypatch.setattr("miniunicorn.config.loader.set_config_path", lambda _path: None)
-    monkeypatch.setattr("miniunicorn.config.loader.load_config", lambda _path=None: config)
-    monkeypatch.setattr("miniunicorn.cli.commands.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("erza.config.loader.set_config_path", lambda _path: None)
+    monkeypatch.setattr("erza.config.loader.load_config", lambda _path=None: config)
+    monkeypatch.setattr("erza.cli.commands.sync_workspace_templates", lambda _path: None)
     monkeypatch.setattr(
-        "miniunicorn.providers.factory.make_provider", lambda _config: _fake_provider()
+        "erza.providers.factory.make_provider", lambda _config: _fake_provider()
     )
-    monkeypatch.setattr("miniunicorn.bus.queue.MessageBus", lambda: object())
-    monkeypatch.setattr("miniunicorn.config.paths.get_cron_dir", lambda: legacy_dir)
+    monkeypatch.setattr("erza.bus.queue.MessageBus", lambda: object())
+    monkeypatch.setattr("erza.config.paths.get_cron_dir", lambda: legacy_dir)
 
     class _FakeCron:
         def __init__(self, store_path: Path) -> None:
@@ -450,10 +450,10 @@ def test_agent_workspace_override_does_not_migrate_legacy_cron(monkeypatch, tmp_
         async def close_mcp(self) -> None:
             return None
 
-    monkeypatch.setattr("miniunicorn.cron.service.CronService", _FakeCron)
-    monkeypatch.setattr("miniunicorn.cli.commands.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr("erza.cron.service.CronService", _FakeCron)
+    monkeypatch.setattr("erza.cli.commands.AgentLoop", _FakeAgentLoop)
     monkeypatch.setattr(
-        "miniunicorn.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
+        "erza.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
     )
 
     result = runner.invoke(
@@ -484,14 +484,14 @@ def test_agent_custom_config_workspace_does_not_migrate_legacy_cron(
     config.agents.defaults.workspace = str(custom_workspace)
     seen: dict[str, Path] = {}
 
-    monkeypatch.setattr("miniunicorn.config.loader.set_config_path", lambda _path: None)
-    monkeypatch.setattr("miniunicorn.config.loader.load_config", lambda _path=None: config)
-    monkeypatch.setattr("miniunicorn.cli.commands.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("erza.config.loader.set_config_path", lambda _path: None)
+    monkeypatch.setattr("erza.config.loader.load_config", lambda _path=None: config)
+    monkeypatch.setattr("erza.cli.commands.sync_workspace_templates", lambda _path: None)
     monkeypatch.setattr(
-        "miniunicorn.providers.factory.make_provider", lambda _config: _fake_provider()
+        "erza.providers.factory.make_provider", lambda _config: _fake_provider()
     )
-    monkeypatch.setattr("miniunicorn.bus.queue.MessageBus", lambda: object())
-    monkeypatch.setattr("miniunicorn.config.paths.get_cron_dir", lambda: legacy_dir)
+    monkeypatch.setattr("erza.bus.queue.MessageBus", lambda: object())
+    monkeypatch.setattr("erza.config.paths.get_cron_dir", lambda: legacy_dir)
 
     class _FakeCron:
         def __init__(self, store_path: Path) -> None:
@@ -511,10 +511,10 @@ def test_agent_custom_config_workspace_does_not_migrate_legacy_cron(
         async def close_mcp(self) -> None:
             return None
 
-    monkeypatch.setattr("miniunicorn.cron.service.CronService", _FakeCron)
-    monkeypatch.setattr("miniunicorn.cli.commands.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr("erza.cron.service.CronService", _FakeCron)
+    monkeypatch.setattr("erza.cli.commands.AgentLoop", _FakeAgentLoop)
     monkeypatch.setattr(
-        "miniunicorn.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
+        "erza.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
     )
 
     result = runner.invoke(app, ["agent", "-m", "hello", "-c", str(config_file)])
@@ -615,36 +615,36 @@ def _patch_cli_command_runtime(
     provider_factory = make_provider or (lambda _config: _fake_provider())
 
     monkeypatch.setattr(
-        "miniunicorn.config.loader.set_config_path",
+        "erza.config.loader.set_config_path",
         set_config_path or (lambda _path: None),
     )
-    monkeypatch.setattr("miniunicorn.config.loader.load_config", lambda _path=None: config)
-    monkeypatch.setattr("miniunicorn.config.loader.resolve_config_env_vars", lambda c: c)
+    monkeypatch.setattr("erza.config.loader.load_config", lambda _path=None: config)
+    monkeypatch.setattr("erza.config.loader.resolve_config_env_vars", lambda c: c)
     monkeypatch.setattr(
-        "miniunicorn.cli.commands.sync_workspace_templates",
+        "erza.cli.commands.sync_workspace_templates",
         sync_templates or (lambda _path: None),
     )
     monkeypatch.setattr(
-        "miniunicorn.providers.factory.make_provider",
+        "erza.providers.factory.make_provider",
         provider_factory,
     )
     monkeypatch.setattr(
-        "miniunicorn.providers.factory.build_provider_snapshot",
+        "erza.providers.factory.build_provider_snapshot",
         lambda _config: _test_provider_snapshot(provider_factory(_config), _config),
     )
     monkeypatch.setattr(
-        "miniunicorn.providers.factory.load_provider_snapshot",
+        "erza.providers.factory.load_provider_snapshot",
         lambda _config_path=None: _test_provider_snapshot(provider_factory(config), config),
     )
 
     if message_bus is not None:
-        monkeypatch.setattr("miniunicorn.bus.queue.MessageBus", message_bus)
+        monkeypatch.setattr("erza.bus.queue.MessageBus", message_bus)
     if session_manager is not None:
-        monkeypatch.setattr("miniunicorn.session.manager.SessionManager", session_manager)
+        monkeypatch.setattr("erza.session.manager.SessionManager", session_manager)
     if cron_service is not None:
-        monkeypatch.setattr("miniunicorn.cron.service.CronService", cron_service)
+        monkeypatch.setattr("erza.cron.service.CronService", cron_service)
     if get_cron_dir is not None:
-        monkeypatch.setattr("miniunicorn.config.paths.get_cron_dir", get_cron_dir)
+        monkeypatch.setattr("erza.config.paths.get_cron_dir", get_cron_dir)
 
 
 def _patch_serve_runtime(monkeypatch, config: Config, seen: dict[str, object]) -> None:
@@ -689,8 +689,8 @@ def _patch_serve_runtime(monkeypatch, config: Config, seen: dict[str, object]) -
         message_bus=lambda: object(),
         session_manager=lambda _workspace: object(),
     )
-    monkeypatch.setattr("miniunicorn.cli.commands.AgentLoop", _FakeAgentLoop)
-    monkeypatch.setattr("miniunicorn.api_compat.server.create_app", _fake_create_app)
+    monkeypatch.setattr("erza.cli.commands.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr("erza.api_compat.server.create_app", _fake_create_app)
     monkeypatch.setattr("aiohttp.web.run_app", _fake_run_app)
 
 
@@ -778,19 +778,19 @@ def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
     bus.publish_outbound = AsyncMock()
     seen: dict[str, object] = {}
 
-    monkeypatch.setattr("miniunicorn.config.loader.set_config_path", lambda _path: None)
-    monkeypatch.setattr("miniunicorn.config.loader.load_config", lambda _path=None: config)
-    monkeypatch.setattr("miniunicorn.cli.commands.sync_workspace_templates", lambda _path: None)
-    monkeypatch.setattr("miniunicorn.providers.factory.make_provider", lambda _config: provider)
+    monkeypatch.setattr("erza.config.loader.set_config_path", lambda _path: None)
+    monkeypatch.setattr("erza.config.loader.load_config", lambda _path=None: config)
+    monkeypatch.setattr("erza.cli.commands.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("erza.providers.factory.make_provider", lambda _config: provider)
     monkeypatch.setattr(
-        "miniunicorn.providers.factory.build_provider_snapshot",
+        "erza.providers.factory.build_provider_snapshot",
         lambda _config: _test_provider_snapshot(provider, _config),
     )
     monkeypatch.setattr(
-        "miniunicorn.providers.factory.load_provider_snapshot",
+        "erza.providers.factory.load_provider_snapshot",
         lambda _config_path=None: _test_provider_snapshot(provider, config),
     )
-    monkeypatch.setattr("miniunicorn.bus.queue.MessageBus", lambda: bus)
+    monkeypatch.setattr("erza.bus.queue.MessageBus", lambda: bus)
 
     class _FakeSession:
         def __init__(self) -> None:
@@ -825,7 +825,7 @@ def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
             session.add_message(role, content, **extra)
             self._manager.save(session)
 
-    monkeypatch.setattr("miniunicorn.session.manager.SessionManager", _FakeSessionManager)
+    monkeypatch.setattr("erza.session.manager.SessionManager", _FakeSessionManager)
 
     class _FakeCron:
         def __init__(self, _store_path: Path) -> None:
@@ -875,11 +875,11 @@ def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
         seen["model"] = model
         return True
 
-    monkeypatch.setattr("miniunicorn.cron.service.CronService", _FakeCron)
-    monkeypatch.setattr("miniunicorn.cli.commands.AgentLoop", _FakeAgentLoop)
-    monkeypatch.setattr("miniunicorn.channels.manager.ChannelManager", _StopAfterCronSetup)
+    monkeypatch.setattr("erza.cron.service.CronService", _FakeCron)
+    monkeypatch.setattr("erza.cli.commands.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr("erza.channels.manager.ChannelManager", _StopAfterCronSetup)
     monkeypatch.setattr(
-        "miniunicorn.cli.commands.evaluate_response",
+        "erza.cli.commands.evaluate_response",
         _capture_evaluate_response,
     )
 
@@ -952,22 +952,22 @@ def test_gateway_cron_job_suppresses_intermediate_progress(monkeypatch, tmp_path
     bus.publish_outbound = AsyncMock()
     seen: dict[str, object] = {}
 
-    monkeypatch.setattr("miniunicorn.config.loader.set_config_path", lambda _path: None)
-    monkeypatch.setattr("miniunicorn.config.loader.load_config", lambda _path=None: config)
-    monkeypatch.setattr("miniunicorn.cli.commands.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("erza.config.loader.set_config_path", lambda _path: None)
+    monkeypatch.setattr("erza.config.loader.load_config", lambda _path=None: config)
+    monkeypatch.setattr("erza.cli.commands.sync_workspace_templates", lambda _path: None)
     monkeypatch.setattr(
-        "miniunicorn.providers.factory.make_provider", lambda _config: _fake_provider()
+        "erza.providers.factory.make_provider", lambda _config: _fake_provider()
     )
     monkeypatch.setattr(
-        "miniunicorn.providers.factory.build_provider_snapshot",
+        "erza.providers.factory.build_provider_snapshot",
         lambda _config: _test_provider_snapshot(object(), _config),
     )
     monkeypatch.setattr(
-        "miniunicorn.providers.factory.load_provider_snapshot",
+        "erza.providers.factory.load_provider_snapshot",
         lambda _config_path=None: _test_provider_snapshot(object(), config),
     )
-    monkeypatch.setattr("miniunicorn.bus.queue.MessageBus", lambda: bus)
-    monkeypatch.setattr("miniunicorn.session.manager.SessionManager", lambda _workspace: object())
+    monkeypatch.setattr("erza.bus.queue.MessageBus", lambda: bus)
+    monkeypatch.setattr("erza.session.manager.SessionManager", lambda _workspace: object())
 
     class _FakeCron:
         def __init__(self, _store_path: Path) -> None:
@@ -1008,11 +1008,11 @@ def test_gateway_cron_job_suppresses_intermediate_progress(monkeypatch, tmp_path
     async def _always_reject(*_args, **_kwargs) -> bool:
         return False
 
-    monkeypatch.setattr("miniunicorn.cron.service.CronService", _FakeCron)
-    monkeypatch.setattr("miniunicorn.cli.commands.AgentLoop", _FakeAgentLoop)
-    monkeypatch.setattr("miniunicorn.channels.manager.ChannelManager", _StopAfterCronSetup)
+    monkeypatch.setattr("erza.cron.service.CronService", _FakeCron)
+    monkeypatch.setattr("erza.cli.commands.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr("erza.channels.manager.ChannelManager", _StopAfterCronSetup)
     monkeypatch.setattr(
-        "miniunicorn.cli.commands.evaluate_response",
+        "erza.cli.commands.evaluate_response",
         _always_reject,
     )
 
@@ -1118,7 +1118,7 @@ def test_gateway_custom_config_workspace_does_not_migrate_legacy_cron(
 
 def test_migrate_cron_store_moves_legacy_file(tmp_path: Path) -> None:
     """Legacy global jobs.json is moved into the workspace on first run."""
-    from miniunicorn.cli.commands import _migrate_cron_store
+    from erza.cli.commands import _migrate_cron_store
 
     legacy_dir = tmp_path / "global" / "cron"
     legacy_dir.mkdir(parents=True)
@@ -1129,7 +1129,7 @@ def test_migrate_cron_store_moves_legacy_file(tmp_path: Path) -> None:
     config.agents.defaults.workspace = str(tmp_path / "workspace")
     workspace_cron = config.workspace_path / "cron" / "jobs.json"
 
-    with patch("miniunicorn.config.paths.get_cron_dir", return_value=legacy_dir):
+    with patch("erza.config.paths.get_cron_dir", return_value=legacy_dir):
         _migrate_cron_store(config)
 
     assert workspace_cron.exists()
@@ -1139,7 +1139,7 @@ def test_migrate_cron_store_moves_legacy_file(tmp_path: Path) -> None:
 
 def test_migrate_cron_store_skips_when_workspace_file_exists(tmp_path: Path) -> None:
     """Migration does not overwrite an existing workspace cron store."""
-    from miniunicorn.cli.commands import _migrate_cron_store
+    from erza.cli.commands import _migrate_cron_store
 
     legacy_dir = tmp_path / "global" / "cron"
     legacy_dir.mkdir(parents=True)
@@ -1151,7 +1151,7 @@ def test_migrate_cron_store_skips_when_workspace_file_exists(tmp_path: Path) -> 
     workspace_cron.parent.mkdir(parents=True)
     workspace_cron.write_text('{"new": true}')
 
-    with patch("miniunicorn.config.paths.get_cron_dir", return_value=legacy_dir):
+    with patch("erza.config.paths.get_cron_dir", return_value=legacy_dir):
         _migrate_cron_store(config)
 
     assert workspace_cron.read_text() == '{"new": true}'
@@ -1188,7 +1188,7 @@ def test_gateway_cli_port_overrides_configured_port(monkeypatch, tmp_path: Path)
 
 
 def test_configure_desktop_gateway_forces_local_websocket_only() -> None:
-    from miniunicorn.cli.commands import _configure_desktop_gateway
+    from erza.cli.commands import _configure_desktop_gateway
 
     config = Config()
     config.channels.__pydantic_extra__ = {
@@ -1199,7 +1199,7 @@ def test_configure_desktop_gateway_forces_local_websocket_only() -> None:
     _configure_desktop_gateway(
         config,
         webui_port=29888,
-        webui_socket="/tmp/miniunicorn-test.sock",
+        webui_socket="/tmp/erza-test.sock",
         token_issue_secret="secret",
     )
 
@@ -1210,7 +1210,7 @@ def test_configure_desktop_gateway_forces_local_websocket_only() -> None:
     assert extras["websocket"]["enabled"] is True
     assert extras["websocket"]["host"] == "127.0.0.1"
     assert extras["websocket"]["port"] == 29888
-    assert extras["websocket"]["unix_socket_path"] == "/tmp/miniunicorn-test.sock"
+    assert extras["websocket"]["unix_socket_path"] == "/tmp/erza-test.sock"
     assert extras["websocket"]["token_issue_secret"] == "secret"
     assert extras["websocket"]["websocket_requires_token"] is True
 
@@ -1220,13 +1220,13 @@ class _DesktopGatewayProbeError(RuntimeError):
 
 
 def _patch_desktop_config_load(monkeypatch, config: Config) -> None:
-    monkeypatch.setattr("miniunicorn.config.loader.set_config_path", lambda _path: None)
-    monkeypatch.setattr("miniunicorn.config.loader.load_config", lambda _path=None: config)
-    monkeypatch.setattr("miniunicorn.config.loader.resolve_config_env_vars", lambda c: c)
+    monkeypatch.setattr("erza.config.loader.set_config_path", lambda _path: None)
+    monkeypatch.setattr("erza.config.loader.load_config", lambda _path=None: config)
+    monkeypatch.setattr("erza.config.loader.resolve_config_env_vars", lambda c: c)
 
 
 def _invoke_desktop_gateway(monkeypatch, tmp_path: Path, command: list[str]):
-    from miniunicorn.cli import commands
+    from erza.cli import commands
 
     config_file = tmp_path / "config.json"
     config_file.write_text("{}", encoding="utf-8")
@@ -1280,7 +1280,7 @@ def test_gateway_desktop_flag_routes_to_same_runtime(monkeypatch, tmp_path) -> N
             "gateway",
             "--desktop",
             "--webui-socket",
-            "/tmp/miniunicorn-test.sock",
+            "/tmp/erza-test.sock",
             "--token-issue-secret",
             "secret",
             "--config",
@@ -1379,7 +1379,7 @@ def test_onboard_plugins_holds_config_write_lock(tmp_path, monkeypatch) -> None:
     """
     import filelock
 
-    from miniunicorn.cli.commands import _onboard_plugins
+    from erza.cli.commands import _onboard_plugins
 
     config_path = tmp_path / "config.json"
     config_path.write_text("{}", encoding="utf-8")
@@ -1391,7 +1391,7 @@ def test_onboard_plugins_holds_config_write_lock(tmp_path, monkeypatch) -> None:
             return {"enabled": True}
 
     monkeypatch.setattr(
-        "miniunicorn.channels.registry.discover_all",
+        "erza.channels.registry.discover_all",
         lambda: {"fake": _FakeChannel},
     )
 

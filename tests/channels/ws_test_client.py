@@ -1,4 +1,4 @@
-"""Lightweight WebSocket test client for integration testing the MiniUnicorn WebSocket channel.
+"""Lightweight WebSocket test client for integration testing the Erza WebSocket channel.
 
 Provides an async ``WsTestClient`` class and token-issuance helpers that
 integration tests can import and use directly::

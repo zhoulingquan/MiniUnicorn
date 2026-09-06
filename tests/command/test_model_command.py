@@ -3,18 +3,18 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.bus.events import InboundMessage
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.command.builtin import (
+from erza.agent.loop import AgentLoop
+from erza.bus.events import InboundMessage
+from erza.bus.queue import MessageBus
+from erza.command.builtin import (
     build_help_text,
     builtin_command_palette,
     cmd_goal,
     cmd_model,
     register_builtin_commands,
 )
-from miniunicorn.command.router import CommandContext, CommandRouter
-from miniunicorn.config.schema import ModelPresetConfig
+from erza.command.router import CommandContext, CommandRouter
+from erza.config.schema import ModelPresetConfig
 
 
 def _provider(default_model: str, max_tokens: int = 123) -> MagicMock:

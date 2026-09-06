@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.bus.events import InboundMessage
-from miniunicorn.session import webui_turns as wth
+from erza.bus.events import InboundMessage
+from erza.session import webui_turns as wth
 
 
 @pytest.fixture(autouse=True)

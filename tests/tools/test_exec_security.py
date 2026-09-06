@@ -8,12 +8,12 @@ from unittest.mock import patch
 
 import pytest
 
-from miniunicorn.security.workspace_access import (
+from erza.security.workspace_access import (
     bind_workspace_scope,
     build_workspace_scope,
     reset_workspace_scope,
 )
-from miniunicorn.tools.shell import ExecTool
+from erza.tools.shell import ExecTool
 
 
 def _fake_resolve_private(hostname, port, family=0, type_=0):
@@ -31,7 +31,7 @@ def _fake_resolve_public(hostname, port, family=0, type_=0):
 @pytest.mark.asyncio
 async def test_exec_blocks_curl_metadata():
     tool = ExecTool()
-    with patch("miniunicorn.security.network.socket.getaddrinfo", _fake_resolve_private):
+    with patch("erza.security.network.socket.getaddrinfo", _fake_resolve_private):
         result = await tool.execute(
             command='curl -s -H "Metadata-Flavor: Google" http://169.254.169.254/computeMetadata/v1/'
         )
@@ -42,7 +42,7 @@ async def test_exec_blocks_curl_metadata():
 @pytest.mark.asyncio
 async def test_exec_blocks_wget_localhost():
     tool = ExecTool()
-    with patch("miniunicorn.security.network.socket.getaddrinfo", _fake_resolve_localhost):
+    with patch("erza.security.network.socket.getaddrinfo", _fake_resolve_localhost):
         result = await tool.execute(command="wget http://localhost:8080/secret -O /tmp/out")
     assert "Error" in result
 
@@ -52,7 +52,7 @@ def test_exec_full_workspace_scope_allows_loopback(tmp_path):
     scope = build_workspace_scope(tmp_path, "full", source_channel="websocket")
     token = bind_workspace_scope(scope)
     try:
-        with patch("miniunicorn.security.network.socket.getaddrinfo", _fake_resolve_localhost):
+        with patch("erza.security.network.socket.getaddrinfo", _fake_resolve_localhost):
             error = tool._guard_command("curl http://localhost:8765/", str(tmp_path))
     finally:
         reset_workspace_scope(token)
@@ -64,7 +64,7 @@ def test_exec_core_full_workspace_scope_blocks_loopback(tmp_path):
     scope = build_workspace_scope(tmp_path, "full")
     token = bind_workspace_scope(scope)
     try:
-        with patch("miniunicorn.security.network.socket.getaddrinfo", _fake_resolve_localhost):
+        with patch("erza.security.network.socket.getaddrinfo", _fake_resolve_localhost):
             error = tool._guard_command("curl http://localhost:8765/", str(tmp_path))
     finally:
         reset_workspace_scope(token)
@@ -77,7 +77,7 @@ def test_exec_full_workspace_scope_blocks_loopback_when_local_service_disabled(t
     scope = build_workspace_scope(tmp_path, "full", source_channel="websocket")
     token = bind_workspace_scope(scope)
     try:
-        with patch("miniunicorn.security.network.socket.getaddrinfo", _fake_resolve_localhost):
+        with patch("erza.security.network.socket.getaddrinfo", _fake_resolve_localhost):
             error = tool._guard_command("curl http://localhost:8765/", str(tmp_path))
     finally:
         reset_workspace_scope(token)
@@ -90,7 +90,7 @@ def test_exec_restricted_workspace_scope_blocks_loopback(tmp_path):
     scope = build_workspace_scope(tmp_path, "restricted", source_channel="websocket")
     token = bind_workspace_scope(scope)
     try:
-        with patch("miniunicorn.security.network.socket.getaddrinfo", _fake_resolve_localhost):
+        with patch("erza.security.network.socket.getaddrinfo", _fake_resolve_localhost):
             error = tool._guard_command("curl http://localhost:8765/", str(tmp_path))
     finally:
         reset_workspace_scope(token)
@@ -103,7 +103,7 @@ def test_exec_full_workspace_scope_still_blocks_metadata(tmp_path):
     scope = build_workspace_scope(tmp_path, "full", source_channel="websocket")
     token = bind_workspace_scope(scope)
     try:
-        with patch("miniunicorn.security.network.socket.getaddrinfo", _fake_resolve_private):
+        with patch("erza.security.network.socket.getaddrinfo", _fake_resolve_private):
             error = tool._guard_command(
                 "curl http://169.254.169.254/latest/meta-data/", str(tmp_path)
             )
@@ -125,7 +125,7 @@ async def test_exec_allows_normal_commands():
 async def test_exec_allows_curl_to_public_url():
     """Commands with public URLs should not be blocked by the internal URL check."""
     tool = ExecTool()
-    with patch("miniunicorn.security.network.socket.getaddrinfo", _fake_resolve_public):
+    with patch("erza.security.network.socket.getaddrinfo", _fake_resolve_public):
         guard_result = tool._guard_command("curl https://example.com/api", "/tmp")
     assert guard_result is None
 
@@ -134,14 +134,14 @@ async def test_exec_allows_curl_to_public_url():
 async def test_exec_blocks_chained_internal_url():
     """Internal URLs buried in chained commands should still be caught."""
     tool = ExecTool()
-    with patch("miniunicorn.security.network.socket.getaddrinfo", _fake_resolve_private):
+    with patch("erza.security.network.socket.getaddrinfo", _fake_resolve_private):
         result = await tool.execute(
             command="echo start && curl http://169.254.169.254/latest/meta-data/ && echo done"
         )
     assert "Error" in result
 
 
-# --- #2989: block writes to MiniUnicorn internal state files -----------------
+# --- #2989: block writes to Erza internal state files -----------------
 
 
 @pytest.mark.parametrize(

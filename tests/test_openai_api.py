@@ -13,7 +13,7 @@ import pytest_asyncio
 # skip the whole module when aiohttp (or the api_compat package) is absent.
 pytest.importorskip("aiohttp")
 
-from miniunicorn.api_compat.server import (
+from erza.api_compat.server import (
     API_CHAT_ID,
     API_SESSION_KEY,
     _chat_completion_response,
@@ -380,7 +380,7 @@ async def test_empty_response_retry_then_success(aiohttp_client) -> None:
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
 @pytest.mark.asyncio
 async def test_empty_response_falls_back(aiohttp_client) -> None:
-    from miniunicorn.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
+    from erza.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
 
     call_count = 0
 
@@ -409,7 +409,7 @@ async def test_empty_response_falls_back(aiohttp_client) -> None:
 @pytest.mark.asyncio
 async def test_process_direct_accepts_media() -> None:
     """process_direct should forward media paths to _process_message."""
-    from miniunicorn.agent.loop import AgentLoop
+    from erza.agent.loop import AgentLoop
 
     loop = AgentLoop.__new__(AgentLoop)
     loop._connect_mcp = AsyncMock()

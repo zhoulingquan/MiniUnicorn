@@ -1,7 +1,7 @@
 import pytest
 
-from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
-from miniunicorn.utils.evaluator import evaluate_response
+from erza.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from erza.utils.evaluator import evaluate_response
 
 
 class DummyProvider(LLMProvider):

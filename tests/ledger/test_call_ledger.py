@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from miniunicorn.ledger import (
+from erza.ledger import (
     CallLedger,
     CallPurpose,
     CallRecord,
@@ -164,7 +164,7 @@ class TestCallLedgerBudgetIntegration:
         assert reason is None
 
     def test_budget_check_with_budget(self) -> None:
-        from miniunicorn.ledger.turn_budget import TurnBudget
+        from erza.ledger.turn_budget import TurnBudget
 
         ledger = CallLedger()
         budget = TurnBudget(max_cost_usd=1.0)
@@ -180,7 +180,7 @@ class TestCallLedgerBudgetIntegration:
         assert budget.used_cost == 0.5
 
     def test_budget_exceeded_after_multiple_calls(self) -> None:
-        from miniunicorn.ledger.turn_budget import TurnBudget
+        from erza.ledger.turn_budget import TurnBudget
 
         ledger = CallLedger()
         budget = TurnBudget(max_cost_usd=0.2)
@@ -205,7 +205,7 @@ class TestCallLedgerTurnBudgetIntegration:
 
     def test_record_accumulates_to_budget_once(self) -> None:
         """Each record() should call budget.accumulate() exactly once with actual model."""
-        from miniunicorn.ledger.turn_budget import TurnBudget
+        from erza.ledger.turn_budget import TurnBudget
 
         ledger = CallLedger()
         budget = TurnBudget(max_cost_usd=1.0, max_input_tokens=1000, max_output_tokens=500)
@@ -227,7 +227,7 @@ class TestCallLedgerTurnBudgetIntegration:
 
     def test_multiple_records_accumulate_correctly(self) -> None:
         """Multiple record() calls should accumulate correctly in budget."""
-        from miniunicorn.ledger.turn_budget import TurnBudget
+        from erza.ledger.turn_budget import TurnBudget
 
         ledger = CallLedger()
         budget = TurnBudget(max_cost_usd=1.0, max_input_tokens=1000, max_output_tokens=500)
@@ -252,7 +252,7 @@ class TestCallLedgerTurnBudgetIntegration:
 
     def test_check_budget_idempotent(self) -> None:
         """Repeated check_budget() calls should be idempotent and not re-accumulate."""
-        from miniunicorn.ledger.turn_budget import TurnBudget
+        from erza.ledger.turn_budget import TurnBudget
 
         ledger = CallLedger()
         budget = TurnBudget(max_cost_usd=1.0, max_input_tokens=1000, max_output_tokens=500)
@@ -278,7 +278,7 @@ class TestCallLedgerTurnBudgetIntegration:
 
     def test_input_token_limit_exceeded(self) -> None:
         """Input token limit should be enforced via budget.check()."""
-        from miniunicorn.ledger.turn_budget import TurnBudget
+        from erza.ledger.turn_budget import TurnBudget
 
         ledger = CallLedger()
         budget = TurnBudget(max_input_tokens=150, max_output_tokens=500, max_cost_usd=None)
@@ -301,7 +301,7 @@ class TestCallLedgerTurnBudgetIntegration:
 
     def test_output_token_limit_exceeded(self) -> None:
         """Output token limit should be enforced via budget.check()."""
-        from miniunicorn.ledger.turn_budget import TurnBudget
+        from erza.ledger.turn_budget import TurnBudget
 
         ledger = CallLedger()
         budget = TurnBudget(max_input_tokens=1000, max_output_tokens=100, max_cost_usd=None)
@@ -324,7 +324,7 @@ class TestCallLedgerTurnBudgetIntegration:
 
     def test_cost_limit_exceeded_uses_gt_not_ge(self) -> None:
         """Cost limit should use > comparison (matching TurnBudget.check), not >=."""
-        from miniunicorn.ledger.turn_budget import TurnBudget
+        from erza.ledger.turn_budget import TurnBudget
 
         ledger = CallLedger()
         budget = TurnBudget(max_cost_usd=0.10, max_input_tokens=None, max_output_tokens=None)
@@ -341,7 +341,7 @@ class TestCallLedgerTurnBudgetIntegration:
 
     def test_actual_model_pricing_used(self) -> None:
         """Budget should use actual model from record() for pricing, not hardcoded gpt-4o."""
-        from miniunicorn.ledger.turn_budget import TurnBudget
+        from erza.ledger.turn_budget import TurnBudget
 
         # gpt-4o-mini pricing: $0.15/1M input, $0.60/1M output
         pricing = {"gpt-4o-mini": (0.15 / 1000, 0.60 / 1000)}
@@ -365,7 +365,7 @@ class TestCallLedgerTurnBudgetIntegration:
 
     def test_explicit_cost_usd_preferred_over_pricing(self) -> None:
         """Explicit cost_usd in usage should be preferred over calculated pricing."""
-        from miniunicorn.ledger.turn_budget import TurnBudget
+        from erza.ledger.turn_budget import TurnBudget
 
         pricing = {"gpt-4o": (10.0 / 1000, 30.0 / 1000)}  # High pricing
 
@@ -387,7 +387,7 @@ class TestCallLedgerTurnBudgetIntegration:
 
     def test_budget_can_be_attached_at_construction(self) -> None:
         """CallLedger may accept/attach a TurnBudget at construction."""
-        from miniunicorn.ledger.turn_budget import TurnBudget
+        from erza.ledger.turn_budget import TurnBudget
 
         budget = TurnBudget(max_cost_usd=1.0)
         ledger = CallLedger(budget=budget)
@@ -396,7 +396,7 @@ class TestCallLedgerTurnBudgetIntegration:
 
     def test_check_budget_uses_attached_budget(self) -> None:
         """check_budget() without argument should use attached budget."""
-        from miniunicorn.ledger.turn_budget import TurnBudget
+        from erza.ledger.turn_budget import TurnBudget
 
         budget = TurnBudget(max_cost_usd=1.0)
         ledger = CallLedger(budget=budget)
@@ -408,7 +408,7 @@ class TestCallLedgerTurnBudgetIntegration:
 
     def test_check_budget_argument_overrides_attached(self) -> None:
         """check_budget(budget) argument should override attached budget for checking."""
-        from miniunicorn.ledger.turn_budget import TurnBudget
+        from erza.ledger.turn_budget import TurnBudget
 
         attached = TurnBudget(max_cost_usd=1.0)
         override = TurnBudget(max_cost_usd=0.1)
@@ -496,7 +496,7 @@ class TestCallLedgerConcurrentIsolation:
         import asyncio
 
         async def test():
-            from miniunicorn.ledger import (
+            from erza.ledger import (
                 bind_call_ledger,
                 current_call_ledger,
             )
@@ -587,7 +587,7 @@ class TestCallLedgerConcurrentIsolation:
 
 
 def test_required_cost_tracking_fails_closed_without_cost_or_pricing() -> None:
-    from miniunicorn.ledger.turn_budget import TurnBudget
+    from erza.ledger.turn_budget import TurnBudget
 
     budget = TurnBudget(
         max_input_tokens=None,
@@ -607,7 +607,7 @@ def test_required_cost_tracking_fails_closed_without_cost_or_pricing() -> None:
 
 
 def test_explicit_zero_cost_counts_as_available_tracking() -> None:
-    from miniunicorn.ledger.turn_budget import TurnBudget
+    from erza.ledger.turn_budget import TurnBudget
 
     budget = TurnBudget(
         max_input_tokens=None,

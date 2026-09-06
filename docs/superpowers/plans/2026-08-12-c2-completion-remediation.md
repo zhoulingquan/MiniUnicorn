@@ -14,16 +14,16 @@
 - Never rewrite or truncate `memory/structured/journal.jsonl`.
 - Preserve legacy/shadow behavior and existing configuration aliases.
 - Do not add vector, embedding, vector-store or knowledge-graph dependencies or runtime entry points.
-- Keep all errors typed through `miniunicorn.agent.memory_models.MemoryError`.
+- Keep all errors typed through `erza.agent.memory_models.MemoryError`.
 
 ---
 
 ### Task 1: Canonical paths and durable repository invariants
 
 **Files:**
-- Modify: `miniunicorn/agent/memory.py`
-- Modify: `miniunicorn/agent/memory_repository.py`
-- Modify: `miniunicorn/agent/memory_models.py`
+- Modify: `erza/agent/memory.py`
+- Modify: `erza/agent/memory_repository.py`
+- Modify: `erza/agent/memory_models.py`
 - Modify: `tests/agent/test_memory_store.py`
 - Modify: `tests/agent/test_memory_repository.py`
 
@@ -40,7 +40,7 @@
 ### Task 2: Lifecycle typed errors and retry idempotency
 
 **Files:**
-- Modify: `miniunicorn/agent/memory_lifecycle.py`
+- Modify: `erza/agent/memory_lifecycle.py`
 - Modify: `tests/agent/test_memory_lifecycle.py`
 - Modify: `tests/agent/test_dream_structured_memory.py`
 
@@ -57,8 +57,8 @@
 ### Task 3: Evidence and stable Dream provenance
 
 **Files:**
-- Modify: `miniunicorn/agent/memory_lifecycle.py`
-- Modify: `miniunicorn/agent/memory.py`
+- Modify: `erza/agent/memory_lifecycle.py`
+- Modify: `erza/agent/memory.py`
 - Modify: `tests/agent/test_memory_lifecycle.py`
 - Modify: `tests/agent/test_dream_structured_memory.py`
 
@@ -74,9 +74,9 @@
 ### Task 4: Crash-safe, lossless migration
 
 **Files:**
-- Modify: `miniunicorn/agent/memory_migration.py`
-- Modify: `miniunicorn/agent/memory.py`
-- Modify: `miniunicorn/command/memory.py`
+- Modify: `erza/agent/memory_migration.py`
+- Modify: `erza/agent/memory.py`
+- Modify: `erza/command/memory.py`
 - Modify: `tests/agent/test_memory_migration.py`
 - Modify: `tests/agent/test_memory_commands.py`
 
@@ -91,10 +91,10 @@
 ### Task 5: Exact session and user scopes
 
 **Files:**
-- Modify: `miniunicorn/agent/context.py`
-- Modify: `miniunicorn/agent/loop.py`
-- Modify: `miniunicorn/agent/memory.py`
-- Modify: `miniunicorn/agent/memory_extraction.py`
+- Modify: `erza/agent/context.py`
+- Modify: `erza/agent/loop.py`
+- Modify: `erza/agent/memory.py`
+- Modify: `erza/agent/memory_extraction.py`
 - Modify: `tests/agent/test_context_structured_memory.py`
 - Modify: `tests/agent/test_dream_structured_memory.py`
 - Modify: `tests/agent/test_memory_extraction.py`
@@ -110,8 +110,8 @@
 ### Task 6: Recall correctness and degraded diagnostics
 
 **Files:**
-- Modify: `miniunicorn/agent/memory_recall.py`
-- Modify: `miniunicorn/agent/context.py`
+- Modify: `erza/agent/memory_recall.py`
+- Modify: `erza/agent/context.py`
 - Modify: `tests/agent/test_memory_recall.py`
 - Modify: `tests/agent/test_context_structured_memory.py`
 
@@ -124,8 +124,8 @@
 ### Task 7: Structured hygiene and redacted recall audit
 
 **Files:**
-- Modify: `miniunicorn/agent/memory.py`
-- Modify: `miniunicorn/agent/context.py`
+- Modify: `erza/agent/memory.py`
+- Modify: `erza/agent/context.py`
 - Modify: `tests/agent/test_memory_store.py`
 - Create: `tests/agent/test_structured_memory_boundary.py`
 
@@ -140,12 +140,12 @@
 ### Task 8: Commands, docs and hard boundaries
 
 **Files:**
-- Modify: `miniunicorn/command/memory.py`
+- Modify: `erza/command/memory.py`
 - Modify: `tests/agent/test_memory_commands.py`
 - Modify: `docs/configuration.md`
 - Modify: `docs/memory.md`
 - Modify: `docs/chat-commands.md`
-- Modify: `miniunicorn/skills/memory/SKILL.md`
+- Modify: `erza/skills/memory/SKILL.md`
 - Modify: `tests/agent/test_structured_memory_boundary.py`
 
 **Interfaces:**
@@ -161,7 +161,7 @@
 **Files:**
 - Modify only files required by verified failures.
 
-- [ ] Run `ruff check miniunicorn tests` and resolve only findings in scope.
+- [ ] Run `ruff check erza tests` and resolve only findings in scope.
 - [ ] Run the complete focused C2 test suite including `test_structured_memory_boundary.py`.
 - [ ] Run `pytest -q`; if it exceeds the limit, identify the hanging file/test with per-directory and per-file runs, correct in-scope regressions, then rerun.
 - [ ] Run `git diff --check` and `git status --short`.

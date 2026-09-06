@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { MiniunicornClient } from "@/lib/miniunicorn-client";
+import type { ErzaClient } from "@/lib/erza-client";
 import { STORAGE_KEYS } from "@/lib/storage";
 import type { ChatSummary } from "@/lib/types";
 import { debounce } from "@/lib/utils";
@@ -33,7 +33,7 @@ function writeCompletedRunChatIds(chatIds: Set<string>): void {
 }
 
 export interface UseChatRunStatusOptions {
-  client: MiniunicornClient;
+  client: ErzaClient;
   sessions: ChatSummary[];
   loading: boolean;
   /** 当前活跃会话的 chatId;传入后用于派生 activeChatRunning。 */

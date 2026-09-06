@@ -11,9 +11,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.dream_trigger import DreamIdleTrigger
-from miniunicorn.config.schema import StructuredMemoryConfig
-from miniunicorn.memory import Dream, MemoryStore, count_pending_dream_entries
+from erza.agent.dream_trigger import DreamIdleTrigger
+from erza.config.schema import StructuredMemoryConfig
+from erza.memory import Dream, MemoryStore, count_pending_dream_entries
 
 
 @pytest.fixture
@@ -123,7 +123,7 @@ async def test_idle_trigger_does_not_fire_below_combined_threshold(store, mock_p
 
 
 def test_gateway_startup_backlog_counts_both_sources(store):
-    from miniunicorn.cli._gateway_runner import _dream_backlog_total
+    from erza.cli._gateway_runner import _dream_backlog_total
 
     store.append_history("H1.")
     write_reflections(store, 2)

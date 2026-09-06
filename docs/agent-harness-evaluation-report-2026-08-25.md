@@ -1,13 +1,13 @@
-# MiniUnicorn Agent Harness 评估报告
+# Erza Agent Harness 评估报告
 
 **报告日期：** 2026-08-25  
 **评估基线：** `HEAD 035770e3`  
-**评估对象：** `D:\MyProject\MiniUnicorn`  
+**评估对象：** `D:\MyProject\Erza`  
 **用途：** 交由另一 Agent 进行独立复核、补证据和挑战结论
 
 ## 1. 执行摘要
 
-MiniUnicorn 已经不是只有一个 ReAct 循环的实验项目，而是一个包含 Agent 核心、Provider、会话持久化、消息总线、工具生态、WebUI/API、频道适配和 Docker 部署的模块化单体 Agent Harness。
+Erza 已经不是只有一个 ReAct 循环的实验项目，而是一个包含 Agent 核心、Provider、会话持久化、消息总线、工具生态、WebUI/API、频道适配和 Docker 部署的模块化单体 Agent Harness。
 
 总体判断：
 
@@ -24,7 +24,7 @@ MiniUnicorn 已经不是只有一个 ReAct 循环的实验项目，而是一个�
 ### 2.1 纳入范围
 
 - 最近 P0–P4 提交涉及的 `CallLedger`、Managed 执行、上下文治理、`SafetyPolicy`、checkpoint、step acceptance、wall-clock timeout 和 prompt telemetry。
-- `miniunicorn/agent/`、`providers/`、`session/`、`security/`、`pairing/`、`bus/`、`composition/`、`api/`、`channels/`、`webui/`。
+- `erza/agent/`、`providers/`、`session/`、`security/`、`pairing/`、`bus/`、`composition/`、`api/`、`channels/`、`webui/`。
 - Docker、Compose、CI、架构文档、测试和静态检查配置。
 
 ### 2.2 判断标准
@@ -38,7 +38,7 @@ MiniUnicorn 已经不是只有一个 ReAct 循环的实验项目，而是一个�
 
 ## 3. 第一层：Agent 核心 12 项
 
-12 项清单及项目自述见 [README.md:42](D:/MyProject/MiniUnicorn/README.md:42)。
+12 项清单及项目自述见 [README.md:42](D:/MyProject/Erza/README.md:42)。
 
 | # | 组成部分 | 主要实现 | 评价 | 复核重点 |
 |---:|---|---|---|---|
@@ -57,17 +57,17 @@ MiniUnicorn 已经不是只有一个 ReAct 循环的实验项目，而是一个�
 
 ### 3.1 核心代码证据
 
-- 状态机和 turn 依赖束：[`turn_orchestrator.py:55`](D:/MyProject/MiniUnicorn/miniunicorn/agent/turn_orchestrator.py:55)。
-- LLM 调用计账和 per-turn budget：[`call_ledger.py:67`](D:/MyProject/MiniUnicorn/miniunicorn/agent/call_ledger.py:67)。
-- 上下文治理管线：[`context_governor.py:89`](D:/MyProject/MiniUnicorn/miniunicorn/agent/context_governor.py:89)。
-- 记忆主实现：[`memory.py:100`](D:/MyProject/MiniUnicorn/miniunicorn/agent/memory.py:100)。
-- turn 级 prompt/usage telemetry：[`turn_telemetry.py:21`](D:/MyProject/MiniUnicorn/miniunicorn/agent/turn_telemetry.py:21)。
+- 状态机和 turn 依赖束：[`turn_orchestrator.py:55`](D:/MyProject/Erza/erza/agent/turn_orchestrator.py:55)。
+- LLM 调用计账和 per-turn budget：[`call_ledger.py:67`](D:/MyProject/Erza/erza/agent/call_ledger.py:67)。
+- 上下文治理管线：[`context_governor.py:89`](D:/MyProject/Erza/erza/agent/context_governor.py:89)。
+- 记忆主实现：[`memory.py:100`](D:/MyProject/Erza/erza/agent/memory.py:100)。
+- turn 级 prompt/usage telemetry：[`turn_telemetry.py:21`](D:/MyProject/Erza/erza/agent/turn_telemetry.py:21)。
 
 ### 3.2 核心层关键风险
 
 #### F-001：高风险工具尚未形成严格的执行前审批（P0，待复核）
 
-`SafetyPolicy` 目前负责风险分类和是否需要 checkpoint 的判断：[`safety_policy.py:21`](D:/MyProject/MiniUnicorn/miniunicorn/agent/safety_policy.py:21)。但 `ToolExecutionCoordinator.run_tool()` 先调用 `_run_tool_impl()`，之后才通过 `checkpoint_callback` 发出 `tool_completed` checkpoint：[`tool_execution.py:141`](D:/MyProject/MiniUnicorn/miniunicorn/agent/execution/tool_execution.py:141)。
+`SafetyPolicy` 目前负责风险分类和是否需要 checkpoint 的判断：[`safety_policy.py:21`](D:/MyProject/Erza/erza/agent/safety_policy.py:21)。但 `ToolExecutionCoordinator.run_tool()` 先调用 `_run_tool_impl()`，之后才通过 `checkpoint_callback` 发出 `tool_completed` checkpoint：[`tool_execution.py:141`](D:/MyProject/Erza/erza/agent/execution/tool_execution.py:141)。
 
 静态阅读结果意味着：如果没有隐藏在下游工具中的审批机制，高风险写入、删除或执行动作可能在用户确认前已经发生。复核 Agent 应验证：
 
@@ -77,7 +77,7 @@ MiniUnicorn 已经不是只有一个 ReAct 循环的实验项目，而是一个�
 
 #### F-002：Step acceptance 可能对未满足 criteria 的步骤给出正向接受（P0，待复核）
 
-[`step_acceptance.py:242`](D:/MyProject/MiniUnicorn/miniunicorn/agent/step_acceptance.py:242) 的 `_is_accepted()` 在 `done_criteria` 未出现在最终文本中时，只要存在 `tool_calls` 仍可能返回 `True`。这可能把“执行过工具”误判成“步骤已完成”。复核 Agent 应沿完整调用链确认该分支是否实际用于 `delegate_plan` 的继续/终止决策，以及 verifier 是否总会覆盖它。
+[`step_acceptance.py:242`](D:/MyProject/Erza/erza/agent/step_acceptance.py:242) 的 `_is_accepted()` 在 `done_criteria` 未出现在最终文本中时，只要存在 `tool_calls` 仍可能返回 `True`。这可能把“执行过工具”误判成“步骤已完成”。复核 Agent 应沿完整调用链确认该分支是否实际用于 `delegate_plan` 的继续/终止决策，以及 verifier 是否总会覆盖它。
 
 ## 4. 第二层：Harness 平台能力
 
@@ -97,7 +97,7 @@ MiniUnicorn 已经不是只有一个 ReAct 循环的实验项目，而是一个�
 | 评估体系 | 大量单元/集成测试、架构守卫、memory benchmark | 部分 |
 | Agent 行为评测 | 未发现完整 golden task、模型输出质量评分、离线回归集 | 缺失 |
 
-API 认证目前是单一 Bearer Key 语义，见 [`api/server.py:476`](D:/MyProject/MiniUnicorn/miniunicorn/api/server.py:476)，这能保护开发 API，但不能替代多用户授权系统。
+API 认证目前是单一 Bearer Key 语义，见 [`api/server.py:476`](D:/MyProject/Erza/erza/api/server.py:476)，这能保护开发 API，但不能替代多用户授权系统。
 
 ## 5. 第三层：产品与生产能力
 
@@ -116,11 +116,11 @@ API 认证目前是单一 Bearer Key 语义，见 [`api/server.py:476`](D:/MyPro
 
 Docker 和 CI 证据：
 
-- [`Dockerfile`](D:/MyProject/MiniUnicorn/Dockerfile)
-- [`docker-compose.yml`](D:/MyProject/MiniUnicorn/docker-compose.yml)
-- [`.github/workflows/ci.yml:17`](D:/MyProject/MiniUnicorn/.github/workflows/ci.yml:17)
+- [`Dockerfile`](D:/MyProject/Erza/Dockerfile)
+- [`docker-compose.yml`](D:/MyProject/Erza/docker-compose.yml)
+- [`.github/workflows/ci.yml:17`](D:/MyProject/Erza/.github/workflows/ci.yml:17)
 
-文档路径漂移示例见 [`module-boundaries.md:233`](D:/MyProject/MiniUnicorn/docs/architecture/module-boundaries.md:233)：文档引用 `safety.py`、`planning.py`、`delegation.py`，当前实际文件包括 `safety_policy.py`、`planning_policy.py` 和 `tools/execute_plan.py` 等。需要确认这是文档未更新、兼容别名，还是架构登记表已经失真。
+文档路径漂移示例见 [`module-boundaries.md:233`](D:/MyProject/Erza/docs/architecture/module-boundaries.md:233)：文档引用 `safety.py`、`planning.py`、`delegation.py`，当前实际文件包括 `safety_policy.py`、`planning_policy.py` 和 `tools/execute_plan.py` 等。需要确认这是文档未更新、兼容别名，还是架构登记表已经失真。
 
 ## 6. 综合成熟度
 
@@ -152,7 +152,7 @@ Docker 和 CI 证据：
 - `13 failed`
 - `878 errors`
 
-已知主要干扰因素是本机默认 `~/.miniunicorn` 和 pytest 临时目录权限；此外 `.venv` 缺少 `pytest-timeout`，但 `pyproject.toml` 配置了 timeout 选项，产生 unknown config warning。因此这组结果不能直接等价为生产代码有 878 个真实缺陷，但也不能宣称全量通过。
+已知主要干扰因素是本机默认 `~/.erza` 和 pytest 临时目录权限；此外 `.venv` 缺少 `pytest-timeout`，但 `pyproject.toml` 配置了 timeout 选项，产生 unknown config warning。因此这组结果不能直接等价为生产代码有 878 个真实缺陷，但也不能宣称全量通过。
 
 静态检查此前结果：
 
@@ -201,10 +201,10 @@ Docker 和 CI 证据：
 ```powershell
 git rev-parse HEAD
 uv run pytest tests/agent tests/providers tests/security tests/session tests/architecture -q
-uv run ruff check miniunicorn
-uv run ruff format --check miniunicorn
-rg -n "checkpoint_callback|requires_checkpoint|_is_accepted|done_criteria" miniunicorn tests
-rg -n "tenant|rbac|role|permission|trace|span|replay|evaluation|golden" miniunicorn tests docs
+uv run ruff check erza
+uv run ruff format --check erza
+rg -n "checkpoint_callback|requires_checkpoint|_is_accepted|done_criteria" erza tests
+rg -n "tenant|rbac|role|permission|trace|span|replay|evaluation|golden" erza tests docs
 ```
 
 ## 11. 限制与免责声明

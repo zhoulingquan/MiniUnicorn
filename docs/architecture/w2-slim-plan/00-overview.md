@@ -51,8 +51,8 @@ W0（可信证据管道）与 W1（工具库边界：惰性加载、生命周期
 
 ```
 .venv\Scripts\python.exe -m pytest tests/ -q        # 0 failed，passed ≥ 4077（新测试只增不减）
-.venv\Scripts\python.exe -m ruff check miniunicorn/  # 零输出
-.venv\Scripts\python.exe -m ruff format --check miniunicorn/
+.venv\Scripts\python.exe -m ruff check erza/  # 零输出
+.venv\Scripts\python.exe -m ruff format --check erza/
 ```
 
 注意：必须用项目 venv 的 Python 3.12（`.venv\Scripts\python.exe`），系统默认 Python 3.10 缺 `typing.Self` 会导致收集错误。

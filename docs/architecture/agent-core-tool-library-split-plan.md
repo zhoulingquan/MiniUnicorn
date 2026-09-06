@@ -1,4 +1,4 @@
-# MiniUnicorn Agent Core + Tool Library 拆分方案
+# Erza Agent Core + Tool Library 拆分方案
 
 ## 1. 文档信息
 
@@ -33,19 +33,19 @@ Agent Core + Tool Library
 
 | 模块 | 当前规模 | 主要问题 |
 |---|---:|---|
-| miniunicorn/agent/loop.py | 约 1300 行 | 同时承担组装、分发、运行时管理和 Agent 执行 |
-| miniunicorn/agent/runner.py | 约 1570 行 | 已拆出多个服务，但仍保留兼容代理和高级模式逻辑 |
-| miniunicorn/agent/memory.py | 约 2000 行 | 同时包含存储、结构化记忆、整理和 Dream |
-| miniunicorn/agent/tools/ | 约 11000 行 | 工具种类多，加载和生命周期边界仍不清晰 |
-| miniunicorn/agent/dispatch.py | 约 550 行 | 消息分发和 Agent 执行入口耦合 |
-| miniunicorn/agent/context.py | 约 670 行 | 上下文、记忆、技能、MCP 辅助逻辑集中 |
+| erza/agent/loop.py | 约 1300 行 | 同时承担组装、分发、运行时管理和 Agent 执行 |
+| erza/agent/runner.py | 约 1570 行 | 已拆出多个服务，但仍保留兼容代理和高级模式逻辑 |
+| erza/agent/memory.py | 约 2000 行 | 同时包含存储、结构化记忆、整理和 Dream |
+| erza/agent/tools/ | 约 11000 行 | 工具种类多，加载和生命周期边界仍不清晰 |
+| erza/agent/dispatch.py | 约 550 行 | 消息分发和 Agent 执行入口耦合 |
+| erza/agent/context.py | 约 670 行 | 上下文、记忆、技能、MCP 辅助逻辑集中 |
 
 ### 2.2 主要源码依据
 
 AgentLoop 构造函数位于：
 
 ~~~
-miniunicorn/agent/loop.py:333
+erza/agent/loop.py:333
 ~~~
 
 目前仍由 AgentLoop 接收或创建：
@@ -65,7 +65,7 @@ miniunicorn/agent/loop.py:333
 AgentRunner 的主执行入口位于：
 
 ~~~
-miniunicorn/agent/runner.py:469
+erza/agent/runner.py:469
 ~~~
 
 其中仍然包含：
@@ -85,7 +85,7 @@ miniunicorn/agent/runner.py:469
 工具加载入口位于：
 
 ~~~
-miniunicorn/agent/tools/loader.py:43
+erza/agent/tools/loader.py:43
 ~~~
 
 现有 Loader 会扫描工具包并导入模块，然后再判断工具是否启用，导致可选工具在启动阶段就产生导入成本。
@@ -94,7 +94,7 @@ miniunicorn/agent/tools/loader.py:43
 
 当前工作区存在大量未提交修改和未跟踪文件，主要集中在：
 
-- miniunicorn/agent/
+- erza/agent/
 - tests/agent/
 - tests/tools/
 - docs/
@@ -213,7 +213,7 @@ tools:
 建议新增：
 
 ~~~
-miniunicorn/agent/core/contracts.py
+erza/agent/core/contracts.py
 ~~~
 
 ~~~
@@ -243,7 +243,7 @@ class ToolDescriptor:
 建议新增接口：
 
 ~~~
-miniunicorn/agent/core/ports.py
+erza/agent/core/ports.py
 ~~~
 
 ~~~
@@ -277,7 +277,7 @@ Provider 负责：
 
 ### 5.3 ToolContext
 
-当前 miniunicorn/agent/tools/context.py 中的 ToolContext 含有多个 Any 类型字段。建议逐步改成：
+当前 erza/agent/tools/context.py 中的 ToolContext 含有多个 Any 类型字段。建议逐步改成：
 
 ~~~
 @dataclass(frozen=True)
@@ -330,7 +330,7 @@ class ModelPort(Protocol):
 现有 Provider 通过适配器接入，适配器可以放在：
 
 ~~~
-miniunicorn/composition/model_gateway.py
+erza/composition/model_gateway.py
 ~~~
 
 ### 5.6 MemoryPort
@@ -440,17 +440,17 @@ python -m pytest tests/agent tests/tools -q --basetemp=.tmp-core-baseline
 ### 新增文件
 
 ~~~
-miniunicorn/agent/core/__init__.py
-miniunicorn/agent/core/contracts.py
-miniunicorn/agent/core/ports.py
-miniunicorn/agent/core/tool_context.py
+erza/agent/core/__init__.py
+erza/agent/core/contracts.py
+erza/agent/core/ports.py
+erza/agent/core/tool_context.py
 ~~~
 
 ### 修改文件
 
 ~~~
-miniunicorn/agent/tools/context.py
-miniunicorn/agent/tools/base.py
+erza/agent/tools/context.py
+erza/agent/tools/base.py
 ~~~
 
 ### 任务
@@ -490,17 +490,17 @@ tests/agent/core/test_ports.py
 ### 新增文件
 
 ~~~
-miniunicorn/agent/tools/catalog.py
-miniunicorn/agent/tools/provider.py
-miniunicorn/agent/tools/adapters.py
+erza/agent/tools/catalog.py
+erza/agent/tools/provider.py
+erza/agent/tools/adapters.py
 ~~~
 
 ### 修改文件
 
 ~~~
-miniunicorn/agent/tools/loader.py
-miniunicorn/agent/tools/registry.py
-miniunicorn/agent/tools/base.py
+erza/agent/tools/loader.py
+erza/agent/tools/registry.py
+erza/agent/tools/base.py
 ~~~
 
 ### 任务
@@ -553,12 +553,12 @@ tests/tools/test_tool_import_isolation.py
 ### 新增文件
 
 ~~~
-miniunicorn/agent/core/turn_controller.py
-miniunicorn/agent/core/model_gateway.py
-miniunicorn/agent/core/tool_gateway.py
-miniunicorn/agent/core/budget_controller.py
-miniunicorn/agent/core/safety_controller.py
-miniunicorn/agent/core/recovery.py
+erza/agent/core/turn_controller.py
+erza/agent/core/model_gateway.py
+erza/agent/core/tool_gateway.py
+erza/agent/core/budget_controller.py
+erza/agent/core/safety_controller.py
+erza/agent/core/recovery.py
 ~~~
 
 ### 迁移来源
@@ -613,7 +613,7 @@ miniunicorn/agent/core/recovery.py
 
 ### 兼容策略
 
-暂时保留 miniunicorn.agent.runner.AgentRunner，但降级为薄门面：
+暂时保留 erza.agent.runner.AgentRunner，但降级为薄门面：
 
 ~~~
 class AgentRunner:
@@ -645,17 +645,17 @@ tests/agent/core/test_turn_recovery.py
 ### 新增文件
 
 ~~~
-miniunicorn/agent/core/runtime.py
-miniunicorn/composition/agent_runtime.py
+erza/agent/core/runtime.py
+erza/composition/agent_runtime.py
 ~~~
 
 ### 修改文件
 
 ~~~
-miniunicorn/agent/loop.py
-miniunicorn/agent/loop_builder.py
-miniunicorn/agent/dispatch.py
-miniunicorn/composition/gateway.py
+erza/agent/loop.py
+erza/agent/loop_builder.py
+erza/agent/dispatch.py
+erza/composition/gateway.py
 ~~~
 
 ### 任务
@@ -706,7 +706,7 @@ tests/agent/test_runtime_dependencies.py
 目标目录：
 
 ~~~
-miniunicorn/agent/tools/planning/
+erza/agent/tools/planning/
 ├── __init__.py
 ├── provider.py
 ├── tool.py
@@ -717,11 +717,11 @@ miniunicorn/agent/tools/planning/
 迁移来源：
 
 ~~~
-miniunicorn/agent/planner.py
-miniunicorn/agent/planning_policy.py
-miniunicorn/agent/execution/planning.py
-miniunicorn/agent/tools/execute_plan.py
-miniunicorn/agent/plan_snapshot.py
+erza/agent/planner.py
+erza/agent/planning_policy.py
+erza/agent/execution/planning.py
+erza/agent/tools/execute_plan.py
+erza/agent/plan_snapshot.py
 ~~~
 
 工具：
@@ -776,7 +776,7 @@ reflection.py 和 Dream 不再由 Agent Core 自动周期性调用。
 目标文件：
 
 ~~~
-miniunicorn/agent/tools/cron/provider.py
+erza/agent/tools/cron/provider.py
 ~~~
 
 依赖接口：
@@ -797,7 +797,7 @@ SchedulerPort
 目标目录：
 
 ~~~
-miniunicorn/agent/tools/mcp/
+erza/agent/tools/mcp/
 ├── provider.py
 ├── client.py
 └── registry.py
@@ -817,7 +817,7 @@ miniunicorn/agent/tools/mcp/
 目标目录：
 
 ~~~
-miniunicorn/agent/tools/subagent/
+erza/agent/tools/subagent/
 ├── provider.py
 ├── tool.py
 ├── registry.py
@@ -859,8 +859,8 @@ Subagent 不允许重新复制一整套 AgentLoop。
 第一步不移动现有 2000 多行 memory.py，先增加：
 
 ~~~
-miniunicorn/agent/core/memory_port.py
-miniunicorn/agent/memory_adapter.py
+erza/agent/core/memory_port.py
+erza/agent/memory_adapter.py
 ~~~
 
 MemoryAdapter 包装现有 MemoryStore，让 Core 只依赖 MemoryPort。
@@ -870,7 +870,7 @@ MemoryAdapter 包装现有 MemoryStore，让 Core 只依赖 MemoryPort。
 行为稳定后，再逐步迁移为：
 
 ~~~
-miniunicorn/memory/
+erza/memory/
 ├── store.py
 ├── models.py
 ├── repository.py
@@ -880,14 +880,14 @@ miniunicorn/memory/
 └── adapters.py
 ~~~
 
-旧的 miniunicorn/agent/memory.py 暂时保留为兼容导出门面。
+旧的 erza/agent/memory.py 暂时保留为兼容导出门面。
 
 ### 6.3 Session Gateway
 
 新增：
 
 ~~~
-miniunicorn/agent/core/session_gateway.py
+erza/agent/core/session_gateway.py
 ~~~
 
 负责：
@@ -906,7 +906,7 @@ miniunicorn/agent/core/session_gateway.py
 新增或迁移为：
 
 ~~~
-miniunicorn/agent/core/context_manager.py
+erza/agent/core/context_manager.py
 ~~~
 
 ContextManager 只接收：
@@ -951,7 +951,7 @@ ContextManager 只接收：
 删除前执行：
 
 ~~~powershell
-rg -n "PlanningMode|PlanningPolicy|use_planner|enable_reflection|planner_model|SubagentManager|McpLifecycleMixin" miniunicorn tests
+rg -n "PlanningMode|PlanningPolicy|use_planner|enable_reflection|planner_model|SubagentManager|McpLifecycleMixin" erza tests
 ~~~
 
 确认只有兼容层或工具库引用后，再分别提交删除。

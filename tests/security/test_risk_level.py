@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from miniunicorn.agent.safety_policy import RiskLevel as RiskLevelFromSafetyPolicy
-from miniunicorn.security.risk import RiskLevel as RiskLevelFromSecurity
+from erza.agent.safety_policy import RiskLevel as RiskLevelFromSafetyPolicy
+from erza.security.risk import RiskLevel as RiskLevelFromSecurity
 
-_RISK_PY = Path(__file__).resolve().parents[2] / "miniunicorn" / "security" / "risk.py"
-_PKG_NAME = "miniunicorn"
+_RISK_PY = Path(__file__).resolve().parents[2] / "erza" / "security" / "risk.py"
+_PKG_NAME = "erza"
 
 
 def test_risklevel_identity_compatibility() -> None:

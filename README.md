@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/logo.svg" alt="MiniUnicorn Logo" width="200" height="200">
+<img src="docs/logo.svg" alt="Erza Logo" width="200" height="200">
 
 **一个核心轻量、可审计、可扩展的开源个人 AI 代理框架**
 
@@ -8,7 +8,7 @@
 
 [![Python](https://img.shields.io/badge/python-≥3.11-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
-[![Release](https://img.shields.io/badge/release-v0.2.0-success)](https://github.com/zhoulingquan/MiniUnicorn/releases)
+[![Release](https://img.shields.io/badge/release-v0.2.0-success)](https://github.com/zhoulingquan/Erza/releases)
 [![Status](https://img.shields.io/badge/status-alpha-orange)]()
 
 **[简体中文]** | [English](./README.en.md)
@@ -19,13 +19,13 @@
 
 ## 这是什么
 
-MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机器人框架，也不是编排引擎——它只是一个**小的代理循环**：接收消息、调用 LLM、执行工具、返回结果。所有重的东西（频道适配、工具实现、记忆策略）都挂在循环外围，核心保持可读、可审计、可替换。
+Erza 是一个可以长期运行的个人 AI 代理。它不是聊天机器人框架，也不是编排引擎——它只是一个**小的代理循环**：接收消息、调用 LLM、执行工具、返回结果。所有重的东西（频道适配、工具实现、记忆策略）都挂在循环外围，核心保持可读、可审计、可替换。
 
 需要说明：这里的「轻量」指架构哲学与依赖成本——编排核心仅约 3.4k 行、运行时约 30 个纯 Python 依赖、单进程即可部署；而完整代码库含频道适配、30 类工具与 WebUI 等外围能力，源码总量约 11 万行，并非「小脚本」级别。
 
 基于 [Nanobot](https://github.com/marm-io/nanobot) 项目二次开发，在其轻量级代理核心基础上扩展了频道适配、记忆系统、WebUI 和多平台部署能力。
 
-> *"If you're not the model, you're the harness."* —— 当模型能力跨过阈值后，决定 Agent 生产力的是包裹模型的工程化基础设施。MiniUnicorn 就是一个完整而极简的 **Agent Harness** 实现。
+> *"If you're not the model, you're the harness."* —— 当模型能力跨过阈值后，决定 Agent 生产力的是包裹模型的工程化基础设施。Erza 就是一个完整而极简的 **Agent Harness** 实现。
 
 ## 整体架构
 
@@ -33,7 +33,7 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 
 <div align="center">
 
-<img src="docs/architecture.svg" alt="MiniUnicorn 四层架构：频道层 → 消息总线 → 代理核心 → 能力层" width="680">
+<img src="docs/architecture.svg" alt="Erza 四层架构：频道层 → 消息总线 → 代理核心 → 能力层" width="680">
 
 </div>
 
@@ -41,7 +41,7 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 
 ## 模块拆解
 
-| #   | Harness 模块                        | MiniUnicorn 实现                     | 关键文件                                                       |
+| #   | Harness 模块                        | Erza 实现                     | 关键文件                                                       |
 | --- | --------------------------------- | ---------------------------------- | ---------------------------------------------------------- |
 | 1   | 编排循环 Orchestration Loop           | AgentLoop → AgentRunner 的 ReAct 循环 | `agent/loop.py` · `agent/runner.py`                        |
 | 2   | 工具系统 Tools                        | 20 类内置工具 + MCP                       | `agent/tools/`                                             |
@@ -100,7 +100,7 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 - **AutoCompact**——主动压缩空闲会话，降低 token 成本与延迟
 - **轮次预算**——`TurnBudget` 约束单轮资源消耗
 
-自动压缩基于 Token 预算触发，跳过活跃任务。第三方策略可经入口点 `miniunicorn.context_strategies` 注册，内置策略永远优先。
+自动压缩基于 Token 预算触发，跳过活跃任务。第三方策略可经入口点 `erza.context_strategies` 注册，内置策略永远优先。
 
 ### 5. Prompt 构建 — 模型看到的世界
 
@@ -116,7 +116,7 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 
 ### 8. 错误处理 — 在必然错误中生存
 
-多步代理的错误会累积，MiniUnicorn 的对策分层：`FallbackProvider` 在主模型失败时自动切换备用模型；工具错误结构化返回给模型自行修正；**Reflection 机制**在失败时（工具错误、LLM 错误、达到迭代上限）让模型产出一句话教训写入 `reflections.jsonl`，由 Dream 整合进长期记忆——目标是跨轮次学习，不重复同一个错误。
+多步代理的错误会累积，Erza 的对策分层：`FallbackProvider` 在主模型失败时自动切换备用模型；工具错误结构化返回给模型自行修正；**Reflection 机制**在失败时（工具错误、LLM 错误、达到迭代上限）让模型产出一句话教训写入 `reflections.jsonl`，由 Dream 整合进长期记忆——目标是跨轮次学习，不重复同一个错误。
 
 ### 9. 安全防护 — 显式边界
 
@@ -178,7 +178,7 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 | `channels/` | 6 个频道适配器（飞书/钉钉/企微/微信/QQ/WebSocket） |
 | `agent/tools/` | 21 类内置工具（文件/Shell/抓取/MCP/子代理...） |
 | `webui/`（仓库根） | React 18 + Vite + TypeScript 前端（约 4 万行 TS/TSX） |
-| `miniunicorn/webui/` | Python 网关：HTTP/WebSocket 路由、设置/频道/工具管理 API |
+| `erza/webui/` | Python 网关：HTTP/WebSocket 路由、设置/频道/工具管理 API |
 | `apps/` | Agent App 生态：CLI 应用目录、安装与扩展市场协议 |
 | `cli/` | Typer CLI 命令、终端渲染、网关运行器 |
 | `utils/` | 文档解析、媒体解码、Git 存储等工具 |
@@ -190,8 +190,8 @@ MiniUnicorn 是一个可以长期运行的个人 AI 代理。它不是聊天机�
 
 ```bash
 # 从源码（最新特性）
-git clone https://github.com/zhoulingquan/miniunicorn.git
-cd miniunicorn
+git clone https://github.com/zhoulingquan/erza.git
+cd erza
 pip install -e .
 
 # 可选附加依赖
@@ -205,7 +205,7 @@ pip install -e ".[api,pdf,dev]"   # HTTP API / PDF 解析 / 测试
 **一条命令启动**——配置文件和工作区会自动初始化，LLM API Key 可以启动后在 WebUI 里配置。
 
 ```bash
-miniunicorn gateway
+erza gateway
 # → 浏览器访问 http://127.0.0.1:8765
 ```
 
@@ -215,25 +215,25 @@ miniunicorn gateway
 
 ```bash
 # CLI 终端对话（需要先配置 LLM）
-miniunicorn agent
+erza agent
 
 # 仅 OpenAI 兼容 API 服务
-miniunicorn serve
+erza serve
 
 # 交互式配置向导（可选，用于预配置频道等）
-miniunicorn onboard --wizard
+erza onboard --wizard
 ```
 
-**手动编辑配置**（可选）：配置文件位于 `~/.miniunicorn/config.json`，支持 `${VAR}` 环境变量替换。
+**手动编辑配置**（可选）：配置文件位于 `~/.erza/config.json`，支持 `${VAR}` 环境变量替换。
 
 ## 编程式接入
 
 ### Python SDK
 
 ```python
-from miniunicorn import Miniunicorn
+from erza import Erza
 
-bot = Miniunicorn.from_config()
+bot = Erza.from_config()
 result = await bot.run("总结这个仓库的架构", hooks=[MyHook()])
 print(result.content)
 print(result.tools_used)

@@ -1,14 +1,14 @@
 # Third-Party Notices
 
 The following third-party components are redistributed as part of the packaged
-MiniUnicorn Python distribution (`pip install miniunicorn-ai`).
+Erza Python distribution (`pip install erza-ai`).
 
 ---
 
 ## KaTeX — math rendering (MIT)
 
 - **Source**: https://github.com/KaTeX/KaTeX
-- **Bundled**: `miniunicorn/web/dist/assets/index-*.{js,css}`
+- **Bundled**: `erza/web/dist/assets/index-*.{js,css}`
 
 ```
 The MIT License (MIT)
@@ -39,7 +39,7 @@ SOFTWARE.
 ## KaTeX Fonts — math typography (SIL OFL 1.1)
 
 - **Source**: https://github.com/KaTeX/KaTeX/tree/main/src/fonts
-- **Bundled**: `miniunicorn/web/dist/assets/KaTeX_*.{woff2,woff,ttf}`
+- **Bundled**: `erza/web/dist/assets/KaTeX_*.{woff2,woff,ttf}`
 
 The fonts are redistributed unmodified.
 

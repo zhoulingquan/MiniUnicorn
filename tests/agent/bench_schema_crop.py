@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from miniunicorn.agent.context_strategies.schema_crop import crop_tool_definitions
+from erza.agent.context_strategies.schema_crop import crop_tool_definitions
 
 
 def _make_definitions(count: int = 50) -> list[dict[str, Any]]:

@@ -6,7 +6,7 @@
 
 ## 一、问题
 
-`miniunicorn/agent/memory.py` 共 **2018 行**,一个文件承载记忆系统三类互不相同的职责:
+`erza/agent/memory.py` 共 **2018 行**,一个文件承载记忆系统三类互不相同的职责:
 
 | 区段 | 行号 | 规模 | 职责 |
 |---|---|---|---|
@@ -22,9 +22,9 @@
 
 | # | 候选 | 裁决 | 理由 |
 |---|---|---|---|
-| 1 | 平铺三模块 + 门面渐进收缩 | **采纳** | 与既有 `memory_*.py` 家族命名一致;每批独立可验证;`from miniunicorn.agent.memory import X` 全程不破 |
+| 1 | 平铺三模块 + 门面渐进收缩 | **采纳** | 与既有 `memory_*.py` 家族命名一致;每批独立可验证;`from erza.agent.memory import X` 全程不破 |
 | 2 | `agent/memory/` 包目录 | 否决 | 同名模块与包不能共存,建包必须与删 `memory.py` 同批,破坏"小批独立验证"纪律;平铺已满足边界表达 |
-| 3 | stale 规划的 `miniunicorn/memory/` 顶层包(store/models/repository/lifecycle/recall/maintenance/adapters 七文件) | 否决 | 那是 Agent Core/Tool Library 架构愿景的组成,MemoryPort 适配层已随 W2 裁决否决(单实现 + 无类型检查器强制 = 抽象税);models/repository 已独立存在,无需搬家 |
+| 3 | stale 规划的 `erza/memory/` 顶层包(store/models/repository/lifecycle/recall/maintenance/adapters 七文件) | 否决 | 那是 Agent Core/Tool Library 架构愿景的组成,MemoryPort 适配层已随 W2 裁决否决(单实现 + 无类型检查器强制 = 抽象税);models/repository 已独立存在,无需搬家 |
 | 4 | MemoryStore 类内再拆(recall/git/cursor mixin) | 否决 | W2 同款裁决:类级 mixin 抽取是抽象税;830 行单类职责内聚(纯文件 I/O),拆类只会引入跨 mixin 私有访问 |
 | 5 | Consolidator/Dream 先搬(小批热身) | 否决 | 依赖单向(Consolidator/Dream → MemoryStore);基座先行(M1)使新模块直接 `from memory_store import ...`,彻底消除经门面的循环 import 问题 |
 | 6 | 消费者(loop/runtime_resources/dream_trigger 等)改直连新模块 | 否决 | 兼容 re-export 惯例(禁止删除 compat re-export,用 noqa 保留);消费者零改动是纯搬家的验收标准 |
@@ -32,7 +32,7 @@
 **最终形态**:
 
 ```
-miniunicorn/agent/
+erza/agent/
   memory.py                 # 纯门面(≤60 行):docstring + 全符号 re-export(# noqa: F401)
   memory_store.py           # MemoryStore + WorkspaceMemoryRegistry + _RAW_ARCHIVE_MAX_CHARS + _HISTORY_ENTRY_HARD_CAP(~900 行)
   memory_consolidator.py    # Consolidator + _ARCHIVE_SUMMARY_MAX_CHARS(~560 行)
@@ -63,7 +63,7 @@ miniunicorn/agent/
 | `_atomic_rewrite_lines` | MemoryStore(538/548/550) | tests/agent/test_reflection_structured.py:355 | 1 | W4-1 |
 | `estimate_message_tokens` | Consolidator(1072) | tests/agent/test_loop_consolidation_tokens.py(5 处)、test_consolidation_ratio.py(1 处) | 6 | W4-2 |
 
-其余测试(`store.structured_lifecycle`、`os.replace` 等对象级 patch)不受影响。全库未发现 `monkeypatch.setattr("miniunicorn.agent.memory...")` 字符串目标。
+其余测试(`store.structured_lifecycle`、`os.replace` 等对象级 patch)不受影响。全库未发现 `monkeypatch.setattr("erza.agent.memory...")` 字符串目标。
 
 ## 五、全局红线
 
@@ -79,8 +79,8 @@ miniunicorn/agent/
 
 ```
 .venv\Scripts\python.exe -m pytest tests/ -q        # 0 failed,passed >= 4114(新测试只增不减;W4-1 前基线)
-.venv\Scripts\python.exe -m ruff check miniunicorn/  # 零输出
-.venv\Scripts\python.exe -m ruff format --check miniunicorn/
+.venv\Scripts\python.exe -m ruff check erza/  # 零输出
+.venv\Scripts\python.exe -m ruff format --check erza/
 ```
 
 已知环境事实:系统默认 Python 3.10 缺 `typing.Self` 会在收集阶段报 14 个 ImportError——必须用 `.venv\Scripts\python.exe`。全量 pytest 约 8-13 分钟。

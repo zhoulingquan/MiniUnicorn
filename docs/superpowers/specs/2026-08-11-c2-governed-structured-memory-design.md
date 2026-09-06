@@ -2,12 +2,12 @@
 
 **状态：** 已实施（阶段 A–E 完成，见 §19 验收与 §20 完成定义）
 **日期：** 2026-08-11
-**适用仓库：** MiniUnicorn
+**适用仓库：** Erza
 **决策基线：** 主分支不引入 embedding、向量检索、向量数据库或知识图谱
 
 ## 1. 结论
 
-C2 将 MiniUnicorn 的长期记忆从“由 Dream 直接改写 Markdown、上下文整段注入”升级为“可验证候选、受控提升、确定性路由、原子冲突处理、可撤销审计”的结构化系统。
+C2 将 Erza 的长期记忆从“由 Dream 直接改写 Markdown、上下文整段注入”升级为“可验证候选、受控提升、确定性路由、原子冲突处理、可撤销审计”的结构化系统。
 
 系统仍以工作区文件为事实源：
 
@@ -194,8 +194,8 @@ class ActorKind(str, Enum):
 ```json
 {
   "kind": "file",
-  "ref": "D:/MyProject/MiniUnicorn/pyproject.toml#L1",
-  "excerpt": "name = \"miniunicorn-ai\"",
+  "ref": "D:/MyProject/Erza/pyproject.toml#L1",
+  "excerpt": "name = \"erza-ai\"",
   "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "observed_at": "2026-08-11T08:30:00Z"
 }
@@ -235,7 +235,7 @@ key 生成规则：
   "status": "active",
   "kind": "decision",
   "scope": {"kind": "project", "key": "project:6b5ec7b29e32"},
-  "subject": "MiniUnicorn",
+  "subject": "Erza",
   "slot": "memory.retrieval.strategy",
   "statement": "Main uses deterministic structured recall without embeddings.",
   "detail": "Markdown/JSONL remain the durable source of truth.",
@@ -311,7 +311,7 @@ conflict_key = scope.kind + "|" + scope.key + "|" +
         "status": "active",
         "kind": "decision",
         "scope": {"kind": "project", "key": "project:6b5ec7b29e32"},
-        "subject": "MiniUnicorn",
+        "subject": "Erza",
         "slot": "memory.retrieval.strategy",
         "statement": "Main uses deterministic structured recall without embeddings.",
         "detail": "Markdown/JSONL remain the durable source of truth.",

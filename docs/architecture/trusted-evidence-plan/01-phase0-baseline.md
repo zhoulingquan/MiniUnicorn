@@ -26,7 +26,7 @@
    - `git diff --stat` 总览
    - 重点文件人工过目：session_turn.py、tool_execution.py、subagent.py、runner.py（审批门相关段落）
 3. 跑全量测试：`pytest tests/ -q`，确认 ≥ 3970 passed / 0 failed
-4. `ruff check miniunicorn/ && ruff format --check miniunicorn/`
+4. `ruff check erza/ && ruff format --check erza/`
 5. 分批 `git add <明确路径>`（按主题分 1-3 个 commit，禁止 `git add .`）：
    - 建议 commit 1：审批门策略传播 + 回调形态 + 校验（agent/subagent.py、runner.py 相关）
    - 建议 commit 2：checkpoint 审计过滤 + tool_blocked（session_turn.py、tool_execution.py 相关）

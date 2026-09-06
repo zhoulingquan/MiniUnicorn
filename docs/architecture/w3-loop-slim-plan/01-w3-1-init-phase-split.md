@@ -5,7 +5,7 @@
 
 ## 一、问题(现状锚点)
 
-`miniunicorn/agent/loop.py` 共 1346 行,类声明 `class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin)` 位于 186 行。`AgentLoop.__init__`(336-601)约 265 行线性装配巨方法,混杂八层关注点,构造顺序与所有权不可见。
+`erza/agent/loop.py` 共 1346 行,类声明 `class AgentLoop(StateMixin, ProviderSwitchingMixin, McpLifecycleMixin)` 位于 186 行。`AgentLoop.__init__`(336-601)约 265 行线性装配巨方法,混杂八层关注点,构造顺序与所有权不可见。
 
 ### 1.1 注入参数(必须保留在 `__init__` 签名,不得移动)
 
@@ -50,7 +50,7 @@ def __init__(
     response: ResponseAssembler | None = None,
     **legacy: Any,
 ):
-    from miniunicorn.config.schema import ToolsConfig
+    from erza.config.schema import ToolsConfig
 
     cfg = config or AgentLoopConfig(**legacy)
     if cfg.provider is None:
@@ -102,7 +102,7 @@ def _init_turn_orchestrator(self, turn_orchestrator) -> None:
 - 每条语句连同其**引导注释**一起搬移(如 367-371 ProviderRegistry 注释、413-419 context window 自动探测注释、506-507 file state tracker 注释、540-544 资源所有权注释、571-573 晚绑定注释等);
 - 区段内语句顺序、赋值目标、回退表达式(`x or Y(...)`)一律不变;
 - 任何属性不得从赋值改为其他写法,任何 `self.__dict__` 直写不得改为 property 赋值;
-- C 区段内 `from miniunicorn.cli.models import get_model_context_limit`(421 行,函数内 import)与 `DEFAULT_CONTEXT_LIMIT`(427 行)随语句搬入;
+- C 区段内 `from erza.cli.models import get_model_context_limit`(421 行,函数内 import)与 `DEFAULT_CONTEXT_LIMIT`(427 行)随语句搬入;
 - F 区段 `SubagentManager(...)` 的 14 个实参(含两个 lambda:llm_wall_timeout、turn_budget_factory)逐字保留;
 - H 区段 TurnDeps 的 24 个依赖(含 4 个 lambda)逐字保留;
 - `AgentDefaults()` 只在 `__init__` 构造一次,以参数传入需要它的层(C、G),不得在各层重复构造。

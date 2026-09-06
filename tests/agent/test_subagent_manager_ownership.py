@@ -12,9 +12,9 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from miniunicorn.agent.loop_builder import AgentLoopBuilder
-from miniunicorn.agent.subagent import SubagentManager
-from miniunicorn.bus.queue import MessageBus
+from erza.agent.loop_builder import AgentLoopBuilder
+from erza.agent.subagent import SubagentManager
+from erza.bus.queue import MessageBus
 
 
 def _provider() -> MagicMock:

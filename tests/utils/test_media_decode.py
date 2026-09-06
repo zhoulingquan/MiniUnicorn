@@ -1,4 +1,4 @@
-"""Tests for ``miniunicorn.utils.media_decode``."""
+"""Tests for ``erza.utils.media_decode``."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import base64
 
 import pytest
 
-from miniunicorn.utils.media_decode import (
+from erza.utils.media_decode import (
     DEFAULT_MAX_BYTES,
     MAX_FILE_SIZE,
     FileSizeExceededError,
@@ -69,7 +69,7 @@ def test_legacy_symbols_reexported_from_api_server() -> None:
     """Existing tests import ``_save_base64_data_url`` / ``_FileSizeExceededError``
     from the OpenAI-compatible server module — keep the aliases working."""
     pytest.importorskip("aiohttp")
-    from miniunicorn.api_compat import server
+    from erza.api_compat import server
 
     assert server._save_base64_data_url is save_base64_data_url
     assert server._FileSizeExceededError is FileSizeExceededError

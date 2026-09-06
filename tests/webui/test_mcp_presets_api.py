@@ -4,8 +4,8 @@ import asyncio
 
 import pytest
 
-from miniunicorn.config.loader import load_config
-from miniunicorn.webui.mcp_presets_api import (
+from erza.config.loader import load_config
+from erza.webui.mcp_presets_api import (
     McpPresetError,
     custom_mcp_action,
     mcp_presets_action,
@@ -16,7 +16,7 @@ from miniunicorn.webui.mcp_presets_api import (
 
 
 def _use_config(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("miniunicorn.config.loader._current_config_path", tmp_path / "config.json")
+    monkeypatch.setattr("erza.config.loader._current_config_path", tmp_path / "config.json")
 
 
 def test_mcp_presets_payload_lists_supported_cards(
@@ -170,7 +170,7 @@ def test_test_mcp_preset_reports_missing_dependency(
 ) -> None:
     _use_config(tmp_path, monkeypatch)
     mcp_presets_action("enable", {"name": ["playwright"]})
-    monkeypatch.setattr("miniunicorn.webui.mcp_presets_api.shutil.which", lambda _command: None)
+    monkeypatch.setattr("erza.webui.mcp_presets_api.shutil.which", lambda _command: None)
 
     payload = asyncio.run(mcp_presets_test_action({"name": ["playwright"]}))
 
@@ -187,7 +187,7 @@ def test_test_mcp_preset_connects_and_reports_tools(
     # This test exercises the connect path, not the dependency probe; pretend
     # npx is installed so machines without it still reach the connection logic.
     monkeypatch.setattr(
-        "miniunicorn.webui.mcp_presets_api.shutil.which",
+        "erza.webui.mcp_presets_api.shutil.which",
         lambda _command: "/fake/bin/npx",
     )
 
@@ -208,7 +208,7 @@ def test_test_mcp_preset_connects_and_reports_tools(
         registry.register(FakeTool())
         return {"playwright": FakeStack()}
 
-    monkeypatch.setattr("miniunicorn.tools.mcp.connect_mcp_servers", fake_connect)
+    monkeypatch.setattr("erza.tools.mcp.connect_mcp_servers", fake_connect)
 
     payload = asyncio.run(mcp_presets_test_action({"name": ["playwright"]}))
 
@@ -234,7 +234,7 @@ def test_test_mcp_preset_scrubs_connection_errors(
     async def fake_connect(_servers, _registry):
         raise RuntimeError("failed https://example.invalid/mcp?token=bb_live_secret")
 
-    monkeypatch.setattr("miniunicorn.tools.mcp.connect_mcp_servers", fake_connect)
+    monkeypatch.setattr("erza.tools.mcp.connect_mcp_servers", fake_connect)
 
     payload = asyncio.run(mcp_presets_test_action({"name": ["custom-remote"]}))
 

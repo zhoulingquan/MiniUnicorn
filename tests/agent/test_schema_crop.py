@@ -12,13 +12,13 @@ import json
 from typing import Any
 from unittest.mock import MagicMock
 
-from miniunicorn.agent.context_governor import (
+from erza.agent.context_governor import (
     ContextGovernor,
     GovernanceContext,
     PressureLevel,
     PressureSignal,
 )
-from miniunicorn.agent.context_strategies.schema_crop import (
+from erza.agent.context_strategies.schema_crop import (
     SchemaCropStrategy,
     crop_tool_definitions,
 )
@@ -158,7 +158,7 @@ def test_builtin_pipeline_places_schema_crop_after_snip() -> None:
 
 
 def test_default_governor_includes_schema_crop_strategy(monkeypatch) -> None:
-    monkeypatch.setattr("miniunicorn.agent.context_governor.entry_points", lambda **_kw: [])
+    monkeypatch.setattr("erza.agent.context_governor.entry_points", lambda **_kw: [])
     governor = ContextGovernor()
     names = [s.name for s in governor._strategies]
     assert "schema_crop" in names
@@ -166,7 +166,7 @@ def test_default_governor_includes_schema_crop_strategy(monkeypatch) -> None:
 
 def test_snip_history_still_skips_on_green_with_new_pipeline(monkeypatch) -> None:
     """Pipeline order change must not break GREEN skip behavior."""
-    monkeypatch.setattr("miniunicorn.agent.context_governor.entry_points", lambda **_kw: [])
+    monkeypatch.setattr("erza.agent.context_governor.entry_points", lambda **_kw: [])
     governor = ContextGovernor()
     spec = _spec(_definitions())
     ctx = _ctx(spec, _green())

@@ -8,8 +8,8 @@
   "package": {
     "pypi": "0.2.0",
     "npm": "0.2.0",
-    "docker": "agentscope/miniunicorn:0.2.0"
+    "docker": "agentscope/erza:0.2.0"
   },
   "min_required": "0.1.0",
-  "release_url": "https://github.com/zhoulingquan/MiniUnicorn/releases/tag/v0.2.0"
+  "release_url": "https://github.com/zhoulingquan/Erza/releases/tag/v0.2.0"
 }

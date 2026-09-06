@@ -7,14 +7,14 @@ providers that return a reasoning_content field (e.g. MiMo, DeepSeek-R1).
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from miniunicorn.providers.openai_compat_provider import OpenAICompatProvider
+from erza.providers.openai_compat_provider import OpenAICompatProvider
 
 # ── _parse: non-streaming ─────────────────────────────────────────────────
 
 
 def test_parse_dict_extracts_reasoning_content() -> None:
     """reasoning_content at message level is surfaced in LLMResponse."""
-    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("erza.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider()
 
     response = {
@@ -38,7 +38,7 @@ def test_parse_dict_extracts_reasoning_content() -> None:
 
 def test_parse_dict_reasoning_content_none_when_absent() -> None:
     """reasoning_content is None when the response doesn't include it."""
-    with patch("miniunicorn.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("erza.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider()
 
     response = {

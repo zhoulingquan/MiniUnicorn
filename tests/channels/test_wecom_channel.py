@@ -17,9 +17,9 @@ except ImportError:
 if not WECOM_AVAILABLE:
     pytest.skip("WeCom dependencies not installed (wecom_aibot_sdk)", allow_module_level=True)
 
-from miniunicorn.bus.events import OutboundMessage
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.channels.wecom import (
+from erza.bus.events import OutboundMessage
+from erza.bus.queue import MessageBus
+from erza.channels.wecom import (
     WecomChannel,
     WecomConfig,
     _guess_wecom_media_type,
@@ -134,7 +134,7 @@ async def test_download_and_save_success() -> None:
     client.download_file.return_value = (fake_data, "raw_photo.png")
 
     with patch(
-        "miniunicorn.channels.wecom.channel.get_media_dir", return_value=Path(tempfile.gettempdir())
+        "erza.channels.wecom.channel.get_media_dir", return_value=Path(tempfile.gettempdir())
     ):
         path = await channel._download_and_save_media(
             "https://example.com/img.png", "aes_key", "image", "photo.png"
@@ -158,7 +158,7 @@ async def test_download_and_save_oversized_rejected() -> None:
     client.download_file.return_value = (big_data, "big.bin")
 
     with patch(
-        "miniunicorn.channels.wecom.channel.get_media_dir", return_value=Path(tempfile.gettempdir())
+        "erza.channels.wecom.channel.get_media_dir", return_value=Path(tempfile.gettempdir())
     ):
         result = await channel._download_and_save_media(
             "https://example.com/big.bin", "key", "file", "big.bin"
@@ -177,7 +177,7 @@ async def test_download_and_save_failure() -> None:
     client.download_file.return_value = (None, None)
 
     with patch(
-        "miniunicorn.channels.wecom.channel.get_media_dir", return_value=Path(tempfile.gettempdir())
+        "erza.channels.wecom.channel.get_media_dir", return_value=Path(tempfile.gettempdir())
     ):
         result = await channel._download_and_save_media(
             "https://example.com/fail.png", "key", "image"
@@ -522,7 +522,7 @@ async def test_process_image_message() -> None:
 
     try:
         with patch(
-            "miniunicorn.channels.wecom.channel.get_media_dir",
+            "erza.channels.wecom.channel.get_media_dir",
             return_value=Path(os.path.dirname(saved)),
         ):
             frame = _FakeFrame(
@@ -563,7 +563,7 @@ async def test_process_file_message() -> None:
 
     try:
         with patch(
-            "miniunicorn.channels.wecom.channel.get_media_dir",
+            "erza.channels.wecom.channel.get_media_dir",
             return_value=Path(os.path.dirname(saved)),
         ):
             frame = _FakeFrame(
@@ -598,7 +598,7 @@ async def test_process_file_message_uses_sdk_filename_when_name_missing(tmp_path
     client.download_file.return_value = (b"%PDF-1.4 fake", "real_name.pdf")
     channel._client = client
 
-    with patch("miniunicorn.channels.wecom.channel.get_media_dir", return_value=tmp_path):
+    with patch("erza.channels.wecom.channel.get_media_dir", return_value=tmp_path):
         frame = _FakeFrame(
             body={
                 "msgid": "msg_file_2",
@@ -652,7 +652,7 @@ async def test_process_mixed_message() -> None:
 
     try:
         with patch(
-            "miniunicorn.channels.wecom.channel.get_media_dir",
+            "erza.channels.wecom.channel.get_media_dir",
             return_value=Path(os.path.dirname(saved)),
         ):
             frame = _FakeFrame(

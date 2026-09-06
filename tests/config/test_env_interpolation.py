@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from miniunicorn.config.loader import (
+from erza.config.loader import (
     _resolve_env_vars,
     load_config,
     resolve_config_env_vars,

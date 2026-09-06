@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import pytest
 
-from miniunicorn.tools.context import RequestContext
-from miniunicorn.tools.cron import CronTool
-from miniunicorn.tools.registry import ToolRegistry
+from erza.tools.context import RequestContext
+from erza.tools.cron import CronTool
+from erza.tools.registry import ToolRegistry
 
 
 class _SvcStub:

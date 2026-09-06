@@ -192,7 +192,7 @@ export interface BootstrapResponse {
   model_name?: string | null;
   runtime_surface?: RuntimeSurface;
   runtime_capabilities?: RuntimeCapabilities;
-  /** 后端 miniunicorn.__version__,用于顶栏 logo 旁显示版本号。 */
+  /** 后端 erza.__version__,用于顶栏 logo 旁显示版本号。 */
   version?: string;
   /** 服务端 WebSocket 帧大小上限(字节),前端据此在发送前校验附件
    * 总字节数,超限不调用 onSend 并保留草稿(见 §4.5 设计文档)。 */

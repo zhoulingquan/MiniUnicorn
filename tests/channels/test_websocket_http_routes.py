@@ -11,8 +11,8 @@ from urllib.parse import urlencode
 import httpx
 import pytest
 
-from miniunicorn.channels.websocket import WebSocketChannel
-from miniunicorn.session.manager import Session, SessionManager
+from erza.channels.websocket import WebSocketChannel
+from erza.session.manager import Session, SessionManager
 
 _PORT = 29900
 
@@ -143,7 +143,7 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "miniunicorn.webui.mcp_presets_api.mcp_presets_payload",
+        "erza.webui.mcp_presets_api.mcp_presets_payload",
         lambda: {
             "presets": [
                 {
@@ -194,11 +194,11 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
         }
 
     monkeypatch.setattr(
-        "miniunicorn.webui.mcp_presets_api.mcp_presets_action",
+        "erza.webui.mcp_presets_api.mcp_presets_action",
         _mcp_preset_action,
     )
     monkeypatch.setattr(
-        "miniunicorn.webui.mcp_presets_api.custom_mcp_action",
+        "erza.webui.mcp_presets_api.custom_mcp_action",
         _custom_action,
     )
 
@@ -206,7 +206,7 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
         return {"ok": True, "message": "MCP config reloaded.", "requires_restart": False}
 
     monkeypatch.setattr(
-        "miniunicorn.channels.websocket.channel.request_mcp_reload",
+        "erza.channels.websocket.channel.request_mcp_reload",
         _hot_reload,
     )
     channel = _ch(bus, session_manager=_seed_session(tmp_path), port=29913)
@@ -231,7 +231,7 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
             "http://127.0.0.1:29913/api/settings/mcp-presets/enable?name=playwright",
             headers={
                 **auth,
-                "x-miniunicorn-MCP-Values": json.dumps({"playwright_api_key": "bb_live_secret"}),
+                "x-erza-MCP-Values": json.dumps({"playwright_api_key": "bb_live_secret"}),
             },
         )
         assert enabled.status_code == 200
@@ -244,7 +244,7 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
 
         bad_header = await _http_get(
             "http://127.0.0.1:29913/api/settings/mcp-presets/enable?name=playwright",
-            headers={**auth, "x-miniunicorn-MCP-Values": "[]"},
+            headers={**auth, "x-erza-MCP-Values": "[]"},
         )
         assert bad_header.status_code == 400
 
@@ -252,7 +252,7 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
             "http://127.0.0.1:29913/api/settings/mcp-presets/custom",
             headers={
                 **auth,
-                "x-miniunicorn-MCP-Values": json.dumps({"name": "docs", "command": "npx"}),
+                "x-erza-MCP-Values": json.dumps({"name": "docs", "command": "npx"}),
             },
         )
         assert custom.status_code == 200
@@ -261,7 +261,7 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
 
         imported = await _http_get(
             "http://127.0.0.1:29913/api/settings/mcp-presets/import",
-            headers={**auth, "x-miniunicorn-MCP-Values": json.dumps({"config": "{}"})},
+            headers={**auth, "x-erza-MCP-Values": json.dumps({"config": "{}"})},
         )
         assert imported.status_code == 200
         assert imported.json()["last_action"]["message"] == "import:config"
@@ -270,7 +270,7 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
             "http://127.0.0.1:29913/api/settings/mcp-presets/tools",
             headers={
                 **auth,
-                "x-miniunicorn-MCP-Values": json.dumps({"name": "docs", "enabled_tools": []}),
+                "x-erza-MCP-Values": json.dumps({"name": "docs", "enabled_tools": []}),
             },
         )
         assert tools.status_code == 200
@@ -319,7 +319,7 @@ async def test_sessions_list_only_returns_websocket_sessions_by_default(
 async def test_webui_sidebar_state_routes_are_config_dir_scoped(
     bus: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("miniunicorn.config.paths.get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("erza.config.paths.get_data_dir", lambda: tmp_path)
     sm = _seed_session(tmp_path, key="websocket:sidebar")
     channel = _ch(bus, session_manager=sm, port=29911)
     server_task = asyncio.create_task(channel.start())
@@ -368,9 +368,9 @@ async def test_webui_sidebar_state_routes_are_config_dir_scoped(
 async def test_session_delete_removes_file(
     bus: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("miniunicorn.config.paths.get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("erza.config.paths.get_data_dir", lambda: tmp_path)
     sm = _seed_session(tmp_path, key="websocket:doomed")
-    from miniunicorn.webui.transcript import append_transcript_object
+    from erza.webui.transcript import append_transcript_object
 
     append_transcript_object(
         "websocket:doomed", {"event": "user", "chat_id": "doomed", "text": "x"}
@@ -631,7 +631,7 @@ def test_wildcard_ipv6_without_auth_raises(bus: MagicMock) -> None:
 
 def test_wildcard_ipv6_with_secret_is_valid(bus: MagicMock) -> None:
     channel = _ch(bus, host="::", allowFrom=["caller"], tokenIssueSecret="s3cret")
-    resp = channel._handle_bootstrap(_REMOTE, _FakeReq({"x-miniunicorn-Auth": "s3cret"}))
+    resp = channel._handle_bootstrap(_REMOTE, _FakeReq({"x-erza-Auth": "s3cret"}))
     assert resp.status_code == 200
 
 
@@ -648,11 +648,11 @@ def test_bootstrap_ws_url_uses_forwarded_https_host(bus: MagicMock) -> None:
     channel = _ch(bus, host="127.0.0.1", port=29931)
     resp = channel._handle_bootstrap(
         _LOCAL,
-        _FakeReq({"Host": "miniunicorn.example", "X-Forwarded-Proto": "https"}),
+        _FakeReq({"Host": "erza.example", "X-Forwarded-Proto": "https"}),
     )
     assert resp.status_code == 200
     body = json.loads(resp.body)
-    assert body["ws_url"] == "wss://miniunicorn.example/"
+    assert body["ws_url"] == "wss://erza.example/"
 
 
 def test_localhost_without_auth_is_valid(bus: MagicMock) -> None:
@@ -665,7 +665,7 @@ def test_bootstrap_prefers_runtime_model_name(
     bus: MagicMock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        "miniunicorn.channels.websocket.channel._default_model_name_from_config",
+        "erza.channels.websocket.channel._default_model_name_from_config",
         lambda: "from-disk",
     )
     channel = _ch(bus, host="127.0.0.1", runtime_model_name=lambda: "  live/model  ")
@@ -679,7 +679,7 @@ def test_bootstrap_falls_back_when_runtime_returns_empty(
     bus: MagicMock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        "miniunicorn.channels.websocket.channel._default_model_name_from_config",
+        "erza.channels.websocket.channel._default_model_name_from_config",
         lambda: "from-disk",
     )
     channel = _ch(bus, host="127.0.0.1", runtime_model_name=lambda: "   ")
@@ -693,7 +693,7 @@ def test_bootstrap_falls_back_when_runtime_raises(
     bus: MagicMock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        "miniunicorn.channels.websocket.channel._default_model_name_from_config",
+        "erza.channels.websocket.channel._default_model_name_from_config",
         lambda: "from-disk",
     )
 
@@ -721,9 +721,9 @@ def test_bootstrap_accepts_remote_with_valid_secret(bus: MagicMock) -> None:
     assert body["token"].startswith("nbwt_")
 
 
-def test_bootstrap_accepts_x_miniunicorn_auth_header(bus: MagicMock) -> None:
+def test_bootstrap_accepts_x_erza_auth_header(bus: MagicMock) -> None:
     channel = _ch(bus, host="0.0.0.0", allowFrom=["caller"], tokenIssueSecret="s3cret")
-    resp = channel._handle_bootstrap(_REMOTE, _FakeReq({"x-miniunicorn-Auth": "s3cret"}))
+    resp = channel._handle_bootstrap(_REMOTE, _FakeReq({"x-erza-Auth": "s3cret"}))
     assert resp.status_code == 200
 
 
@@ -761,7 +761,7 @@ async def test_get_only_route_rejects_post_with_405(bus: MagicMock, tmp_path: Pa
     from websockets.datastructures import Headers
     from websockets.http11 import Request
 
-    from miniunicorn.channels.websocket._http_router import router
+    from erza.channels.websocket._http_router import router
 
     sm = _seed_session(tmp_path, key="websocket:m")
     channel = _ch(bus, session_manager=sm, port=29930)
@@ -817,7 +817,7 @@ async def test_state_change_route_rejects_bad_origin_with_403(
 async def test_sensitive_values_header_merges_into_query(
     bus: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``x-miniunicorn-Values`` JSON header must merge into ``ctx.query``."""
+    """``x-erza-Values`` JSON header must merge into ``ctx.query``."""
     captured: list[dict[str, list[str]]] = []
 
     def _capture(query: dict[str, list[str]]) -> dict:
@@ -826,7 +826,7 @@ async def test_sensitive_values_header_merges_into_query(
 
     # Patch the handler module's imported reference, not the source module.
     monkeypatch.setattr(
-        "miniunicorn.channels.websocket.handlers.settings.update_provider_settings",
+        "erza.channels.websocket.handlers.settings.update_provider_settings",
         _capture,
     )
     sm = _seed_session(tmp_path, key="websocket:sens")
@@ -842,7 +842,7 @@ async def test_sensitive_values_header_merges_into_query(
             "http://127.0.0.1:29932/api/settings/provider/update?provider=deepseek",
             headers={
                 **auth,
-                "x-miniunicorn-Values": json.dumps(
+                "x-erza-Values": json.dumps(
                     {"api_key": "sk-secret-123", "api_base": "https://api.deepseek.com"}
                 ),
             },
@@ -870,21 +870,21 @@ def test_skill_zip_too_many_headers_returns_413() -> None:
     """
     from websockets.datastructures import Headers
 
-    from miniunicorn.channels.websocket._http_routes import (
+    from erza.channels.websocket._http_routes import (
         SKILL_ZIP_MAX_HEADERS,
         ChunkedHeaderLimitError,
         collect_chunked_header_limited,
     )
 
     # Build headers with more chunks than allowed.
-    pairs: list[tuple[str, str]] = [("x-miniunicorn-Skill-Zip", "AAAA")]
+    pairs: list[tuple[str, str]] = [("x-erza-Skill-Zip", "AAAA")]
     for i in range(1, SKILL_ZIP_MAX_HEADERS + 5):
-        pairs.append((f"x-miniunicorn-Skill-Zip-{i}", "AAAA"))
+        pairs.append((f"x-erza-Skill-Zip-{i}", "AAAA"))
     headers = Headers(pairs)
     with pytest.raises(ChunkedHeaderLimitError):
         collect_chunked_header_limited(
             headers,
-            "x-miniunicorn-Skill-Zip",
+            "x-erza-Skill-Zip",
             max_count=SKILL_ZIP_MAX_HEADERS,
             max_total_bytes=32 * 1024 * 1024,
         )
@@ -894,18 +894,18 @@ def test_skill_zip_payload_too_large_returns_413() -> None:
     """Skill ZIP upload exceeding the total-byte limit must return 413."""
     from websockets.datastructures import Headers
 
-    from miniunicorn.channels.websocket._http_routes import (
+    from erza.channels.websocket._http_routes import (
         SKILL_ZIP_MAX_TOTAL_BYTES,
         ChunkedHeaderLimitError,
         collect_chunked_header_limited,
     )
 
     oversize = "A" * (SKILL_ZIP_MAX_TOTAL_BYTES + 1024)
-    headers = Headers([("x-miniunicorn-Skill-Zip", oversize)])
+    headers = Headers([("x-erza-Skill-Zip", oversize)])
     with pytest.raises(ChunkedHeaderLimitError):
         collect_chunked_header_limited(
             headers,
-            "x-miniunicorn-Skill-Zip",
+            "x-erza-Skill-Zip",
             max_count=200,
             max_total_bytes=SKILL_ZIP_MAX_TOTAL_BYTES,
         )
@@ -918,11 +918,11 @@ async def test_state_change_with_allowed_origin_succeeds(
     """GET on a state-changing route from an allowlisted Origin must pass."""
     # Patch the handler module's imported reference.
     monkeypatch.setattr(
-        "miniunicorn.channels.websocket.handlers.settings.update_runtime_settings",
+        "erza.channels.websocket.handlers.settings.update_runtime_settings",
         lambda q: {},
     )
     monkeypatch.setattr(
-        "miniunicorn.channels.websocket.channel.WebSocketChannel._reload_cron_safe",
+        "erza.channels.websocket.channel.WebSocketChannel._reload_cron_safe",
         lambda self: None,
     )
     sm = _seed_session(tmp_path, key="websocket:ok")

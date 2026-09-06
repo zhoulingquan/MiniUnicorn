@@ -25,15 +25,15 @@
 
 | File | Responsibility in this plan |
 |---|---|
-| `miniunicorn/agent/memory_repository.py` | Rebuild cumulative provenance, enforce journal idempotency uniqueness, provide locked conditional creation |
-| `miniunicorn/agent/memory_lifecycle.py` | Consume conditional creation result and resume deterministic lifecycle work |
-| `miniunicorn/agent/memory_models.py` | Enforce monotonic candidate conflict metadata |
-| `miniunicorn/agent/reflection.py` | Assign stable reflection IDs in application code and persist complete entries |
-| `miniunicorn/agent/memory.py` | Normalize legacy reflection IDs, construct Dream evidence/prompt/batch IDs/scopes, share migration state helper |
-| `miniunicorn/templates/agent/reflection_system.md` | Ask only for a lesson, never an ID |
-| `miniunicorn/templates/agent/dream_phase1.md` | Describe visible evidence refs and dynamically allowed scopes |
-| `miniunicorn/agent/memory_migration.py` | Lock manifest RMW, atomically save with unique temp, load canonical/legacy state consistently |
-| `miniunicorn/command/memory.py` | Use compatible migration status and return usage for malformed shell syntax |
+| `erza/agent/memory_repository.py` | Rebuild cumulative provenance, enforce journal idempotency uniqueness, provide locked conditional creation |
+| `erza/agent/memory_lifecycle.py` | Consume conditional creation result and resume deterministic lifecycle work |
+| `erza/agent/memory_models.py` | Enforce monotonic candidate conflict metadata |
+| `erza/agent/reflection.py` | Assign stable reflection IDs in application code and persist complete entries |
+| `erza/agent/memory.py` | Normalize legacy reflection IDs, construct Dream evidence/prompt/batch IDs/scopes, share migration state helper |
+| `erza/templates/agent/reflection_system.md` | Ask only for a lesson, never an ID |
+| `erza/templates/agent/dream_phase1.md` | Describe visible evidence refs and dynamically allowed scopes |
+| `erza/agent/memory_migration.py` | Lock manifest RMW, atomically save with unique temp, load canonical/legacy state consistently |
+| `erza/command/memory.py` | Use compatible migration status and return usage for malformed shell syntax |
 | `tests/agent/*` | Regression, concurrency, prompt-contract, recovery and boundary coverage |
 | `docs/configuration.md`, `docs/memory.md` | Document exact audit and hardening semantics |
 
@@ -42,8 +42,8 @@
 ### Task 1: Preserve creation idempotency and cumulative source provenance on replay
 
 **Files:**
-- Modify: `miniunicorn/agent/memory_models.py`
-- Modify: `miniunicorn/agent/memory_repository.py:64-334`
+- Modify: `erza/agent/memory_models.py`
+- Modify: `erza/agent/memory_repository.py:64-334`
 - Test: `tests/agent/test_memory_repository.py`
 
 **Interfaces:**
@@ -173,7 +173,7 @@ assert rebuilt.current_records() == ()
 
 ```powershell
 python -m pytest -q tests/agent/test_memory_repository.py
-python -m ruff check miniunicorn/agent/memory_models.py miniunicorn/agent/memory_repository.py tests/agent/test_memory_repository.py
+python -m ruff check erza/agent/memory_models.py erza/agent/memory_repository.py tests/agent/test_memory_repository.py
 ```
 
 Expected: all Repository tests pass and Ruff prints `All checks passed!`.
@@ -181,7 +181,7 @@ Expected: all Repository tests pass and Ruff prints `All checks passed!`.
 - [ ] **Step 6: Commit Task 1**
 
 ```powershell
-git add miniunicorn/agent/memory_models.py miniunicorn/agent/memory_repository.py tests/agent/test_memory_repository.py
+git add erza/agent/memory_models.py erza/agent/memory_repository.py tests/agent/test_memory_repository.py
 git commit -m "fix(memory): preserve source creation provenance"
 ```
 
@@ -190,7 +190,7 @@ git commit -m "fix(memory): preserve source creation provenance"
 ### Task 2: Add locked conditional creation to the Repository
 
 **Files:**
-- Modify: `miniunicorn/agent/memory_repository.py:166-252`
+- Modify: `erza/agent/memory_repository.py:166-252`
 - Test: `tests/agent/test_memory_repository.py`
 
 **Interfaces:**
@@ -298,8 +298,8 @@ Use a 10-second join timeout and terminate only a still-alive test child in test
 
 ```powershell
 python -m pytest -q tests/agent/test_memory_repository.py
-python -m ruff check miniunicorn/agent/memory_repository.py tests/agent/test_memory_repository.py
-git add miniunicorn/agent/memory_repository.py tests/agent/test_memory_repository.py
+python -m ruff check erza/agent/memory_repository.py tests/agent/test_memory_repository.py
+git add erza/agent/memory_repository.py tests/agent/test_memory_repository.py
 git commit -m "fix(memory): make candidate creation atomic"
 ```
 
@@ -308,7 +308,7 @@ git commit -m "fix(memory): make candidate creation atomic"
 ### Task 3: Route Lifecycle ingestion through atomic conditional creation
 
 **Files:**
-- Modify: `miniunicorn/agent/memory_lifecycle.py:144-204,261-266`
+- Modify: `erza/agent/memory_lifecycle.py:144-204,261-266`
 - Test: `tests/agent/test_memory_lifecycle.py`
 - Test: `tests/agent/test_dream_structured_memory.py`
 
@@ -390,8 +390,8 @@ Do not choose among cumulative source records or iterate a set.
 
 ```powershell
 python -m pytest -q tests/agent/test_memory_lifecycle.py tests/agent/test_dream_structured_memory.py
-python -m ruff check miniunicorn/agent/memory_lifecycle.py tests/agent/test_memory_lifecycle.py tests/agent/test_dream_structured_memory.py
-git add miniunicorn/agent/memory_lifecycle.py tests/agent/test_memory_lifecycle.py tests/agent/test_dream_structured_memory.py
+python -m ruff check erza/agent/memory_lifecycle.py tests/agent/test_memory_lifecycle.py tests/agent/test_dream_structured_memory.py
+git add erza/agent/memory_lifecycle.py tests/agent/test_memory_lifecycle.py tests/agent/test_dream_structured_memory.py
 git commit -m "fix(memory): resume lifecycle ingestion idempotently"
 ```
 
@@ -400,9 +400,9 @@ git commit -m "fix(memory): resume lifecycle ingestion idempotently"
 ### Task 4: Assign stable Reflection IDs in application code
 
 **Files:**
-- Modify: `miniunicorn/agent/reflection.py:40-219`
-- Modify: `miniunicorn/templates/agent/reflection_system.md:1-20`
-- Modify: `miniunicorn/agent/memory.py:631-700`
+- Modify: `erza/agent/reflection.py:40-219`
+- Modify: `erza/templates/agent/reflection_system.md:1-20`
+- Modify: `erza/agent/memory.py:631-700`
 - Create: `tests/agent/test_reflection_structured.py`
 - Test: `tests/agent/test_memory_store.py`
 
@@ -476,8 +476,8 @@ State that the application assigns the stable ID and forbid extra keys.
 
 ```powershell
 python -m pytest -q tests/agent/test_reflection_structured.py tests/agent/test_memory_store.py
-python -m ruff check miniunicorn/agent/reflection.py miniunicorn/agent/memory.py tests/agent/test_reflection_structured.py tests/agent/test_memory_store.py
-git add miniunicorn/agent/reflection.py miniunicorn/agent/memory.py miniunicorn/templates/agent/reflection_system.md tests/agent/test_reflection_structured.py tests/agent/test_memory_store.py
+python -m ruff check erza/agent/reflection.py erza/agent/memory.py tests/agent/test_reflection_structured.py tests/agent/test_memory_store.py
+git add erza/agent/reflection.py erza/agent/memory.py erza/templates/agent/reflection_system.md tests/agent/test_reflection_structured.py tests/agent/test_memory_store.py
 git commit -m "fix(memory): assign stable reflection evidence ids"
 ```
 
@@ -486,8 +486,8 @@ git commit -m "fix(memory): assign stable reflection evidence ids"
 ### Task 5: Make the Dream prompt and parser share exact evidence and scope contracts
 
 **Files:**
-- Modify: `miniunicorn/agent/memory.py:2203-2334`
-- Modify: `miniunicorn/templates/agent/dream_phase1.md:1-43`
+- Modify: `erza/agent/memory.py:2203-2334`
+- Modify: `erza/templates/agent/dream_phase1.md:1-43`
 - Test: `tests/agent/test_dream_structured_memory.py`
 - Test: `tests/agent/test_memory_extraction.py`
 
@@ -568,8 +568,8 @@ Call it with `evidence_catalog.keys()`. The no-input early return means canonica
 
 ```powershell
 python -m pytest -q tests/agent/test_dream_structured_memory.py tests/agent/test_memory_extraction.py
-python -m ruff check miniunicorn/agent/memory.py miniunicorn/agent/memory_extraction.py tests/agent/test_dream_structured_memory.py tests/agent/test_memory_extraction.py
-git add miniunicorn/agent/memory.py miniunicorn/templates/agent/dream_phase1.md tests/agent/test_dream_structured_memory.py tests/agent/test_memory_extraction.py
+python -m ruff check erza/agent/memory.py erza/agent/memory_extraction.py tests/agent/test_dream_structured_memory.py tests/agent/test_memory_extraction.py
+git add erza/agent/memory.py erza/templates/agent/dream_phase1.md tests/agent/test_dream_structured_memory.py tests/agent/test_memory_extraction.py
 git commit -m "fix(memory): align Dream evidence and scope contracts"
 ```
 
@@ -578,7 +578,7 @@ git commit -m "fix(memory): align Dream evidence and scope contracts"
 ### Task 6: Serialize and durably save migration state
 
 **Files:**
-- Modify: `miniunicorn/agent/memory_migration.py:350-518`
+- Modify: `erza/agent/memory_migration.py:350-518`
 - Test: `tests/agent/test_memory_migration.py`
 
 **Interfaces:**
@@ -651,8 +651,8 @@ Use spawn-safe workers that each build their own Repository/Lifecycle/Migration 
 
 ```powershell
 python -m pytest -q tests/agent/test_memory_migration.py tests/agent/test_memory_repository.py
-python -m ruff check miniunicorn/agent/memory_migration.py tests/agent/test_memory_migration.py
-git add miniunicorn/agent/memory_migration.py tests/agent/test_memory_migration.py
+python -m ruff check erza/agent/memory_migration.py tests/agent/test_memory_migration.py
+git add erza/agent/memory_migration.py tests/agent/test_memory_migration.py
 git commit -m "fix(memory): serialize migration manifest updates"
 ```
 
@@ -661,8 +661,8 @@ git commit -m "fix(memory): serialize migration manifest updates"
 ### Task 7: Unify migration status across startup and commands
 
 **Files:**
-- Modify: `miniunicorn/agent/memory.py:347-375`
-- Modify: `miniunicorn/command/memory.py:83-108`
+- Modify: `erza/agent/memory.py:347-375`
+- Modify: `erza/command/memory.py:83-108`
 - Test: `tests/agent/test_memory_migration.py`
 - Test: `tests/agent/test_memory_commands.py`
 
@@ -691,7 +691,7 @@ Expected: startup raises migration-required and status reports pending.
 In `MemoryStore.migration_completed()`:
 
 ```python
-from miniunicorn.agent.memory_migration import load_migration_state
+from erza.agent.memory_migration import load_migration_state
 return load_migration_state(self.workspace).completed_at is not None
 ```
 
@@ -701,8 +701,8 @@ In `cmd_memory_status()`, call the same helper. Remove now-unused imports of `MI
 
 ```powershell
 python -m pytest -q tests/agent/test_memory_migration.py tests/agent/test_memory_commands.py
-python -m ruff check miniunicorn/agent/memory.py miniunicorn/command/memory.py tests/agent/test_memory_migration.py tests/agent/test_memory_commands.py
-git add miniunicorn/agent/memory.py miniunicorn/command/memory.py tests/agent/test_memory_migration.py tests/agent/test_memory_commands.py
+python -m ruff check erza/agent/memory.py erza/command/memory.py tests/agent/test_memory_migration.py tests/agent/test_memory_commands.py
+git add erza/agent/memory.py erza/command/memory.py tests/agent/test_memory_migration.py tests/agent/test_memory_commands.py
 git commit -m "fix(memory): unify migration completion lookup"
 ```
 
@@ -711,8 +711,8 @@ git commit -m "fix(memory): unify migration completion lookup"
 ### Task 8: Enforce monotonic `blocked_by` and handle malformed command quoting
 
 **Files:**
-- Modify: `miniunicorn/agent/memory_models.py:669-703`
-- Modify: `miniunicorn/command/memory.py:64-222`
+- Modify: `erza/agent/memory_models.py:669-703`
+- Modify: `erza/command/memory.py:64-222`
 - Test: `tests/agent/test_memory_repository.py`
 - Test: `tests/agent/test_memory_commands.py`
 
@@ -776,8 +776,8 @@ Use it only in show/promote/revoke and immediately return the usage reply when p
 
 ```powershell
 python -m pytest -q tests/agent/test_memory_repository.py tests/agent/test_memory_commands.py
-python -m ruff check miniunicorn/agent/memory_models.py miniunicorn/command/memory.py tests/agent/test_memory_repository.py tests/agent/test_memory_commands.py
-git add miniunicorn/agent/memory_models.py miniunicorn/command/memory.py tests/agent/test_memory_repository.py tests/agent/test_memory_commands.py
+python -m ruff check erza/agent/memory_models.py erza/command/memory.py tests/agent/test_memory_repository.py tests/agent/test_memory_commands.py
+git add erza/agent/memory_models.py erza/command/memory.py tests/agent/test_memory_repository.py tests/agent/test_memory_commands.py
 git commit -m "fix(memory): protect conflict audit metadata"
 ```
 
@@ -795,7 +795,7 @@ git commit -m "fix(memory): protect conflict audit metadata"
 
 - [ ] **Step 1: Replace the narrow boundary test with AST import scanning**
 
-Collect the exact runtime files listed in the design, including all `miniunicorn/agent/memory_*.py`. Parse each with `ast.parse()`, collect roots from `ast.Import` and `ast.ImportFrom`, and assert disjointness from:
+Collect the exact runtime files listed in the design, including all `erza/agent/memory_*.py`. Parse each with `ast.parse()`, collect roots from `ast.Import` and `ast.ImportFrom`, and assert disjointness from:
 
 ```python
 FORBIDDEN_VECTOR_IMPORTS = {
@@ -878,7 +878,7 @@ Expected: zero code-caused failures. For any failure suspected to be environment
 - [ ] **Step 4: Run static and formatting gates**
 
 ```powershell
-python -m ruff check miniunicorn tests
+python -m ruff check erza tests
 git diff --check c87dad75..HEAD
 ```
 

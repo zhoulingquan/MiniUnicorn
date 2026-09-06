@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from miniunicorn.security.workspace_access import (
+from erza.security.workspace_access import (
     WORKSPACE_SCOPE_METADATA_KEY,
     WorkspaceScopeError,
     bind_workspace_scope,
@@ -11,10 +11,10 @@ from miniunicorn.security.workspace_access import (
     validate_workspace_scope_payload,
     workspace_scope_from_metadata,
 )
-from miniunicorn.tools.filesystem import ReadFileTool
-from miniunicorn.tools.message import MessageTool
-from miniunicorn.tools.shell import ExecTool
-from miniunicorn.tools.spawn import SpawnTool
+from erza.tools.filesystem import ReadFileTool
+from erza.tools.message import MessageTool
+from erza.tools.shell import ExecTool
+from erza.tools.spawn import SpawnTool
 
 PNG_BYTES = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"

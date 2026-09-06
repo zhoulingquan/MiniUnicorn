@@ -6,24 +6,24 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniunicorn.config.schema import AgentDefaults
-from miniunicorn.providers.base import LLMResponse
+from erza.config.schema import AgentDefaults
+from erza.providers.base import LLMResponse
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
 
 def _make_loop(tmp_path):
-    from miniunicorn.agent.loop import AgentLoop
-    from miniunicorn.bus.queue import MessageBus
+    from erza.agent.loop import AgentLoop
+    from erza.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
 
     with (
-        patch("miniunicorn.agent.loop.ContextBuilder"),
-        patch("miniunicorn.agent.loop.SessionManager"),
-        patch("miniunicorn.agent.loop.SubagentManager") as MockSubMgr,
+        patch("erza.agent.loop.ContextBuilder"),
+        patch("erza.agent.loop.SessionManager"),
+        patch("erza.agent.loop.SubagentManager") as MockSubMgr,
     ):
         MockSubMgr.return_value.cancel_by_session = AsyncMock(return_value=0)
         loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path)
@@ -31,7 +31,7 @@ def _make_loop(tmp_path):
 
 
 async def test_runner_uses_raw_messages_when_context_governance_fails():
-    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
+    from erza.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     captured_messages: list[dict] = []
@@ -67,7 +67,7 @@ async def test_runner_uses_raw_messages_when_context_governance_fails():
 
 
 def test_snip_history_drops_orphaned_tool_results_from_trimmed_slice(monkeypatch):
-    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
+    from erza.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     tools = MagicMock()
@@ -97,7 +97,7 @@ def test_snip_history_drops_orphaned_tool_results_from_trimmed_slice(monkeypatch
     )
 
     monkeypatch.setattr(
-        "miniunicorn.agent.execution.context_governance.estimate_prompt_tokens_chain",
+        "erza.agent.execution.context_governance.estimate_prompt_tokens_chain",
         lambda *_args, **_kwargs: (500, None),
     )
     token_sizes = {
@@ -108,7 +108,7 @@ def test_snip_history_drops_orphaned_tool_results_from_trimmed_slice(monkeypatch
         "system": 0,
     }
     monkeypatch.setattr(
-        "miniunicorn.agent.execution.context_governance.estimate_message_tokens",
+        "erza.agent.execution.context_governance.estimate_message_tokens",
         lambda msg: token_sizes.get(str(msg.get("content")), 40),
     )
 
@@ -124,7 +124,7 @@ def test_snip_history_drops_orphaned_tool_results_from_trimmed_slice(monkeypatch
 
 
 def test_snip_history_reserves_budget_for_tool_definitions(monkeypatch):
-    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
+    from erza.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     tools = MagicMock()
@@ -156,7 +156,7 @@ def test_snip_history_reserves_budget_for_tool_definitions(monkeypatch):
         return 350, None
 
     monkeypatch.setattr(
-        "miniunicorn.agent.execution.context_governance.estimate_prompt_tokens_chain",
+        "erza.agent.execution.context_governance.estimate_prompt_tokens_chain",
         _estimate,
     )
     token_sizes = {
@@ -168,7 +168,7 @@ def test_snip_history_reserves_budget_for_tool_definitions(monkeypatch):
         "recent two": 200,
     }
     monkeypatch.setattr(
-        "miniunicorn.agent.execution.context_governance.estimate_message_tokens",
+        "erza.agent.execution.context_governance.estimate_message_tokens",
         lambda msg: token_sizes.get(str(msg.get("content")), 40),
     )
 
@@ -180,7 +180,7 @@ def test_snip_history_reserves_budget_for_tool_definitions(monkeypatch):
 
 async def test_backfill_missing_tool_results_inserts_error():
     """Orphaned tool_use (no matching tool_result) should get a synthetic error."""
-    from miniunicorn.agent.runner_strategies import _BACKFILL_CONTENT, backfill_missing_tool_results
+    from erza.agent.runner_strategies import _BACKFILL_CONTENT, backfill_missing_tool_results
 
     messages = [
         {"role": "user", "content": "hi"},
@@ -212,7 +212,7 @@ async def test_backfill_missing_tool_results_inserts_error():
 
 
 def test_drop_orphan_tool_results_removes_unmatched_tool_messages():
-    from miniunicorn.agent.runner_strategies import drop_orphan_tool_results
+    from erza.agent.runner_strategies import drop_orphan_tool_results
 
     messages = [
         {"role": "system", "content": "system"},
@@ -257,7 +257,7 @@ def test_drop_orphan_tool_results_removes_unmatched_tool_messages():
 @pytest.mark.asyncio
 async def test_backfill_noop_when_complete():
     """Complete message chains should not be modified."""
-    from miniunicorn.agent.runner_strategies import backfill_missing_tool_results
+    from erza.agent.runner_strategies import backfill_missing_tool_results
 
     messages = [
         {"role": "user", "content": "hi"},
@@ -281,7 +281,7 @@ async def test_backfill_noop_when_complete():
 
 @pytest.mark.asyncio
 async def test_runner_drops_orphan_tool_results_before_model_request():
-    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
+    from erza.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     captured_messages: list[dict] = []
@@ -323,10 +323,10 @@ async def test_runner_drops_orphan_tool_results_before_model_request():
 @pytest.mark.asyncio
 async def test_backfill_repairs_model_context_without_shifting_save_turn_boundary(tmp_path):
     """Historical backfill should not duplicate old tail messages on persist."""
-    from miniunicorn.agent.loop import AgentLoop
-    from miniunicorn.agent.runner_strategies import _BACKFILL_CONTENT
-    from miniunicorn.bus.events import InboundMessage
-    from miniunicorn.bus.queue import MessageBus
+    from erza.agent.loop import AgentLoop
+    from erza.agent.runner_strategies import _BACKFILL_CONTENT
+    from erza.bus.events import InboundMessage
+    from erza.bus.queue import MessageBus
 
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
@@ -408,8 +408,8 @@ async def test_backfill_repairs_model_context_without_shifting_save_turn_boundar
 @pytest.mark.asyncio
 async def test_runner_backfill_only_mutates_model_context_not_returned_messages():
     """Runner should repair orphaned tool calls for the model without rewriting result.messages."""
-    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
-    from miniunicorn.agent.runner_strategies import _BACKFILL_CONTENT
+    from erza.agent.runner import AgentRunner, AgentRunSpec
+    from erza.agent.runner_strategies import _BACKFILL_CONTENT
 
     provider = MagicMock()
     captured_messages: list[dict] = []
@@ -494,7 +494,7 @@ async def test_runner_backfill_only_mutates_model_context_not_returned_messages(
 @pytest.mark.asyncio
 async def test_microcompact_replaces_old_tool_results():
     """Tool results beyond _MICROCOMPACT_KEEP_RECENT should be summarized."""
-    from miniunicorn.agent.runner_strategies import _MICROCOMPACT_KEEP_RECENT, microcompact
+    from erza.agent.runner_strategies import _MICROCOMPACT_KEEP_RECENT, microcompact
 
     total = _MICROCOMPACT_KEEP_RECENT + 5
     long_content = "x" * 600
@@ -534,7 +534,7 @@ async def test_microcompact_replaces_old_tool_results():
 @pytest.mark.asyncio
 async def test_microcompact_preserves_short_results():
     """Short tool results (< _MICROCOMPACT_MIN_CHARS) should not be replaced."""
-    from miniunicorn.agent.runner_strategies import _MICROCOMPACT_KEEP_RECENT, microcompact
+    from erza.agent.runner_strategies import _MICROCOMPACT_KEEP_RECENT, microcompact
 
     total = _MICROCOMPACT_KEEP_RECENT + 5
     messages: list[dict] = []
@@ -568,7 +568,7 @@ async def test_microcompact_preserves_short_results():
 @pytest.mark.asyncio
 async def test_microcompact_skips_non_compactable_tools():
     """Non-compactable tools (e.g. 'message') should never be replaced."""
-    from miniunicorn.agent.runner_strategies import _MICROCOMPACT_KEEP_RECENT, microcompact
+    from erza.agent.runner_strategies import _MICROCOMPACT_KEEP_RECENT, microcompact
 
     total = _MICROCOMPACT_KEEP_RECENT + 5
     long_content = "y" * 1000
@@ -603,7 +603,7 @@ async def test_microcompact_skips_non_compactable_tools():
 def test_governance_repairs_orphans_after_snip():
     """After _snip_history clips an assistant+tool_calls, the second
     _drop_orphan_tool_results pass must clean up the resulting orphans."""
-    from miniunicorn.agent.runner_strategies import drop_orphan_tool_results
+    from erza.agent.runner_strategies import drop_orphan_tool_results
 
     # Reference (un-snipped) history for context. The snipped fixture below
     # drops the assistant turn that owned ``tc_old`` but keeps its tool result,
@@ -625,7 +625,7 @@ def test_governance_repairs_orphans_after_snip():
 def test_governance_fallback_still_repairs_orphans():
     """When full governance fails, the fallback must still run
     _drop_orphan_tool_results and _backfill_missing_tool_results."""
-    from miniunicorn.agent.runner_strategies import (
+    from erza.agent.runner_strategies import (
         backfill_missing_tool_results,
         drop_orphan_tool_results,
     )
@@ -656,7 +656,7 @@ def test_snip_history_preserves_user_message_after_truncation(monkeypatch):
     - _snip_history activates, keeping only recent assistant/tool pairs.
     - The injected user message is in the truncated prefix and gets lost.
     """
-    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
+    from erza.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     tools = MagicMock()
@@ -666,7 +666,7 @@ def test_snip_history_preserves_user_message_after_truncation(monkeypatch):
     messages = [
         {"role": "system", "content": "system"},
         {"role": "assistant", "content": "previous reply"},
-        {"role": "user", "content": ".miniunicorn的同目录"},
+        {"role": "user", "content": ".erza的同目录"},
         {
             "role": "assistant",
             "content": None,
@@ -697,19 +697,19 @@ def test_snip_history_preserves_user_message_after_truncation(monkeypatch):
 
     # Make estimate_prompt_tokens_chain report above budget so _snip_history activates.
     monkeypatch.setattr(
-        "miniunicorn.agent.execution.context_governance.estimate_prompt_tokens_chain",
+        "erza.agent.execution.context_governance.estimate_prompt_tokens_chain",
         lambda *_a, **_kw: (500, None),
     )
     # Make kept window small: only the last 2 messages fit the budget.
     token_sizes = {
         "system": 0,
         "previous reply": 200,
-        ".miniunicorn的同目录": 80,
+        ".erza的同目录": 80,
         "tool output 1": 80,
         "tool output 2": 80,
     }
     monkeypatch.setattr(
-        "miniunicorn.agent.execution.context_governance.estimate_message_tokens",
+        "erza.agent.execution.context_governance.estimate_message_tokens",
         lambda msg: token_sizes.get(str(msg.get("content")), 100),
     )
 
@@ -727,7 +727,7 @@ def test_snip_history_preserves_user_message_after_truncation(monkeypatch):
 def test_snip_history_no_user_at_all_falls_back_gracefully(monkeypatch):
     """Edge case: if non_system has zero user messages, _snip_history should
     still return a valid sequence (not crash or produce system→assistant)."""
-    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
+    from erza.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     tools = MagicMock()
@@ -753,11 +753,11 @@ def test_snip_history_no_user_at_all_falls_back_gracefully(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "miniunicorn.agent.execution.context_governance.estimate_prompt_tokens_chain",
+        "erza.agent.execution.context_governance.estimate_prompt_tokens_chain",
         lambda *_a, **_kw: (500, None),
     )
     monkeypatch.setattr(
-        "miniunicorn.agent.execution.context_governance.estimate_message_tokens",
+        "erza.agent.execution.context_governance.estimate_message_tokens",
         lambda msg: 100,
     )
 
@@ -769,7 +769,7 @@ def test_snip_history_no_user_at_all_falls_back_gracefully(monkeypatch):
     assert any(m.get("role") == "system" for m in trimmed)
     # The _enforce_role_alternation safety net must be able to fix whatever
     # _snip_history returns here — verify it produces a valid sequence.
-    from miniunicorn.providers.base import LLMProvider
+    from erza.providers.base import LLMProvider
 
     fixed = LLMProvider._enforce_role_alternation(trimmed)
     non_system = [m for m in fixed if m["role"] != "system"]

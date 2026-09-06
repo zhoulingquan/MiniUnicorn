@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from miniunicorn.cli.stream import StreamRenderer, ThinkingSpinner
-from miniunicorn.config.schema import AgentDefaults, Config
+from erza.cli.stream import StreamRenderer, ThinkingSpinner
+from erza.config.schema import AgentDefaults, Config
 
 
 def test_bot_name_and_icon_defaults_preserve_current_branding() -> None:
-    """Default values keep the existing 'MiniUnicorn' name and cat icon."""
+    """Default values keep the existing 'Erza' name and cat icon."""
     defaults = AgentDefaults()
 
-    assert defaults.bot_name == "MiniUnicorn"
+    assert defaults.bot_name == "Erza"
     assert defaults.bot_icon == "🐱"
 
 

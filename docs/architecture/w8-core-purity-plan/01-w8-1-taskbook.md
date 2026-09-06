@@ -7,7 +7,7 @@
 
 1. 只用 `git mv`;`git log --follow` 必须能追溯搬家前历史
 2. 零逻辑改动:只改 import 行与守护匹配逻辑;McpRuntime 类体一字不动
-3. 不留 shim:旧路径 `miniunicorn.composition.mcp_runtime` 彻底消失
+3. 不留 shim:旧路径 `erza.composition.mcp_runtime` 彻底消失
 4. 守护修复只影响匹配精度,不得引入新豁免
 5. 验证门一过立即 commit
 
@@ -16,7 +16,7 @@
 ### 1.1 搬家(1 文件)
 
 ```powershell
-git mv miniunicorn/composition/mcp_runtime.py miniunicorn/tools/mcp_runtime.py
+git mv erza/composition/mcp_runtime.py erza/tools/mcp_runtime.py
 ```
 
 依据:该文件 56 loc,依赖仅 `tools.registry.ToolRegistry` 与
@@ -27,7 +27,7 @@ git mv miniunicorn/composition/mcp_runtime.py miniunicorn/tools/mcp_runtime.py
 
 | 文件 | 行 | 改写 |
 |---|---|---|
-| agent/loop.py | 49 | `from miniunicorn.composition.mcp_runtime import McpRuntime` → `from miniunicorn.tools.mcp_runtime import McpRuntime` |
+| agent/loop.py | 49 | `from erza.composition.mcp_runtime import McpRuntime` → `from erza.tools.mcp_runtime import McpRuntime` |
 | agent/loop_builder.py | 39 | 同上 |
 | composition/gateway.py | 65 | 同上(composition 可引用一切,仅路径更新) |
 
@@ -43,16 +43,16 @@ git mv miniunicorn/composition/mcp_runtime.py miniunicorn/tools/mcp_runtime.py
 `tests/architecture/test_dependency_direction.py` 的
 `test_business_modules_do_not_import_composition`(行 131–141):
 
-现匹配 `target.split(".")[0] == "composition"` 漏掉 `miniunicorn.` 前缀全限定形式。
-修复为同时匹配两种形式(裸 `composition` 与 `miniunicorn.composition`):
+现匹配 `target.split(".")[0] == "composition"` 漏掉 `erza.` 前缀全限定形式。
+修复为同时匹配两种形式(裸 `composition` 与 `erza.composition`):
 
 ```python
 if target == "composition" or target.startswith("composition.") \
-        or target == "miniunicorn.composition" or target.startswith("miniunicorn.composition."):
+        or target == "erza.composition" or target.startswith("erza.composition."):
     violations.append(...)
 ```
 
-(以文件内实际代码风格为准;确保 `from miniunicorn.composition.mcp_runtime import X`
+(以文件内实际代码风格为准;确保 `from erza.composition.mcp_runtime import X`
 迁移后不再命中——迁移后 agent 里已无 composition import,修复后的守护必须全绿。)
 
 ### 1.5 文档(1 文件)
@@ -67,14 +67,14 @@ if target == "composition" or target.startswith("composition.") \
 
 ```powershell
 # 门 1:零残留
-rg -n "composition.mcp_runtime|composition/mcp_runtime" miniunicorn/ tests/
-# 期望零命中(退出码 1);注意别匹配到 git mv 后 docs 中合法的历史记录——只查 miniunicorn/ tests/
+rg -n "composition.mcp_runtime|composition/mcp_runtime" erza/ tests/
+# 期望零命中(退出码 1);注意别匹配到 git mv 后 docs 中合法的历史记录——只查 erza/ tests/
 
 # 门 2:守护(修复后)必须绿
 .venv\Scripts\python.exe -m pytest tests/architecture/test_dependency_direction.py -q
 
 # 门 3:冷导入
-.venv\Scripts\python.exe -c "import miniunicorn.agent; import miniunicorn.composition.gateway; print('ok')"
+.venv\Scripts\python.exe -c "import erza.agent; import erza.composition.gateway; print('ok')"
 
 # 门 4:相关测试
 .venv\Scripts\python.exe -m pytest tests/tools/test_mcp_runtime.py tests/agent/test_loop_init_phase_split.py -q
@@ -84,9 +84,9 @@ rg -n "composition.mcp_runtime|composition/mcp_runtime" miniunicorn/ tests/
 # 期望 4146 passed / 0 failed / 29 skipped(纯搬家,数字不变)
 
 # 门 6:双 ruff 零 + 历史追踪
-.venv\Scripts\python.exe -m ruff check miniunicorn/ tests/
-.venv\Scripts\python.exe -m ruff format --check miniunicorn/ tests/
-git log --follow --oneline miniunicorn/tools/mcp_runtime.py   # > 1 条
+.venv\Scripts\python.exe -m ruff check erza/ tests/
+.venv\Scripts\python.exe -m ruff format --check erza/ tests/
+git log --follow --oneline erza/tools/mcp_runtime.py   # > 1 条
 ```
 
 ## 3. 提交
@@ -96,7 +96,7 @@ refactor(tools): home McpRuntime from composition to tools library
 
 McpRuntime (56 loc) depends only on tools.registry/tools.mcp — pure
 library code misplaced in the assembly layer. Fixes the composition
-import guard's blind spot for miniunicorn.-prefixed imports; agent/loop
+import guard's blind spot for erza.-prefixed imports; agent/loop
 and loop_builder re-point, closing the only two business->composition
 violations.
 ```

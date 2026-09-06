@@ -10,21 +10,21 @@
 **Install from source** (latest features, experimental changes may land here first; recommended for development)
 
 ```bash
-git clone https://github.com/zhoulingquan/miniunicorn.git
-cd miniunicorn
+git clone https://github.com/zhoulingquan/erza.git
+cd erza
 pip install -e .
 ```
 
 **Install with [uv](https://github.com/astral-sh/uv)** (stable release, fast)
 
 ```bash
-uv tool install miniunicorn-ai
+uv tool install erza-ai
 ```
 
 **Install from PyPI** (stable release)
 
 ```bash
-pip install miniunicorn-ai
+pip install erza-ai
 ```
 
 ### Update to latest version
@@ -32,21 +32,21 @@ pip install miniunicorn-ai
 **PyPI / pip**
 
 ```bash
-pip install -U miniunicorn-ai
-miniunicorn --version
+pip install -U erza-ai
+erza --version
 ```
 
 **uv**
 
 ```bash
-uv tool upgrade miniunicorn-ai
-miniunicorn --version
+uv tool upgrade erza-ai
+erza --version
 ```
 
 ## Quick Start
 
 > [!TIP]
-> Set your API key in `~/.miniunicorn/config.json`.
+> Set your API key in `~/.erza/config.json`.
 > Get API keys: [OpenRouter](https://openrouter.ai/keys) (Global)
 >
 > For other LLM providers, please see [`configuration.md`](./configuration.md).
@@ -54,12 +54,12 @@ miniunicorn --version
 **1. Initialize**
 
 ```bash
-miniunicorn onboard
+erza onboard
 ```
 
-Use `miniunicorn onboard --wizard` if you want the interactive setup wizard.
+Use `erza onboard --wizard` if you want the interactive setup wizard.
 
-**2. Configure** (`~/.miniunicorn/config.json`)
+**2. Configure** (`~/.erza/config.json`)
 
 Configure these **two parts** in your config (other options have defaults).
 
@@ -89,7 +89,7 @@ Configure these **two parts** in your config (other options have defaults).
 **3. Chat**
 
 ```bash
-miniunicorn agent
+erza agent
 ```
 
 That's it! You have a working AI agent in 2 minutes.

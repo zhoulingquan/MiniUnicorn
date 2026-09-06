@@ -15,9 +15,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.bus.events import InboundMessage
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.providers.factory import ProviderSnapshot
+from erza.bus.events import InboundMessage
+from erza.bus.queue import MessageBus
+from erza.providers.factory import ProviderSnapshot
 
 
 class _FakeProvider:
@@ -30,12 +30,12 @@ class _FakeProvider:
     generation = Generation()
 
     async def chat_with_retry(self, **kwargs: Any) -> Any:
-        from miniunicorn.providers.base import LLMResponse
+        from erza.providers.base import LLMResponse
 
         return LLMResponse(content="", tool_calls=[], usage={})
 
     async def chat_stream_with_retry(self, **kwargs: Any) -> Any:
-        from miniunicorn.providers.base import LLMResponse
+        from erza.providers.base import LLMResponse
 
         return LLMResponse(content="", tool_calls=[], usage={})
 
@@ -55,8 +55,8 @@ def _fake_provider() -> MagicMock:
 @pytest.mark.asyncio
 async def test_agent_loop_turn_never_touches_cron_lifecycle(tmp_path: Path, monkeypatch) -> None:
     """Running one minimal turn must not start or stop the injected cron."""
-    from miniunicorn.agent.loop import AgentLoop
-    from miniunicorn.cron.service import CronService
+    from erza.agent.loop import AgentLoop
+    from erza.cron.service import CronService
 
     start_spy = AsyncMock(wraps=CronService.start)
     stop_spy = MagicMock(wraps=CronService.stop)
@@ -86,7 +86,7 @@ async def test_agent_loop_turn_never_touches_cron_lifecycle(tmp_path: Path, monk
 
 def test_gateway_start_invokes_cron_start(tmp_path: Path, monkeypatch) -> None:
     """The gateway startup sequence calls cron.start (ownership lives there)."""
-    from miniunicorn.composition.gateway import GatewayApplication
+    from erza.composition.gateway import GatewayApplication
 
     def _build_snapshot(_config) -> ProviderSnapshot:
         return ProviderSnapshot(
@@ -96,10 +96,10 @@ def test_gateway_start_invokes_cron_start(tmp_path: Path, monkeypatch) -> None:
             signature=("test",),
         )
 
-    monkeypatch.setattr("miniunicorn.providers.factory.build_provider_snapshot", _build_snapshot)
-    monkeypatch.setattr("miniunicorn.providers.factory.load_provider_snapshot", _build_snapshot)
+    monkeypatch.setattr("erza.providers.factory.build_provider_snapshot", _build_snapshot)
+    monkeypatch.setattr("erza.providers.factory.load_provider_snapshot", _build_snapshot)
     monkeypatch.setattr(
-        "miniunicorn.providers.factory.make_provider", lambda _config: _fake_provider()
+        "erza.providers.factory.make_provider", lambda _config: _fake_provider()
     )
 
     _config = _make_config(tmp_path)
@@ -126,7 +126,7 @@ def test_gateway_start_invokes_cron_start(tmp_path: Path, monkeypatch) -> None:
 
 
 def _make_config(tmp_path: Path):
-    from miniunicorn.config.schema import Config
+    from erza.config.schema import Config
 
     config = Config()
     config.agents.defaults.workspace = str(tmp_path / "workspace")

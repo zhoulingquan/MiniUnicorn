@@ -27,21 +27,21 @@
 
 ## 二、变更方案
 
-### 2.1 新建 `miniunicorn/agent/memory_consolidator.py`
+### 2.1 新建 `erza/agent/memory_consolidator.py`
 
 - 模块 docstring:`"""Consolidator: LLM-driven session-history consolidation (extracted from memory.py)."""`(单行)
 - 头部:`from __future__ import annotations` + 仅 Consolidator 用的标准库/三方导入(`asyncio`、`weakref`、tiktoken、loguru)+ helpers 家族四个名字 + `call_purpose`/`CallPurpose`、`render_template`(按实际引用,ruff 核实)+ TYPE_CHECKING 块(`LLMProvider`、`SessionManager`、`Session`——注解惰性,TYPE_CHECKING 即可)
-- **运行时导入(关键)**:`from miniunicorn.agent.memory_store import MemoryStore, _RAW_ARCHIVE_MAX_CHARS`——`MemoryStore` 必须运行时导入(373 行 `MemoryStore._format_messages(messages)` 是运行时类引用,非注解),`_RAW_ARCHIVE_MAX_CHARS` 是运行时值;**不得在本文件重定义任何常量**。循环安全:memory_store.py 不导入 memory_consolidator,依赖单向
+- **运行时导入(关键)**:`from erza.agent.memory_store import MemoryStore, _RAW_ARCHIVE_MAX_CHARS`——`MemoryStore` 必须运行时导入(373 行 `MemoryStore._format_messages(messages)` 是运行时类引用,非注解),`_RAW_ARCHIVE_MAX_CHARS` 是运行时值;**不得在本文件重定义任何常量**。循环安全:memory_store.py 不导入 memory_consolidator,依赖单向
 - 主体:`_ARCHIVE_SUMMARY_MAX_CHARS = 8_000  # LLM-produced consolidation summary`(放 class 前,与原文件"常量在 class 前"的相对顺序一致)→ `class Consolidator:` 逐行照搬(含 class 属性、全部 docstring、ratio 断言、中文注释、`__init__` 中的 WeakValueDictionary 注释)
 - **禁止**:搬 Dream、四个 Dream 函数;"修复" `_archive_identity` 私有可见性;改动锁池/归档计数器语义
 
-### 2.2 收缩 `miniunicorn/agent/memory.py`
+### 2.2 收缩 `erza/agent/memory.py`
 
 - 删除 `_ARCHIVE_SUMMARY_MAX_CHARS`(93)与 `class Consolidator:`(96-632)全部
 - import 块新增门面 re-export(ruff isort 会置于 memory_store 块之前):
 
 ```python
-from miniunicorn.agent.memory_consolidator import (  # noqa: F401
+from erza.agent.memory_consolidator import (  # noqa: F401
     _ARCHIVE_SUMMARY_MAX_CHARS,
     Consolidator,
 )
@@ -54,20 +54,20 @@ from miniunicorn.agent.memory_consolidator import (  # noqa: F401
 
 ### 2.3 测试 monkeypatch 目标调整(7 处,纯导入路径调整)
 
-`estimate_message_tokens` 的补丁点改 patch `miniunicorn.agent.memory_consolidator` 命名空间。**已核实两文件的 `memory_module` 引用仅 import 行 + setattr 行,改 import 行即全覆盖**:
+`estimate_message_tokens` 的补丁点改 patch `erza.agent.memory_consolidator` 命名空间。**已核实两文件的 `memory_module` 引用仅 import 行 + setattr 行,改 import 行即全覆盖**:
 
 | 文件 | 现状 | 调整 |
 |---|---|---|
-| tests/agent/test_loop_consolidation_tokens.py | 行 5 `import miniunicorn.agent.memory as memory_module` + **6 处** setattr(行 55/81/120/159/191/253;行 81 为 `token_map` 变体) | import 改为 `import miniunicorn.agent.memory_consolidator as memory_module`;6 处 setattr 逐字不动 |
-| tests/agent/test_consolidation_ratio.py | 行 8 `import miniunicorn.agent.memory as memory_module` + 1 处 setattr(行 89) | 同上,仅改 import 行 |
+| tests/agent/test_loop_consolidation_tokens.py | 行 5 `import erza.agent.memory as memory_module` + **6 处** setattr(行 55/81/120/159/191/253;行 81 为 `token_map` 变体) | import 改为 `import erza.agent.memory_consolidator as memory_module`;6 处 setattr 逐字不动 |
+| tests/agent/test_consolidation_ratio.py | 行 8 `import erza.agent.memory as memory_module` + 1 处 setattr(行 89) | 同上,仅改 import 行 |
 
 **断言、测试逻辑、lambda 体、token_map 数据零修改**。
 
 ### 2.4 新测试(追加到 `tests/agent/test_memory_module_split.py`)
 
-1. `test_facade_identity_consolidator`:`miniunicorn.agent.memory.Consolidator is miniunicorn.agent.memory_consolidator.Consolidator`
+1. `test_facade_identity_consolidator`:`erza.agent.memory.Consolidator is erza.agent.memory_consolidator.Consolidator`
 2. `test_shared_constant_single_definition`:`memory_consolidator._RAW_ARCHIVE_MAX_CHARS is memory_store._RAW_ARCHIVE_MAX_CHARS`(同源导入,非重定义)
-3. `test_archive_summary_constant_identity`:`miniunicorn.agent.memory._ARCHIVE_SUMMARY_MAX_CHARS is memory_consolidator._ARCHIVE_SUMMARY_MAX_CHARS == 8_000`(门面 identity 断言;与 W4-3 终态门面符号表一致,避免下批再改本测试)
+3. `test_archive_summary_constant_identity`:`erza.agent.memory._ARCHIVE_SUMMARY_MAX_CHARS is memory_consolidator._ARCHIVE_SUMMARY_MAX_CHARS == 8_000`(门面 identity 断言;与 W4-3 终态门面符号表一致,避免下批再改本测试)
 4. `test_memory_py_shrunk_further`:memory.py 行数 < 620
 5. `test_consolidator_token_estimate_patchable_via_defining_module`(可选,轻量可行才落成):构造最小 fake 验证 `estimate_message_tokens` 经 memory_consolidator 命名空间可替换;不可轻量构造则省略并在报告说明——2.3 调整后的既有 7 测试通过即为行为覆盖
 
@@ -85,7 +85,7 @@ from miniunicorn.agent.memory_consolidator import (  # noqa: F401
 ## 四、验收清单
 
 - [ ] 全量测试绿(passed ≥ 4119 + 新增)且既有断言零修改;ruff 零告警
-- [ ] `from miniunicorn.agent.memory import Consolidator` 仍可用且 identity 成立
+- [ ] `from erza.agent.memory import Consolidator` 仍可用且 identity 成立
 - [ ] `_RAW_ARCHIVE_MAX_CHARS` 全库仍仅 memory_store.py 一处定义;memory_consolidator.py 为导入
 - [ ] monkeypatch 语义等价:7 个 token 估算测试经新模块目标通过,lambda 体与断言零修改
 - [ ] `MemoryStore._format_messages` 运行时引用在新文件中经运行时导入成立(全量测试中的 Consolidator 归档路径覆盖)

@@ -3,7 +3,7 @@
 **日期：** 2026-08-12  
 **状态：** 已批准，待实施  
 **基线：** `e1e999cad6523cb49d9a6254a83920146ff29092`  
-**适用仓库：** MiniUnicorn
+**适用仓库：** Erza
 
 ## 1. 目标
 
@@ -198,13 +198,13 @@ candidate 保持 candidate 的 revision 中，`evidence`、`derived_from` 和 `b
 
 边界测试使用 AST 扫描结构化记忆运行路径的 import：
 
-- `miniunicorn/agent/memory.py`
-- `miniunicorn/agent/memory_*.py`
-- `miniunicorn/agent/context.py`
-- `miniunicorn/agent/loop.py`
-- `miniunicorn/agent/reflection.py`
-- `miniunicorn/command/memory.py`
-- `miniunicorn/config/schema.py`
+- `erza/agent/memory.py`
+- `erza/agent/memory_*.py`
+- `erza/agent/context.py`
+- `erza/agent/loop.py`
+- `erza/agent/reflection.py`
+- `erza/command/memory.py`
+- `erza/config/schema.py`
 
 禁止 import 根至少包含：`chromadb`、`faiss`、`lancedb`、`qdrant_client`、`pinecone`、`weaviate`、`pymilvus`、`annoy`、`hnswlib`、`sentence_transformers`。同时继续扫描 `pyproject.toml` 的正式和可选依赖。
 

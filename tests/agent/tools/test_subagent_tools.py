@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniunicorn.config.schema import AgentDefaults
+from erza.config.schema import AgentDefaults
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
@@ -15,10 +15,10 @@ _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 @pytest.mark.asyncio
 async def test_subagent_exec_tool_receives_allowed_env_keys(tmp_path):
     """allowed_env_keys from ExecToolConfig must be forwarded to the subagent's ExecTool."""
-    from miniunicorn.agent.subagent import SubagentManager, SubagentStatus
-    from miniunicorn.bus.queue import MessageBus
-    from miniunicorn.config.schema import ToolsConfig
-    from miniunicorn.tools.shell import ExecToolConfig
+    from erza.agent.subagent import SubagentManager, SubagentStatus
+    from erza.bus.queue import MessageBus
+    from erza.config.schema import ToolsConfig
+    from erza.tools.shell import ExecToolConfig
 
     bus = MessageBus()
     provider = MagicMock()
@@ -58,8 +58,8 @@ async def test_subagent_exec_tool_receives_allowed_env_keys(tmp_path):
 @pytest.mark.asyncio
 async def test_subagent_uses_configured_max_iterations(tmp_path):
     """Subagents should honor the configured tool-iteration limit."""
-    from miniunicorn.agent.subagent import SubagentManager, SubagentStatus
-    from miniunicorn.bus.queue import MessageBus
+    from erza.agent.subagent import SubagentManager, SubagentStatus
+    from erza.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
@@ -97,8 +97,8 @@ async def test_subagent_uses_configured_max_iterations(tmp_path):
 @pytest.mark.asyncio
 async def test_spawn_forwards_temperature_to_run_spec(tmp_path):
     """A temperature passed to spawn() should reach the AgentRunSpec."""
-    from miniunicorn.agent.subagent import SubagentManager
-    from miniunicorn.bus.queue import MessageBus
+    from erza.agent.subagent import SubagentManager
+    from erza.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
@@ -133,9 +133,9 @@ async def test_spawn_forwards_temperature_to_run_spec(tmp_path):
 @pytest.mark.asyncio
 async def test_spawn_tool_rejects_when_at_concurrency_limit(tmp_path):
     """SpawnTool should return an error string when the concurrency limit is reached."""
-    from miniunicorn.agent.subagent import SubagentManager
-    from miniunicorn.bus.queue import MessageBus
-    from miniunicorn.tools.spawn import SpawnTool
+    from erza.agent.subagent import SubagentManager
+    from erza.bus.queue import MessageBus
+    from erza.tools.spawn import SpawnTool
 
     bus = MessageBus()
     provider = MagicMock()
@@ -162,7 +162,7 @@ async def test_spawn_tool_rejects_when_at_concurrency_limit(tmp_path):
 
     mgr.runner.run = AsyncMock(side_effect=fake_run)
 
-    from miniunicorn.tools.context import RequestContext
+    from erza.tools.context import RequestContext
 
     tool = SpawnTool(mgr)
     tool.set_context(RequestContext(channel="test", chat_id="c1", session_key="test:c1"))
@@ -189,8 +189,8 @@ def test_subagent_default_max_concurrent_matches_agent_defaults(tmp_path):
     falls back to ``_auto_detect_concurrency(provider)`` (local→1, cloud→4).
     A MagicMock provider reports ``is_local`` as truthy, so the result is 1.
     """
-    from miniunicorn.agent.subagent import SubagentManager
-    from miniunicorn.bus.queue import MessageBus
+    from erza.agent.subagent import SubagentManager
+    from erza.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
@@ -211,8 +211,8 @@ def test_subagent_default_max_concurrent_matches_agent_defaults(tmp_path):
 
 def test_subagent_default_max_iterations_matches_agent_defaults(tmp_path):
     """Direct SubagentManager construction should use the agent default limit."""
-    from miniunicorn.agent.subagent import SubagentManager
-    from miniunicorn.bus.queue import MessageBus
+    from erza.agent.subagent import SubagentManager
+    from erza.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
@@ -230,8 +230,8 @@ def test_subagent_default_max_iterations_matches_agent_defaults(tmp_path):
 
 def test_agent_loop_passes_max_iterations_to_subagents(tmp_path):
     """AgentLoop's configured limit should be shared with spawned subagents."""
-    from miniunicorn.agent.loop import AgentLoop
-    from miniunicorn.bus.queue import MessageBus
+    from erza.agent.loop import AgentLoop
+    from erza.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
@@ -251,8 +251,8 @@ def test_agent_loop_passes_max_iterations_to_subagents(tmp_path):
 @pytest.mark.asyncio
 async def test_agent_loop_syncs_updated_max_iterations_before_run(tmp_path):
     """Runtime max_iterations changes should be reflected before tool execution."""
-    from miniunicorn.agent.loop import AgentLoop
-    from miniunicorn.bus.queue import MessageBus
+    from erza.agent.loop import AgentLoop
+    from erza.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
@@ -293,10 +293,10 @@ async def test_agent_loop_syncs_updated_max_iterations_before_run(tmp_path):
 @pytest.mark.asyncio
 async def test_drain_pending_blocks_while_subagents_running(tmp_path):
     """_drain_pending should block when no messages are available but sub-agents are still running."""
-    from miniunicorn.agent.loop import AgentLoop
-    from miniunicorn.bus.events import InboundMessage
-    from miniunicorn.bus.queue import MessageBus
-    from miniunicorn.session.manager import Session
+    from erza.agent.loop import AgentLoop
+    from erza.bus.events import InboundMessage
+    from erza.bus.queue import MessageBus
+    from erza.session.manager import Session
 
     bus = MessageBus()
     provider = MagicMock()
@@ -388,8 +388,8 @@ async def test_drain_pending_blocks_while_subagents_running(tmp_path):
 @pytest.mark.asyncio
 async def test_drain_pending_no_block_when_no_subagents(tmp_path):
     """_drain_pending should not block when no sub-agents are running."""
-    from miniunicorn.agent.loop import AgentLoop
-    from miniunicorn.bus.queue import MessageBus
+    from erza.agent.loop import AgentLoop
+    from erza.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
@@ -435,9 +435,9 @@ async def test_drain_pending_no_block_when_no_subagents(tmp_path):
 @pytest.mark.asyncio
 async def test_drain_pending_timeout(tmp_path):
     """_drain_pending should return empty after timeout when sub-agents hang."""
-    from miniunicorn.agent.loop import AgentLoop
-    from miniunicorn.bus.queue import MessageBus
-    from miniunicorn.session.manager import Session
+    from erza.agent.loop import AgentLoop
+    from erza.bus.queue import MessageBus
+    from erza.session.manager import Session
 
     bus = MessageBus()
     provider = MagicMock()
@@ -485,7 +485,7 @@ async def test_drain_pending_timeout(tmp_path):
     assert injection_callback is not None
 
     # Patch the timeout to be very short for testing
-    with patch("miniunicorn.agent.loop.asyncio.wait_for") as mock_wait:
+    with patch("erza.agent.loop.asyncio.wait_for") as mock_wait:
         mock_wait.side_effect = asyncio.TimeoutError
         results = await injection_callback()
         assert results == []

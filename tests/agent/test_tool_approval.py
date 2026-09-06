@@ -20,10 +20,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniunicorn.agent.execution.tool_execution import ToolExecutionCoordinator
-from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
-from miniunicorn.agent.safety_policy import RiskLevel
-from miniunicorn.providers.base import LLMProvider, ToolCallRequest
+from erza.agent.execution.tool_execution import ToolExecutionCoordinator
+from erza.agent.runner import AgentRunner, AgentRunSpec
+from erza.agent.safety_policy import RiskLevel
+from erza.providers.base import LLMProvider, ToolCallRequest
 
 
 class HighRiskFakeTool:

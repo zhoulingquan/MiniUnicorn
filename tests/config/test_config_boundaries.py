@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from miniunicorn.config.schema import AgentDefaults, ProviderConfig, ProvidersConfig
+from erza.config.schema import AgentDefaults, ProviderConfig, ProvidersConfig
 
 
 def test_agent_defaults_reject_unknown_setting() -> None:

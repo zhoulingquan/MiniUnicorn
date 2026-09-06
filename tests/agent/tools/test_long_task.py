@@ -7,12 +7,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.session.goal_state import GOAL_STATE_KEY
-from miniunicorn.session.manager import SessionManager
-from miniunicorn.tools.context import RequestContext
-from miniunicorn.tools.long_task import (
+from erza.agent.loop import AgentLoop
+from erza.bus.queue import MessageBus
+from erza.session.goal_state import GOAL_STATE_KEY
+from erza.session.manager import SessionManager
+from erza.tools.context import RequestContext
+from erza.tools.long_task import (
     CompleteGoalTool,
     LongTaskTool,
 )

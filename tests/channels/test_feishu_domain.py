@@ -2,8 +2,8 @@
 
 from unittest.mock import MagicMock
 
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.channels.feishu import FeishuChannel, FeishuConfig
+from erza.bus.queue import MessageBus
+from erza.channels.feishu import FeishuChannel, FeishuConfig
 
 
 def _make_channel(domain: str = "feishu") -> FeishuChannel:

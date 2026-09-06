@@ -23,7 +23,7 @@ export interface HostRuntimeInfo {
   engine_transport?: "unix_socket";
 }
 
-export interface MiniunicornHostApi {
+export interface ErzaHostApi {
   getRuntimeInfo(): Promise<HostRuntimeInfo>;
   restartEngine(): Promise<void>;
   pickFolder(): Promise<string | null>;
@@ -47,19 +47,19 @@ export type HostSocketEvent =
   | { code?: number; id: string; reason?: string; type: "close" };
 
 type HostSocketBridge = Required<Pick<
-  MiniunicornHostApi,
+  ErzaHostApi,
   "closeSocket" | "onSocketEvent" | "openSocket" | "sendSocket"
 >>;
 
 declare global {
   interface Window {
-    miniunicornHost?: MiniunicornHostApi;
+    erzaHost?: ErzaHostApi;
   }
 }
 
-export function getHostApi(): MiniunicornHostApi | null {
+export function getHostApi(): ErzaHostApi | null {
   if (typeof window === "undefined") return null;
-  return window.miniunicornHost ?? null;
+  return window.erzaHost ?? null;
 }
 
 export function toRuntimeSurface(surface: string | null | undefined): RuntimeSurface {

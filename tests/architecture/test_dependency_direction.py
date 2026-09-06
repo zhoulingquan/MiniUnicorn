@@ -2,12 +2,12 @@
 
 Enforces the module-boundary rules from ``docs/architecture/module-boundaries.md``:
 
-A. Business modules must not import ``miniunicorn.composition``.
-   Entry points (``miniunicorn/cli/*``, ``miniunicorn/miniunicorn.py``) and the
+A. Business modules must not import ``erza.composition``.
+   Entry points (``erza/cli/*``, ``erza/erza.py``) and the
    ``composition`` package itself are exempt.
 
-B. ``miniunicorn.session`` and ``miniunicorn.channels`` must not import
-   ``miniunicorn.agent``.  Dependency direction is one-way: the agent may
+B. ``erza.session`` and ``erza.channels`` must not import
+   ``erza.agent``.  Dependency direction is one-way: the agent may
    depend on session/channels, never the reverse.
 
 C. Modules must not access underscore-private attributes on names imported
@@ -16,17 +16,17 @@ C. Modules must not access underscore-private attributes on names imported
    underlying coupling is resolved.
 
 D. Sink packages (``providers`` / ``utils`` / ``security`` / ``config`` /
-   ``bus`` / ``ledger``) must not import ``miniunicorn.agent``.  Dependency
+   ``bus`` / ``ledger``) must not import ``erza.agent``.  Dependency
    direction is one-way: the agent core may depend on its vocabulary and
    infrastructure leaves, never the reverse.  No exemptions.
 
 E. Base-layer sink packages (``providers`` / ``utils`` / ``security`` /
    ``config`` / ``bus`` / ``ledger`` / ``memory`` / ``tools``) must not
-   import the cli entry layer (``miniunicorn.cli.*``, bare ``cli.*`` both
+   import the cli entry layer (``erza.cli.*``, bare ``cli.*`` both
    matched).  No exemptions.
 
 The scanner is deliberately dependency-free (pure ``ast``): every
-``miniunicorn/**/*.py`` file is parsed, import bindings are resolved, and
+``erza/**/*.py`` file is parsed, import bindings are resolved, and
 accesses are checked.  Instance-level private access on objects that are not
 import-bound (e.g. ``loop._last_usage`` read by command handlers, ``state._*``
 in tools) is not statically resolvable and is governed by the documented
@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import Iterator
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-SRC_ROOT = PROJECT_ROOT / "miniunicorn"
+SRC_ROOT = PROJECT_ROOT / "erza"
 
 # 业务模块：构成单向依赖的骨架。入口包(cli/webui/composition/根 facade)不受
 # “不得 import composition” 限制。
@@ -68,13 +68,13 @@ BUSINESS_PACKAGES = frozenset(
 # 长期应改为依赖注入(bus 事件或注入服务),届时移除对应豁免条目。
 AGENT_IMPORT_EXEMPTIONS = frozenset(
     {
-        ("channels/websocket/handlers/agents", "miniunicorn.agent.routes_agents"),
-        ("channels/websocket/handlers/skills", "miniunicorn.agent.skills"),
+        ("channels/websocket/handlers/agents", "erza.agent.routes_agents"),
+        ("channels/websocket/handlers/skills", "erza.agent.skills"),
     }
 )
 
 # Rule C 已声明的过渡期例外：跨包下划线私有属性访问。
-# - composition/gateway.py:99 对 miniunicorn.cli.commands._migrate_cron_store 的
+# - composition/gateway.py:99 对 erza.cli.commands._migrate_cron_store 的
 #   后期绑定(组合层复用 cli.commands 的迁移工具),见 module-boundaries.md §4。
 PRIVATE_ATTR_EXEMPTIONS = frozenset(
     {
@@ -144,8 +144,8 @@ def test_business_modules_do_not_import_composition() -> None:
             if (
                 target == "composition"
                 or target.startswith("composition.")
-                or target == "miniunicorn.composition"
-                or target.startswith("miniunicorn.composition.")
+                or target == "erza.composition"
+                or target.startswith("erza.composition.")
             ):
                 violations.append(f"{rel}:{lineno} imports {target}")
     assert not violations, "business modules must not import composition:\n" + "\n".join(violations)
@@ -159,7 +159,7 @@ def test_session_and_channels_do_not_import_agent() -> None:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8-sig"))
         for _, target in _import_targets(tree):
-            if target == "miniunicorn.agent" or target.startswith("miniunicorn.agent."):
+            if target == "erza.agent" or target.startswith("erza.agent."):
                 found.add((rel, target))
     assert found == AGENT_IMPORT_EXEMPTIONS, (
         "session/channels must not import agent; mismatch between current "
@@ -185,7 +185,7 @@ def test_sink_packages_do_not_import_agent() -> None:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8-sig"))
         for _, target in _import_targets(tree):
-            if target == "miniunicorn.agent" or target.startswith("miniunicorn.agent."):
+            if target == "erza.agent" or target.startswith("erza.agent."):
                 found.add((rel, target))
     assert found == set(), (
         "providers/utils/security/config/bus/ledger/memory must not import agent; "
@@ -216,8 +216,8 @@ def test_base_layer_does_not_import_cli() -> None:
             if (
                 target == "cli"
                 or target.startswith("cli.")
-                or target == "miniunicorn.cli"
-                or target.startswith("miniunicorn.cli.")
+                or target == "erza.cli"
+                or target.startswith("erza.cli.")
             ):
                 found.add((rel, target))
     assert found == set(), (
@@ -243,7 +243,7 @@ def test_no_cross_package_underscore_private_access() -> None:
             if root is None or root not in bindings:
                 continue
             target = bindings[root]
-            if not target.startswith("miniunicorn."):
+            if not target.startswith("erza."):
                 continue
             target_package = target.split(".")[1]
             if target_package != package:

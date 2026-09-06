@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from miniunicorn.memory.audit_export import AuditExportError, MemoryAuditExporter
-from miniunicorn.memory.models import (
+from erza.memory.audit_export import AuditExportError, MemoryAuditExporter
+from erza.memory.models import (
     SCHEMA_VERSION,
     ActorKind,
     MemoryOperation,
@@ -25,7 +25,7 @@ from miniunicorn.memory.models import (
     new_transaction_id,
     transaction_checksum,
 )
-from miniunicorn.memory.repository import StructuredMemoryRepository
+from erza.memory.repository import StructuredMemoryRepository
 
 UTC = timezone.utc
 
@@ -46,7 +46,7 @@ def _record(index: int = 0) -> MemoryRecord:
             "status": "candidate",
             "kind": "fact",
             "scope": PROJECT_SCOPE,
-            "subject": "MiniUnicorn",
+            "subject": "Erza",
             "slot": f"db.primary.{index}",
             "statement": f"fact {index}",
             "detail": "",
@@ -107,7 +107,7 @@ def canonical_line(transaction: MemoryTransaction) -> str:
 def workspace(tmp_path) -> Path:
     structured = tmp_path / "memory" / "structured"
     structured.mkdir(parents=True)
-    bundled = Path(__file__).parents[2] / "miniunicorn" / "templates" / "memory" / "TAGS.json"
+    bundled = Path(__file__).parents[2] / "erza" / "templates" / "memory" / "TAGS.json"
     shutil.copy(bundled, structured / "tags.json")
     return tmp_path
 
@@ -171,12 +171,12 @@ def _audit_claims_consistent(audit: Path) -> bool:
 
 def clean_twin_snapshot(monkeypatch, tmp_path_factory, transactions) -> dict[str, bytes]:
     """Byte-identical reference audit for a fresh export of ``transactions``."""
-    import miniunicorn.memory.audit_export as audit_export
+    import erza.memory.audit_export as audit_export
 
     twin = tmp_path_factory.mktemp("twin")
     structured = twin / "memory" / "structured"
     structured.mkdir(parents=True)
-    bundled = Path(__file__).parents[2] / "miniunicorn" / "templates" / "memory" / "TAGS.json"
+    bundled = Path(__file__).parents[2] / "erza" / "templates" / "memory" / "TAGS.json"
     shutil.copy(bundled, structured / "tags.json")
     twin_repository = StructuredMemoryRepository(twin, lock_timeout_s=5.0)
     for transaction in transactions:
@@ -320,7 +320,7 @@ def test_export_pending_is_idempotent(workspace, repository):
 def test_export_failure_keeps_db_and_old_audit_and_rebuild_restores(
     workspace, repository, monkeypatch, tmp_path_factory, failure
 ):
-    import miniunicorn.memory.audit_export as audit_export
+    import erza.memory.audit_export as audit_export
 
     transactions = seed_transactions(repository, 8)
     exporter = MemoryAuditExporter(repository, segment_size=3)
@@ -371,7 +371,7 @@ def test_export_failure_keeps_db_and_old_audit_and_rebuild_restores(
 
 
 def test_watermark_never_regresses_below_stored(workspace, repository):
-    from miniunicorn.memory.sqlite_schema import connect_memory_db
+    from erza.memory.sqlite_schema import connect_memory_db
 
     seed_transactions(repository, 10)
     exporter = MemoryAuditExporter(repository, segment_size=3)
@@ -444,7 +444,7 @@ def test_rebuild_swaps_audit_and_preserves_old_in_recovery(workspace, repository
 
 
 def test_rebuild_failure_keeps_db_and_recoverable_old_dir(workspace, repository, monkeypatch):
-    import miniunicorn.memory.audit_export as audit_export
+    import erza.memory.audit_export as audit_export
 
     seed_transactions(repository, 8)
     exporter = MemoryAuditExporter(repository, segment_size=3)
@@ -507,8 +507,8 @@ def test_transaction_rows_in_range_returns_ordered_raw_rows(workspace, repositor
 
 
 def test_startup_trigger_exports_pending_lag(workspace, repository):
-    from miniunicorn.config.schema import StructuredMemoryConfig
-    from miniunicorn.memory import MemoryStore
+    from erza.config.schema import StructuredMemoryConfig
+    from erza.memory import MemoryStore
 
     seed_transactions(repository, 5)
     assert repository.storage_stats().audit_lag == 5
@@ -527,7 +527,7 @@ def test_negative_segment_size_rejected(repository):
 
 
 def test_default_segment_size_is_ten_thousand():
-    from miniunicorn.memory.audit_export import SEGMENT_SIZE
+    from erza.memory.audit_export import SEGMENT_SIZE
 
     assert SEGMENT_SIZE == 10_000
 
@@ -589,7 +589,7 @@ def test_export_replace_failure_at_every_write_point_self_heals(
     every failure keeps ``audit_exported_seq`` behind, and the next clean
     pass restores a byte-identical audit.
     """
-    import miniunicorn.memory.audit_export as audit_export
+    import erza.memory.audit_export as audit_export
 
     monkeypatch.setattr(audit_export, "_utc_now", lambda: FIXED_GENERATED_AT)
     transactions = seed_transactions(repository, 16)
@@ -635,7 +635,7 @@ def test_export_replace_failure_at_every_write_point_self_heals(
 def test_rebuild_twice_same_minute_keeps_unique_recovery_audit(workspace, repository, monkeypatch):
     """Two rebuilds within the same UTC minute must not collide on the
     ``recovery/<UTC>/audit`` target: each previous audit stays recoverable."""
-    import miniunicorn.memory.audit_export as audit_export
+    import erza.memory.audit_export as audit_export
 
     seed_transactions(repository, 5)
     monkeypatch.setattr(audit_export, "_utc_stamp", lambda: "2026-08-15T12-00-00Z")
@@ -657,7 +657,7 @@ def test_rebuild_watermark_commit_failure_leaves_new_audit_and_heals(
     workspace, repository, monkeypatch
 ):
     """A failed storage_meta commit after the rebuild swap keeps lag > 0."""
-    import miniunicorn.memory.audit_export as audit_export
+    import erza.memory.audit_export as audit_export
 
     seed_transactions(repository, 8)
     exporter = MemoryAuditExporter(repository, segment_size=3)

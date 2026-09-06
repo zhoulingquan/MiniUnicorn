@@ -4,11 +4,11 @@ import asyncio
 
 import pytest
 
-from miniunicorn.cron.service import CronService
-from miniunicorn.tools.context import RequestContext
-from miniunicorn.tools.cron import CronTool
-from miniunicorn.tools.message import MessageTool
-from miniunicorn.tools.spawn import SpawnTool
+from erza.cron.service import CronService
+from erza.tools.context import RequestContext
+from erza.tools.cron import CronTool
+from erza.tools.message import MessageTool
+from erza.tools.spawn import SpawnTool
 
 
 @pytest.mark.asyncio

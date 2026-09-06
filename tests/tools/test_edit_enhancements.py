@@ -3,8 +3,8 @@ notebook JSON editing, and create-file semantics."""
 
 import pytest
 
-from miniunicorn.tools import file_state
-from miniunicorn.tools.filesystem import EditFileTool, ReadFileTool
+from erza.tools import file_state
+from erza.tools.filesystem import EditFileTool, ReadFileTool
 
 # ---------------------------------------------------------------------------
 # Helpers

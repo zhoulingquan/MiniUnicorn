@@ -1,6 +1,6 @@
 # Check optional Feishu dependencies before running tests
 try:
-    from miniunicorn.channels import feishu
+    from erza.channels import feishu
 
     FEISHU_AVAILABLE = getattr(feishu, "FEISHU_AVAILABLE", False)
 except ImportError:
@@ -11,7 +11,7 @@ if not FEISHU_AVAILABLE:
 
     pytest.skip("Feishu dependencies not installed (lark-oapi)", allow_module_level=True)
 
-from miniunicorn.channels.feishu import FeishuChannel, _extract_post_content
+from erza.channels.feishu import FeishuChannel, _extract_post_content
 
 
 def test_extract_post_content_supports_post_wrapper_shape() -> None:

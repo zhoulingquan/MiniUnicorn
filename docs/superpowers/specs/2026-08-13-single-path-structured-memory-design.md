@@ -2,7 +2,7 @@
 
 ## Goal
 
-MiniUnicorn is still under development and has no production population that needs runtime compatibility modes. Replace the `legacy` / `shadow` / `governed` product modes with one always-on governed structured-memory path.
+Erza is still under development and has no production population that needs runtime compatibility modes. Replace the `legacy` / `shadow` / `governed` product modes with one always-on governed structured-memory path.
 
 ## Decisions
 

@@ -25,13 +25,13 @@ from unittest.mock import MagicMock
 import pytest
 from loguru import logger
 
-from miniunicorn.agent.hook import AgentHook, CompositeHook
-from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.agent.progress_hook import AgentProgressHook
-from miniunicorn.agent.runner import _MAX_INJECTIONS_PER_TURN
-from miniunicorn.bus.events import InboundMessage
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.providers.base import LLMResponse
+from erza.agent.hook import AgentHook, CompositeHook
+from erza.agent.loop import AgentLoop
+from erza.agent.progress_hook import AgentProgressHook
+from erza.agent.runner import _MAX_INJECTIONS_PER_TURN
+from erza.bus.events import InboundMessage
+from erza.bus.queue import MessageBus
+from erza.providers.base import LLMResponse
 from tests.agent.conftest import make_loop, make_provider
 
 
@@ -109,7 +109,7 @@ async def test_drain_pending_messages_block_wait_timeout(tmp_path, monkeypatch) 
         fut.close()  # close the unawaited Queue.get() coroutine
         raise asyncio.TimeoutError()
 
-    monkeypatch.setattr("miniunicorn.agent.loop.asyncio.wait_for", _timeout_wait_for)
+    monkeypatch.setattr("erza.agent.loop.asyncio.wait_for", _timeout_wait_for)
 
     records: list[str] = []
     handler_id = logger.add(records.append, level="WARNING", format="{level.name}: {message}")

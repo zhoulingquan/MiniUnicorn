@@ -68,7 +68,7 @@ function makeClient() {
 function wrap(client: ReturnType<typeof makeClient>, children: ReactNode, modelName?: string | null) {
   return (
     <ClientProvider
-      client={client as unknown as import("@/lib/miniunicorn-client").MiniunicornClient}
+      client={client as unknown as import("@/lib/erza-client").ErzaClient}
       token="tok"
       modelName={modelName ?? null}
     >

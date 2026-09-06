@@ -3,12 +3,12 @@
 Feishu cards reject messages that contain more than one table element
 (API error 11310: card table number over limit).  The helper splits a flat
 list of card elements into groups so that each group contains at most one
-table, allowing MiniUnicorn to send multiple cards instead of failing.
+table, allowing Erza to send multiple cards instead of failing.
 """
 
 # Check optional Feishu dependencies before running tests
 try:
-    from miniunicorn.channels import feishu
+    from erza.channels import feishu
 
     FEISHU_AVAILABLE = getattr(feishu, "FEISHU_AVAILABLE", False)
 except ImportError:
@@ -19,7 +19,7 @@ if not FEISHU_AVAILABLE:
 
     pytest.skip("Feishu dependencies not installed (lark-oapi)", allow_module_level=True)
 
-from miniunicorn.channels.feishu import FeishuChannel
+from erza.channels.feishu import FeishuChannel
 
 
 def _md(text: str) -> dict:

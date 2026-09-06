@@ -1,4 +1,4 @@
-"""End-to-end integration tests for the upgraded miniunicorn full chain.
+"""End-to-end integration tests for the upgraded erza full chain.
 
 Covers the upgraded components and their wiring:
   * Planner (planner.py) -> Plan/PlanStep, create_plan
@@ -23,18 +23,18 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.context_governor import ContextGovernor
-from miniunicorn.agent.planner import Plan, Planner, PlanStep, StepStatus
-from miniunicorn.agent.reflection import Reflection
-from miniunicorn.agent.subagent_registry import SubagentRegistry
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.config.schema import AgentDefaults
-from miniunicorn.ledger.turn_budget import TurnBudget
-from miniunicorn.providers.base import LLMProvider, LLMResponse
-from miniunicorn.tools.context import RequestContext
-from miniunicorn.tools.delegate import DelegateTool
-from miniunicorn.tools.execute_plan import ExecutePlanTool
-from miniunicorn.tools.registry import ToolRegistry
+from erza.agent.context_governor import ContextGovernor
+from erza.agent.planner import Plan, Planner, PlanStep, StepStatus
+from erza.agent.reflection import Reflection
+from erza.agent.subagent_registry import SubagentRegistry
+from erza.bus.queue import MessageBus
+from erza.config.schema import AgentDefaults
+from erza.ledger.turn_budget import TurnBudget
+from erza.providers.base import LLMProvider, LLMResponse
+from erza.tools.context import RequestContext
+from erza.tools.delegate import DelegateTool
+from erza.tools.execute_plan import ExecutePlanTool
+from erza.tools.registry import ToolRegistry
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
@@ -46,7 +46,7 @@ _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
 def _make_subagent_manager(tmp_path: Path):  # type: ignore[no-untyped-def]
     """Build a real SubagentManager with a mock provider (no real LLM)."""
-    from miniunicorn.agent.subagent import SubagentManager
+    from erza.agent.subagent import SubagentManager
 
     provider = MagicMock(spec=LLMProvider)
     provider.get_default_model.return_value = "test-model"
@@ -198,7 +198,7 @@ async def test_delegate_with_registry(tmp_path):
 @pytest.mark.asyncio
 async def test_subagent_spawn_and_wait_overrides(tmp_path):
     """spawn_and_wait forwards overrides to _run_subagent_direct / AgentRunSpec."""
-    from miniunicorn.agent.subagent import SubagentManager
+    from erza.agent.subagent import SubagentManager
 
     provider = MagicMock(spec=LLMProvider)
     provider.get_default_model.return_value = "test-model"
@@ -252,7 +252,7 @@ async def test_subagent_spawn_and_wait_overrides(tmp_path):
 
 def test_spawn_and_wait_signature_has_overrides():
     """Contract check: spawn_and_wait exposes the three override parameters."""
-    from miniunicorn.agent.subagent import SubagentManager
+    from erza.agent.subagent import SubagentManager
 
     sig = inspect.signature(SubagentManager.spawn_and_wait)
     params = sig.parameters
@@ -329,7 +329,7 @@ async def test_reflection_persistence(tmp_path, monkeypatch):
     # Control timestamps so the two entries land in distinct minutes — the
     # JSONL filter uses strict `>` on the "YYYY-MM-DD HH:MM" string, so two
     # entries written within the same minute would otherwise be indistinguishable.
-    from miniunicorn.agent import reflection as reflection_mod
+    from erza.agent import reflection as reflection_mod
 
     fake_clock = {"tick": 0}
 

@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from miniunicorn.config.loader import set_config_path
-from miniunicorn.utils.artifacts import (
+from erza.config.loader import set_config_path
+from erza.utils.artifacts import (
     ArtifactError,
     decode_image_data_url,
     store_generated_image_artifact,

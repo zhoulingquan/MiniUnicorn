@@ -1,4 +1,4 @@
-# MiniUnicorn 可信证据与工具库化实施计划（总览）
+# Erza 可信证据与工具库化实施计划（总览）
 
 > 本系列文件是多轮红队评审（2026-08-25 ~ 08-29）收敛后的最终实施方案。
 > 每份批次文件自包含，可直接作为 Opencode 的任务书，无需对话上下文。
@@ -68,7 +68,7 @@ tests/agent/ 下审批门、tool_blocked、checkpoint 恢复、预算传播、�
 3. 实施（禁改范围绝对不碰）
 4. 新增测试逐条实现并跑绿
 5. `pytest tests/ -x -q` 全量 ≥ 3970 passed / 0 failed
-6. `ruff check miniunicorn/ && ruff format --check miniunicorn/` 零告警
+6. `ruff check erza/ && ruff format --check erza/` 零告警
 7. 单批单 commit，禁止 `git add .`，禁止混入 .tmp-* 与临时报告
 8. 输出批次报告：改动文件清单、测试结果、与本规格的偏差说明
 

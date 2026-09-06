@@ -1,10 +1,10 @@
 import pytest
 
-from miniunicorn.config.schema import Config
-from miniunicorn.tools.base import Tool
-from miniunicorn.tools.context import ToolContext
-from miniunicorn.tools.loader import ToolLoader
-from miniunicorn.tools.registry import ToolRegistry
+from erza.config.schema import Config
+from erza.tools.base import Tool
+from erza.tools.context import ToolContext
+from erza.tools.loader import ToolLoader
+from erza.tools.registry import ToolRegistry
 
 
 class _CoreOnlyTool(Tool):

@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/logo.svg" alt="MiniUnicorn Logo" width="200" height="200">
+<img src="docs/logo.svg" alt="Erza Logo" width="200" height="200">
 
 **An open-source personal AI agent framework — lightweight at its core, auditable, and extensible**
 
@@ -8,7 +8,7 @@ Built around one readable core loop — messages come in, the LLM decides, tools
 
 [![Python](https://img.shields.io/badge/python-≥3.11-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
-[![Release](https://img.shields.io/badge/release-v0.2.0-success)](https://github.com/zhoulingquan/MiniUnicorn/releases)
+[![Release](https://img.shields.io/badge/release-v0.2.0-success)](https://github.com/zhoulingquan/Erza/releases)
 [![Status](https://img.shields.io/badge/status-alpha-orange)]()
 
 [简体中文](./README.md) | **English**
@@ -19,13 +19,13 @@ Built around one readable core loop — messages come in, the LLM decides, tools
 
 ## What is this
 
-MiniUnicorn is a personal AI agent that runs long-term. It is not a chatbot framework, nor an orchestration engine — it is just a **small agent loop**: receive a message, call the LLM, execute tools, return the result. Everything heavy (channel adapters, tool implementations, memory strategies) hangs on the edges of the loop, keeping the core readable, auditable, and replaceable.
+Erza is a personal AI agent that runs long-term. It is not a chatbot framework, nor an orchestration engine — it is just a **small agent loop**: receive a message, call the LLM, execute tools, return the result. Everything heavy (channel adapters, tool implementations, memory strategies) hangs on the edges of the loop, keeping the core readable, auditable, and replaceable.
 
 A note on "lightweight": here it refers to the architectural philosophy and dependency cost — the orchestration core is only about 3.4k lines, the runtime pulls in roughly 30 pure-Python dependencies, and a single process is enough to deploy; yet the full codebase, with channel adapters, 30 tool classes, and the WebUI on the edges, totals roughly 110k lines of source — far from "small-script" territory.
 
 Built on top of [Nanobot](https://github.com/marm-io/nanobot), extending its lightweight agent core with channel adapters, a memory system, a WebUI, and multi-platform deployment.
 
-> *"If you're not the model, you're the harness."* — once model capability crosses a threshold, what determines agent productivity is the engineering infrastructure wrapped around the model. MiniUnicorn is a complete yet minimal **Agent Harness** implementation.
+> *"If you're not the model, you're the harness."* — once model capability crosses a threshold, what determines agent productivity is the engineering infrastructure wrapped around the model. Erza is a complete yet minimal **Agent Harness** implementation.
 
 ## Architecture
 
@@ -33,7 +33,7 @@ The whole system revolves around an async message bus, in four layers:
 
 <div align="center">
 
-<img src="docs/architecture-en.svg" alt="MiniUnicorn four-layer architecture: channel layer → message bus → agent core → capability layer" width="680">
+<img src="docs/architecture-en.svg" alt="Erza four-layer architecture: channel layer → message bus → agent core → capability layer" width="680">
 
 </div>
 
@@ -41,7 +41,7 @@ The channel layer (`channels/`, 6 adapters) is fully decoupled from the agent co
 
 ## Module breakdown
 
-| # | Harness module | MiniUnicorn implementation | Key files |
+| # | Harness module | Erza implementation | Key files |
 |---|---------------|---------------------------|-----------|
 | 1 | Orchestration Loop | ReAct loop of AgentLoop → AgentRunner | `agent/loop.py` · `agent/runner.py` |
 | 2 | Tools | 20 built-in tools + MCP | `agent/tools/` |
@@ -100,7 +100,7 @@ Context governance is strategy-based. `ContextGovernor` drives a set of replacea
 - **AutoCompact** — proactively compress idle sessions to cut token cost and latency
 - **Turn budget** — `TurnBudget` caps per-turn resource consumption
 
-Auto-compaction is token-budget driven and skips active tasks. Third-party strategies register via the `miniunicorn.context_strategies` entry point; built-ins always take precedence.
+Auto-compaction is token-budget driven and skips active tasks. Third-party strategies register via the `erza.context_strategies` entry point; built-ins always take precedence.
 
 ### 5. Prompt construction — the world the model sees
 
@@ -116,7 +116,7 @@ Session writes are atomic (temp file + fsync + rename), crash-safe. Long-term me
 
 ### 8. Error handling — surviving inevitable errors
 
-Errors compound in multi-step agents. MiniUnicorn's countermeasures are layered: `FallbackProvider` automatically switches to a backup model when the primary fails; tool errors return structured results for the model to self-correct; the **Reflection mechanism** has the model produce a one-sentence lesson on failure (tool error, LLM error, iteration cap) written to `reflections.jsonl`, which Dream consolidates into long-term memory — the goal is cross-turn learning: never repeat the same mistake.
+Errors compound in multi-step agents. Erza's countermeasures are layered: `FallbackProvider` automatically switches to a backup model when the primary fails; tool errors return structured results for the model to self-correct; the **Reflection mechanism** has the model produce a one-sentence lesson on failure (tool error, LLM error, iteration cap) written to `reflections.jsonl`, which Dream consolidates into long-term memory — the goal is cross-turn learning: never repeat the same mistake.
 
 ### 9. Guardrails — explicit boundaries
 
@@ -178,7 +178,7 @@ A layered termination system: natural termination (the model stops calling tools
 | `channels/` | 6 channel adapters (Feishu/DingTalk/WeCom/WeChat/QQ/WebSocket) |
 | `agent/tools/` | 21 built-in tool classes (files/shell/fetch/MCP/subagents...) |
 | `webui/` (repo root) | React 18 + Vite + TypeScript frontend (~40k lines of TS/TSX) |
-| `miniunicorn/webui/` | Python gateway: HTTP/WebSocket routing, settings/channels/tools management APIs |
+| `erza/webui/` | Python gateway: HTTP/WebSocket routing, settings/channels/tools management APIs |
 | `apps/` | Agent app ecosystem: CLI app catalog, installation, and extension marketplace protocol |
 | `cli/` | Typer CLI commands, terminal rendering, gateway runner |
 | `utils/` | Document parsing, media decoding, Git storage, and other utilities |
@@ -190,8 +190,8 @@ A layered termination system: natural termination (the model stops calling tools
 
 ```bash
 # From source (latest features)
-git clone https://github.com/zhoulingquan/miniunicorn.git
-cd miniunicorn
+git clone https://github.com/zhoulingquan/erza.git
+cd erza
 pip install -e .
 
 # Optional extras
@@ -205,7 +205,7 @@ About 30 Python packages at runtime, no native build dependencies (except lxml).
 **One command to start** — config files and the workspace are initialized automatically; the LLM API key can be configured in the WebUI after startup.
 
 ```bash
-miniunicorn gateway
+erza gateway
 # → open http://127.0.0.1:8765 in your browser
 ```
 
@@ -215,25 +215,25 @@ On first launch there is no LLM configured and chat is unavailable. In the WebUI
 
 ```bash
 # CLI terminal chat (requires LLM configured first)
-miniunicorn agent
+erza agent
 
 # OpenAI-compatible API server only
-miniunicorn serve
+erza serve
 
 # Interactive setup wizard (optional, for pre-configuring channels etc.)
-miniunicorn onboard --wizard
+erza onboard --wizard
 ```
 
-**Manual configuration** (optional): the config file lives at `~/.miniunicorn/config.json` and supports `${VAR}` environment variable substitution.
+**Manual configuration** (optional): the config file lives at `~/.erza/config.json` and supports `${VAR}` environment variable substitution.
 
 ## Programmatic access
 
 ### Python SDK
 
 ```python
-from miniunicorn import Miniunicorn
+from erza import Erza
 
-bot = Miniunicorn.from_config()
+bot = Erza.from_config()
 result = await bot.run("Summarize this repo's architecture", hooks=[MyHook()])
 print(result.content)
 print(result.tools_used)

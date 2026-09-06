@@ -6,7 +6,7 @@
 
 ## Decision
 
-MiniUnicorn will converge on a small ReAct execution kernel with orthogonal planning, context, safety, budget, and recovery policies. We will not implement the older `DIRECT / GUIDED / PLANNED` router. The default remains FAST ReAct; managed planning remains opt-in until the correctness substrate is trustworthy.
+Erza will converge on a small ReAct execution kernel with orthogonal planning, context, safety, budget, and recovery policies. We will not implement the older `DIRECT / GUIDED / PLANNED` router. The default remains FAST ReAct; managed planning remains opt-in until the correctness substrate is trustworthy.
 
 The work is deliberately split into independently shippable slices:
 
@@ -50,7 +50,7 @@ This preserves the current public YAML keys and direct-construction compatibilit
 
 ### 2. Turn-wide CallLedger
 
-A new `miniunicorn.agent.call_ledger` module owns call accounting. A ledger is bound with `contextvars`, so concurrent sessions do not share totals. The provider retry entry points record each completed response exactly once. Call sites set a purpose scope:
+A new `erza.agent.call_ledger` module owns call accounting. A ledger is bound with `contextvars`, so concurrent sessions do not share totals. The provider retry entry points record each completed response exactly once. Call sites set a purpose scope:
 
 - `executor`
 - `planner`
@@ -66,7 +66,7 @@ A new `miniunicorn.agent.call_ledger` module owns call accounting. A ledger is b
 
 `TurnOrchestrator.process_turn()` binds one ledger around COMPACT through RESPOND. Direct `AgentRunner.run()` calls create and bind a local ledger when none exists. This covers production turns and isolated runner tests without leaking state.
 
-All MiniUnicorn-owned LLM calls must use a retry entry point so they pass through this accounting boundary. Specialized tools are tagged `tool`; consolidation and summarization are tagged `compact` or `memory`. Unknown extensions are still counted as `unclassified`.
+All Erza-owned LLM calls must use a retry entry point so they pass through this accounting boundary. Specialized tools are tagged `tool`; consolidation and summarization are tagged `compact` or `memory`. Unknown extensions are still counted as `unclassified`.
 
 ### 3. Planner outcomes
 

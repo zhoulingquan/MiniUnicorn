@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from miniunicorn.memory.models import RepositoryDegradedError
-from miniunicorn.memory.sqlite_schema import (
+from erza.memory.models import RepositoryDegradedError
+from erza.memory.sqlite_schema import (
     SCHEMA_VERSION,
     check_schema,
     connect_memory_db,

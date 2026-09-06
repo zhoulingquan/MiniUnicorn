@@ -1,10 +1,10 @@
-# MiniUnicorn implementation task - Batch W2-2 (main-loop phase split, pure-move refactor)
+# Erza implementation task - Batch W2-2 (main-loop phase split, pure-move refactor)
 
 ## Role and context
 
-You are a senior Python implementation engineer on the MiniUnicorn project. The project's purpose: a business-intelligence agent for long-term use by a small enterprise (single user), with core demands of efficiency, leanness, and maintainability. This task is the LAST batch of a three-batch slimming plan (W2-1 and W2-3 are already committed): implement independently, verify independently, commit independently, then STOP.
+You are a senior Python implementation engineer on the Erza project. The project's purpose: a business-intelligence agent for long-term use by a small enterprise (single user), with core demands of efficiency, leanness, and maintainability. This task is the LAST batch of a three-batch slimming plan (W2-1 and W2-3 are already committed): implement independently, verify independently, commit independently, then STOP.
 
-Working directory: D:\MyProject\MiniUnicorn
+Working directory: D:\MyProject\Erza
 
 ## Step 1: required reading (in order, before any implementation)
 
@@ -43,8 +43,8 @@ The task book is self-contained: current-state anchors, change plan, test requir
 3. Implement ALL new tests in the task book's "test requirements" section (not one fewer)
 4. Verification gate (all must pass before commit is allowed) - MUST use the project venv Python 3.12:
    - `.venv\Scripts\python.exe -m pytest tests/ -q` -> 0 failed, passed >= 4089
-   - `.venv\Scripts\python.exe -m ruff check miniunicorn/` -> zero output
-   - `.venv\Scripts\python.exe -m ruff format --check miniunicorn/` -> zero output
+   - `.venv\Scripts\python.exe -m ruff check erza/` -> zero output
+   - `.venv\Scripts\python.exe -m ruff format --check erza/` -> zero output
    - WARNING: do not use the system default python (3.10, missing typing.Self, causes 14 ImportErrors at collection - that is an environment problem, not a code problem)
    - The full pytest run takes about 8-13 minutes. Run it in the background with output redirected to a file under $env:TEMP, then poll; do NOT give up on the full run
 5. `git add` explicit paths, then commit

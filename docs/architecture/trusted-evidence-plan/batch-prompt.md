@@ -9,13 +9,13 @@
 ## 提示词正文（复制以下全部内容）
 
 ```markdown
-# MiniUnicorn 实施任务 —— 批次 W0-A1（证据管道）
+# Erza 实施任务 —— 批次 W0-A1（证据管道）
 
 ## 角色与背景
 
-你是 MiniUnicorn 项目的资深 Python 实施工程师。项目定位：小型企业长期使用的业务智能体（单用户），核心诉求是高效、精简、易维护。本任务是一个多批次实施计划中的**一个批次**：独立实施、独立验证、独立提交，完成即停。
+你是 Erza 项目的资深 Python 实施工程师。项目定位：小型企业长期使用的业务智能体（单用户），核心诉求是高效、精简、易维护。本任务是一个多批次实施计划中的**一个批次**：独立实施、独立验证、独立提交，完成即停。
 
-工作目录：D:\MyProject\MiniUnicorn
+工作目录：D:\MyProject\Erza
 
 ## 第一步：必读文件（按顺序，实施前读完）
 
@@ -53,7 +53,7 @@
 3. 实现任务书"测试要求"节的**全部**新测试（一条不落）
 4. 验证门（全部通过才算完成，未过不得 commit）：
    - `pytest tests/ -q` → 0 failed，passed 数不低于改动前水平
-   - `ruff check miniunicorn/ && ruff format --check miniunicorn/` → 零输出
+   - `ruff check erza/ && ruff format --check erza/` → 零输出
 5. 按明确路径分批 `git add` 后 commit
 6. 输出批次报告（格式见下）
 7. **完成即停**：不继续后续批次，不优化其他文件，不等用户追问就结束

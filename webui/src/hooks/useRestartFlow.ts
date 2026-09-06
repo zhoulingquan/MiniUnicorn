@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import type { MiniunicornClient } from "@/lib/miniunicorn-client";
+import type { ErzaClient } from "@/lib/erza-client";
 import { STORAGE_KEYS } from "@/lib/storage";
 
 const RESTART_STARTED_KEY = STORAGE_KEYS.restartStartedAt;
 
 export interface UseRestartFlowOptions {
-  client: MiniunicornClient;
+  client: ErzaClient;
   /** 触发重启时使用的 chatId(通常为 activeSession?.chatId ?? client.defaultChatId)。 */
   activeChatId: string | null;
 }

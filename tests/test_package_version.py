@@ -18,14 +18,14 @@ def test_source_checkout_import_uses_pyproject_version_without_metadata() -> Non
         import types
 
         sys.path.insert(0, {str(repo_root)!r})
-        fake = types.ModuleType("miniunicorn.miniunicorn")
-        fake.Miniunicorn = object
+        fake = types.ModuleType("erza.erza")
+        fake.Erza = object
         fake.RunResult = object
-        sys.modules["miniunicorn.miniunicorn"] = fake
+        sys.modules["erza.erza"] = fake
 
-        import miniunicorn
+        import erza
 
-        print(miniunicorn.__version__)
+        print(erza.__version__)
         """
     )
 
@@ -42,11 +42,11 @@ def test_source_checkout_import_uses_pyproject_version_without_metadata() -> Non
 
 def test_resolve_version_falls_back_to_installed_metadata(monkeypatch) -> None:
     """When pyproject.toml is missing, fall back to importlib.metadata.version."""
-    import miniunicorn
+    import erza
 
-    monkeypatch.setattr(miniunicorn, "_read_pyproject_version", lambda: None)
-    monkeypatch.setattr(miniunicorn, "_read_installed_version", lambda: "9.9.9-installed")
-    assert miniunicorn._resolve_version() == "9.9.9-installed"
+    monkeypatch.setattr(erza, "_read_pyproject_version", lambda: None)
+    monkeypatch.setattr(erza, "_read_installed_version", lambda: "9.9.9-installed")
+    assert erza._resolve_version() == "9.9.9-installed"
 
 
 def test_resolve_version_returns_unknown_when_both_unavailable(monkeypatch) -> None:
@@ -56,8 +56,8 @@ def test_resolve_version_returns_unknown_when_both_unavailable(monkeypatch) -> N
     an explicit ``0.0.0+unknown`` development sentinel instead of the old
     hardcoded ``0.3.0``.
     """
-    import miniunicorn
+    import erza
 
-    monkeypatch.setattr(miniunicorn, "_read_pyproject_version", lambda: None)
-    monkeypatch.setattr(miniunicorn, "_read_installed_version", lambda: None)
-    assert miniunicorn._resolve_version() == "0.0.0+unknown"
+    monkeypatch.setattr(erza, "_read_pyproject_version", lambda: None)
+    monkeypatch.setattr(erza, "_read_installed_version", lambda: None)
+    assert erza._resolve_version() == "0.0.0+unknown"

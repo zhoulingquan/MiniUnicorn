@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.command.builtin import register_builtin_commands
-from miniunicorn.command.router import CommandContext, CommandRouter
+from erza.command.builtin import register_builtin_commands
+from erza.command.router import CommandContext, CommandRouter
 
 
 class TestIsDispatchableCommand:

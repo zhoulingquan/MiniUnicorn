@@ -121,7 +121,7 @@ describe("webui API helpers", () => {
       }),
     ).rejects.toMatchObject({
       status: 200,
-      message: "Gateway returned WebUI HTML instead of JSON. Restart MiniUnicorn gateway and try again.",
+      message: "Gateway returned WebUI HTML instead of JSON. Restart Erza gateway and try again.",
     });
   });
 
@@ -150,7 +150,7 @@ describe("webui API helpers", () => {
 
     // Secrets must NOT appear in the URL query string — only the non-sensitive
     // `provider` field stays in the URL. The api_key/api_base move into the
-    // x-miniunicorn-Values header. Uses GET because the websockets HTTP layer
+    // x-erza-Values header. Uses GET because the websockets HTTP layer
     // only supports GET (POST requests are rejected at the transport layer).
     expect(fetch).toHaveBeenCalledWith(
       "/api/settings/provider/update?provider=deepseek",
@@ -158,7 +158,7 @@ describe("webui API helpers", () => {
         method: "GET",
         headers: expect.objectContaining({
           Authorization: "Bearer tok",
-          "x-miniunicorn-Values": JSON.stringify({
+          "x-erza-Values": JSON.stringify({
             api_key: "sk-deep-test",
             api_base: "https://api.deepseek.com",
           }),
@@ -212,7 +212,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer tok",
-          "x-miniunicorn-MCP-Values": JSON.stringify({
+          "x-erza-MCP-Values": JSON.stringify({
             browserbase_api_key: "bb_live_test",
           }),
         }),
@@ -233,7 +233,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer tok",
-          "x-miniunicorn-MCP-Values": JSON.stringify({
+          "x-erza-MCP-Values": JSON.stringify({
             name: "docs",
             transport: "stdio",
             command: "npx",
@@ -250,7 +250,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer tok",
-          "x-miniunicorn-MCP-Values": JSON.stringify({
+          "x-erza-MCP-Values": JSON.stringify({
             config: '{"mcpServers":{"docs":{"command":"npx"}}}',
           }),
         }),
@@ -263,7 +263,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer tok",
-          "x-miniunicorn-MCP-Values": JSON.stringify({
+          "x-erza-MCP-Values": JSON.stringify({
             name: "docs",
             enabled_tools: ["search", "fetch"],
           }),
@@ -278,7 +278,7 @@ describe("webui API helpers", () => {
       pinned_keys: ["websocket:chat-1"],
       archived_keys: ["websocket:old"],
       title_overrides: { "websocket:chat-1": "Release" },
-      project_name_overrides: { "/Users/me/miniunicorn": "Core" },
+      project_name_overrides: { "/Users/me/erza": "Core" },
       tags_by_key: {},
       collapsed_groups: {},
       view: {
@@ -314,7 +314,7 @@ describe("webui API helpers", () => {
     expect(JSON.parse(encodedState ?? "{}")).toMatchObject({
       pinned_keys: ["websocket:chat-1"],
       title_overrides: { "websocket:chat-1": "Release" },
-      project_name_overrides: { "/Users/me/miniunicorn": "Core" },
+      project_name_overrides: { "/Users/me/erza": "Core" },
     });
   });
 
@@ -386,7 +386,7 @@ describe("webui API helpers", () => {
           },
           {
             command: "/restart",
-            title: "Restart MiniUnicorn",
+            title: "Restart Erza",
             description: "Restart the bot process.",
             icon: "rotate-cw",
           },

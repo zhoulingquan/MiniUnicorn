@@ -14,18 +14,18 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
-from miniunicorn.providers.base import LLMProvider, LLMResponse, ToolCallRequest
-from miniunicorn.tools.apply_patch import ApplyPatchTool
-from miniunicorn.tools.base import Tool
-from miniunicorn.tools.filesystem import EditFileTool, WriteFileTool
-from miniunicorn.tools.receipts import (
+from erza.agent.runner import AgentRunner, AgentRunSpec
+from erza.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from erza.tools.apply_patch import ApplyPatchTool
+from erza.tools.base import Tool
+from erza.tools.filesystem import EditFileTool, WriteFileTool
+from erza.tools.receipts import (
     ToolReceiptClaim,
     content_digest,
     emit_receipt,
     take_receipt,
 )
-from miniunicorn.tools.registry import ToolRegistry
+from erza.tools.registry import ToolRegistry
 
 _MAX_RESULT_CHARS = 10000
 

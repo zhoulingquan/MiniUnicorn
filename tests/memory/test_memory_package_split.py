@@ -3,7 +3,7 @@
 Guards the pure-move refactors: the package facade re-export keeps every
 original symbol path working, the store module imports standalone, the shared
 constants keep a single definition site, and (since W7-1) the package lives at
-``miniunicorn/memory/`` with zero ``miniunicorn.agent`` dependencies.
+``erza/memory/`` with zero ``erza.agent`` dependencies.
 """
 
 import ast
@@ -12,13 +12,13 @@ import importlib.util
 import sys
 from unittest.mock import MagicMock
 
-import miniunicorn.agent
-import miniunicorn.agent.dream_trigger as dream_trigger
-import miniunicorn.memory as memory_facade
-import miniunicorn.memory.consolidator as memory_consolidator
-import miniunicorn.memory.dream as memory_dream
-import miniunicorn.memory.jsonl_import as memory_jsonl_import
-import miniunicorn.memory.store as memory_store
+import erza.agent
+import erza.agent.dream_trigger as dream_trigger
+import erza.memory as memory_facade
+import erza.memory.consolidator as memory_consolidator
+import erza.memory.dream as memory_dream
+import erza.memory.jsonl_import as memory_jsonl_import
+import erza.memory.store as memory_store
 
 
 def test_facade_identity_store():
@@ -29,9 +29,9 @@ def test_facade_identity_store():
 
 def test_memory_store_standalone_import():
     """memory_store.py imports standalone without circular-import symptoms."""
-    module = importlib.import_module("miniunicorn.memory.store")
+    module = importlib.import_module("erza.memory.store")
     assert module is not None
-    assert "miniunicorn.memory.store" in sys.modules
+    assert "erza.memory.store" in sys.modules
 
 
 def test_constants_live_in_store_module():
@@ -44,14 +44,14 @@ def test_constants_live_in_store_module():
 
 def test_agent_package_reexport_identity():
     """Since W7-1, agent/__init__.py no longer re-exports memory symbols."""
-    assert not hasattr(miniunicorn.agent, "MemoryStore")
-    assert "MemoryStore" not in miniunicorn.agent.__all__
+    assert not hasattr(erza.agent, "MemoryStore")
+    assert "MemoryStore" not in erza.agent.__all__
 
 
 def test_memory_py_shrunk():
     """memory.py shrank to near-facade size; memory_store.py stayed bounded."""
-    facade_path = importlib.util.find_spec("miniunicorn.memory").origin
-    store_path = importlib.util.find_spec("miniunicorn.memory.store").origin
+    facade_path = importlib.util.find_spec("erza.memory").origin
+    store_path = importlib.util.find_spec("erza.memory.store").origin
     with open(facade_path, encoding="utf-8") as f:
         facade_lines = len(f.read().splitlines())
     with open(store_path, encoding="utf-8") as f:
@@ -80,7 +80,7 @@ def test_archive_summary_constant_identity():
 
 def test_memory_py_shrunk_further():
     """memory.py shrank again after the Consolidator extraction."""
-    facade_path = importlib.util.find_spec("miniunicorn.memory").origin
+    facade_path = importlib.util.find_spec("erza.memory").origin
     with open(facade_path, encoding="utf-8") as f:
         facade_lines = len(f.read().splitlines())
     assert facade_lines < 620
@@ -143,7 +143,7 @@ def test_memory_py_is_pure_facade():
     """memory.py is a pure facade: at most 60 lines and zero class definitions."""
     from pathlib import Path
 
-    facade_path = Path(importlib.util.find_spec("miniunicorn.memory").origin)
+    facade_path = Path(importlib.util.find_spec("erza.memory").origin)
     src = facade_path.read_text(encoding="utf-8")
     assert len(src.splitlines()) <= 60
     assert "class " not in src
@@ -163,7 +163,7 @@ def test_dream_helpers_moved_with_class():
 
 def test_consumer_entry_points():
     """agent package and dream_trigger resolve Dream symbols to memory_dream."""
-    assert not hasattr(miniunicorn.agent, "Dream")
+    assert not hasattr(erza.agent, "Dream")
     assert dream_trigger.count_pending_dream_entries is memory_dream.count_pending_dream_entries
 
 
@@ -173,8 +173,8 @@ def test_cold_import_loads_no_agent_modules():
 
     code = (
         "import sys\n"
-        "import miniunicorn.memory\n"
-        "bad = [m for m in sys.modules if m == 'miniunicorn.agent' or m.startswith('miniunicorn.agent.')]\n"
+        "import erza.memory\n"
+        "bad = [m for m in sys.modules if m == 'erza.agent' or m.startswith('erza.agent.')]\n"
         "print('\\n'.join(bad))\n"
     )
     result = subprocess.run(
@@ -187,10 +187,10 @@ def test_cold_import_loads_no_agent_modules():
 
 
 def test_memory_package_is_agent_free():
-    """AST scan: no module in miniunicorn/memory/ imports miniunicorn.agent."""
+    """AST scan: no module in erza/memory/ imports erza.agent."""
     from pathlib import Path
 
-    package_root = Path(importlib.util.find_spec("miniunicorn.memory").origin).parent
+    package_root = Path(importlib.util.find_spec("erza.memory").origin).parent
     offenders: list[str] = []
     for path in sorted(package_root.glob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -202,7 +202,7 @@ def test_memory_package_is_agent_free():
             else:
                 continue
             if any(
-                name == "miniunicorn.agent" or name.startswith("miniunicorn.agent.")
+                name == "erza.agent" or name.startswith("erza.agent.")
                 for name in names
             ):
                 offenders.append(path.name)

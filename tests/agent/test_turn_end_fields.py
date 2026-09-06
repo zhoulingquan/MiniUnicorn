@@ -1,7 +1,7 @@
 """Field-lock tests for the WebUI ``turn_end`` event.
 
 Phase 6 convergence: ``_last_call_usage`` moved from cross-session loop state to
-per-turn telemetry (``miniunicorn.agent.turn_telemetry``).  These tests lock
+per-turn telemetry (``erza.agent.turn_telemetry``).  These tests lock
 the ``turn_end`` event fields so the refactor stays behavior-neutral: the event
 must carry the *current turn's* usage, an integer latency, a goal-state blob,
 and be emitted after the final content message.
@@ -12,10 +12,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.bus.events import InboundMessage
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.providers.base import LLMResponse
+from erza.agent.loop import AgentLoop
+from erza.bus.events import InboundMessage
+from erza.bus.queue import MessageBus
+from erza.providers.base import LLMResponse
 
 
 def _make_loop(tmp_path: Path) -> AgentLoop:

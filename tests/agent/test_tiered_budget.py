@@ -8,8 +8,8 @@ the tiered defaults.
 
 from __future__ import annotations
 
-from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.config.schema import Config
+from erza.agent.loop import AgentLoop
+from erza.config.schema import Config
 
 
 class FakeProvider:

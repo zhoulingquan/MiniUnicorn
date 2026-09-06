@@ -1,6 +1,6 @@
 # Check optional Feishu dependencies before running tests
 try:
-    from miniunicorn.channels import feishu
+    from erza.channels import feishu
 
     FEISHU_AVAILABLE = getattr(feishu, "FEISHU_AVAILABLE", False)
 except ImportError:
@@ -11,7 +11,7 @@ if not FEISHU_AVAILABLE:
 
     pytest.skip("Feishu dependencies not installed (lark-oapi)", allow_module_level=True)
 
-from miniunicorn.channels.feishu import FeishuChannel
+from erza.channels.feishu import FeishuChannel
 
 
 def test_parse_md_table_strips_markdown_formatting_in_headers_and_cells() -> None:

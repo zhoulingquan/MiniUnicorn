@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.memory.models import (
+from erza.memory.models import (
     SCHEMA_VERSION,
     ActorKind,
     MemoryKind,
@@ -27,14 +27,14 @@ from miniunicorn.memory.models import (
     normalize_match_text,
     transaction_checksum,
 )
-from miniunicorn.memory.recall import (
+from erza.memory.recall import (
     PROMPT_HEADER,
     ROUTE_EXPLICIT_ID,
     SOURCE_SCORE,
     StructuredMemoryRecall,
     _tokenizer,
 )
-from miniunicorn.memory.repository import StructuredMemoryRepository
+from erza.memory.repository import StructuredMemoryRepository
 
 UTC = timezone.utc
 
@@ -76,7 +76,7 @@ def record_data(
         "status": status,
         "kind": kind,
         "scope": {"kind": "project", "key": "project:6b5ec7b29e32"},
-        "subject": "MiniUnicorn",
+        "subject": "Erza",
         "slot": slot,
         "statement": statement,
         "detail": "",
@@ -129,7 +129,7 @@ def workspace(tmp_path):
     structured = tmp_path / "memory" / "structured"
     structured.mkdir(parents=True)
     shutil.copy(
-        Path(__file__).resolve().parents[2] / "miniunicorn" / "templates" / "memory" / "TAGS.json",
+        Path(__file__).resolve().parents[2] / "erza" / "templates" / "memory" / "TAGS.json",
         structured / "tags.json",
     )
     return tmp_path
@@ -351,7 +351,7 @@ def test_insertion_order_does_not_change_recall(repository, tmp_path):
         structured.mkdir(parents=True, exist_ok=True)
         shutil.copy(
             Path(__file__).resolve().parents[2]
-            / "miniunicorn"
+            / "erza"
             / "templates"
             / "memory"
             / "TAGS.json",

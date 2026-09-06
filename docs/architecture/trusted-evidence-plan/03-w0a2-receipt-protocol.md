@@ -13,7 +13,7 @@
 
 这与 `FileStates` / `current_file_states` 的既有 contextvar 模式同构，不引入新范式。
 
-## 二、新增模块 miniunicorn/agent/tools/receipts.py
+## 二、新增模块 erza/agent/tools/receipts.py
 
 ```python
 """工具副作用回执：由工具代码在副作用真实完成后创建。"""
@@ -84,14 +84,14 @@ obs = ToolObservation(..., receipt=receipt)
 
 **pop 而非 get**——保证 receipt 键不会随 event 进入 `state.tool_events` / `AgentRunResult.tool_events` / 任何 UI 消费面。
 
-## 四、三个契约工具的改造（miniunicorn/agent/tools/）
+## 四、三个契约工具的改造（erza/agent/tools/）
 
 ### 4.1 WriteFileTool.execute（filesystem.py 约 478-495 行）
 
 成功路径 `fp.write_text(content)` → `self._verify_within(fp)` → `self._file_states.record_write(fp)` 之后、return 之前：
 
 ```python
-from miniunicorn.agent.tools.receipts import ToolReceiptClaim, emit_receipt
+from erza.agent.tools.receipts import ToolReceiptClaim, emit_receipt
 emit_receipt(ToolReceiptClaim(
     tool="write_file", operation="write", target=str(fp),
     digest=<写后内容摘要>, created_at=...,
@@ -102,7 +102,7 @@ emit_receipt(ToolReceiptClaim(
 
 ### 4.2 EditFileTool.execute（filesystem.py 约 839 行起）
 
-该方法的成功写入点**有多处**（old_text="" 创建文件、空文件覆写、常规替换、replace_all 等），判据是：**每一处 `self._file_states.record_write(fp)` 调用点之后**都要 emit 回执。实施时以 `rg -n "record_write" miniunicorn/agent/tools/filesystem.py` 全量定位，逐处添加，`operation="edit"`，`detail` 携带实际替换次数（若有）。
+该方法的成功写入点**有多处**（old_text="" 创建文件、空文件覆写、常规替换、replace_all 等），判据是：**每一处 `self._file_states.record_write(fp)` 调用点之后**都要 emit 回执。实施时以 `rg -n "record_write" erza/agent/tools/filesystem.py` 全量定位，逐处添加，`operation="edit"`，`detail` 携带实际替换次数（若有）。
 
 write_file 与 edit_file 的 `record_write` 调用点总数以代码为准（当前核实 filesystem.py 内共约 4-5 处，含 create 分支），**漏一处就是验收漏洞**——批次报告需列出每处调用的行号。
 

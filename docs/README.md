@@ -1,6 +1,6 @@
-# MiniUnicorn Docs
+# Erza Docs
 
-本目录是 MiniUnicorn 的文档源，跟随仓库一起演进。
+本目录是 Erza 的文档源，跟随仓库一起演进。
 
 ## Core Docs
 
@@ -24,8 +24,8 @@
 
 | 主题 | 文档 | 内容 |
 |---|---|---|
-| 记忆系统 | [`memory.md`](./memory.md) | MiniUnicorn 如何存储、整合与恢复记忆 |
-| Python SDK | [`python-sdk.md`](./python-sdk.md) | 以库形式在 Python 中调用 MiniUnicorn |
+| 记忆系统 | [`memory.md`](./memory.md) | Erza 如何存储、整合与恢复记忆 |
+| Python SDK | [`python-sdk.md`](./python-sdk.md) | 以库形式在 Python 中调用 Erza |
 | 频道插件指南 | [`channel-plugin-guide.md`](./channel-plugin-guide.md) | 构建并测试自定义聊天频道插件 |
 | WebSocket 频道 | [`websocket.md`](./websocket.md) | 实时 WebSocket 接入与协议细节 |
 | 自定义工具 | [`my-tool.md`](./my-tool.md) | 通过 `my` 工具查看与调整运行时状态 |

@@ -21,9 +21,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from miniunicorn.channels.websocket import WebSocketChannel
-from miniunicorn.session.manager import Session, SessionManager
-from miniunicorn.webui.media_api import (
+from erza.channels.websocket import WebSocketChannel
+from erza.session.manager import Session, SessionManager
+from erza.webui.media_api import (
     b64url_decode,
     b64url_encode,
 )
@@ -101,7 +101,7 @@ def test_sign_media_path_rejects_paths_outside_media_root(bus: MagicMock, tmp_pa
     media = tmp_path / "media"
     media.mkdir()
     channel = _ch(bus, port=0)
-    with patch("miniunicorn.channels.websocket.channel.get_media_dir", return_value=media):
+    with patch("erza.channels.websocket.channel.get_media_dir", return_value=media):
         assert channel._sign_media_path(outside) is None
         # Traversal via the media root is also rejected — the resolve() step
         # normalises ``..`` out before the relative_to check.
@@ -114,7 +114,7 @@ def test_sign_media_path_round_trips_via_hmac(bus: MagicMock, tmp_path: Path) ->
     media.mkdir()
     (media / "a.png").write_bytes(_PNG_BYTES)
     channel = _ch(bus, port=0)
-    with patch("miniunicorn.channels.websocket.channel.get_media_dir", return_value=media):
+    with patch("erza.channels.websocket.channel.get_media_dir", return_value=media):
         url = channel._sign_media_path(media / "a.png")
     assert url is not None
     assert url.startswith("/api/media/")
@@ -138,7 +138,7 @@ def test_local_markdown_image_is_staged_and_rewritten(
     channel = _ch(bus, workspace_path=workspace, port=0)
 
     with patch(
-        "miniunicorn.channels.websocket.channel.get_media_dir", side_effect=_fake_media_dir(media)
+        "erza.channels.websocket.channel.get_media_dir", side_effect=_fake_media_dir(media)
     ):
         rewritten = channel._rewrite_local_markdown_images(
             "The result:\n![Cloud Architecture Diagram](demo_arch.png)"
@@ -157,18 +157,18 @@ def test_local_markdown_video_is_staged_and_rewritten(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     video_bytes = b"fake mp4"
-    (workspace / "miniunicorn-intro.mp4").write_bytes(video_bytes)
+    (workspace / "erza-intro.mp4").write_bytes(video_bytes)
     media = tmp_path / "media"
     channel = _ch(bus, workspace_path=workspace, port=0)
 
     with patch(
-        "miniunicorn.channels.websocket.channel.get_media_dir", side_effect=_fake_media_dir(media)
+        "erza.channels.websocket.channel.get_media_dir", side_effect=_fake_media_dir(media)
     ):
         rewritten = channel._rewrite_local_markdown_images(
-            "The result:\n![miniunicorn-intro.mp4](miniunicorn-intro.mp4)"
+            "The result:\n![erza-intro.mp4](erza-intro.mp4)"
         )
 
-    assert "![miniunicorn-intro.mp4](/api/media/" in rewritten
+    assert "![erza-intro.mp4](/api/media/" in rewritten
     staged = list((media / "websocket").iterdir())
     assert len(staged) == 1
     assert staged[0].read_bytes() == video_bytes
@@ -187,7 +187,7 @@ def test_local_markdown_image_rejects_workspace_escape(
     text = "![nope](../outside.png)"
 
     with patch(
-        "miniunicorn.channels.websocket.channel.get_media_dir", side_effect=_fake_media_dir(media)
+        "erza.channels.websocket.channel.get_media_dir", side_effect=_fake_media_dir(media)
     ):
         assert channel._rewrite_local_markdown_images(text) == text
 
@@ -208,7 +208,7 @@ async def test_media_route_serves_signed_file(bus: MagicMock, tmp_path: Path) ->
     target.write_bytes(_PNG_BYTES)
 
     channel = _ch(bus, port=29920)
-    with patch("miniunicorn.channels.websocket.channel.get_media_dir", return_value=media):
+    with patch("erza.channels.websocket.channel.get_media_dir", return_value=media):
         url_path = channel._sign_media_path(target)
         assert url_path is not None
         server_task = asyncio.create_task(channel.start())
@@ -239,7 +239,7 @@ async def test_media_route_serves_video_byte_ranges(bus: MagicMock, tmp_path: Pa
     target.write_bytes(b"0123456789")
 
     channel = _ch(bus, port=29927)
-    with patch("miniunicorn.channels.websocket.channel.get_media_dir", return_value=media):
+    with patch("erza.channels.websocket.channel.get_media_dir", return_value=media):
         url_path = channel._sign_media_path(target)
         assert url_path is not None
         server_task = asyncio.create_task(channel.start())
@@ -269,7 +269,7 @@ async def test_media_route_serves_suffix_video_byte_ranges(bus: MagicMock, tmp_p
     target.write_bytes(b"0123456789")
 
     channel = _ch(bus, port=29928)
-    with patch("miniunicorn.channels.websocket.channel.get_media_dir", return_value=media):
+    with patch("erza.channels.websocket.channel.get_media_dir", return_value=media):
         url_path = channel._sign_media_path(target)
         assert url_path is not None
         server_task = asyncio.create_task(channel.start())
@@ -296,7 +296,7 @@ async def test_media_route_rejects_unsatisfiable_byte_range(bus: MagicMock, tmp_
     target.write_bytes(b"0123456789")
 
     channel = _ch(bus, port=29929)
-    with patch("miniunicorn.channels.websocket.channel.get_media_dir", return_value=media):
+    with patch("erza.channels.websocket.channel.get_media_dir", return_value=media):
         url_path = channel._sign_media_path(target)
         assert url_path is not None
         server_task = asyncio.create_task(channel.start())
@@ -327,7 +327,7 @@ async def test_media_route_rejects_bad_signature(bus: MagicMock, tmp_path: Path)
     (media / "f.png").write_bytes(_PNG_BYTES)
 
     channel = _ch(bus, port=29921)
-    with patch("miniunicorn.channels.websocket.channel.get_media_dir", return_value=media):
+    with patch("erza.channels.websocket.channel.get_media_dir", return_value=media):
         good = channel._sign_media_path(media / "f.png")
         assert good is not None
         _, payload = good[len("/api/media/") :].split("/", 1)
@@ -364,7 +364,7 @@ async def test_media_route_rejects_path_traversal_payload(bus: MagicMock, tmp_pa
     mac = hmac.new(channel._media_secret, payload.encode("ascii"), hashlib.sha256).digest()[:16]
     url = f"/api/media/{b64url_encode(mac)}/{payload}"
 
-    with patch("miniunicorn.channels.websocket.channel.get_media_dir", return_value=media):
+    with patch("erza.channels.websocket.channel.get_media_dir", return_value=media):
         server_task = asyncio.create_task(channel.start())
         await asyncio.sleep(0.3)
         try:
@@ -386,7 +386,7 @@ async def test_media_route_404s_missing_file(bus: MagicMock, tmp_path: Path) -> 
     target.write_bytes(_PNG_BYTES)
 
     channel = _ch(bus, port=29923)
-    with patch("miniunicorn.channels.websocket.channel.get_media_dir", return_value=media):
+    with patch("erza.channels.websocket.channel.get_media_dir", return_value=media):
         url_path = channel._sign_media_path(target)
         assert url_path is not None
         target.unlink()  # the file vanishes between signing and fetching
@@ -414,7 +414,7 @@ async def test_media_route_degrades_non_image_to_octet_stream(
     (media / "scary.html").write_bytes(b"<script>alert(1)</script>")
 
     channel = _ch(bus, port=29924)
-    with patch("miniunicorn.channels.websocket.channel.get_media_dir", return_value=media):
+    with patch("erza.channels.websocket.channel.get_media_dir", return_value=media):
         payload = b64url_encode(b"scary.html")
         mac = hmac.new(channel._media_secret, payload.encode("ascii"), hashlib.sha256).digest()[:16]
         url = f"/api/media/{b64url_encode(mac)}/{payload}"
@@ -453,7 +453,7 @@ async def test_session_messages_exposes_signed_media_urls(bus: MagicMock, tmp_pa
     sm.save(sess)
 
     channel = _ch(bus, session_manager=sm, port=29925)
-    with patch("miniunicorn.channels.websocket.channel.get_media_dir", return_value=media):
+    with patch("erza.channels.websocket.channel.get_media_dir", return_value=media):
         server_task = asyncio.create_task(channel.start())
         await asyncio.sleep(0.3)
         try:
@@ -496,7 +496,7 @@ async def test_session_messages_skips_vanished_media(bus: MagicMock, tmp_path: P
     sm.save(sess)
 
     channel = _ch(bus, session_manager=sm, port=29926)
-    with patch("miniunicorn.channels.websocket.channel.get_media_dir", return_value=media):
+    with patch("erza.channels.websocket.channel.get_media_dir", return_value=media):
         server_task = asyncio.create_task(channel.start())
         await asyncio.sleep(0.3)
         try:

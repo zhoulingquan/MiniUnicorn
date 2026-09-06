@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.channels.feishu import FeishuChannel, FeishuConfig, _FeishuStreamBuf
+from erza.bus.queue import MessageBus
+from erza.channels.feishu import FeishuChannel, FeishuConfig, _FeishuStreamBuf
 
 
 def _make_channel() -> FeishuChannel:

@@ -10,10 +10,10 @@
 
 from unittest.mock import MagicMock
 
-from miniunicorn.agent.subagent import SubagentManager
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.config.schema import AgentDefaults
-from miniunicorn.providers.base import LLMProvider
+from erza.agent.subagent import SubagentManager
+from erza.bus.queue import MessageBus
+from erza.config.schema import AgentDefaults
+from erza.providers.base import LLMProvider
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
@@ -116,7 +116,7 @@ def test_magicmock_provider_defaults_to_cloud_concurrency(tmp_path):
 
 def test_fallback_provider_inherits_primary_is_local(tmp_path):
     """FallbackProvider 应透传 primary 的 is_local 属性。"""
-    from miniunicorn.providers.fallback_provider import FallbackProvider
+    from erza.providers.fallback_provider import FallbackProvider
 
     local_primary = _FakeLocalProvider()
     fallback = FallbackProvider(
@@ -137,7 +137,7 @@ def test_fallback_provider_inherits_primary_is_local(tmp_path):
 
 def test_openai_compat_provider_is_local_property():
     """OpenAICompatProvider 的 is_local property 应返回 self._is_local。"""
-    from miniunicorn.providers.openai_compat_provider import OpenAICompatProvider
+    from erza.providers.openai_compat_provider import OpenAICompatProvider
 
     # 本地端点
     local_provider = OpenAICompatProvider(

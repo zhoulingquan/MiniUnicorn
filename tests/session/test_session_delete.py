@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from miniunicorn.session.manager import Session, SessionManager
+from erza.session.manager import Session, SessionManager
 
 
 def _seed(workspace: Path, key: str = "telegram:abc") -> SessionManager:

@@ -3,10 +3,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.providers.base import LLMResponse, ToolCallRequest
-from miniunicorn.tools.context import RequestContext
+from erza.agent.loop import AgentLoop
+from erza.bus.queue import MessageBus
+from erza.providers.base import LLMResponse, ToolCallRequest
+from erza.tools.context import RequestContext
 
 
 class _ContextRecordingTool:

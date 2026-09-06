@@ -14,11 +14,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniunicorn.agent import turn_telemetry
-from miniunicorn.agent.context_governor import PressureLevel
-from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
-from miniunicorn.agent.turn_telemetry import TurnTelemetry
-from miniunicorn.tools.registry import ToolRegistry
+from erza.agent import turn_telemetry
+from erza.agent.context_governor import PressureLevel
+from erza.agent.runner import AgentRunner, AgentRunSpec
+from erza.agent.turn_telemetry import TurnTelemetry
+from erza.tools.registry import ToolRegistry
 
 
 class _FakeProvider:

@@ -5,7 +5,7 @@
 
 ## 一、问题（现状锚点，已逐一核实）
 
-`miniunicorn/agent/tools/self.py`（560 行）的 MyTool 让模型通过 `my` 工具对 AgentLoop 宿主对象做点路径 check/set，采用 **deny-list** 防护：
+`erza/agent/tools/self.py`（560 行）的 MyTool 让模型通过 `my` 工具对 AgentLoop 宿主对象做点路径 check/set，采用 **deny-list** 防护：
 
 1. `BLOCKED`（60-90 行）：bus、provider、tools、runner、sessions、`_mcp_servers`、`_mcp_stacks`、`_background_tasks` 等约 22 个名字。
 2. `READ_ONLY`（93-100 行）：subagents、`_current_iteration`、exec_config、workspace_sandbox。

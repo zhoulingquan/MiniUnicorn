@@ -2,8 +2,8 @@ import asyncio
 
 import pytest
 
-from miniunicorn.ledger import CallLedger, CallPurpose, bind_call_ledger, call_purpose
-from miniunicorn.providers.base import LLMProvider, LLMResponse
+from erza.ledger import CallLedger, CallPurpose, bind_call_ledger, call_purpose
+from erza.providers.base import LLMProvider, LLMResponse
 
 
 class ScriptedProvider(LLMProvider):
@@ -50,7 +50,7 @@ async def test_chat_with_retry_records_once_per_turn(monkeypatch) -> None:
     async def _fake_sleep(delay: int) -> None:
         delays.append(delay)
 
-    monkeypatch.setattr("miniunicorn.providers.base.asyncio.sleep", _fake_sleep)
+    monkeypatch.setattr("erza.providers.base.asyncio.sleep", _fake_sleep)
 
     # Bind a ledger for the turn
     ledger = CallLedger()
@@ -83,7 +83,7 @@ async def test_chat_stream_with_retry_records_once(monkeypatch) -> None:
     async def _fake_sleep(delay: int) -> None:
         delays.append(delay)
 
-    monkeypatch.setattr("miniunicorn.providers.base.asyncio.sleep", _fake_sleep)
+    monkeypatch.setattr("erza.providers.base.asyncio.sleep", _fake_sleep)
 
     ledger = CallLedger()
     async with bind_call_ledger(ledger):
@@ -113,7 +113,7 @@ async def test_chat_with_retry_budget_accumulation(monkeypatch) -> None:
     async def _fake_sleep(delay: int) -> None:
         delays.append(delay)
 
-    monkeypatch.setattr("miniunicorn.providers.base.asyncio.sleep", _fake_sleep)
+    monkeypatch.setattr("erza.providers.base.asyncio.sleep", _fake_sleep)
 
     ledger = CallLedger()
     async with bind_call_ledger(ledger):
@@ -155,7 +155,7 @@ async def test_chat_stream_with_retry_fallback_no_double_record(monkeypatch) -> 
     async def _fake_sleep(delay: int) -> None:
         delays.append(delay)
 
-    monkeypatch.setattr("miniunicorn.providers.base.asyncio.sleep", _fake_sleep)
+    monkeypatch.setattr("erza.providers.base.asyncio.sleep", _fake_sleep)
 
     ledger = CallLedger()
     async with bind_call_ledger(ledger):

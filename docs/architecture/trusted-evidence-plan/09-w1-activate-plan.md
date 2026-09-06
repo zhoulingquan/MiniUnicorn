@@ -7,7 +7,7 @@
 
 | 属性 | 裁决 |
 |---|---|
-| 工具名 | `activate_plan`（新工具，`miniunicorn/agent/tools/activate_plan.py`） |
+| 工具名 | `activate_plan`（新工具，`erza/agent/tools/activate_plan.py`） |
 | 语义 | 挂载计划 → 立即返回。**不执行任何步骤、不 spawn 子代理、不嵌套循环** |
 | 推进者 | 外层主循环既有机制：`apply_plan_step_guidance`（runner.py 约 575 行每迭代注入步骤指引）+ `complete_plan_step` 验收 |
 | 风险级 | `RiskLevel.MEDIUM`（turn 内可逆、无不可逆副作用；HIGH 会挡住无审批回调的 headless/cron 场景） |

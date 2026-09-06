@@ -10,14 +10,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniunicorn.bus.events import InboundMessage
-from miniunicorn.providers.base import LLMResponse
+from erza.bus.events import InboundMessage
+from erza.providers.base import LLMResponse
 
 
 def _make_loop():
     """Create a minimal AgentLoop with mocked dependencies."""
-    from miniunicorn.agent.loop import AgentLoop
-    from miniunicorn.bus.queue import MessageBus
+    from erza.agent.loop import AgentLoop
+    from erza.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
@@ -26,9 +26,9 @@ def _make_loop():
     workspace.__truediv__ = MagicMock(return_value=MagicMock())
 
     with (
-        patch("miniunicorn.agent.loop.ContextBuilder"),
-        patch("miniunicorn.agent.loop.SessionManager"),
-        patch("miniunicorn.agent.loop.SubagentManager"),
+        patch("erza.agent.loop.ContextBuilder"),
+        patch("erza.agent.loop.SessionManager"),
+        patch("erza.agent.loop.SubagentManager"),
     ):
         loop = AgentLoop(
             bus=bus,
@@ -54,9 +54,9 @@ async def _wait_until(predicate, *, timeout: float = 0.2, interval: float = 0.01
 class TestRestartCommand:
     @pytest.mark.asyncio
     async def test_restart_sends_message_and_calls_execv(self):
-        from miniunicorn.command.builtin import cmd_restart
-        from miniunicorn.command.router import CommandContext
-        from miniunicorn.utils.restart import (
+        from erza.command.builtin import cmd_restart
+        from erza.command.router import CommandContext
+        from erza.utils.restart import (
             RESTART_NOTIFY_CHANNEL_ENV,
             RESTART_NOTIFY_CHAT_ID_ENV,
             RESTART_STARTED_AT_ENV,
@@ -83,8 +83,8 @@ class TestRestartCommand:
 
         with (
             patch.dict(os.environ, {}, clear=False),
-            patch("miniunicorn.command.builtin.asyncio", new=fake_asyncio),
-            patch("miniunicorn.command.builtin.os.execv") as mock_execv,
+            patch("erza.command.builtin.asyncio", new=fake_asyncio),
+            patch("erza.command.builtin.os.execv") as mock_execv,
         ):
             out = await cmd_restart(ctx)
             assert "Restarting" in out.content
@@ -104,7 +104,7 @@ class TestRestartCommand:
 
         with (
             patch.object(loop, "_dispatch", new_callable=AsyncMock) as mock_dispatch,
-            patch("miniunicorn.command.builtin.os.execv"),
+            patch("erza.command.builtin.os.execv"),
         ):
             await bus.publish_inbound(msg)
 
@@ -143,7 +143,7 @@ class TestRestartCommand:
 
             mock_dispatch.assert_not_called()
             out = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
-            assert "MiniUnicorn" in out.content.lower() or "Model" in out.content
+            assert "Erza" in out.content.lower() or "Model" in out.content
 
     @pytest.mark.asyncio
     async def test_run_propagates_external_cancellation(self):

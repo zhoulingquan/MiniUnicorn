@@ -1,5 +1,5 @@
 <svg viewBox="0 0 680 514" width="680" role="img" xmlns="http://www.w3.org/2000/svg">
-<title>MiniUnicorn 四层架构</title>
+<title>Erza 四层架构</title>
 <desc>频道层经消息总线进入代理核心，核心调用能力层的工具、技能与模型提供商</desc>
 <defs>
   <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">

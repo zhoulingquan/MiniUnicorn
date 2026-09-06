@@ -17,7 +17,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniunicorn.bus.events import InboundMessage, OutboundMessage
+from erza.bus.events import InboundMessage, OutboundMessage
 from tests.agent.conftest import make_loop
 
 

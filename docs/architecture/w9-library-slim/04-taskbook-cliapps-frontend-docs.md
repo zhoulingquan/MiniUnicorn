@@ -14,19 +14,19 @@
 - `webui/src/components/settings/SettingsView.tsx`：删 initialCliApps 注入（rg 定位）。
 - `webui/src/components/thread/ThreadComposer.tsx`：删 CLI App @mention 集成（约 1 处引用）。
 - `webui/src/components/thread/AgentActivityCluster.tsx`：删 cliApps 展示（约 3 处引用）。
-- `webui/src/hooks/useMiniunicornStream.ts`：删 OutboundCliAppMention 类型引用与 cliApps 出站参数（15、409、1009 行附近）。
-- `webui/src/lib/miniunicorn-client.ts`：删 cliApps 引用（约 2 处）。
+- `webui/src/hooks/useErzaStream.ts`：删 OutboundCliAppMention 类型引用与 cliApps 出站参数（15、409、1009 行附近）。
+- `webui/src/lib/erza-client.ts`：删 cliApps 引用（约 2 处）。
 - `webui/src/lib/api.ts`：删 fetchCliApps/runCliAppAction 与 `/api/settings/cli-apps` 端点（225、236 行附近）。
 - `webui/src/lib/types.ts`：删 CliAppInfo/CliAppsPayload/OutboundCliAppMention 等类型。
 - i18n（zh-CN/en common.json）：删 cliApps 相关键（zh 约 18 处、en 约 8 处；含 apps 导航名若为"CLI 应用"则改为 MCP 预设相关表述，导航键本身保留）。
-- 前端测试（删用例/断言，不留 skip）：`useMiniunicornStream.test.tsx`（4）、`miniunicorn-client.test.ts`（2）、`api.test.ts`（3）、`agent-activity-cluster.test.tsx`（7）、apps/settings 相关测试中 cli 半边。
+- 前端测试（删用例/断言，不留 skip）：`useErzaStream.test.tsx`（4）、`erza-client.test.ts`（2）、`api.test.ts`（3）、`agent-activity-cluster.test.tsx`（7）、apps/settings 相关测试中 cli 半边。
 
 ## 文档清理
 
 - `docs/configuration.md`：删 cli_apps / CLI Apps 章节（tools.cli_apps.* 字段表、示例 JSON）。
 - `README.md` / `README.en.md`：删 CLI Apps 功能提及；工具计数若有（21→20）同步。
 - `docs/architecture/module-boundaries.md`：**删除 agent/context → apps.cli 横向依赖例外条目**（该依赖已随 W9-3 拔除）；apps 包描述改为 protocol-only（MCP presets manifest 词汇）。注意勿引入无 legacy 语境的旧版 journal 存储文件名裸引用（架构守护测试扫描 docs/**/*.md）。
-- `docs/miniunicorn-business-agent-code-analysis-report.md`：rg 检查提及，若为活文档则同步删改 CLI Apps 段落。
+- `docs/erza-business-agent-code-analysis-report.md`：rg 检查提及，若为活文档则同步删改 CLI Apps 段落。
 - 架构历史任务书（w2~w8、trusted-evidence-plan、agent-core-tool-library-split-plan、agent-harness-*、w6-vocab-sink-plan）：**不改**。
 
 ## 验证步骤

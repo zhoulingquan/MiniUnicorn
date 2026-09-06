@@ -4,9 +4,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
-from miniunicorn.config.schema import AgentDefaults
-from miniunicorn.providers.base import LLMResponse, ToolCallRequest
+from erza.agent.runner import AgentRunner, AgentRunSpec
+from erza.config.schema import AgentDefaults
+from erza.providers.base import LLMResponse, ToolCallRequest
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 

@@ -1,4 +1,4 @@
-"""Tests for miniunicorn.security.network — SSRF protection and internal URL detection."""
+"""Tests for erza.security.network — SSRF protection and internal URL detection."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from miniunicorn.security.network import (
+from erza.security.network import (
     configure_ssrf_whitelist,
     contains_internal_url,
     validate_url_target,
@@ -59,7 +59,7 @@ def test_rejects_missing_domain():
     ],
 )
 def test_blocks_private_ipv4(ip: str, label: str):
-    with patch("miniunicorn.security.network.socket.getaddrinfo", _fake_resolve("evil.com", [ip])):
+    with patch("erza.security.network.socket.getaddrinfo", _fake_resolve("evil.com", [ip])):
         ok, err = validate_url_target("http://evil.com/path")
         assert not ok, f"Should block {label} ({ip})"
         assert "private" in err.lower() or "blocked" in err.lower()
@@ -69,7 +69,7 @@ def test_blocks_ipv6_loopback():
     def _resolver(hostname, port, family=0, type_=0):
         return [(socket.AF_INET6, socket.SOCK_STREAM, 0, "", ("::1", 0, 0, 0))]
 
-    with patch("miniunicorn.security.network.socket.getaddrinfo", _resolver):
+    with patch("erza.security.network.socket.getaddrinfo", _resolver):
         ok, err = validate_url_target("http://evil.com/")
         assert not ok
 
@@ -99,7 +99,7 @@ def _fake_resolve_v6(host: str, results: list[str]):
 def test_blocks_ipv6_mapped_loopback():
     """::ffff:127.0.0.1 must be blocked just like 127.0.0.1."""
     with patch(
-        "miniunicorn.security.network.socket.getaddrinfo",
+        "erza.security.network.socket.getaddrinfo",
         _fake_resolve_v6("evil.com", ["::ffff:127.0.0.1"]),
     ):
         ok, err = validate_url_target("http://evil.com/")
@@ -110,7 +110,7 @@ def test_blocks_ipv6_mapped_loopback():
 def test_blocks_ipv6_mapped_metadata():
     """::ffff:169.254.169.254 must be blocked just like 169.254.169.254."""
     with patch(
-        "miniunicorn.security.network.socket.getaddrinfo",
+        "erza.security.network.socket.getaddrinfo",
         _fake_resolve_v6("evil.com", ["::ffff:169.254.169.254"]),
     ):
         ok, err = validate_url_target("http://evil.com/")
@@ -120,7 +120,7 @@ def test_blocks_ipv6_mapped_metadata():
 def test_blocks_ipv6_mapped_rfc1918():
     """::ffff:10.0.0.1 must be blocked just like 10.0.0.1."""
     with patch(
-        "miniunicorn.security.network.socket.getaddrinfo",
+        "erza.security.network.socket.getaddrinfo",
         _fake_resolve_v6("evil.com", ["::ffff:10.0.0.1"]),
     ):
         ok, err = validate_url_target("http://evil.com/")
@@ -130,7 +130,7 @@ def test_blocks_ipv6_mapped_rfc1918():
 def test_allows_public_ipv6():
     """Public IPv6 addresses must still be allowed."""
     with patch(
-        "miniunicorn.security.network.socket.getaddrinfo",
+        "erza.security.network.socket.getaddrinfo",
         _fake_resolve_v6("example.com", ["2606:4700::6810:84e5"]),
     ):
         ok, err = validate_url_target("http://example.com/")
@@ -144,7 +144,7 @@ def test_allows_public_ipv6():
 
 def test_allows_public_ip():
     with patch(
-        "miniunicorn.security.network.socket.getaddrinfo",
+        "erza.security.network.socket.getaddrinfo",
         _fake_resolve("example.com", ["93.184.216.34"]),
     ):
         ok, err = validate_url_target("http://example.com/page")
@@ -153,10 +153,10 @@ def test_allows_public_ip():
 
 def test_allows_normal_https():
     with patch(
-        "miniunicorn.security.network.socket.getaddrinfo",
+        "erza.security.network.socket.getaddrinfo",
         _fake_resolve("github.com", ["140.82.121.3"]),
     ):
-        ok, err = validate_url_target("https://github.com/HKUDS/miniunicorn")
+        ok, err = validate_url_target("https://github.com/HKUDS/erza")
         assert ok
 
 
@@ -167,7 +167,7 @@ def test_allows_normal_https():
 
 def test_detects_curl_metadata():
     with patch(
-        "miniunicorn.security.network.socket.getaddrinfo",
+        "erza.security.network.socket.getaddrinfo",
         _fake_resolve("169.254.169.254", ["169.254.169.254"]),
     ):
         assert contains_internal_url("curl -s http://169.254.169.254/computeMetadata/v1/")
@@ -175,21 +175,21 @@ def test_detects_curl_metadata():
 
 def test_detects_wget_localhost():
     with patch(
-        "miniunicorn.security.network.socket.getaddrinfo", _fake_resolve("localhost", ["127.0.0.1"])
+        "erza.security.network.socket.getaddrinfo", _fake_resolve("localhost", ["127.0.0.1"])
     ):
         assert contains_internal_url("wget http://localhost:8080/secret")
 
 
 def test_loopback_exception_allows_literal_localhost_only():
     with patch(
-        "miniunicorn.security.network.socket.getaddrinfo", _fake_resolve("localhost", ["127.0.0.1"])
+        "erza.security.network.socket.getaddrinfo", _fake_resolve("localhost", ["127.0.0.1"])
     ):
         assert not contains_internal_url("curl http://localhost:8765/", allow_loopback=True)
 
 
 def test_loopback_exception_rejects_public_name_resolving_to_loopback():
     with patch(
-        "miniunicorn.security.network.socket.getaddrinfo",
+        "erza.security.network.socket.getaddrinfo",
         _fake_resolve("example.com", ["127.0.0.1"]),
     ):
         assert contains_internal_url("curl http://example.com:8765/", allow_loopback=True)
@@ -197,7 +197,7 @@ def test_loopback_exception_rejects_public_name_resolving_to_loopback():
 
 def test_loopback_exception_rejects_metadata():
     with patch(
-        "miniunicorn.security.network.socket.getaddrinfo",
+        "erza.security.network.socket.getaddrinfo",
         _fake_resolve("169.254.169.254", ["169.254.169.254"]),
     ):
         assert contains_internal_url(
@@ -208,7 +208,7 @@ def test_loopback_exception_rejects_metadata():
 def test_detects_ipv6_mapped_loopback():
     """contains_internal_url must catch IPv6-mapped loopback in shell commands."""
     with patch(
-        "miniunicorn.security.network.socket.getaddrinfo",
+        "erza.security.network.socket.getaddrinfo",
         _fake_resolve_v6("evil.com", ["::ffff:127.0.0.1"]),
     ):
         assert contains_internal_url("curl http://evil.com/secret")
@@ -216,7 +216,7 @@ def test_detects_ipv6_mapped_loopback():
 
 def test_allows_normal_curl():
     with patch(
-        "miniunicorn.security.network.socket.getaddrinfo",
+        "erza.security.network.socket.getaddrinfo",
         _fake_resolve("example.com", ["93.184.216.34"]),
     ):
         assert not contains_internal_url("curl https://example.com/api/data")
@@ -234,7 +234,7 @@ def test_no_urls_returns_false():
 def test_detects_schemeless_curl_metadata():
     """``curl 169.254.169.254`` (no scheme) must be caught — curl defaults to http://."""
     with patch(
-        "miniunicorn.security.network.socket.getaddrinfo",
+        "erza.security.network.socket.getaddrinfo",
         _fake_resolve("169.254.169.254", ["169.254.169.254"]),
     ):
         assert contains_internal_url("curl -s 169.254.169.254/computeMetadata/v1/")
@@ -243,7 +243,7 @@ def test_detects_schemeless_curl_metadata():
 def test_detects_schemeless_wget_localhost():
     """``wget localhost:8080`` (no scheme) must be caught — wget defaults to http://."""
     with patch(
-        "miniunicorn.security.network.socket.getaddrinfo", _fake_resolve("localhost", ["127.0.0.1"])
+        "erza.security.network.socket.getaddrinfo", _fake_resolve("localhost", ["127.0.0.1"])
     ):
         assert contains_internal_url("wget localhost:8080/secret")
 
@@ -251,7 +251,7 @@ def test_detects_schemeless_wget_localhost():
 def test_detects_schemeless_curl_domain_resolving_to_internal():
     """``curl example.com`` resolving to a private IP must be caught."""
     with patch(
-        "miniunicorn.security.network.socket.getaddrinfo",
+        "erza.security.network.socket.getaddrinfo",
         _fake_resolve("example.com", ["10.0.0.5"]),
     ):
         assert contains_internal_url("curl example.com/api")
@@ -260,7 +260,7 @@ def test_detects_schemeless_curl_domain_resolving_to_internal():
 def test_schemeless_curl_public_domain_allowed():
     """``curl example.com`` resolving to a public IP is allowed."""
     with patch(
-        "miniunicorn.security.network.socket.getaddrinfo",
+        "erza.security.network.socket.getaddrinfo",
         _fake_resolve("example.com", ["93.184.216.34"]),
     ):
         assert not contains_internal_url("curl example.com/api/data")
@@ -269,7 +269,7 @@ def test_schemeless_curl_public_domain_allowed():
 def test_schemeless_not_triggered_for_non_http_clients():
     """``git config user.name`` must not be flagged as a schemeless URL."""
     with patch(
-        "miniunicorn.security.network.socket.getaddrinfo",
+        "erza.security.network.socket.getaddrinfo",
         _fake_resolve("example.com", ["127.0.0.1"]),
     ):
         # 'git config user.email' contains 'user.email' which looks domain-like,
@@ -280,7 +280,7 @@ def test_schemeless_not_triggered_for_non_http_clients():
 def test_schemeless_curl_exe_detected():
     """``curl.exe`` on Windows must also be detected."""
     with patch(
-        "miniunicorn.security.network.socket.getaddrinfo",
+        "erza.security.network.socket.getaddrinfo",
         _fake_resolve("169.254.169.254", ["169.254.169.254"]),
     ):
         assert contains_internal_url("curl.exe -s 169.254.169.254/latest/meta-data/")
@@ -294,7 +294,7 @@ def test_schemeless_curl_exe_detected():
 def test_blocks_cgnat_by_default():
     """100.64.0.0/10 (CGNAT / Tailscale) is blocked by default."""
     with patch(
-        "miniunicorn.security.network.socket.getaddrinfo",
+        "erza.security.network.socket.getaddrinfo",
         _fake_resolve("ts.local", ["100.100.1.1"]),
     ):
         ok, _ = validate_url_target("http://ts.local/api")
@@ -306,7 +306,7 @@ def test_whitelist_allows_cgnat():
     configure_ssrf_whitelist(["100.64.0.0/10"])
     try:
         with patch(
-            "miniunicorn.security.network.socket.getaddrinfo",
+            "erza.security.network.socket.getaddrinfo",
             _fake_resolve("ts.local", ["100.100.1.1"]),
         ):
             ok, err = validate_url_target("http://ts.local/api")
@@ -320,7 +320,7 @@ def test_whitelist_does_not_affect_other_blocked():
     configure_ssrf_whitelist(["100.64.0.0/10"])
     try:
         with patch(
-            "miniunicorn.security.network.socket.getaddrinfo",
+            "erza.security.network.socket.getaddrinfo",
             _fake_resolve("evil.com", ["10.0.0.1"]),
         ):
             ok, _ = validate_url_target("http://evil.com/secret")
@@ -334,7 +334,7 @@ def test_whitelist_invalid_cidr_ignored():
     configure_ssrf_whitelist(["not-a-cidr", "100.64.0.0/10"])
     try:
         with patch(
-            "miniunicorn.security.network.socket.getaddrinfo",
+            "erza.security.network.socket.getaddrinfo",
             _fake_resolve("ts.local", ["100.100.1.1"]),
         ):
             ok, _ = validate_url_target("http://ts.local/api")
@@ -348,7 +348,7 @@ def test_whitelist_allows_ipv6_mapped_cgnat():
     configure_ssrf_whitelist(["100.64.0.0/10"])
     try:
         with patch(
-            "miniunicorn.security.network.socket.getaddrinfo",
+            "erza.security.network.socket.getaddrinfo",
             _fake_resolve_v6("ts.local", ["::ffff:100.100.1.1"]),
         ):
             ok, err = validate_url_target("http://ts.local/api")

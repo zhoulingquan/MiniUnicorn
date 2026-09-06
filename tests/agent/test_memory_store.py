@@ -8,9 +8,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniunicorn.config.schema import StructuredMemoryConfig
-from miniunicorn.memory import _HISTORY_ENTRY_HARD_CAP, MemoryStore
-from miniunicorn.memory.models import (
+from erza.config.schema import StructuredMemoryConfig
+from erza.memory import _HISTORY_ENTRY_HARD_CAP, MemoryStore
+from erza.memory.models import (
     SCHEMA_VERSION,
     ActorKind,
     MemoryOperation,
@@ -39,7 +39,7 @@ def _record(seed: str, *, statement: str = "Wired memory fact.", slot: str = "wi
             "status": "active",
             "kind": "fact",
             "scope": {"kind": "project", "key": "project:seed"},
-            "subject": "MiniUnicorn",
+            "subject": "Erza",
             "slot": slot,
             "statement": statement,
             "detail": "",
@@ -359,7 +359,7 @@ class TestDreamCursor:
         """A failed durable rewrite must not raise — failure is safe (reprocess)."""
         from loguru import logger as loguru_logger
 
-        import miniunicorn.memory.store as store_module
+        import erza.memory.store as store_module
 
         monkeypatch.setattr(store_module, "atomic_rewrite_lines", lambda *_a, **_kw: False)
 
@@ -599,7 +599,7 @@ class TestStructuredMemoryStore:
                 "status": "active",
                 "kind": "fact",
                 "scope": {"kind": "project", "key": "project:seed"},
-                "subject": "MiniUnicorn",
+                "subject": "Erza",
                 "slot": "db.primary",
                 "statement": "Structured memory is deterministic.",
                 "detail": "",
@@ -762,7 +762,7 @@ class TestStructuredMemoryStore:
 
         canonical = tmp_path / "memory" / "structured" / "tags.json"
         policy = tmp_path / "memory" / "shared" / "POLICY.md"
-        bundled = Path(__file__).parents[2] / "miniunicorn" / "templates" / "memory" / "TAGS.json"
+        bundled = Path(__file__).parents[2] / "erza" / "templates" / "memory" / "TAGS.json"
 
         assert canonical.read_text(encoding="utf-8") == bundled.read_text(encoding="utf-8")
         assert policy.exists()
@@ -818,7 +818,7 @@ class TestSQLiteStartupWiring:
     def test_startup_migration_invokes_migrator_with_correct_args(self, tmp_path, monkeypatch):
         """The startup decision runs BEFORE repository construction with the
         exact workspace and lock timeout."""
-        import miniunicorn.memory.store as memory_module
+        import erza.memory.store as memory_module
 
         _write_legacy_journal(tmp_path, [_record("a")])
         captured: dict[str, object] = {}
@@ -826,7 +826,7 @@ class TestSQLiteStartupWiring:
         def spy_migrate(workspace, lock_timeout_s):
             captured["workspace"] = workspace
             captured["lock_timeout_s"] = lock_timeout_s
-            from miniunicorn.memory.jsonl_import import migrate_legacy_journal
+            from erza.memory.jsonl_import import migrate_legacy_journal
 
             return migrate_legacy_journal(workspace, lock_timeout_s)
 

@@ -129,7 +129,7 @@ commands rather than editing governed files directly.
 - Regression tests reproduce every audit finding before its fix.
 - A repository-wide boundary test covers configuration, dependencies, runtime
   imports, candidate exclusion and absence of whole-file governed injection.
-- Ruff passes for `miniunicorn` and `tests`.
+- Ruff passes for `erza` and `tests`.
 - The focused C2 suite passes.
 - The full test suite completes and passes; if the repository contains a known
   hanging test, it is identified with a per-file run rather than reported as a

@@ -13,8 +13,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-from miniunicorn.composition.gateway import GatewayApplication
-from miniunicorn.providers.factory import ProviderSnapshot
+from erza.composition.gateway import GatewayApplication
+from erza.providers.factory import ProviderSnapshot
 
 
 def _fake_provider():
@@ -31,7 +31,7 @@ def _fake_provider():
 
 
 def _make_config(tmp_path: Path):
-    from miniunicorn.config.schema import Config
+    from erza.config.schema import Config
 
     config = Config()
     config.agents.defaults.workspace = str(tmp_path / "workspace")
@@ -57,9 +57,9 @@ def _patch_provider_factory(monkeypatch, provider):
     def _load_snapshot(_config_path=None, **kwargs) -> ProviderSnapshot:
         return _snapshot(provider)
 
-    monkeypatch.setattr("miniunicorn.providers.factory.build_provider_snapshot", _build_snapshot)
-    monkeypatch.setattr("miniunicorn.providers.factory.load_provider_snapshot", _load_snapshot)
-    monkeypatch.setattr("miniunicorn.providers.factory.make_provider", lambda _config: provider)
+    monkeypatch.setattr("erza.providers.factory.build_provider_snapshot", _build_snapshot)
+    monkeypatch.setattr("erza.providers.factory.load_provider_snapshot", _load_snapshot)
+    monkeypatch.setattr("erza.providers.factory.make_provider", lambda _config: provider)
     return _load_snapshot
 
 

@@ -16,10 +16,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from miniunicorn.agent.execution.planning import PlanningReflectionService
-from miniunicorn.agent.hook import AgentHook, AgentHookContext
-from miniunicorn.agent.planner import Plan, PlanStep, StepStatus
-from miniunicorn.agent.step_acceptance import (
+from erza.agent.execution.planning import PlanningReflectionService
+from erza.agent.hook import AgentHook, AgentHookContext
+from erza.agent.planner import Plan, PlanStep, StepStatus
+from erza.agent.step_acceptance import (
     StepAcceptancePolicy,
     StepEvidence,
     ToolObservation,

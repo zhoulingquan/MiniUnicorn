@@ -3,12 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useRestartFlow } from "@/hooks/useRestartFlow";
 import { STORAGE_KEYS } from "@/lib/storage";
-import type { MiniunicornClient } from "@/lib/miniunicorn-client";
+import type { ErzaClient } from "@/lib/erza-client";
 
 const RESTART_KEY = STORAGE_KEYS.restartStartedAt;
 
 /** Minimal fake client that exposes only the surface ``useRestartFlow`` needs. */
-function makeFakeClient(): MiniunicornClient & {
+function makeFakeClient(): ErzaClient & {
   statusListeners: ((status: string) => void)[];
   emitStatus(status: string): void;
 } {
@@ -28,7 +28,7 @@ function makeFakeClient(): MiniunicornClient & {
       for (const cb of statusListeners) cb(status);
     },
   };
-  return client as unknown as MiniunicornClient & {
+  return client as unknown as ErzaClient & {
     statusListeners: ((status: string) => void)[];
     emitStatus(status: string): void;
   };

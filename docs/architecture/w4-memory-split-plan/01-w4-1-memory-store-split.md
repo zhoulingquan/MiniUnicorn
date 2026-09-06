@@ -5,7 +5,7 @@
 
 ## 一、现状锚点(以符号定位,行号为参考)
 
-`miniunicorn/agent/memory.py` 共 2018 行:
+`erza/agent/memory.py` 共 2018 行:
 
 | 锚点 | 行号(参考) | 说明 |
 |---|---|---|
@@ -22,21 +22,21 @@
 
 ## 二、变更方案
 
-### 2.1 新建 `miniunicorn/agent/memory_store.py`
+### 2.1 新建 `erza/agent/memory_store.py`
 
 - 模块 docstring:`"""MemoryStore: pure file-I/O memory store layer (extracted from memory.py)."""`(单行即可)
-- 头部:`from __future__ import annotations` + `import os, re, threading` + `from contextlib import suppress`(按实际引用裁剪)+ `tiktoken`、`filelock`、`loguru` + 下列 miniunicorn 导入中实际引用者:`migrate_legacy_journal`、`LegacyJournalImportError`(若 MemoryStore 区段引用)、`_atomic_rewrite_lines`、`session_key_base`、`Session`、`GitStore`、`GOVERNED_MEMORY_TRACKED_FILES`、helpers 家族中实际引用者、TYPE_CHECKING 块中实际引用者
+- 头部:`from __future__ import annotations` + `import os, re, threading` + `from contextlib import suppress`(按实际引用裁剪)+ `tiktoken`、`filelock`、`loguru` + 下列 erza 导入中实际引用者:`migrate_legacy_journal`、`LegacyJournalImportError`(若 MemoryStore 区段引用)、`_atomic_rewrite_lines`、`session_key_base`、`Session`、`GitStore`、`GOVERNED_MEMORY_TRACKED_FILES`、helpers 家族中实际引用者、TYPE_CHECKING 块中实际引用者
 - **裁剪基准**:新模块只保留其代码实际引用的 import;以 ruff check(未使用导入报错)逐项核实,不凭记忆
 - 主体:`class MemoryStore:`(100-929 逐行照搬,含全部 docstring/注释/中文注释)→ `class WorkspaceMemoryRegistry:`(930-971 照搬)→ 模块级 `_RAW_ARCHIVE_MAX_CHARS` 与 `_HISTORY_ENTRY_HARD_CAP` 定义(含 978 注释行,放在两 class 之后、与原常量区相同的相对顺序)
 - **禁止**:搬入任何 Dream 专用函数、`_ARCHIVE_SUMMARY_MAX_CHARS`、Consolidator/Dream 类
 
-### 2.2 收缩 `miniunicorn/agent/memory.py`
+### 2.2 收缩 `erza/agent/memory.py`
 
 - 删除 MemoryStore、WorkspaceMemoryRegistry 两个类定义及 `_RAW_ARCHIVE_MAX_CHARS`、`_HISTORY_ENTRY_HARD_CAP` 常量(975-982 中仅删这两条,保留 `_ARCHIVE_SUMMARY_MAX_CHARS`)
 - import 块顶部新增:
 
 ```python
-from miniunicorn.agent.memory_store import (  # noqa: F401
+from erza.agent.memory_store import (  # noqa: F401
     MemoryStore,
     WorkspaceMemoryRegistry,
     _HISTORY_ENTRY_HARD_CAP,
@@ -52,20 +52,20 @@ from miniunicorn.agent.memory_store import (  # noqa: F401
 
 | 位置 | 现状 | 调整为 |
 |---|---|---|
-| tests/agent/test_memory_store.py:799-811 | `import miniunicorn.agent.memory as memory_module` + `monkeypatch.setattr(memory_module, "migrate_legacy_journal", spy_migrate, raising=False)` | import 目标改为 `miniunicorn.agent.memory_store`(变量名可留 `memory_module`,仅换导入路径),setattr 调用形式不变 |
-| tests/agent/test_reflection_structured.py:341-355 | `import miniunicorn.agent.memory as memory_module` + `monkeypatch.setattr(memory_module, "_atomic_rewrite_lines", fail_file_rewrite)` | 同上,导入路径改为 `miniunicorn.agent.memory_store` |
-| tests/agent/test_structured_memory_boundary.py:300-306(实施时发现,任务书设计时遗漏) | `_REPOSITORY_INSTANTIATION_ALLOWED` 白名单硬编码 `"miniunicorn/agent/memory.py"`——守护 `StructuredMemoryRepository(` 实例化点;MemoryStore 的 `_build_structured_stack` 随迁后,实例化点落入 `memory_store.py`,守护失败 | 白名单条目改为 `"miniunicorn/agent/memory_store.py"`(附注释 `# Moved with MemoryStore in W4-1`);守护语义(唯一 SQLite 仓库实例化点)零变更;`_EXPLICIT_RUNTIME_FILES`(166 行)不改——`memory_glob = agent.glob("memory_*.py")` 已自动覆盖新文件且 memory.py 仍存在 |
+| tests/agent/test_memory_store.py:799-811 | `import erza.agent.memory as memory_module` + `monkeypatch.setattr(memory_module, "migrate_legacy_journal", spy_migrate, raising=False)` | import 目标改为 `erza.agent.memory_store`(变量名可留 `memory_module`,仅换导入路径),setattr 调用形式不变 |
+| tests/agent/test_reflection_structured.py:341-355 | `import erza.agent.memory as memory_module` + `monkeypatch.setattr(memory_module, "_atomic_rewrite_lines", fail_file_rewrite)` | 同上,导入路径改为 `erza.agent.memory_store` |
+| tests/agent/test_structured_memory_boundary.py:300-306(实施时发现,任务书设计时遗漏) | `_REPOSITORY_INSTANTIATION_ALLOWED` 白名单硬编码 `"erza/agent/memory.py"`——守护 `StructuredMemoryRepository(` 实例化点;MemoryStore 的 `_build_structured_stack` 随迁后,实例化点落入 `memory_store.py`,守护失败 | 白名单条目改为 `"erza/agent/memory_store.py"`(附注释 `# Moved with MemoryStore in W4-1`);守护语义(唯一 SQLite 仓库实例化点)零变更;`_EXPLICIT_RUNTIME_FILES`(166 行)不改——`memory_glob = agent.glob("memory_*.py")` 已自动覆盖新文件且 memory.py 仍存在 |
 
 **断言、测试逻辑、测试数据零修改**——只换被 patch 的模块对象。
 
 ### 2.4 新测试 `tests/agent/test_memory_module_split.py`
 
-1. `test_facade_identity_store`:`miniunicorn.agent.memory.MemoryStore is miniunicorn.agent.memory_store.MemoryStore`;`WorkspaceMemoryRegistry` 同款断言
-2. `test_memory_store_standalone_import`:`importlib.import_module("miniunicorn.agent.memory_store")` 成功且不在 sys.modules 出现循环特征(直接成功导入即为通过)
-3. `test_constants_live_in_store_module`:`memory_store._HISTORY_ENTRY_HARD_CAP == 64_000`、`memory_store._RAW_ARCHIVE_MAX_CHARS == 16_000`;且 `miniunicorn.agent.memory._HISTORY_ENTRY_HARD_CAP is memory_store._HISTORY_ENTRY_HARD_CAP`
-4. `test_agent_package_reexport_identity`:`miniunicorn.agent.MemoryStore is memory_store.MemoryStore`(agent/__init__ 经门面 re-export 的链路完整)
+1. `test_facade_identity_store`:`erza.agent.memory.MemoryStore is erza.agent.memory_store.MemoryStore`;`WorkspaceMemoryRegistry` 同款断言
+2. `test_memory_store_standalone_import`:`importlib.import_module("erza.agent.memory_store")` 成功且不在 sys.modules 出现循环特征(直接成功导入即为通过)
+3. `test_constants_live_in_store_module`:`memory_store._HISTORY_ENTRY_HARD_CAP == 64_000`、`memory_store._RAW_ARCHIVE_MAX_CHARS == 16_000`;且 `erza.agent.memory._HISTORY_ENTRY_HARD_CAP is memory_store._HISTORY_ENTRY_HARD_CAP`
+4. `test_agent_package_reexport_identity`:`erza.agent.MemoryStore is memory_store.MemoryStore`(agent/__init__ 经门面 re-export 的链路完整)
 5. `test_memory_py_shrunk`:`inspect.getsource` 或行数统计,`memory.py` 行数 < 1150 且 `memory_store.py` 行数 < 1000
-6. `test_consolidator_still_resolves_shared_constant`:导入 `miniunicorn.agent.memory` 命名空间的 `_RAW_ARCHIVE_MAX_CHARS` 后,Consolidator 模块内引用同源(以门面 identity 断言间接覆盖,即第 3 条;此条可并入第 3 条,不必单独存在)
+6. `test_consolidator_still_resolves_shared_constant`:导入 `erza.agent.memory` 命名空间的 `_RAW_ARCHIVE_MAX_CHARS` 后,Consolidator 模块内引用同源(以门面 identity 断言间接覆盖,即第 3 条;此条可并入第 3 条,不必单独存在)
 
 (实际落成 5 个用例即可,第 6 条为指导性说明。)
 
@@ -80,7 +80,7 @@ from miniunicorn.agent.memory_store import (  # noqa: F401
 ## 四、验收清单
 
 - [ ] 全量测试绿(passed ≥ 4114 + 新增 5)且既有断言零修改;ruff check / format --check 零告警
-- [ ] `from miniunicorn.agent.memory import MemoryStore, WorkspaceMemoryRegistry, _HISTORY_ENTRY_HARD_CAP` 与全部原符号路径仍可用(2.3 的 2 处路径调整除外)
+- [ ] `from erza.agent.memory import MemoryStore, WorkspaceMemoryRegistry, _HISTORY_ENTRY_HARD_CAP` 与全部原符号路径仍可用(2.3 的 2 处路径调整除外)
 - [ ] memory_store.py 独立可导入,无循环 import
 - [ ] 纯搬家核对:对基线与工作区做代码行多重集合对比,删除侧恰为 MemoryStore/Registry/两常量,新增侧恰为新模块 docstring、精简 import、门面 re-export 块
 - [ ] 共享常量唯一性:`_RAW_ARCHIVE_MAX_CHARS` 全库仅 memory_store.py 一处定义

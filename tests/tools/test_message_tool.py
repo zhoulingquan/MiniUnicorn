@@ -2,9 +2,9 @@ import os
 
 import pytest
 
-from miniunicorn.bus.events import OutboundMessage
-from miniunicorn.config.paths import get_workspace_path
-from miniunicorn.tools.message import MessageTool
+from erza.bus.events import OutboundMessage
+from erza.config.paths import get_workspace_path
+from erza.tools.message import MessageTool
 
 
 @pytest.mark.asyncio
@@ -86,7 +86,7 @@ async def test_message_tool_inherits_metadata_for_same_target() -> None:
 
     tool = MessageTool(send_callback=_send)
     slack_meta = {"slack": {"thread_ts": "111.222", "channel_type": "channel"}}
-    from miniunicorn.tools.context import RequestContext
+    from erza.tools.context import RequestContext
 
     tool.set_context(RequestContext(channel="slack", chat_id="C123", metadata=slack_meta))
 
@@ -103,7 +103,7 @@ async def test_message_tool_clears_metadata_when_context_has_none() -> None:
         sent.append(msg)
 
     tool = MessageTool(send_callback=_send)
-    from miniunicorn.tools.context import RequestContext
+    from erza.tools.context import RequestContext
 
     tool.set_context(
         RequestContext(
@@ -127,7 +127,7 @@ async def test_message_tool_does_not_inherit_metadata_for_cross_target() -> None
         sent.append(msg)
 
     tool = MessageTool(send_callback=_send)
-    from miniunicorn.tools.context import RequestContext
+    from erza.tools.context import RequestContext
 
     tool.set_context(
         RequestContext(
@@ -315,7 +315,7 @@ async def test_message_tool_tracks_turn_media_for_same_target(tmp_path) -> None:
         sent.append(msg)
 
     tool = MessageTool(send_callback=_send)
-    from miniunicorn.tools.context import RequestContext
+    from erza.tools.context import RequestContext
 
     tool.set_context(RequestContext(channel="websocket", chat_id="chat-1", metadata={}))
     tool.start_turn()
@@ -332,7 +332,7 @@ async def test_message_tool_start_turn_clears_tracked_media(tmp_path) -> None:
         pass
 
     tool = MessageTool(send_callback=_send)
-    from miniunicorn.tools.context import RequestContext
+    from erza.tools.context import RequestContext
 
     tool.set_context(RequestContext(channel="websocket", chat_id="chat-1", metadata={}))
     tool.start_turn()
@@ -349,7 +349,7 @@ async def test_message_tool_cross_target_does_not_track_turn_media(tmp_path) -> 
         pass
 
     tool = MessageTool(send_callback=_send)
-    from miniunicorn.tools.context import RequestContext
+    from erza.tools.context import RequestContext
 
     tool.set_context(RequestContext(channel="websocket", chat_id="chat-1", metadata={}))
     f = tmp_path / "doc.md"
@@ -371,7 +371,7 @@ async def test_message_tool_rejects_wrong_explicit_ws_chat_id(tmp_path) -> None:
         sent.append(msg)
 
     tool = MessageTool(send_callback=_send)
-    from miniunicorn.tools.context import RequestContext
+    from erza.tools.context import RequestContext
 
     conv = "550e8400-e29b-41d4-a716-446655440000"
     tool.set_context(RequestContext(channel="websocket", chat_id=conv, metadata={}))
@@ -395,7 +395,7 @@ async def test_message_tool_allows_ws_explicit_when_matches_context(tmp_path) ->
         sent.append(msg)
 
     tool = MessageTool(send_callback=_send)
-    from miniunicorn.tools.context import RequestContext
+    from erza.tools.context import RequestContext
 
     conv = "550e8400-e29b-41d4-a716-446655440000"
     tool.set_context(RequestContext(channel="websocket", chat_id=conv, metadata={}))
@@ -420,7 +420,7 @@ async def test_message_tool_cli_context_may_target_other_ws_chat(tmp_path) -> No
         sent.append(msg)
 
     tool = MessageTool(send_callback=_send)
-    from miniunicorn.tools.context import RequestContext
+    from erza.tools.context import RequestContext
 
     target = "550e8400-e29b-41d4-a716-446655440000"
     tool.set_context(RequestContext(channel="cli", chat_id="direct", metadata={}))

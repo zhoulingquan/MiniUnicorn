@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from miniunicorn.config.schema import AgentDefaults, StructuredMemoryConfig
+from erza.config.schema import AgentDefaults, StructuredMemoryConfig
 
 
 def test_structured_memory_defaults_no_mode() -> None:

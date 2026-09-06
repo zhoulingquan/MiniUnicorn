@@ -1,4 +1,4 @@
-# W7-1 任务书:memory 家族搬家至顶层 `miniunicorn/memory/`
+# W7-1 任务书:memory 家族搬家至顶层 `erza/memory/`
 
 > 日期:2026-09-02 · 前置:W7-0 已完成(`5bf8fa1f`,memory 家族对 agent 核心依赖为零)
 > 性质:纯搬家重构(同 W5-1/W6-1 模式):git mv + import 路径改写 + 守护手术,**零逻辑改动**
@@ -8,7 +8,7 @@
 
 1. **只用 git mv**,禁止"新建文件+删旧文件"(保历史:搬家后 `git log --follow` 必须能看到搬家前历史)
 2. **零逻辑改动**:只改 import 行、路径字符串、守护白名单;不重排函数、不改签名、不动实现
-3. **不留 shim/兼容层**:`miniunicorn.agent.memory` 命名空间彻底消失,无 re-export
+3. **不留 shim/兼容层**:`erza.agent.memory` 命名空间彻底消失,无 re-export
 4. **测试文件不搬家**:唯一例外是 `tests/agent/test_memory_module_split.py` → `tests/memory/test_memory_package_split.py`(它是本批次的包结构守护,随包走);其余 26 个测试文件**原地只改 import**
 5. 历史文档(W4/W5/W6 的 plan 目录)一律不动;只更新 `docs/architecture/module-boundaries.md`(新增 §2.19)
 6. 新增文档中**不得出现裸的 legacy journal 文件名字样**(架构守护会扫 docs/**/*.md;如确需提及,行内必须含"迁移"或"legacy"字样)
@@ -16,7 +16,7 @@
 
 ## 1. 模块映射表(13 个文件)
 
-| 旧路径 `miniunicorn/agent/` | 新路径 `miniunicorn/memory/` |
+| 旧路径 `erza/agent/` | 新路径 `erza/memory/` |
 |---|---|
 | memory.py(门面 23 行) | `__init__.py` |
 | memory_models.py(740) | models.py |
@@ -36,11 +36,11 @@
 
 **导入改写总规则**(适用于所有文件,含函数级惰性 import 与字符串):
 
-- `from miniunicorn.agent.memory_X import A, B` → `from miniunicorn.memory.<新名> import A, B`
-- `from miniunicorn.agent.memory import A` → `from miniunicorn.memory import A`(门面名不变)
-- `import miniunicorn.agent.memory_X as M` → `import miniunicorn.memory.<新名> as M`
-- 字符串形式同步:`"miniunicorn.agent.memory_X"` → `"miniunicorn.memory.<新名>"`;`"miniunicorn/agent/memory_X.py"` → `"miniunicorn/memory/<新名>.py"`
-- `importlib.import_module("miniunicorn.agent.memory_store")` / `find_spec(...)` 同表改写
+- `from erza.agent.memory_X import A, B` → `from erza.memory.<新名> import A, B`
+- `from erza.agent.memory import A` → `from erza.memory import A`(门面名不变)
+- `import erza.agent.memory_X as M` → `import erza.memory.<新名> as M`
+- 字符串形式同步:`"erza.agent.memory_X"` → `"erza.memory.<新名>"`;`"erza/agent/memory_X.py"` → `"erza/memory/<新名>.py"`
+- `importlib.import_module("erza.agent.memory_store")` / `find_spec(...)` 同表改写
 
 ## 2. 手术清单(生产代码,22 文件)
 
@@ -49,20 +49,20 @@
 先建目录再逐个 git mv(注意 memory.py 最后变成 `__init__.py`):
 
 ```powershell
-New-Item -ItemType Directory -Force miniunicorn\memory | Out-Null
-git mv miniunicorn/agent/memory_models.py         miniunicorn/memory/models.py
-git mv miniunicorn/agent/memory_sqlite_schema.py  miniunicorn/memory/sqlite_schema.py
-git mv miniunicorn/agent/memory_repository.py     miniunicorn/memory/repository.py
-git mv miniunicorn/agent/memory_recall.py         miniunicorn/memory/recall.py
-git mv miniunicorn/agent/memory_lifecycle.py      miniunicorn/memory/lifecycle.py
-git mv miniunicorn/agent/memory_extraction.py     miniunicorn/memory/extraction.py
-git mv miniunicorn/agent/memory_jsonl_import.py   miniunicorn/memory/jsonl_import.py
-git mv miniunicorn/agent/memory_audit_export.py   miniunicorn/memory/audit_export.py
-git mv miniunicorn/agent/memory_store.py          miniunicorn/memory/store.py
-git mv miniunicorn/agent/memory_consolidator.py   miniunicorn/memory/consolidator.py
-git mv miniunicorn/agent/memory_dream.py          miniunicorn/memory/dream.py
-git mv miniunicorn/agent/memory_backup.py         miniunicorn/memory/backup.py
-git mv miniunicorn/agent/memory.py                miniunicorn/memory/__init__.py
+New-Item -ItemType Directory -Force erza\memory | Out-Null
+git mv erza/agent/memory_models.py         erza/memory/models.py
+git mv erza/agent/memory_sqlite_schema.py  erza/memory/sqlite_schema.py
+git mv erza/agent/memory_repository.py     erza/memory/repository.py
+git mv erza/agent/memory_recall.py         erza/memory/recall.py
+git mv erza/agent/memory_lifecycle.py      erza/memory/lifecycle.py
+git mv erza/agent/memory_extraction.py     erza/memory/extraction.py
+git mv erza/agent/memory_jsonl_import.py   erza/memory/jsonl_import.py
+git mv erza/agent/memory_audit_export.py   erza/memory/audit_export.py
+git mv erza/agent/memory_store.py          erza/memory/store.py
+git mv erza/agent/memory_consolidator.py   erza/memory/consolidator.py
+git mv erza/agent/memory_dream.py          erza/memory/dream.py
+git mv erza/agent/memory_backup.py         erza/memory/backup.py
+git mv erza/agent/memory.py                erza/memory/__init__.py
 ```
 
 家族内部互引改写(实测清单,含函数级惰性 import,如 dream.py 的行 201/334/338/339):
@@ -84,12 +84,12 @@ git mv miniunicorn/agent/memory.py                miniunicorn/memory/__init__.py
 
 | 文件 | 行 | 改写 |
 |---|---|---|
-| agent/__init__.py | 6 | **删除整行** `from miniunicorn.agent.memory import Dream, MemoryStore`,并从 `__all__` 移除 `"MemoryStore"`、`"Dream"`(门面收窄,agent 公共面回归纯编排) |
-| agent/autocompact.py | 15 | → `from miniunicorn.memory import Consolidator` |
-| agent/context.py | 13-14 | → `from miniunicorn.memory import MemoryStore, WorkspaceMemoryRegistry` + `from miniunicorn.memory.models import MemoryScope, RecallQuery, ScopeKind` |
-| agent/dream_trigger.py | 22, 25 | → `from miniunicorn.memory import count_pending_dream_entries` / `from miniunicorn.memory import Dream` |
-| agent/loop.py | 24 | → `from miniunicorn.memory import Consolidator, Dream, MemoryStore` |
-| agent/runtime_resources.py | 24 | → `from miniunicorn.memory import Consolidator, Dream, MemoryStore` |
+| agent/__init__.py | 6 | **删除整行** `from erza.agent.memory import Dream, MemoryStore`,并从 `__all__` 移除 `"MemoryStore"`、`"Dream"`(门面收窄,agent 公共面回归纯编排) |
+| agent/autocompact.py | 15 | → `from erza.memory import Consolidator` |
+| agent/context.py | 13-14 | → `from erza.memory import MemoryStore, WorkspaceMemoryRegistry` + `from erza.memory.models import MemoryScope, RecallQuery, ScopeKind` |
+| agent/dream_trigger.py | 22, 25 | → `from erza.memory import count_pending_dream_entries` / `from erza.memory import Dream` |
+| agent/loop.py | 24 | → `from erza.memory import Consolidator, Dream, MemoryStore` |
+| agent/runtime_resources.py | 24 | → `from erza.memory import Consolidator, Dream, MemoryStore` |
 
 `context.py:116` 的 MemoryStore 直接构造**本批不改**(保持零逻辑改动;注入化留给后续)。
 
@@ -98,7 +98,7 @@ git mv miniunicorn/agent/memory.py                miniunicorn/memory/__init__.py
 | 文件 | 行 | 改写 |
 |---|---|---|
 | command/memory.py | 13-16 | 门面 + backup + lifecycle + models 四行,按映射表 |
-| cli/_gateway_runner.py | 32 | → `from miniunicorn.memory import count_pending_dream_entries` |
+| cli/_gateway_runner.py | 32 | → `from erza.memory import count_pending_dream_entries` |
 
 ### 2.4 脚本(1 文件)
 
@@ -116,14 +116,14 @@ git mv miniunicorn/agent/memory.py                miniunicorn/memory/__init__.py
 
 git mv 后按映射表改写,并做**语义手术**(W7 改变了结构,断言要跟着变):
 
-1. 所有 `miniunicorn.agent.memory*` 路径按映射表更新(`memory_facade` → `import miniunicorn.memory as memory_facade` 等)
-2. `test_agent_package_reexport_identity`(行 43-45)**反转**:`miniunicorn.agent` 不再 re-export——改为断言 `not hasattr(miniunicorn.agent, "MemoryStore")` 且 `"MemoryStore" not in miniunicorn.agent.__all__`
-3. `test_consumer_entry_points`(行 161-163):`miniunicorn.agent.Dream` 断言删除,改为 `not hasattr(miniunicorn.agent, "Dream")`;保留 `dream_trigger.count_pending_dream_entries is memory_dream.count_pending_dream_entries`(换新路径后仍成立)
-4. `test_memory_py_*` 三个门面体积断言:`find_spec("miniunicorn.memory")` 取 `__init__.py`,阈值断言保留(≤60 行、无 class 定义)
-5. `test_memory_store_standalone_import`:`import_module("miniunicorn.memory.store")`
+1. 所有 `erza.agent.memory*` 路径按映射表更新(`memory_facade` → `import erza.memory as memory_facade` 等)
+2. `test_agent_package_reexport_identity`(行 43-45)**反转**:`erza.agent` 不再 re-export——改为断言 `not hasattr(erza.agent, "MemoryStore")` 且 `"MemoryStore" not in erza.agent.__all__`
+3. `test_consumer_entry_points`(行 161-163):`erza.agent.Dream` 断言删除,改为 `not hasattr(erza.agent, "Dream")`;保留 `dream_trigger.count_pending_dream_entries is memory_dream.count_pending_dream_entries`(换新路径后仍成立)
+4. `test_memory_py_*` 三个门面体积断言:`find_spec("erza.memory")` 取 `__init__.py`,阈值断言保留(≤60 行、无 class 定义)
+5. `test_memory_store_standalone_import`:`import_module("erza.memory.store")`
 6. **新增两条**:
-   - `test_cold_import_loads_no_agent_modules`:subprocess 起新解释器执行 `import miniunicorn.memory`,然后检查 `sys.modules` 中不存在 `"miniunicorn.agent"` 也不存在任何 `"miniunicorn.agent.*"` 前缀模块(已实证:依赖闭包 gitstore/helpers/session.manager/bus/providers.base/ledger/prompt_templates 冷加载零 agent 模块;若 stderr 出现 config.schema 的 circular-import deferral warning 属预期,忽略)
-   - `test_memory_package_is_agent_free`:AST 扫描 `miniunicorn/memory/**/*.py`,断言无任何 `miniunicorn.agent` import
+   - `test_cold_import_loads_no_agent_modules`:subprocess 起新解释器执行 `import erza.memory`,然后检查 `sys.modules` 中不存在 `"erza.agent"` 也不存在任何 `"erza.agent.*"` 前缀模块(已实证:依赖闭包 gitstore/helpers/session.manager/bus/providers.base/ledger/prompt_templates 冷加载零 agent 模块;若 stderr 出现 config.schema 的 circular-import deferral warning 属预期,忽略)
+   - `test_memory_package_is_agent_free`:AST 扫描 `erza/memory/**/*.py`,断言无任何 `erza.agent` import
 7. tests/memory/ 目录结构**照抄 tests/ledger/**(若后者有 `__init__.py` 则同建)
 
 ## 4. 守护手术
@@ -132,12 +132,12 @@ git mv 后按映射表改写,并做**语义手术**(W7 改变了结构,断言要
 
 | 行 | 现状 | 改为 |
 |---|---|---|
-| 19-21 | 三行 import(agent.memory/lifecycle/models) | `miniunicorn.memory` / `miniunicorn.memory.lifecycle` / `miniunicorn.memory.models` |
-| 164 | `_EXPLICIT_RUNTIME_FILES` 含 `"miniunicorn/agent/memory.py"` | 删除该项(该文件不存在了;家族文件由下面 glob 收集) |
-| 171-175 | `_runtime_memory_files`:`agent.glob("memory_*.py")` | 改为 `(root/"miniunicorn"/"memory").glob("*.py")`(显式列表里 context/loop/reflection/command/schema 五项保留) |
-| 268 | `_JOURNAL_MIGRATOR_SOURCES = ("miniunicorn/agent/memory_jsonl_import.py",)` | `("miniunicorn/memory/jsonl_import.py",)` |
-| 297/300 | `_REPOSITORY_INSTANTIATION_ALLOWED` 两项 | `"miniunicorn/memory/store.py"` / `"miniunicorn/memory/jsonl_import.py"`(注释里的 W4-1 字样可保留,补一句 W7-1 搬迁说明) |
-| 362 | `rel == "miniunicorn/agent/memory_repository.py"` | `rel == "miniunicorn/memory/repository.py"` |
+| 19-21 | 三行 import(agent.memory/lifecycle/models) | `erza.memory` / `erza.memory.lifecycle` / `erza.memory.models` |
+| 164 | `_EXPLICIT_RUNTIME_FILES` 含 `"erza/agent/memory.py"` | 删除该项(该文件不存在了;家族文件由下面 glob 收集) |
+| 171-175 | `_runtime_memory_files`:`agent.glob("memory_*.py")` | 改为 `(root/"erza"/"memory").glob("*.py")`(显式列表里 context/loop/reflection/command/schema 五项保留) |
+| 268 | `_JOURNAL_MIGRATOR_SOURCES = ("erza/agent/memory_jsonl_import.py",)` | `("erza/memory/jsonl_import.py",)` |
+| 297/300 | `_REPOSITORY_INSTANTIATION_ALLOWED` 两项 | `"erza/memory/store.py"` / `"erza/memory/jsonl_import.py"`(注释里的 W4-1 字样可保留,补一句 W7-1 搬迁说明) |
+| 362 | `rel == "erza/agent/memory_repository.py"` | `rel == "erza/memory/repository.py"` |
 
 ### 4.2 tests/architecture/test_dependency_direction.py(2 处)
 
@@ -146,29 +146,29 @@ git mv 后按映射表改写,并做**语义手术**(W7 改变了结构,断言要
 
 ### 4.3 docs/architecture/module-boundaries.md
 
-新增 §2.19(格式仿 §2.18 ledger):位置 `miniunicorn/memory/`、门面 re-export 清单(MemoryStore/WorkspaceMemoryRegistry/Consolidator/Dream/count_pending_dream_entries/reflection_evidence_id + 私有名)、依赖仅 utils/config/session/bus/providers/ledger、生命周期所有者 agent(RuntimeResourceRegistry 持有)、**零 agent 依赖**由 test_dependency_direction 固化。同时在 §2.2 agent 节补一行:memory 家族已于 W7-1 外置(见 §2.19)。
+新增 §2.19(格式仿 §2.18 ledger):位置 `erza/memory/`、门面 re-export 清单(MemoryStore/WorkspaceMemoryRegistry/Consolidator/Dream/count_pending_dream_entries/reflection_evidence_id + 私有名)、依赖仅 utils/config/session/bus/providers/ledger、生命周期所有者 agent(RuntimeResourceRegistry 持有)、**零 agent 依赖**由 test_dependency_direction 固化。同时在 §2.2 agent 节补一行:memory 家族已于 W7-1 外置(见 §2.19)。
 
 ## 5. 验证门(全过才 commit)
 
 ```powershell
 # 门 1:零残留(源码/测试/脚本,退出码必须为 1 = 零命中)
-rg -n "miniunicorn\.agent\.memory|miniunicorn/agent/memory" miniunicorn/ tests/ scripts/
+rg -n "erza\.agent\.memory|erza/agent/memory" erza/ tests/ scripts/
 
 # 门 2:三个入口顺序冷导入全部成功(各起子进程)
-.venv\Scripts\python.exe -c "import miniunicorn.memory; print('ok')"
-.venv\Scripts\python.exe -c "import miniunicorn.agent; print('ok')"
-.venv\Scripts\python.exe -c "import miniunicorn.config.schema; print('ok')"
+.venv\Scripts\python.exe -c "import erza.memory; print('ok')"
+.venv\Scripts\python.exe -c "import erza.agent; print('ok')"
+.venv\Scripts\python.exe -c "import erza.config.schema; print('ok')"
 
 # 门 3:全量 pytest(后台 Start-Process 跑,轮询日志,勿同步等待)
 .venv\Scripts\python.exe -m pytest tests/ -q
 # 期望:0 failed;总数 ≥ 4144 passed(W7-0 基线 4144 + 新增 2 条守护)
 
 # 门 4:双 ruff 零
-.venv\Scripts\python.exe -m ruff check miniunicorn/ tests/ scripts/
-.venv\Scripts\python.exe -m ruff format --check miniunicorn/ tests/ scripts/
+.venv\Scripts\python.exe -m ruff check erza/ tests/ scripts/
+.venv\Scripts\python.exe -m ruff format --check erza/ tests/ scripts/
 
 # 门 5:历史追踪
-git log --follow --oneline miniunicorn/memory/store.py | Measure-Object -Line   # 必须 > 1(能看到搬家前提交)
+git log --follow --oneline erza/memory/store.py | Measure-Object -Line   # 必须 > 1(能看到搬家前提交)
 ```
 
 ## 6. 反中断规程(经验固化,必守)
@@ -183,7 +183,7 @@ git log --follow --oneline miniunicorn/memory/store.py | Measure-Object -Line   
 单个 commit,message 建议:
 
 ```
-refactor(memory): extract memory family to top-level miniunicorn/memory package
+refactor(memory): extract memory family to top-level erza/memory package
 
 Pure move (git mv) of 13 modules (6132 loc) out of agent/; module names
 slimmed (memory_store -> store etc.). agent/__init__ no longer re-exports

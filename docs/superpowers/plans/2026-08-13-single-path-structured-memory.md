@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Remove the three runtime memory modes and make governed structured memory MiniUnicorn's only normal execution path while retaining explicit legacy import tooling.
+**Goal:** Remove the three runtime memory modes and make governed structured memory Erza's only normal execution path while retaining explicit legacy import tooling.
 
 **Architecture:** The existing repository, lifecycle, recall, journal, Dream extraction, and strict Reflection implementations remain. Mode plumbing and conditional branches are deleted; configuration only supplies tuning values, and legacy files become inert import sources.
 
@@ -22,7 +22,7 @@
 
 **Files:**
 - Modify: `tests/config/test_structured_memory_config.py`
-- Modify: `miniunicorn/config/schema.py`
+- Modify: `erza/config/schema.py`
 - Modify: `docs/configuration.md`
 
 **Interfaces:**
@@ -40,7 +40,7 @@
 **Files:**
 - Modify: `tests/agent/test_structured_memory_boundary.py`
 - Modify: `tests/agent/test_memory_repository.py` or the closest existing store initialization test
-- Modify: `miniunicorn/agent/memory.py`
+- Modify: `erza/agent/memory.py`
 
 **Interfaces:**
 - `MemoryStore(workspace, structured_config=None)` normalizes to `StructuredMemoryConfig()`.
@@ -57,7 +57,7 @@
 
 **Files:**
 - Modify: `tests/agent/test_context_structured_memory.py`
-- Modify: `miniunicorn/agent/context.py`
+- Modify: `erza/agent/context.py`
 
 **Interfaces:**
 - `ContextBuilder(..., structured_memory_config=None)` still uses normalized governed memory.
@@ -78,9 +78,9 @@
 - Modify: `tests/agent/test_loop_structured_memory_mode.py` (rename to `test_loop_structured_memory.py` if useful)
 - Modify: `tests/agent/test_runner_reflection.py`
 - Modify: `tests/agent/test_reflection_structured.py`
-- Modify: `miniunicorn/agent/loop.py`
-- Modify: `miniunicorn/agent/runner.py`
-- Modify: `miniunicorn/agent/reflection.py`
+- Modify: `erza/agent/loop.py`
+- Modify: `erza/agent/runner.py`
+- Modify: `erza/agent/reflection.py`
 
 **Interfaces:**
 - `AgentRunSpec` has no `structured_memory_mode` field.
@@ -99,7 +99,7 @@
 **Files:**
 - Modify: `tests/agent/test_dream_structured_memory.py`
 - Modify: any legacy Dream-path tests that now describe removed runtime behavior
-- Modify: `miniunicorn/agent/memory.py`
+- Modify: `erza/agent/memory.py`
 
 **Interfaces:**
 - `Dream.run()` always delegates to `_run_structured_batch()`.
@@ -116,8 +116,8 @@
 
 **Files:**
 - Modify: `tests/agent/test_memory_migration.py`
-- Modify: `miniunicorn/agent/loop.py`
-- Modify: `miniunicorn/command/memory.py`
+- Modify: `erza/agent/loop.py`
+- Modify: `erza/command/memory.py`
 
 **Interfaces:**
 - A loop starts regardless of migration-manifest presence.
@@ -142,7 +142,7 @@
 **Interfaces:**
 - Public documentation describes one memory architecture and an optional import command.
 
-- [ ] Run `rg -n 'structured_memory_mode|structured memory mode|mode.*(legacy|shadow|governed)|legacy.*shadow.*governed|structuredMemory.*mode' miniunicorn tests docs README.md README.en.md` and classify every hit.
+- [ ] Run `rg -n 'structured_memory_mode|structured memory mode|mode.*(legacy|shadow|governed)|legacy.*shadow.*governed|structuredMemory.*mode' erza tests docs README.md README.en.md` and classify every hit.
 - [ ] Remove runtime/config/test references. Historical specs may remain, but current docs must not advertise modes.
 - [ ] Update `docs/memory.md` diagrams, startup guidance, storage descriptions, diagnostics, and migration wording to match the design.
 - [ ] Ensure examples show `structuredMemory` tuning without `mode`.
@@ -155,7 +155,7 @@
 
 - [ ] Run `pytest tests/config/test_structured_memory_config.py tests/agent/test_context_structured_memory.py tests/agent/test_reflection_structured.py tests/agent/test_runner_reflection.py tests/agent/test_dream_structured_memory.py tests/agent/test_memory_migration.py tests/agent/test_memory_commands.py -q`.
 - [ ] Run `pytest tests/agent tests/config -q` and record exact pass/fail totals. Reproduce and clearly separate any pre-existing Windows `printf` or external-network failures before deciding they are unrelated.
-- [ ] Run `ruff check miniunicorn tests`.
+- [ ] Run `ruff check erza tests`.
 - [ ] Run `git diff --check`.
 - [ ] Run the residual mode scan from Task 7.
 - [ ] Inspect `git diff --stat` and `git diff`; remove dead imports, misleading comments, and accidental unrelated changes.

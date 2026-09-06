@@ -170,15 +170,15 @@ function UpdateDialog({
           </p>
           <UpgradeCommand
             label="pip"
-            command="pip install --upgrade miniunicorn"
+            command="pip install --upgrade erza"
           />
           <UpgradeCommand
             label="npm"
-            command="npm install -g miniunicorn@latest"
+            command="npm install -g erza@latest"
           />
           <UpgradeCommand
             label="Docker"
-            command="docker pull agentscope/miniunicorn:latest"
+            command="docker pull agentscope/erza:latest"
           />
           <UpgradeCommand
             label={t("version.dialog.source", { defaultValue: "源码" })}
@@ -188,7 +188,7 @@ function UpdateDialog({
 
         <p className="text-xs text-muted-foreground">
           {t("version.dialog.restartHint", {
-            defaultValue: "升级后请重启服务:miniunicorn gateway",
+            defaultValue: "升级后请重启服务:erza gateway",
           })}
         </p>
 

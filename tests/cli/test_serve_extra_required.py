@@ -1,4 +1,4 @@
-"""Tests for the ``miniunicorn serve`` entry point without the api extra.
+"""Tests for the ``erza serve`` entry point without the api extra.
 
 The OpenAI-compatible HTTP server is an optional extra. When aiohttp is
 not installed, ``serve`` must fail fast with an actionable install hint
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typer.testing import CliRunner
 
-from miniunicorn.cli.commands import app
+from erza.cli.commands import app
 
 runner = CliRunner()
 
@@ -23,4 +23,4 @@ def test_serve_without_aiohttp_prints_install_hint(monkeypatch) -> None:
     result = runner.invoke(app, ["serve"])
 
     assert result.exit_code == 1
-    assert "miniunicorn-ai[api]" in result.output
+    assert "erza-ai[api]" in result.output

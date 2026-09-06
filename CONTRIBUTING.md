@@ -1,8 +1,8 @@
-# Contributing to MiniUnicorn
+# Contributing to Erza
 
 感谢你来到这里。
 
-MiniUnicorn 基于一个简单的理念：好的工具应当平静、清晰、人性化。我们重视有用的功能，但也相信"以少胜多"——
+Erza 基于一个简单的理念：好的工具应当平静、清晰、人性化。我们重视有用的功能，但也相信"以少胜多"——
 方案应当强大而不沉重，有野心而不无谓复杂。
 
 这份指南不仅是关于如何提交 PR，也是关于我们希望如何一起写代码：
@@ -10,7 +10,7 @@ MiniUnicorn 基于一个简单的理念：好的工具应当平静、清晰、�
 
 ## 仓库信息
 
-- 仓库：<https://github.com/zhoulingquan/miniunicorn>
+- 仓库：<https://github.com/zhoulingquan/erza>
 - 许可证：MIT
 - 主分支：`main`（稳定发布）
 
@@ -22,8 +22,8 @@ MiniUnicorn 基于一个简单的理念：好的工具应当平静、清晰、�
 
 ```bash
 # 克隆仓库
-git clone https://github.com/zhoulingquan/miniunicorn.git
-cd miniunicorn
+git clone https://github.com/zhoulingquan/erza.git
+cd erza
 
 # 用 uv 安装依赖（推荐）
 uv sync --all-extras
@@ -32,10 +32,10 @@ uv sync --all-extras
 uv run pytest tests/
 
 # 代码检查（全规则）
-uv run ruff check miniunicorn
+uv run ruff check erza
 
 # 格式检查
-uv run ruff format --check miniunicorn
+uv run ruff format --check erza
 ```
 
 ## 开发流程
@@ -54,8 +54,8 @@ uv run ruff format --check miniunicorn
 3. 提交前确保以下检查通过：
 
    ```bash
-   uv run ruff check miniunicorn
-   uv run ruff format --check miniunicorn
+   uv run ruff check erza
+   uv run ruff format --check erza
    uv run pytest tests/
    ```
 
@@ -63,7 +63,7 @@ uv run ruff format --check miniunicorn
 
 ## 代码风格
 
-我们关心的不仅是通过 lint。我们希望 MiniUnicorn 保持小巧、平静、可读。
+我们关心的不仅是通过 lint。我们希望 Erza 保持小巧、平静、可读。
 
 贡献代码时，请追求以下特质：
 
@@ -100,4 +100,4 @@ uv run ruff format --check miniunicorn
 
 ## 有问题？
 
-欢迎打开 [Issue](https://github.com/zhoulingquan/miniunicorn/issues) 进行讨论。感谢你为 MiniUnicorn 投入的时间与用心。
+欢迎打开 [Issue](https://github.com/zhoulingquan/erza/issues) 进行讨论。感谢你为 Erza 投入的时间与用心。

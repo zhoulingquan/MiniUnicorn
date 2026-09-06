@@ -62,7 +62,7 @@ async function request<T>(
     throw new ApiError(
       res.status,
       isHtml
-        ? "Gateway returned WebUI HTML instead of JSON. Restart MiniUnicorn gateway and try again."
+        ? "Gateway returned WebUI HTML instead of JSON. Restart Erza gateway and try again."
         : "Gateway returned a non-JSON response.",
     );
   }
@@ -81,11 +81,11 @@ function mcpValuesHeader(values: Record<string, unknown>): HeadersInit | undefin
     payload[key] = value;
   });
   if (!Object.keys(payload).length) return undefined;
-  return { "x-miniunicorn-MCP-Values": JSON.stringify(payload) };
+  return { "x-erza-MCP-Values": JSON.stringify(payload) };
 }
 
 /**
- * Build the `x-miniunicorn-Values` header used to carry sensitive fields
+ * Build the `x-erza-Values` header used to carry sensitive fields
  * (api_key, api_base, config, etc.) out of the URL query string. The backend
  * merges these into `ctx.query` transparently via `_merge_sensitive_values_header`.
  * A single JSON string header is fine — `collect_chunked_header_limited` on the
@@ -103,7 +103,7 @@ function sensitiveValuesHeader(values: Record<string, unknown>): HeadersInit | u
     payload[key] = value;
   });
   if (!Object.keys(payload).length) return undefined;
-  return { "x-miniunicorn-Values": JSON.stringify(payload) };
+  return { "x-erza-Values": JSON.stringify(payload) };
 }
 
 function splitKey(key: string): { channel: string; chatId: string } {
@@ -361,9 +361,9 @@ export async function saveSkill(
   chunkHeaderValue(content).forEach((chunk, idx) => {
     // Repeated header name; the backend joins values in order.
     if (idx === 0) {
-      headers["x-miniunicorn-Skill-Content"] = chunk;
+      headers["x-erza-Skill-Content"] = chunk;
     } else {
-      headers[`x-miniunicorn-Skill-Content-${idx}`] = chunk;
+      headers[`x-erza-Skill-Content-${idx}`] = chunk;
     }
   });
   return request<{ saved: boolean; name: string; path: string }>(
@@ -442,9 +442,9 @@ export async function saveBootstrapFile(
   const headers: Record<string, string> = {};
   chunkHeaderValue(content).forEach((chunk, idx) => {
     if (idx === 0) {
-      headers["x-miniunicorn-Bootstrap-Content"] = chunk;
+      headers["x-erza-Bootstrap-Content"] = chunk;
     } else {
-      headers[`x-miniunicorn-Bootstrap-Content-${idx}`] = chunk;
+      headers[`x-erza-Bootstrap-Content-${idx}`] = chunk;
     }
   });
   return request<{ saved: boolean; name: string; path: string }>(
@@ -476,9 +476,9 @@ export async function uploadSkillZip(
     }
     const b64 = btoa(binary);
     if (headerIdx === 0) {
-      headers["x-miniunicorn-Skill-Zip"] = b64;
+      headers["x-erza-Skill-Zip"] = b64;
     } else {
-      headers[`x-miniunicorn-Skill-Zip-${headerIdx}`] = b64;
+      headers[`x-erza-Skill-Zip-${headerIdx}`] = b64;
     }
     headerIdx++;
   }
@@ -517,9 +517,9 @@ export async function saveAgent(
   const headers: Record<string, string> = {};
   chunkHeaderValue(content).forEach((chunk, idx) => {
     if (idx === 0) {
-      headers["x-miniunicorn-Agent-Content"] = chunk;
+      headers["x-erza-Agent-Content"] = chunk;
     } else {
-      headers[`x-miniunicorn-Agent-Content-${idx}`] = chunk;
+      headers[`x-erza-Agent-Content-${idx}`] = chunk;
     }
   });
   return request<{ saved: boolean; name: string; path: string }>(
@@ -552,9 +552,9 @@ export async function generateAgent(
   const headers: Record<string, string> = {};
   chunkHeaderValue(description).forEach((chunk, idx) => {
     if (idx === 0) {
-      headers["x-miniunicorn-Agent-Description"] = chunk;
+      headers["x-erza-Agent-Description"] = chunk;
     } else {
-      headers[`x-miniunicorn-Agent-Description-${idx}`] = chunk;
+      headers[`x-erza-Agent-Description-${idx}`] = chunk;
     }
   });
   return request<{ content: string; name: string }>(
@@ -898,9 +898,9 @@ export async function importToolFile(
     }
     const b64 = btoa(binary);
     if (headerIdx === 0) {
-      headers["x-miniunicorn-Tool-Content"] = b64;
+      headers["x-erza-Tool-Content"] = b64;
     } else {
-      headers[`x-miniunicorn-Tool-Content-${headerIdx}`] = b64;
+      headers[`x-erza-Tool-Content-${headerIdx}`] = b64;
     }
     headerIdx++;
   }
@@ -941,7 +941,7 @@ export async function updateChannelConfig(
     query.set("enabled", enabled ? "true" : "false");
   }
   // Channel config may contain secrets (api_key, tokens, etc.) — move it out
-  // of the URL query string into the x-miniunicorn-Values header.
+  // of the URL query string into the x-erza-Values header.
   const sensitive = sensitiveValuesHeader({
     config: config === null ? undefined : JSON.stringify(config),
   });

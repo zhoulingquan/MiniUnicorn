@@ -16,11 +16,11 @@ from pathlib import Path
 
 import pytest
 
-from miniunicorn.memory.jsonl_import import (
+from erza.memory.jsonl_import import (
     LegacyJournalImportError,
     migrate_legacy_journal,
 )
-from miniunicorn.memory.models import (
+from erza.memory.models import (
     SCHEMA_VERSION,
     ActorKind,
     MemoryOperation,
@@ -72,7 +72,7 @@ def record_data(
         "status": status,
         "kind": "fact",
         "scope": {"kind": "project", "key": "project:6b5ec7b29e32"},
-        "subject": "MiniUnicorn",
+        "subject": "Erza",
         "slot": slot,
         "statement": statement,
         "detail": "",
@@ -132,7 +132,7 @@ def canonical_line(transaction: MemoryTransaction) -> str:
 def workspace(tmp_path: Path) -> Path:
     structured = tmp_path / "memory" / "structured"
     structured.mkdir(parents=True)
-    bundled = Path(__file__).parents[2] / "miniunicorn" / "templates" / "memory" / "TAGS.json"
+    bundled = Path(__file__).parents[2] / "erza" / "templates" / "memory" / "TAGS.json"
     shutil.copy(bundled, structured / "tags.json")
     return tmp_path
 
@@ -219,7 +219,7 @@ def test_migrate_replays_full_history_into_sqlite(workspace: Path) -> None:
     assert manifest["source_sha256"] == result.source_sha256
     assert manifest["transaction_count"] == 3
 
-    from miniunicorn.memory.repository import StructuredMemoryRepository
+    from erza.memory.repository import StructuredMemoryRepository
 
     repository = StructuredMemoryRepository(workspace, lock_timeout_s=0.1)
     assert repository.current_records() == (records[1], records[2])
@@ -244,7 +244,7 @@ def test_migrate_skips_blank_lines(workspace: Path) -> None:
 
     assert result.migrated is True
     assert result.transaction_count == 3
-    from miniunicorn.memory.repository import StructuredMemoryRepository
+    from erza.memory.repository import StructuredMemoryRepository
 
     repository = StructuredMemoryRepository(workspace, lock_timeout_s=0.1)
     assert repository.current_records() == (records[1], records[2])
@@ -373,7 +373,7 @@ def test_replace_failure_cleans_temporary_files(workspace: Path, monkeypatch) ->
 def test_migrate_with_existing_database_never_touches_journal_reader(
     workspace: Path, monkeypatch
 ) -> None:
-    from miniunicorn.memory import jsonl_import as import_module
+    from erza.memory import jsonl_import as import_module
 
     transactions, _ = make_history()
     write_journal(workspace, transactions)
@@ -397,7 +397,7 @@ def test_migrate_with_existing_database_never_touches_journal_reader(
 
 
 def test_iter_legacy_transactions_is_a_streaming_generator(workspace: Path) -> None:
-    from miniunicorn.memory import jsonl_import as import_module
+    from erza.memory import jsonl_import as import_module
 
     assert inspect.isgeneratorfunction(import_module.iter_legacy_transactions)
     transactions, _ = make_history()
@@ -409,7 +409,7 @@ def test_iter_legacy_transactions_is_a_streaming_generator(workspace: Path) -> N
 
 
 def test_migrate_large_journal_produces_exact_counts_at_scale(workspace: Path) -> None:
-    from miniunicorn.memory.repository import StructuredMemoryRepository
+    from erza.memory.repository import StructuredMemoryRepository
 
     count = 1000
     transactions = [

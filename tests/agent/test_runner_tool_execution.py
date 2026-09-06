@@ -7,10 +7,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.config.schema import AgentDefaults
-from miniunicorn.providers.base import LLMResponse, ToolCallRequest
-from miniunicorn.tools.base import Tool
-from miniunicorn.tools.registry import ToolRegistry
+from erza.config.schema import AgentDefaults
+from erza.providers.base import LLMResponse, ToolCallRequest
+from erza.tools.base import Tool
+from erza.tools.registry import ToolRegistry
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
@@ -60,7 +60,7 @@ class _DelayTool(Tool):
 
 @pytest.mark.asyncio
 async def test_runner_batches_read_only_tools_before_exclusive_work():
-    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
+    from erza.agent.runner import AgentRunner, AgentRunSpec
 
     tools = ToolRegistry()
     shared_events: list[str] = []
@@ -99,7 +99,7 @@ async def test_runner_batches_read_only_tools_before_exclusive_work():
 
 @pytest.mark.asyncio
 async def test_runner_does_not_batch_exclusive_read_only_tools():
-    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
+    from erza.agent.runner import AgentRunner, AgentRunSpec
 
     tools = ToolRegistry()
     shared_events: list[str] = []
@@ -142,7 +142,7 @@ async def test_runner_does_not_batch_exclusive_read_only_tools():
 
 @pytest.mark.asyncio
 async def test_runner_blocks_repeated_external_fetches():
-    from miniunicorn.agent.runner import AgentRunner, AgentRunSpec
+    from erza.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock()
     captured_final_call: list[dict] = []

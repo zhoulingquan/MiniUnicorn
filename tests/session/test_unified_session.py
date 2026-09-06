@@ -19,13 +19,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.bus.events import InboundMessage
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.command.builtin import cmd_new, register_builtin_commands
-from miniunicorn.command.router import CommandContext, CommandRouter
-from miniunicorn.config.schema import AgentDefaults, Config
-from miniunicorn.session.manager import Session, SessionManager
+from erza.agent.loop import AgentLoop
+from erza.bus.events import InboundMessage
+from erza.bus.queue import MessageBus
+from erza.command.builtin import cmd_new, register_builtin_commands
+from erza.command.router import CommandContext, CommandRouter
+from erza.config.schema import AgentDefaults, Config
+from erza.session.manager import Session, SessionManager
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -39,9 +39,9 @@ def _make_loop(tmp_path: Path, unified_session: bool = False) -> AgentLoop:
     provider.get_default_model.return_value = "test-model"
 
     with (
-        patch("miniunicorn.agent.loop.SessionManager"),
-        patch("miniunicorn.agent.loop.SubagentManager") as MockSubMgr,
-        patch("miniunicorn.agent.loop.Dream"),
+        patch("erza.agent.loop.SessionManager"),
+        patch("erza.agent.loop.SubagentManager") as MockSubMgr,
+        patch("erza.agent.loop.Dream"),
     ):
         MockSubMgr.return_value.cancel_by_session = AsyncMock(return_value=0)
         loop = AgentLoop(
@@ -196,8 +196,8 @@ class TestUnifiedSessionConfig:
         assert config.agents.defaults.unified_session is True
 
     def test_onboard_generated_config_contains_unified_session(self, tmp_path: Path):
-        """save_config() writes 'unifiedSession' into config.json (simulates MiniUnicorn onboard)."""
-        from miniunicorn.config.loader import save_config
+        """save_config() writes 'unifiedSession' into config.json (simulates Erza onboard)."""
+        from erza.config.loader import save_config
 
         config = Config()
         config_path = tmp_path / "config.json"
@@ -320,7 +320,7 @@ class TestConsolidationUnaffectedByUnifiedSession:
     @pytest.mark.asyncio
     async def test_consolidation_skips_empty_session_for_unified_key(self):
         """Empty unified:default session → consolidation exits immediately, archive not called."""
-        from miniunicorn.memory import Consolidator, MemoryStore
+        from erza.memory import Consolidator, MemoryStore
 
         store = MagicMock(spec=MemoryStore)
         mock_provider = MagicMock()
@@ -352,7 +352,7 @@ class TestConsolidationUnaffectedByUnifiedSession:
     async def test_consolidation_behaviour_identical_for_any_key(self):
         """archive call count is the same for 'telegram:123' and 'unified:default'
         under identical token conditions."""
-        from miniunicorn.memory import Consolidator, MemoryStore
+        from erza.memory import Consolidator, MemoryStore
 
         archive_calls: dict[str, int] = {}
 
@@ -386,7 +386,7 @@ class TestConsolidationUnaffectedByUnifiedSession:
     async def test_consolidation_triggers_when_over_budget_unified_key(self):
         """When tokens exceed budget, consolidation attempts to find a boundary —
         behaviour is identical to any other session key."""
-        from miniunicorn.memory import Consolidator, MemoryStore
+        from erza.memory import Consolidator, MemoryStore
 
         store = MagicMock(spec=MemoryStore)
         mock_provider = MagicMock()
@@ -434,7 +434,7 @@ class TestStopCommandWithUnifiedSession:
     @pytest.mark.asyncio
     async def test_active_tasks_use_effective_key_in_unified_mode(self, tmp_path: Path):
         """When unified_session=True, tasks are stored under UNIFIED_SESSION_KEY."""
-        from miniunicorn.agent.loop import UNIFIED_SESSION_KEY
+        from erza.agent.loop import UNIFIED_SESSION_KEY
 
         loop = _make_loop(tmp_path, unified_session=True)
 
@@ -466,8 +466,8 @@ class TestStopCommandWithUnifiedSession:
     @pytest.mark.asyncio
     async def test_stop_command_finds_task_in_unified_mode(self, tmp_path: Path):
         """cmd_stop can cancel tasks when unified_session=True."""
-        from miniunicorn.agent.loop import UNIFIED_SESSION_KEY
-        from miniunicorn.command.builtin import cmd_stop
+        from erza.agent.loop import UNIFIED_SESSION_KEY
+        from erza.command.builtin import cmd_stop
 
         loop = _make_loop(tmp_path, unified_session=True)
 
@@ -499,8 +499,8 @@ class TestStopCommandWithUnifiedSession:
     @pytest.mark.asyncio
     async def test_stop_command_uses_effective_key_without_session_override(self, tmp_path: Path):
         """Priority /stop must cancel the unified session even before dispatch rewrites the message."""
-        from miniunicorn.agent.loop import UNIFIED_SESSION_KEY
-        from miniunicorn.command.builtin import cmd_stop
+        from erza.agent.loop import UNIFIED_SESSION_KEY
+        from erza.command.builtin import cmd_stop
 
         loop = _make_loop(tmp_path, unified_session=True)
 
@@ -525,8 +525,8 @@ class TestStopCommandWithUnifiedSession:
     @pytest.mark.asyncio
     async def test_stop_command_cross_channel_in_unified_mode(self, tmp_path: Path):
         """In unified mode, /stop from one channel cancels tasks from another channel."""
-        from miniunicorn.agent.loop import UNIFIED_SESSION_KEY
-        from miniunicorn.command.builtin import cmd_stop
+        from erza.agent.loop import UNIFIED_SESSION_KEY
+        from erza.command.builtin import cmd_stop
 
         loop = _make_loop(tmp_path, unified_session=True)
 

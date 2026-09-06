@@ -5,11 +5,11 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from miniunicorn.agent.context_governor import ContextGovernor, GovernanceContext
+from erza.agent.context_governor import ContextGovernor, GovernanceContext
 
 
 def test_default_governor_executes_exact_declared_builtin_pipeline(monkeypatch) -> None:
-    monkeypatch.setattr("miniunicorn.agent.context_governor.entry_points", lambda **_kw: [])
+    monkeypatch.setattr("erza.agent.context_governor.entry_points", lambda **_kw: [])
     governor = ContextGovernor()
     calls: list[str] = []
     for strategy in governor._strategies:

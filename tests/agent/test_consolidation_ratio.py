@@ -5,11 +5,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import ValidationError
 
-import miniunicorn.memory.consolidator as memory_module
-from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.config.schema import AgentDefaults
-from miniunicorn.providers.base import GenerationSettings, LLMResponse
+import erza.memory.consolidator as memory_module
+from erza.agent.loop import AgentLoop
+from erza.bus.queue import MessageBus
+from erza.config.schema import AgentDefaults
+from erza.providers.base import GenerationSettings, LLMResponse
 
 
 def _make_loop(

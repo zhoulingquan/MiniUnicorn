@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from miniunicorn.tools.filesystem import EditFileTool, ReadFileTool
+from erza.tools.filesystem import EditFileTool, ReadFileTool
 
 
 def test_read_file_force_bypasses_dedup(tmp_path):

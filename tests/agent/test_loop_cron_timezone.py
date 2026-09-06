@@ -1,10 +1,10 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.cron.service import CronService
-from miniunicorn.tools.cron import CronTool
+from erza.agent.loop import AgentLoop
+from erza.bus.queue import MessageBus
+from erza.cron.service import CronService
+from erza.tools.cron import CronTool
 
 
 def test_agent_loop_registers_cron_tool_with_configured_timezone(tmp_path: Path) -> None:

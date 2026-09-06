@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniunicorn.tools.self import MyTool
+from erza.tools.self import MyTool
 
 
 @pytest.mark.asyncio

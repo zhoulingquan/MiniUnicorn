@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from miniunicorn.providers.base import LLMResponse, ToolCallRequest
+from erza.providers.base import LLMResponse, ToolCallRequest
 
 
 def _response(finish_reason: str, *, with_tool_call: bool = True) -> LLMResponse:

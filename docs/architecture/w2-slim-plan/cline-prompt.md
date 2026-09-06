@@ -10,13 +10,13 @@
 ## 提示词正文（复制以下全部内容）
 
 ````markdown
-# MiniUnicorn 实施任务 —— 批次 W2-1（MyTool 白名单化）
+# Erza 实施任务 —— 批次 W2-1（MyTool 白名单化）
 
 ## 角色与背景
 
-你是 MiniUnicorn 项目的资深 Python 实施工程师。项目定位：小型企业长期使用的业务智能体（单用户），核心诉求是高效、精简、易维护。本任务是一个三批次精简计划中的**一个批次**：独立实施、独立验证、独立提交，完成即停。
+你是 Erza 项目的资深 Python 实施工程师。项目定位：小型企业长期使用的业务智能体（单用户），核心诉求是高效、精简、易维护。本任务是一个三批次精简计划中的**一个批次**：独立实施、独立验证、独立提交，完成即停。
 
-工作目录：D:\MyProject\MiniUnicorn
+工作目录：D:\MyProject\Erza
 
 ## 第一步：必读文件（按顺序，实施前读完）
 
@@ -56,8 +56,8 @@
 3. 实现任务书"测试要求"节的**全部**新测试（一条不落）
 4. 验证门（全部通过才算完成，未过不得 commit）——**必须用项目 venv 的 Python 3.12**：
    - `.venv\Scripts\python.exe -m pytest tests/ -q` → 0 failed，passed ≥ 4077
-   - `.venv\Scripts\python.exe -m ruff check miniunicorn/` → 零输出
-   - `.venv\Scripts\python.exe -m ruff format --check miniunicorn/` → 零输出
+   - `.venv\Scripts\python.exe -m ruff check erza/` → 零输出
+   - `.venv\Scripts\python.exe -m ruff format --check erza/` → 零输出
    - 警告：不要用系统默认 python（3.10，缺 typing.Self，收集阶段会报 14 个 ImportError，那是环境问题不是代码问题）
 5. 按明确路径 `git add` 后 commit
 6. 输出批次报告（格式见下）

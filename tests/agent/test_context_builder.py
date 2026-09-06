@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from miniunicorn.agent.context import ContextBuilder
-from miniunicorn.session.goal_state import GOAL_STATE_KEY
+from erza.agent.context import ContextBuilder
+from erza.session.goal_state import GOAL_STATE_KEY
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -164,7 +164,7 @@ class TestIsTemplateContent:
     def test_content_matching_template(self):
         from importlib.resources import files as pkg_files
 
-        tpl = pkg_files("miniunicorn") / "templates" / "memory" / "POLICY.md"
+        tpl = pkg_files("erza") / "templates" / "memory" / "POLICY.md"
         original = tpl.read_text(encoding="utf-8")
         assert ContextBuilder._is_template_content(original, "memory/POLICY.md") is True
 
@@ -181,7 +181,7 @@ class TestBundledToolContract:
     def test_tool_contract_balances_general_and_coding_workflows(self):
         from importlib.resources import files as pkg_files
 
-        tpl = pkg_files("miniunicorn") / "templates" / "agent" / "tool_contract.md"
+        tpl = pkg_files("erza") / "templates" / "agent" / "tool_contract.md"
         content = tpl.read_text(encoding="utf-8")
 
         assert "## General Tool Contract" in content

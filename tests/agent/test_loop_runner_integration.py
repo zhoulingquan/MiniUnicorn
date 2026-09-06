@@ -7,24 +7,24 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniunicorn.config.schema import AgentDefaults
-from miniunicorn.providers.base import LLMResponse, ToolCallRequest
+from erza.config.schema import AgentDefaults
+from erza.providers.base import LLMResponse, ToolCallRequest
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
 
 def _make_loop(tmp_path):
-    from miniunicorn.agent.loop import AgentLoop
-    from miniunicorn.bus.queue import MessageBus
+    from erza.agent.loop import AgentLoop
+    from erza.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
 
     with (
-        patch("miniunicorn.agent.loop.ContextBuilder"),
-        patch("miniunicorn.agent.loop.SessionManager"),
-        patch("miniunicorn.agent.loop.SubagentManager") as MockSubMgr,
+        patch("erza.agent.loop.ContextBuilder"),
+        patch("erza.agent.loop.SessionManager"),
+        patch("erza.agent.loop.SubagentManager") as MockSubMgr,
     ):
         MockSubMgr.return_value.cancel_by_session = AsyncMock(return_value=0)
         loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path)
@@ -147,9 +147,9 @@ async def test_loop_retries_think_only_final_response(tmp_path):
 async def test_streamed_flag_not_set_on_llm_error(tmp_path):
     """When LLM errors during a streaming-capable channel interaction,
     _streamed must NOT be set so ChannelManager delivers the error."""
-    from miniunicorn.agent.loop import AgentLoop
-    from miniunicorn.bus.events import InboundMessage
-    from miniunicorn.bus.queue import MessageBus
+    from erza.agent.loop import AgentLoop
+    from erza.bus.events import InboundMessage
+    from erza.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
@@ -186,9 +186,9 @@ async def test_streamed_flag_not_set_on_llm_error(tmp_path):
 
 @pytest.mark.asyncio
 async def test_ssrf_soft_block_can_finalize_after_streamed_tool_call(tmp_path):
-    from miniunicorn.agent.loop import AgentLoop
-    from miniunicorn.bus.events import InboundMessage
-    from miniunicorn.bus.queue import MessageBus
+    from erza.agent.loop import AgentLoop
+    from erza.bus.events import InboundMessage
+    from erza.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
@@ -235,10 +235,10 @@ async def test_ssrf_soft_block_can_finalize_after_streamed_tool_call(tmp_path):
 
 @pytest.mark.asyncio
 async def test_next_turn_after_llm_error_keeps_turn_boundary(tmp_path):
-    from miniunicorn.agent.loop import AgentLoop
-    from miniunicorn.agent.runner import _PERSISTED_MODEL_ERROR_PLACEHOLDER
-    from miniunicorn.bus.events import InboundMessage
-    from miniunicorn.bus.queue import MessageBus
+    from erza.agent.loop import AgentLoop
+    from erza.agent.runner import _PERSISTED_MODEL_ERROR_PLACEHOLDER
+    from erza.bus.events import InboundMessage
+    from erza.bus.queue import MessageBus
 
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
@@ -288,8 +288,8 @@ async def test_next_turn_after_llm_error_keeps_turn_boundary(tmp_path):
 
 @pytest.mark.asyncio
 async def test_subagent_max_iterations_announces_existing_fallback(tmp_path, monkeypatch):
-    from miniunicorn.agent.subagent import SubagentManager, SubagentStatus
-    from miniunicorn.bus.queue import MessageBus
+    from erza.agent.subagent import SubagentManager, SubagentStatus
+    from erza.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
@@ -311,7 +311,7 @@ async def test_subagent_max_iterations_announces_existing_fallback(tmp_path, mon
     async def fake_execute(self, **kwargs):
         return "tool result"
 
-    monkeypatch.setattr("miniunicorn.tools.filesystem.ListDirTool.execute", fake_execute)
+    monkeypatch.setattr("erza.tools.filesystem.ListDirTool.execute", fake_execute)
 
     status = SubagentStatus(
         task_id="sub-1", label="label", task_description="do task", started_at=time.monotonic()

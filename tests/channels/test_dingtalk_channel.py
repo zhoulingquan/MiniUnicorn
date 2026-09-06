@@ -8,7 +8,7 @@ import pytest
 
 # Check optional dingtalk dependencies before running tests
 try:
-    from miniunicorn.channels import dingtalk
+    from erza.channels import dingtalk
 
     DINGTALK_AVAILABLE = getattr(dingtalk, "DINGTALK_AVAILABLE", False)
 except ImportError:
@@ -17,12 +17,12 @@ except ImportError:
 if not DINGTALK_AVAILABLE:
     pytest.skip("DingTalk dependencies not installed (dingtalk-stream)", allow_module_level=True)
 
-import miniunicorn.channels.dingtalk as dingtalk_module
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.channels.dingtalk import (
+import erza.channels.dingtalk as dingtalk_module
+from erza.bus.queue import MessageBus
+from erza.channels.dingtalk import (
     DingTalkChannel,
     DingTalkConfig,
-    MiniunicornDingTalkHandler,
+    ErzaDingTalkHandler,
 )
 
 
@@ -113,7 +113,7 @@ async def test_group_send_uses_group_messages_api() -> None:
         "token",
         "group:conv123",
         "sampleMarkdown",
-        {"text": "hello", "title": "MiniUnicorn Reply"},
+        {"text": "hello", "title": "Erza Reply"},
     )
 
     assert ok is True
@@ -130,7 +130,7 @@ async def test_handler_uses_voice_recognition_text_when_text_is_empty(monkeypatc
         DingTalkConfig(client_id="app", client_secret="secret", allow_from=["user1"]),
         bus,
     )
-    handler = MiniunicornDingTalkHandler(channel)
+    handler = ErzaDingTalkHandler(channel)
 
     class _FakeChatbotMessage:
         text = None
@@ -174,7 +174,7 @@ async def test_handler_processes_file_message(monkeypatch) -> None:
         DingTalkConfig(client_id="app", client_secret="secret", allow_from=["user1"]),
         bus,
     )
-    handler = MiniunicornDingTalkHandler(channel)
+    handler = ErzaDingTalkHandler(channel)
 
     class _FakeFileChatbotMessage:
         text = None
@@ -191,7 +191,7 @@ async def test_handler_processes_file_message(monkeypatch) -> None:
             return _FakeFileChatbotMessage()
 
     async def fake_download(download_code, filename, sender_id):
-        return f"/tmp/miniunicorn_dingtalk/{sender_id}/{filename}"
+        return f"/tmp/erza_dingtalk/{sender_id}/{filename}"
 
     monkeypatch.setattr(dingtalk_module.channel, "ChatbotMessage", _FakeFileChatbotMessage)
     monkeypatch.setattr(dingtalk_module.channel, "AckMessage", SimpleNamespace(STATUS_OK="OK"))
@@ -212,7 +212,7 @@ async def test_handler_processes_file_message(monkeypatch) -> None:
 
     assert (status, body) == ("OK", "OK")
     assert "[File]" in msg.content
-    assert "/tmp/miniunicorn_dingtalk/user1/report.xlsx" in msg.content
+    assert "/tmp/erza_dingtalk/user1/report.xlsx" in msg.content
 
 
 @pytest.mark.asyncio
@@ -241,7 +241,7 @@ async def test_download_dingtalk_file(tmp_path, monkeypatch) -> None:
 
     # Redirect media dir to tmp_path
     monkeypatch.setattr(
-        "miniunicorn.config.paths.get_media_dir",
+        "erza.config.paths.get_media_dir",
         lambda channel_name=None: tmp_path / channel_name if channel_name else tmp_path,
     )
 
@@ -599,7 +599,7 @@ async def test_send_batch_message_propagates_transport_error() -> None:
             "token",
             "user123",
             "sampleMarkdown",
-            {"text": "hello", "title": "MiniUnicorn Reply"},
+            {"text": "hello", "title": "Erza Reply"},
         )
 
     # The POST was attempted exactly once

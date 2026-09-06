@@ -1,6 +1,6 @@
-# MiniUnicorn webui
+# Erza webui
 
-The browser front-end for the miniunicorn gateway. It is built with Vite + React 18 +
+The browser front-end for the erza gateway. It is built with Vite + React 18 +
 TypeScript + Tailwind 3 + shadcn/ui, talks to the gateway over the WebSocket
 multiplex protocol, and reads session metadata from the embedded REST surface
 on the same port.
@@ -10,7 +10,7 @@ For the project overview, install guide, and general docs map, see the root
 
 ## Just want to use the WebUI?
 
-If you installed MiniUnicorn via `pip install miniunicorn-ai`, the WebUI is **already bundled** in the wheel. Enable the WebSocket channel in `~/.miniunicorn/config.json` and run `miniunicorn gateway` — see the root [`README.md`](../README.md#-webui) for the 3-step setup. You do **not** need anything in this directory.
+If you installed Erza via `pip install erza-ai`, the WebUI is **already bundled** in the wheel. Enable the WebSocket channel in `~/.erza/config.json` and run `erza gateway` — see the root [`README.md`](../README.md#-webui) for the 3-step setup. You do **not** need anything in this directory.
 
 This `webui/` tree is for people **hacking on the WebUI itself** (UI changes, new components, styling, etc.).
 
@@ -18,12 +18,12 @@ This `webui/` tree is for people **hacking on the WebUI itself** (UI changes, ne
 
 ```text
 webui/                 source tree (this directory)
-miniunicorn/web/dist/      build output served by the gateway
+erza/web/dist/      build output served by the gateway
 ```
 
 ## Develop the WebUI (Vite HMR)
 
-### 1. Install MiniUnicorn from source
+### 1. Install Erza from source
 
 From the repository root:
 
@@ -35,7 +35,7 @@ pip install -e .
 
 ### 2. Enable the WebSocket channel
 
-In `~/.miniunicorn/config.json`:
+In `~/.erza/config.json`:
 
 ```json
 { "channels": { "websocket": { "enabled": true } } }
@@ -46,7 +46,7 @@ In `~/.miniunicorn/config.json`:
 In one terminal:
 
 ```bash
-miniunicorn gateway
+erza gateway
 ```
 
 ### 4. Start the WebUI dev server
@@ -66,12 +66,12 @@ By default the dev server proxies `/api`, `/webui`, `/auth`, and WebSocket traff
 If your gateway listens on a non-default port, point the dev server at it:
 
 ```bash
-MINIUNICORN_API_URL=http://127.0.0.1:9000 bun run dev
+ERZA_API_URL=http://127.0.0.1:9000 bun run dev
 ```
 
 ### Access from another device (LAN)
 
-To use the WebUI from another device on the same network, set `host` to `"0.0.0.0"` and configure a `token` or `tokenIssueSecret` in `~/.miniunicorn/config.json`:
+To use the WebUI from another device on the same network, set `host` to `"0.0.0.0"` and configure a `token` or `tokenIssueSecret` in `~/.erza/config.json`:
 
 ```json
 {
@@ -98,7 +98,7 @@ If you want to preview the production bundle locally without rebuilding the whee
 
 ```bash
 cd webui
-bun run build          # writes to ../miniunicorn/web/dist
+bun run build          # writes to ../erza/web/dist
 ```
 
 The gateway picks up the new bundle on the next restart.

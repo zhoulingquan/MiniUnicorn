@@ -6,11 +6,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.bus.events import InboundMessage, OutboundMessage
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.providers.base import LLMResponse, ToolCallRequest
-from miniunicorn.tools.message import MessageTool
+from erza.agent.loop import AgentLoop
+from erza.bus.events import InboundMessage, OutboundMessage
+from erza.bus.queue import MessageBus
+from erza.providers.base import LLMResponse, ToolCallRequest
+from erza.tools.message import MessageTool
 
 
 def _make_loop(tmp_path: Path) -> AgentLoop:
@@ -187,7 +187,7 @@ class TestMessageToolSuppressLogic:
 class TestMessageToolTurnTracking:
     def test_sent_in_turn_tracks_same_target(self) -> None:
         tool = MessageTool()
-        from miniunicorn.tools.context import RequestContext
+        from erza.tools.context import RequestContext
 
         tool.set_context(RequestContext(channel="feishu", chat_id="chat1"))
         assert not tool._sent_in_turn

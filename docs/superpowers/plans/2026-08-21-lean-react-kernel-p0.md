@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make MiniUnicorn's existing planning, reflection, context, and turn-budget mechanisms correct and fully accounted before adding adaptive routing.
+**Goal:** Make Erza's existing planning, reflection, context, and turn-budget mechanisms correct and fully accounted before adding adaptive routing.
 
 **Architecture:** Propagate execution policy through `AgentLoopConfig`, bind a context-local `CallLedger` for the entire turn, account at provider retry boundaries, and make Planner/replan outcomes explicit. Preserve FAST ReAct as the default and avoid new routing behavior.
 
@@ -15,7 +15,7 @@
 - Do not add a classifier or verifier LLM call.
 - Preserve all existing YAML keys and direct `AgentLoop(...)` compatibility.
 - Preserve provider retry, streaming, timeout, and cancellation semantics.
-- Do not modify or stage `.trae-html-share-packages/` or `arch-eval-miniunicorn-vs-aniyaa/`.
+- Do not modify or stage `.trae-html-share-packages/` or `arch-eval-erza-vs-aniyaa/`.
 - Do not begin P1 or P2 work in this plan.
 
 ---
@@ -23,8 +23,8 @@
 ### Task 1: Propagate execution-policy configuration
 
 **Files:**
-- Modify: `miniunicorn/agent/loop.py`
-- Modify: `miniunicorn/agent/loop_builder.py`
+- Modify: `erza/agent/loop.py`
+- Modify: `erza/agent/loop_builder.py`
 - Create: `tests/agent/test_loop_execution_policy_config.py`
 
 **Interfaces:**
@@ -66,8 +66,8 @@ Expected: all tests pass.
 ### Task 2: Add a context-local CallLedger
 
 **Files:**
-- Create: `miniunicorn/agent/call_ledger.py`
-- Modify: `miniunicorn/agent/turn_budget.py`
+- Create: `erza/agent/call_ledger.py`
+- Modify: `erza/agent/turn_budget.py`
 - Create: `tests/agent/test_call_ledger.py`
 
 **Interfaces:**
@@ -83,7 +83,7 @@ Cover cumulative totals, ordered purposes, last-call usage, malformed fields, ex
 
 Run: `python -m pytest tests/agent/test_call_ledger.py -q`
 
-Expected: collection fails because `miniunicorn.agent.call_ledger` does not exist.
+Expected: collection fails because `erza.agent.call_ledger` does not exist.
 
 - [x] **Step 3: Implement the minimal ledger**
 
@@ -98,14 +98,14 @@ Expected: all tests pass.
 ### Task 3: Account every provider retry call exactly once
 
 **Files:**
-- Modify: `miniunicorn/providers/base.py`
-- Modify: `miniunicorn/agent/execution/model_request.py`
-- Modify: `miniunicorn/agent/planner.py`
-- Modify: `miniunicorn/agent/reflection.py`
-- Modify: `miniunicorn/agent/memory.py`
-- Modify: `miniunicorn/agent/agent_generator.py`
-- Modify: `miniunicorn/agent/tools/deep_research/tool.py`
-- Modify: `miniunicorn/utils/evaluator.py`
+- Modify: `erza/providers/base.py`
+- Modify: `erza/agent/execution/model_request.py`
+- Modify: `erza/agent/planner.py`
+- Modify: `erza/agent/reflection.py`
+- Modify: `erza/agent/memory.py`
+- Modify: `erza/agent/agent_generator.py`
+- Modify: `erza/agent/tools/deep_research/tool.py`
+- Modify: `erza/utils/evaluator.py`
 - Modify: `tests/agent/tools/test_deep_research.py`
 - Create: `tests/providers/test_call_ledger_integration.py`
 
@@ -125,11 +125,11 @@ Expected: FAIL because provider retry entry points do not record calls.
 
 - [x] **Step 3: Instrument provider boundaries and tag purposes**
 
-After `_run_with_retry()` returns, call the active ledger once with the final response's model/usage/finish reason. Wrap executor, finalization, planner, replan, reflection, compact/memory, evaluator, agent-generator, and deep-research calls in the appropriate `call_purpose()` scope. Replace MiniUnicorn-owned direct `.chat()` calls with `.chat_with_retry()` only where their arguments and retry semantics remain equivalent.
+After `_run_with_retry()` returns, call the active ledger once with the final response's model/usage/finish reason. Wrap executor, finalization, planner, replan, reflection, compact/memory, evaluator, agent-generator, and deep-research calls in the appropriate `call_purpose()` scope. Replace Erza-owned direct `.chat()` calls with `.chat_with_retry()` only where their arguments and retry semantics remain equivalent.
 
 - [x] **Step 4: Audit unaccounted call sites**
 
-Run: `rg -n "\.chat\(" miniunicorn -g '*.py'`
+Run: `rg -n "\.chat\(" erza -g '*.py'`
 
 Expected: only provider implementations, tests/examples, or explicitly documented non-LLM helpers remain; every product-layer LLM call uses a retry entry point.
 
@@ -142,10 +142,10 @@ Expected: all tests pass.
 ### Task 4: Bind one ledger across the whole turn and direct runner runs
 
 **Files:**
-- Modify: `miniunicorn/agent/turn_orchestrator.py`
-- Modify: `miniunicorn/agent/loop.py`
-- Modify: `miniunicorn/agent/runner.py`
-- Modify: `miniunicorn/agent/execution/recovery.py`
+- Modify: `erza/agent/turn_orchestrator.py`
+- Modify: `erza/agent/loop.py`
+- Modify: `erza/agent/runner.py`
+- Modify: `erza/agent/execution/recovery.py`
 - Create: `tests/agent/test_turn_call_ledger.py`
 
 **Interfaces:**
@@ -180,9 +180,9 @@ Expected: all tests pass.
 ### Task 5: Return explicit Planner results and preserve full task text
 
 **Files:**
-- Modify: `miniunicorn/agent/planner.py`
-- Modify: `miniunicorn/agent/runner.py`
-- Modify: `miniunicorn/agent/execution/planning.py`
+- Modify: `erza/agent/planner.py`
+- Modify: `erza/agent/runner.py`
+- Modify: `erza/agent/execution/planning.py`
 - Modify: `tests/agent/test_upgrade_integration.py`
 - Create: `tests/agent/test_planner_results.py`
 
@@ -218,8 +218,8 @@ Expected: all tests pass.
 ### Task 6: Correct replan limits, inheritance, and fallback behavior
 
 **Files:**
-- Modify: `miniunicorn/agent/planner.py`
-- Modify: `miniunicorn/agent/execution/recovery.py`
+- Modify: `erza/agent/planner.py`
+- Modify: `erza/agent/execution/recovery.py`
 - Create: `tests/agent/test_replan_semantics.py`
 
 **Interfaces:**
@@ -253,7 +253,7 @@ Expected: all tests pass.
 ### Task 7: Make ContextGovernor execute its declared pipeline
 
 **Files:**
-- Modify: `miniunicorn/agent/context_governor.py`
+- Modify: `erza/agent/context_governor.py`
 - Modify: `tests/agent/test_context_governor.py` if present, otherwise create it.
 
 **Interfaces:**
@@ -329,7 +329,7 @@ Expected: all tests pass.
 
 - [ ] **Step 5: Run lint and inspect the diff**
 
-Run: `python -m ruff check miniunicorn tests`
+Run: `python -m ruff check erza tests`
 
 Expected: exit 0.
 

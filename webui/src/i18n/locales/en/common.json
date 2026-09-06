@@ -1,13 +1,13 @@
 {
   "app": {
-    "brand": "MiniUnicorn",
+    "brand": "Erza",
     "loading": {
-      "connecting": "Connecting to MiniUnicorn…",
-      "boot": "Loading MiniUnicorn…"
+      "connecting": "Connecting to Erza…",
+      "boot": "Loading Erza…"
     },
     "error": {
-      "title": "Couldn't reach MiniUnicorn",
-      "gatewayHint": "Make sure the gateway is running (`miniunicorn gateway`) and that this page is open on the same machine."
+      "title": "Couldn't reach Erza",
+      "gatewayHint": "Make sure the gateway is running (`erza gateway`) and that this page is open on the same machine."
     },
     "auth": {
       "title": "Authentication required",
@@ -23,8 +23,8 @@
     },
     "system": {
       "section": "System",
-      "restartHint": "Restart MiniUnicorn to apply runtime changes.",
-      "restart": "Restart MiniUnicorn",
+      "restartHint": "Restart Erza to apply runtime changes.",
+      "restart": "Restart Erza",
       "restarting": "Restarting...",
       "restartEngine": "Restart engine",
       "restartingEngine": "Restarting engine..."
@@ -33,11 +33,11 @@
       "completed": "Restart completed in {{seconds}}s."
     },
     "documentTitle": {
-      "base": "MiniUnicorn",
-      "chat": "{{title}} · MiniUnicorn"
+      "base": "Erza",
+      "chat": "{{title}} · Erza"
     },
     "meta": {
-      "description": "MiniUnicorn web UI — chat with your MiniUnicorn workspace."
+      "description": "Erza web UI — chat with your Erza workspace."
     }
   },
   "sidebar": {
@@ -114,7 +114,7 @@
       "language": "Language",
       "provider": "Provider",
       "model": "Model",
-      "restart": "Restart MiniUnicorn",
+      "restart": "Restart Erza",
       "configPath": "Config path",
       "activePreset": "Active preset",
       "gateway": "Gateway",
@@ -141,9 +141,9 @@
       "theme": "Switch between light and dark appearance.",
       "language": "Choose the language used by the WebUI.",
       "provider": "Select the provider that should serve new model requests.",
-      "model": "Set the default model name used by MiniUnicorn.",
+      "model": "Set the default model name used by Erza.",
       "configPath": "The gateway configuration file currently in use.",
-      "currentModel": "Choose the model MiniUnicorn uses for new replies.",
+      "currentModel": "Choose the model Erza uses for new replies.",
       "contextWindow": "Automatically queries Hugging Face for the model's context window size when saved, and persists the result permanently. Shows the learned value when not configured, or the configured value otherwise. Closed-source models not on HF require manual setup.",
       "selectedModelProvider": "Set by the selected model.",
       "selectedModelValue": "Set by the selected model.",
@@ -197,10 +197,10 @@
       "loadError": "Could not load settings",
       "unsaved": "Unsaved changes.",
       "upToDate": "Up to date.",
-      "savedRestart": "Saved. Restart MiniUnicorn to apply.",
+      "savedRestart": "Saved. Restart Erza to apply.",
       "restartAfterSaving": "Save changes, then restart when ready.",
       "savedRestartApply": "Saved. Restart when ready.",
-      "hostRestartAfterSaving": "Save changes and MiniUnicorn will restart its engine.",
+      "hostRestartAfterSaving": "Save changes and Erza will restart its engine.",
       "hostRestartPending": "Saved. Restarting engine when ready.",
       "hostApiUnavailable": "Host actions are only available inside the native app.",
       "logsOpened": "Opened logs folder.",
@@ -221,7 +221,7 @@
       "exporting": "Exporting..."
     },
     "byok": {
-      "description": "Bring your own provider keys. MiniUnicorn reads these values from the current config and only configured providers can be selected in General.",
+      "description": "Bring your own provider keys. Erza reads these values from the current config and only configured providers can be selected in General.",
       "configured": "Configured",
       "notConfigured": "Not configured",
       "configuredSection": "Configured",
@@ -347,7 +347,7 @@
     },
     "legal": {},
     "apps": {
-      "description": "Manage MCP preset services MiniUnicorn can enable.",
+      "description": "Manage MCP preset services Erza can enable.",
       "mcpLabel": "MCP",
       "caption": "{{mcp}} MCP",
       "refresh": "Refresh",
@@ -535,7 +535,7 @@
             "description": "Cancel the active agent turn for this chat."
           },
           "restart": {
-            "title": "Restart MiniUnicorn",
+            "title": "Restart Erza",
             "description": "Restart the bot process in place."
           },
           "status": {
@@ -660,7 +660,7 @@
       "description": "Current v{{current}}, latest v{{latest}}. Choose the upgrade command matching your deployment.",
       "upgradeMethods": "Choose your deployment method:",
       "source": "Source",
-      "restartHint": "After upgrading, restart the service: miniunicorn gateway",
+      "restartHint": "After upgrading, restart the service: erza gateway",
       "viewRelease": "View release notes"
     }
   },
@@ -671,7 +671,7 @@
     },
     "workspaceScopeRejected": {
       "title": "Workspace was not changed",
-      "body": "MiniUnicorn kept the previous workspace because the requested project or access mode was rejected by the gateway."
+      "body": "Erza kept the previous workspace because the requested project or access mode was rejected by the gateway."
     }
   },
   "workspace": {
@@ -811,7 +811,7 @@
       "skill-creator": "Create or update AgentSkills",
       "summarize": "Summarize or extract text from URLs, podcasts, and local files",
       "tmux": "Remote-control tmux sessions by sending keystrokes and scraping output",
-      "update-setup": "One-time setup wizard for the MiniUnicorn upgrade skill",
+      "update-setup": "One-time setup wizard for the Erza upgrade skill",
       "weather": "Get current weather and forecasts (no API key required)"
     }
   },
@@ -1123,7 +1123,7 @@
         "token": "Token",
         "token_desc": "Login token (manual or auto-obtained via QR login)",
         "state_dir": "State Dir",
-        "state_dir_desc": "Directory for login state (empty = default ~/.miniunicorn/weixin/)",
+        "state_dir_desc": "Directory for login state (empty = default ~/.erza/weixin/)",
         "poll_timeout": "Poll Timeout",
         "poll_timeout_desc": "Long-poll timeout in seconds"
       }

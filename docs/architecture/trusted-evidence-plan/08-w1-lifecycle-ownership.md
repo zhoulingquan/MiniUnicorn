@@ -1,7 +1,7 @@
 # W1-2：长命服务生命周期归组合根（Cron / Subagent / MCP）
 
 > 前置依赖：W1-1 已合并。
-> 目标架构裁决（00-overview.md §二）：**长命服务的生杀权不在 AgentLoop**。组合根（`miniunicorn/composition/`）负责创建与销毁，AgentLoop 只持有引用消费能力。
+> 目标架构裁决（00-overview.md §二）：**长命服务的生杀权不在 AgentLoop**。组合根（`erza/composition/`）负责创建与销毁，AgentLoop 只持有引用消费能力。
 > 本批 3 个独立 commit，每个 commit 单独跑全量测试。
 
 ## 现状盘点（已核实）
@@ -76,7 +76,7 @@ Cron 已经在组合根，本 commit 只做两件事：
 
 ### 设计
 
-新建 `miniunicorn/composition/mcp_runtime.py`：
+新建 `erza/composition/mcp_runtime.py`：
 
 ```python
 class McpRuntime:
@@ -91,7 +91,7 @@ class McpRuntime:
     def _set_mcp_servers(self, servers: dict[str, Any]) -> None: ...
 
     async def connect_missing(self, registry: ToolRegistry) -> None:
-        from miniunicorn.agent.tools.mcp import connect_missing_servers
+        from erza.agent.tools.mcp import connect_missing_servers
         await connect_missing_servers(self, registry)
 
     async def close_all(self) -> None:

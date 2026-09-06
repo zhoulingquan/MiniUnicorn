@@ -8,7 +8,7 @@ from datetime import datetime as real_datetime
 from importlib.resources import files as pkg_files
 from pathlib import Path
 
-from miniunicorn.agent.context import ContextBuilder
+from erza.agent.context import ContextBuilder
 
 
 class _FakeDatetime(real_datetime):
@@ -26,7 +26,7 @@ def _make_workspace(tmp_path: Path) -> Path:
 
 
 def test_bootstrap_files_are_backed_by_templates() -> None:
-    template_dir = pkg_files("miniunicorn") / "templates"
+    template_dir = pkg_files("erza") / "templates"
 
     for filename in ContextBuilder.BOOTSTRAP_FILES:
         assert (template_dir / filename).is_file(), f"missing bootstrap template: {filename}"
@@ -219,7 +219,7 @@ def test_partial_dream_processing_shows_only_remainder(tmp_path) -> None:
 
 def test_execution_rules_in_system_prompt(tmp_path) -> None:
     """Execution rules should appear in the system prompt via default SOUL.md."""
-    from miniunicorn.utils.helpers import sync_workspace_templates
+    from erza.utils.helpers import sync_workspace_templates
 
     workspace = _make_workspace(tmp_path)
     sync_workspace_templates(workspace, silent=True)
@@ -239,7 +239,7 @@ def test_identity_has_no_behavioral_instructions(tmp_path) -> None:
     builder = ContextBuilder(workspace)
 
     identity = builder._get_identity(channel=None)
-    assert "You are MiniUnicorn" not in identity
+    assert "You are Erza" not in identity
     assert "Act, don't narrate" not in identity
     assert "Execution Rules" not in identity
 
@@ -257,7 +257,7 @@ def test_system_prompt_does_not_warn_about_message_time_markers(tmp_path) -> Non
 
 def test_default_soul_template_contains_execution_rules() -> None:
     """Default SOUL.md template must contain execution rules with act/plan layering."""
-    soul = (pkg_files("miniunicorn") / "templates" / "SOUL.md").read_text(encoding="utf-8")
+    soul = (pkg_files("erza") / "templates" / "SOUL.md").read_text(encoding="utf-8")
     # SOUL.md 模板已翻译为中文
     assert "## 执行规则" in soul
     assert "单步任务" in soul

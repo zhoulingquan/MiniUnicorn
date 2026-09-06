@@ -9,12 +9,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.config.loader import load_config, save_config
-from miniunicorn.config.schema import MCPServerConfig
-from miniunicorn.tools import mcp as mcp_runtime
-from miniunicorn.tools.base import Tool
+from erza.agent.loop import AgentLoop
+from erza.bus.queue import MessageBus
+from erza.config.loader import load_config, save_config
+from erza.config.schema import MCPServerConfig
+from erza.tools import mcp as mcp_runtime
+from erza.tools.base import Tool
 
 
 class _FakeMcpTool(Tool):
@@ -63,7 +63,7 @@ async def test_connect_mcp_retries_when_no_servers_connect(
         attempts += 1
         return {}
 
-    monkeypatch.setattr("miniunicorn.tools.mcp.connect_mcp_servers", _fake_connect)
+    monkeypatch.setattr("erza.tools.mcp.connect_mcp_servers", _fake_connect)
 
     await loop._connect_mcp()
     await loop._connect_mcp()
@@ -79,7 +79,7 @@ async def test_reload_mcp_servers_adds_and_removes_tools_without_restart(
     monkeypatch: pytest.MonkeyPatch,
 ):
     config_path = tmp_path / "config.json"
-    monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("erza.config.loader._current_config_path", config_path)
     config = load_config()
     config.tools.mcp_servers["playwright"] = MCPServerConfig(
         type="stdio",
@@ -102,7 +102,7 @@ async def test_reload_mcp_servers_adds_and_removes_tools_without_restart(
             stacks[name] = stack
         return stacks
 
-    monkeypatch.setattr("miniunicorn.tools.mcp.connect_mcp_servers", _fake_connect)
+    monkeypatch.setattr("erza.tools.mcp.connect_mcp_servers", _fake_connect)
     loop = _make_loop(tmp_path, mcp_servers={})
 
     added = await mcp_runtime.reload_servers(loop, loop.tools)
@@ -131,7 +131,7 @@ async def test_request_mcp_reload_reaches_runtime_control_without_restart(
     monkeypatch: pytest.MonkeyPatch,
 ):
     config_path = tmp_path / "config.json"
-    monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("erza.config.loader._current_config_path", config_path)
     config = load_config()
     config.tools.mcp_servers["playwright"] = MCPServerConfig(
         type="stdio",
@@ -154,7 +154,7 @@ async def test_request_mcp_reload_reaches_runtime_control_without_restart(
             stacks[name] = stack
         return stacks
 
-    monkeypatch.setattr("miniunicorn.tools.mcp.connect_mcp_servers", _fake_connect)
+    monkeypatch.setattr("erza.tools.mcp.connect_mcp_servers", _fake_connect)
     loop = _make_loop(tmp_path, mcp_servers={})
 
     async def _handle_one_runtime_control() -> None:
@@ -192,7 +192,7 @@ async def test_reload_mcp_servers_retries_configured_server_without_live_stack(
     monkeypatch: pytest.MonkeyPatch,
 ):
     config_path = tmp_path / "config.json"
-    monkeypatch.setattr("miniunicorn.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("erza.config.loader._current_config_path", config_path)
     config = load_config()
     config.tools.mcp_servers["playwright"] = MCPServerConfig(
         type="stdio",
@@ -209,7 +209,7 @@ async def test_reload_mcp_servers_retries_configured_server_without_live_stack(
             stacks[name] = stack
         return stacks
 
-    monkeypatch.setattr("miniunicorn.tools.mcp.connect_mcp_servers", _fake_connect)
+    monkeypatch.setattr("erza.tools.mcp.connect_mcp_servers", _fake_connect)
     loop = _make_loop(tmp_path, mcp_servers={"playwright": config.tools.mcp_servers["playwright"]})
 
     result = await mcp_runtime.reload_servers(loop, loop.tools)

@@ -3,8 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from miniunicorn.channels import feishu as feishu_module
-from miniunicorn.channels.feishu import FeishuChannel
+from erza.channels import feishu as feishu_module
+from erza.channels.feishu import FeishuChannel
 
 
 @pytest.mark.asyncio

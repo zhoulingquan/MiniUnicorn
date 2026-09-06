@@ -1,4 +1,4 @@
-# MiniUnicorn 复核问题修复报告
+# Erza 复核问题修复报告
 
 **修复日期：** 2026-08-26
 **基线：** `035770e3`（与[评估报告](./agent-harness-evaluation-report-2026-08-25.md)和[复核报告](./agent-harness-evaluation-review-2026-08-25.md)一致）
@@ -26,7 +26,7 @@
 
 ### 批 1 — F-002：StepAcceptancePolicy 误接受（P0）
 
-**改动：** `miniunicorn/agent/step_acceptance.py` 的 `_is_accepted()` 删除 `if tool_calls: return True` 分支——done_criteria 存在时，接受当且仅当 criteria 匹配最终文本，与是否执行过工具无关。
+**改动：** `erza/agent/step_acceptance.py` 的 `_is_accepted()` 删除 `if tool_calls: return True` 分支——done_criteria 存在时，接受当且仅当 criteria 匹配最终文本，与是否执行过工具无关。
 
 **配套：** 更新 `tests/agent/test_step_acceptance.py`（旧行为用例反转 + 新增 6b/6c/6d 回归测试）、`tests/agent/test_step_acceptance_verifier.py`。修复后"规则接受但 criteria 未匹配"不可能发生，verifier 的"规则拒绝→LLM 兜底"路径自动覆盖过严误拒场景。
 

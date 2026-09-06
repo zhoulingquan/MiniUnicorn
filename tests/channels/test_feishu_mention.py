@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 
-from miniunicorn.channels.feishu import FeishuChannel
+from erza.channels.feishu import FeishuChannel
 
 
 def _make_channel(bot_open_id: str | None = None) -> FeishuChannel:

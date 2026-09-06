@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 import pytest
 from prompt_toolkit.formatted_text import HTML
 
-from miniunicorn.cli import commands
-from miniunicorn.cli import stream as stream_mod
+from erza.cli import commands
+from erza.cli import stream as stream_mod
 
 
 @pytest.fixture
@@ -15,8 +15,8 @@ def mock_prompt_session():
     mock_session = MagicMock()
     mock_session.prompt_async = AsyncMock()
     with (
-        patch("miniunicorn.cli.commands._PROMPT_SESSION", mock_session),
-        patch("miniunicorn.cli.commands.patch_stdout"),
+        patch("erza.cli.commands._PROMPT_SESSION", mock_session),
+        patch("erza.cli.commands.patch_stdout"),
     ):
         yield mock_session
 
@@ -49,8 +49,8 @@ def test_init_prompt_session_creates_session():
     commands._PROMPT_SESSION = None
 
     with (
-        patch("miniunicorn.cli.commands.PromptSession") as MockSession,
-        patch("miniunicorn.cli.commands.FileHistory"),
+        patch("erza.cli.commands.PromptSession") as MockSession,
+        patch("erza.cli.commands.FileHistory"),
         patch("pathlib.Path.home") as mock_home,
     ):
         mock_home.return_value = MagicMock()
@@ -175,7 +175,7 @@ async def test_print_interactive_progress_line_pauses_spinner_before_printing():
     async def fake_print(_text: str) -> None:
         order.append("print")
 
-    with patch("miniunicorn.cli.commands._print_interactive_line", side_effect=fake_print):
+    with patch("erza.cli.commands._print_interactive_line", side_effect=fake_print):
         thinking = stream_mod.ThinkingSpinner(console=mock_console)
         with thinking:
             await commands._print_interactive_progress_line("tool running", thinking)
@@ -184,7 +184,7 @@ async def test_print_interactive_progress_line_pauses_spinner_before_printing():
 
 
 def test_response_renderable_uses_text_for_explicit_plain_rendering():
-    status = "🐱 MiniUnicorn v0.1.4.post5\n🧠 Model: MiniMax-M2.7\n📊 Tokens: 20639 in / 29 out"
+    status = "🐱 Erza v0.1.4.post5\n🧠 Model: MiniMax-M2.7\n📊 Tokens: 20639 in / 29 out"
 
     renderable = commands._response_renderable(
         status,
@@ -203,7 +203,7 @@ def test_response_renderable_preserves_normal_markdown_rendering():
 
 def test_response_renderable_without_metadata_keeps_markdown_path():
     help_text = (
-        "🧙 MiniUnicorn commands:\n/status — Show bot status\n/help — Show available commands"
+        "🧙 Erza commands:\n/status — Show bot status\n/help — Show available commands"
     )
 
     renderable = commands._response_renderable(help_text, render_markdown=True)

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from miniunicorn.tools.base import Tool
-from miniunicorn.tools.registry import ToolRegistry
+from erza.tools.base import Tool
+from erza.tools.registry import ToolRegistry
 
 
 class _FakeTool(Tool):

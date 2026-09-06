@@ -11,12 +11,12 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock
 
-from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.config.schema import Config
-from miniunicorn.providers.base import LLMResponse
-from miniunicorn.tools.base import Tool
-from miniunicorn.tools.registry import LazyToolRegistry, ToolRegistry
+from erza.agent.loop import AgentLoop
+from erza.bus.queue import MessageBus
+from erza.config.schema import Config
+from erza.providers.base import LLMResponse
+from erza.tools.base import Tool
+from erza.tools.registry import LazyToolRegistry, ToolRegistry
 
 
 class _FakeTool(Tool):
@@ -151,7 +151,7 @@ def _minimal_config(tmp_path) -> Config:
 
 
 def test_agent_loop_does_not_load_tools_at_construction(monkeypatch, tmp_path) -> None:
-    from miniunicorn.agent._mcp_lifecycle import McpLifecycleMixin
+    from erza.agent._mcp_lifecycle import McpLifecycleMixin
 
     calls: list[str] = []
     original = McpLifecycleMixin._register_default_tools

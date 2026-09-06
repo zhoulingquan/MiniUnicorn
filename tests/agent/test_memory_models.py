@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from miniunicorn.memory.models import (
+from erza.memory.models import (
     SCHEMA_VERSION,
     ActorKind,
     EvidenceKind,
@@ -43,7 +43,7 @@ def dt(iso: str) -> datetime:
 
 @pytest.fixture
 def tag_catalog() -> TagCatalog:
-    bundled = Path(__file__).parents[2] / "miniunicorn" / "templates" / "memory" / "TAGS.json"
+    bundled = Path(__file__).parents[2] / "erza" / "templates" / "memory" / "TAGS.json"
     return TagCatalog.load(bundled)
 
 
@@ -56,7 +56,7 @@ def record_data() -> dict:
         "status": "candidate",
         "kind": "decision",
         "scope": {"kind": "project", "key": "project:6b5ec7b29e32"},
-        "subject": "MiniUnicorn",
+        "subject": "Erza",
         "slot": "memory.retrieval.strategy",
         "statement": "Main uses deterministic structured recall.",
         "detail": "Markdown/JSONL remain the durable source of truth.",
@@ -157,8 +157,8 @@ def test_normalize_slot_rejects_invalid_slots(bad):
 
 def test_conflict_key_normalizes_subject_and_slot():
     scope = MemoryScope(kind=ScopeKind.PROJECT, key="project:x")
-    left = conflict_key(scope, " MiniUnicorn ", MemoryKind.DECISION, "db.primary")
-    right = conflict_key(scope, "miniunicorn", MemoryKind.DECISION, "db.primary")
+    left = conflict_key(scope, " Erza ", MemoryKind.DECISION, "db.primary")
+    right = conflict_key(scope, "erza", MemoryKind.DECISION, "db.primary")
     assert left == right
     assert left.startswith("project|project:x|")
 
@@ -232,7 +232,7 @@ def test_active_same_status_revision_can_merge_evidence(record_data):
     extra = EvidenceRef(
         kind=EvidenceKind.FILE,
         ref="pyproject.toml#L1",
-        excerpt="name = miniunicorn",
+        excerpt="name = erza",
         sha256="d" * 64,
         observed_at=dt("2026-08-11T08:32:00Z"),
     )
@@ -591,7 +591,7 @@ def test_extraction_batch_proposal_indices_must_be_unique():
 
 
 def test_recall_result_hits_have_score_and_reasons(record_data):
-    from miniunicorn.memory.models import RecallHit
+    from erza.memory.models import RecallHit
 
     record = MemoryRecord.model_validate(record_data)
     result = RecallResult(

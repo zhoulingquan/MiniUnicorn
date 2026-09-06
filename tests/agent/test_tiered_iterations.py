@@ -6,8 +6,8 @@ Explicit max_iterations always wins. Tier overrides work via config fields.
 
 from __future__ import annotations
 
-from miniunicorn.agent.loop import AgentLoop
-from miniunicorn.config.schema import Config
+from erza.agent.loop import AgentLoop
+from erza.config.schema import Config
 
 
 class FakeProvider:
@@ -20,7 +20,7 @@ class FakeProvider:
     generation = Generation()
 
     async def chat_with_retry(self, **kwargs):
-        from miniunicorn.providers.base import LLMResponse
+        from erza.providers.base import LLMResponse
 
         return LLMResponse(
             content="",
@@ -30,7 +30,7 @@ class FakeProvider:
         )
 
     async def chat_stream_with_retry(self, **kwargs):
-        from miniunicorn.providers.base import LLMResponse
+        from erza.providers.base import LLMResponse
 
         return LLMResponse(
             content="",

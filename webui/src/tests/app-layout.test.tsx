@@ -162,7 +162,7 @@ vi.mock("@/lib/bootstrap", () => {
   };
 });
 
-vi.mock("@/lib/miniunicorn-client", () => {
+vi.mock("@/lib/erza-client", () => {
   class MockClient {
     status = "idle" as const;
     defaultChatId: string | null = null;
@@ -185,7 +185,7 @@ vi.mock("@/lib/miniunicorn-client", () => {
     updateUrl = updateUrlSpy;
   }
 
-  return { MiniunicornClient: MockClient };
+  return { ErzaClient: MockClient };
 });
 
 import { deriveWsUrl, fetchBootstrap, fetchBootstrapWithRetry } from "@/lib/bootstrap";
@@ -202,7 +202,7 @@ describe("App layout", () => {
     toggleThemeSpy.mockReset();
     attachSpy.mockReset();
     runStatusHandlers.clear();
-    localStorage.removeItem("miniunicorn-webui.sidebar.completed-runs.v1");
+    localStorage.removeItem("erza-webui.sidebar.completed-runs.v1");
     vi.mocked(fetchBootstrap).mockReset().mockResolvedValue({
       token: "tok",
       ws_path: "/",
@@ -444,7 +444,7 @@ describe("App layout", () => {
         chatId: "new",
         createdAt: "2026-04-15T12:00:00Z",
         updatedAt: "2026-04-15T12:00:00Z",
-        preview: "hi MiniUnicorn",
+        preview: "hi Erza",
       },
       {
         key: "websocket:alpha",
@@ -497,7 +497,7 @@ describe("App layout", () => {
       .map((button) => button.textContent?.trim())
       .filter(Boolean);
 
-    expect(labels).toEqual(["Alpha plan", "hi MiniUnicorn", "Zulu work"]);
+    expect(labels).toEqual(["Alpha plan", "hi Erza", "Zulu work"]);
   });
 
   it("shows running and completed session indicators in the sidebar", async () => {
@@ -568,7 +568,7 @@ describe("App layout", () => {
       },
     ];
     localStorage.setItem(
-      "miniunicorn-webui.sidebar.completed-runs.v1",
+      "erza-webui.sidebar.completed-runs.v1",
       JSON.stringify(["chat-b"]),
     );
 
@@ -709,7 +709,7 @@ describe("App layout", () => {
     fireEvent.click(within(sidebar).getByRole("button", { name: "Settings" }));
 
     expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
-    expect(document.title).toBe("Settings · MiniUnicorn");
+    expect(document.title).toBe("Settings · Erza");
     expect(screen.queryByRole("navigation", { name: "Sidebar navigation" })).not.toBeInTheDocument();
     const settingsNav = screen.getByRole("navigation", { name: "Settings sections" });
     expect(settingsNav.className).toContain("overflow-x-auto");
@@ -814,7 +814,7 @@ describe("App layout", () => {
     expect(await screen.findByRole("heading", { name: "Apps" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Sidebar navigation" })).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "Settings sections" })).not.toBeInTheDocument();
-    expect(document.title).toBe("MiniUnicorn");
+    expect(document.title).toBe("Erza");
   });
 
   it("returns from settings to the blank start page when no session was active", async () => {
@@ -920,13 +920,13 @@ describe("App layout", () => {
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
     fireEvent.click(within(sidebar).getByRole("button", { name: "New chat" }));
-    await waitFor(() => expect(document.title).toBe("MiniUnicorn"));
+    await waitFor(() => expect(document.title).toBe("Erza"));
 
     fireEvent.click(within(sidebar).getByRole("button", { name: "Settings" }));
     expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
 
-    await waitFor(() => expect(document.title).toBe("MiniUnicorn"));
+    await waitFor(() => expect(document.title).toBe("Erza"));
     expect(screen.getByText(HERO_GREETING_PATTERN)).toBeInTheDocument();
   });
 

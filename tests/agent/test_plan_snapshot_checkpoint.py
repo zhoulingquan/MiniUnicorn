@@ -14,9 +14,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniunicorn.agent.plan_snapshot import PlanSnapshot
-from miniunicorn.agent.planner import Plan, PlanStep, StepStatus
-from miniunicorn.agent.session_turn import SessionTurnService
+from erza.agent.plan_snapshot import PlanSnapshot
+from erza.agent.planner import Plan, PlanStep, StepStatus
+from erza.agent.session_turn import SessionTurnService
 
 
 def _service() -> SessionTurnService:

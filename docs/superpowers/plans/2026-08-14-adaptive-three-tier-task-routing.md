@@ -31,7 +31,7 @@
 
 ### 新建
 
-- `miniunicorn/agent/task_router.py`：路由枚举、reason、policy、runtime state、初始评分和升级判定。
+- `erza/agent/task_router.py`：路由枚举、reason、policy、runtime state、初始评分和升级判定。
 - `tests/agent/test_task_router.py`：中英文评分、边界、规范化和升级规则。
 - `tests/agent/test_tool_risk_profiles.py`：内置/MCP工具 domain 和风险画像。
 - `tests/agent/test_planner.py`：Planner 严格解析和显式 fallback 结果。
@@ -40,24 +40,24 @@
 
 ### 修改
 
-- `miniunicorn/agent/tools/base.py`：`ToolRisk`、`Tool.domain`、`Tool.risk_for()`。
-- `miniunicorn/agent/tools/registry.py`：安全解析工具调用画像。
-- `miniunicorn/agent/tools/filesystem.py`
-- `miniunicorn/agent/tools/apply_patch.py`
-- `miniunicorn/agent/tools/shell.py`
-- `miniunicorn/agent/tools/message.py`
-- `miniunicorn/agent/tools/cron.py`
-- `miniunicorn/agent/tools/spawn.py`
-- `miniunicorn/agent/tools/delegate.py`
-- `miniunicorn/agent/tools/execute_plan.py`
-- `miniunicorn/agent/tools/self.py`
-- `miniunicorn/agent/tools/mcp.py`
-- `miniunicorn/agent/planner.py`
-- `miniunicorn/agent/runner.py`
-- `miniunicorn/agent/loop.py`
-- `miniunicorn/agent/loop_builder.py`
-- `miniunicorn/agent/subagent.py`
-- `miniunicorn/config/schema.py`
+- `erza/agent/tools/base.py`：`ToolRisk`、`Tool.domain`、`Tool.risk_for()`。
+- `erza/agent/tools/registry.py`：安全解析工具调用画像。
+- `erza/agent/tools/filesystem.py`
+- `erza/agent/tools/apply_patch.py`
+- `erza/agent/tools/shell.py`
+- `erza/agent/tools/message.py`
+- `erza/agent/tools/cron.py`
+- `erza/agent/tools/spawn.py`
+- `erza/agent/tools/delegate.py`
+- `erza/agent/tools/execute_plan.py`
+- `erza/agent/tools/self.py`
+- `erza/agent/tools/mcp.py`
+- `erza/agent/planner.py`
+- `erza/agent/runner.py`
+- `erza/agent/loop.py`
+- `erza/agent/loop_builder.py`
+- `erza/agent/subagent.py`
+- `erza/config/schema.py`
 - `tests/config/test_config_boundaries.py`
 - `tests/agent/test_loop_runner_integration.py`
 - `tests/agent/test_runner_core.py`
@@ -74,7 +74,7 @@
 ### Task 1: 实现确定性初始评分模型
 
 **Files:**
-- Create: `miniunicorn/agent/task_router.py`
+- Create: `erza/agent/task_router.py`
 - Create: `tests/agent/test_task_router.py`
 
 **Interfaces:**
@@ -175,13 +175,13 @@ normalized = re.sub(r"\s+", " ", normalized).strip()[:16_000]
 
 Run: `pytest tests/agent/test_task_router.py -q`
 Expected: PASS。
-Run: `ruff check miniunicorn/agent/task_router.py tests/agent/test_task_router.py`
+Run: `ruff check erza/agent/task_router.py tests/agent/test_task_router.py`
 Expected: PASS。
 
 - [ ] **Step 8: 提交**
 
 ```bash
-git add miniunicorn/agent/task_router.py tests/agent/test_task_router.py
+git add erza/agent/task_router.py tests/agent/test_task_router.py
 git commit -m "feat(agent): add deterministic three-tier task classifier"
 ```
 
@@ -190,18 +190,18 @@ git commit -m "feat(agent): add deterministic three-tier task classifier"
 ### Task 2: 增加工具 domain 和风险画像
 
 **Files:**
-- Modify: `miniunicorn/agent/tools/base.py`
-- Modify: `miniunicorn/agent/tools/registry.py`
-- Modify: `miniunicorn/agent/tools/filesystem.py`
-- Modify: `miniunicorn/agent/tools/apply_patch.py`
-- Modify: `miniunicorn/agent/tools/shell.py`
-- Modify: `miniunicorn/agent/tools/message.py`
-- Modify: `miniunicorn/agent/tools/cron.py`
-- Modify: `miniunicorn/agent/tools/spawn.py`
-- Modify: `miniunicorn/agent/tools/delegate.py`
-- Modify: `miniunicorn/agent/tools/execute_plan.py`
-- Modify: `miniunicorn/agent/tools/self.py`
-- Modify: `miniunicorn/agent/tools/mcp.py`
+- Modify: `erza/agent/tools/base.py`
+- Modify: `erza/agent/tools/registry.py`
+- Modify: `erza/agent/tools/filesystem.py`
+- Modify: `erza/agent/tools/apply_patch.py`
+- Modify: `erza/agent/tools/shell.py`
+- Modify: `erza/agent/tools/message.py`
+- Modify: `erza/agent/tools/cron.py`
+- Modify: `erza/agent/tools/spawn.py`
+- Modify: `erza/agent/tools/delegate.py`
+- Modify: `erza/agent/tools/execute_plan.py`
+- Modify: `erza/agent/tools/self.py`
+- Modify: `erza/agent/tools/mcp.py`
 - Create: `tests/agent/test_tool_risk_profiles.py`
 
 **Interfaces:**
@@ -278,7 +278,7 @@ Expected: PASS。
 - [ ] **Step 8: 提交**
 
 ```bash
-git add miniunicorn/agent/tools tests/agent/test_tool_risk_profiles.py tests/agent/test_runner_tool_execution.py tests/agent/test_runner_safety.py
+git add erza/agent/tools tests/agent/test_tool_risk_profiles.py tests/agent/test_runner_tool_execution.py tests/agent/test_runner_safety.py
 git commit -m "feat(agent): classify tool domains and call risk"
 ```
 
@@ -287,9 +287,9 @@ git commit -m "feat(agent): classify tool domains and call risk"
 ### Task 3: 让 Planner 显式报告合法计划和 fallback
 
 **Files:**
-- Modify: `miniunicorn/agent/planner.py`
-- Modify: `miniunicorn/templates/agent/planner_system.md`
-- Modify: `miniunicorn/templates/agent/planner_replan.md`
+- Modify: `erza/agent/planner.py`
+- Modify: `erza/templates/agent/planner_system.md`
+- Modify: `erza/templates/agent/planner_replan.md`
 - Create: `tests/agent/test_planner.py`
 
 **Interfaces:**
@@ -340,7 +340,7 @@ Expected: PASS。
 - [ ] **Step 7: 提交**
 
 ```bash
-git add miniunicorn/agent/planner.py miniunicorn/templates/agent/planner_system.md miniunicorn/templates/agent/planner_replan.md tests/agent/test_planner.py
+git add erza/agent/planner.py erza/templates/agent/planner_system.md erza/templates/agent/planner_replan.md tests/agent/test_planner.py
 git commit -m "fix(agent): make planner fallback state explicit"
 ```
 
@@ -349,9 +349,9 @@ git commit -m "fix(agent): make planner fallback state explicit"
 ### Task 4: 用 `taskRouting` 配置替换静态 Planner 开关
 
 **Files:**
-- Modify: `miniunicorn/config/schema.py`
-- Modify: `miniunicorn/agent/loop.py`
-- Modify: `miniunicorn/agent/loop_builder.py`
+- Modify: `erza/config/schema.py`
+- Modify: `erza/agent/loop.py`
+- Modify: `erza/agent/loop_builder.py`
 - Modify: `tests/config/test_config_boundaries.py`
 - Modify: `tests/agent/test_loop_runner_integration.py`
 
@@ -429,7 +429,7 @@ Expected: PASS。
 - [ ] **Step 7: 提交**
 
 ```bash
-git add miniunicorn/config/schema.py miniunicorn/agent/loop.py miniunicorn/agent/loop_builder.py tests/config/test_config_boundaries.py tests/agent/test_loop_runner_integration.py
+git add erza/config/schema.py erza/agent/loop.py erza/agent/loop_builder.py tests/config/test_config_boundaries.py tests/agent/test_loop_runner_integration.py
 git commit -m "refactor(agent): replace planner toggle with adaptive routing config"
 ```
 
@@ -438,7 +438,7 @@ git commit -m "refactor(agent): replace planner toggle with adaptive routing con
 ### Task 5: 接入初始 DIRECT/PLANNED 路由
 
 **Files:**
-- Modify: `miniunicorn/agent/runner.py`
+- Modify: `erza/agent/runner.py`
 - Create: `tests/agent/test_runner_task_routing.py`
 - Modify: `tests/agent/test_runner_core.py`
 - Modify: `tests/agent/test_runner_persistence.py`
@@ -530,7 +530,7 @@ Expected: PASS；所有未传 policy 的旧 tests 结果保持不变。
 - [ ] **Step 9: 提交**
 
 ```bash
-git add miniunicorn/agent/runner.py tests/agent/test_runner_task_routing.py tests/agent/test_runner_core.py tests/agent/test_runner_persistence.py
+git add erza/agent/runner.py tests/agent/test_runner_task_routing.py tests/agent/test_runner_core.py tests/agent/test_runner_persistence.py
 git commit -m "feat(agent): route simple and complex turns automatically"
 ```
 
@@ -539,7 +539,7 @@ git commit -m "feat(agent): route simple and complex turns automatically"
 ### Task 6: 实现 GUIDED 非持久化微计划路径
 
 **Files:**
-- Modify: `miniunicorn/agent/runner.py`
+- Modify: `erza/agent/runner.py`
 - Modify: `tests/agent/test_runner_task_routing.py`
 - Modify: `tests/agent/test_runner_governance.py`
 - Modify: `tests/agent/test_runner_injections.py`
@@ -592,7 +592,7 @@ Expected: PASS。
 - [ ] **Step 8: 提交**
 
 ```bash
-git add miniunicorn/agent/runner.py tests/agent/test_runner_task_routing.py tests/agent/test_runner_governance.py tests/agent/test_runner_injections.py
+git add erza/agent/runner.py tests/agent/test_runner_task_routing.py tests/agent/test_runner_governance.py tests/agent/test_runner_injections.py
 git commit -m "feat(agent): guide medium tasks without planner overhead"
 ```
 
@@ -601,8 +601,8 @@ git commit -m "feat(agent): guide medium tasks without planner overhead"
 ### Task 7: 实现运行时升级和 HIGH-risk pre-execution gate
 
 **Files:**
-- Modify: `miniunicorn/agent/task_router.py`
-- Modify: `miniunicorn/agent/runner.py`
+- Modify: `erza/agent/task_router.py`
+- Modify: `erza/agent/runner.py`
 - Modify: `tests/agent/test_task_router.py`
 - Modify: `tests/agent/test_runner_task_routing.py`
 - Modify: `tests/agent/test_runner_safety.py`
@@ -691,7 +691,7 @@ Expected: PASS，尤其 HIGH risk pre-execution gate 测试必须通过。
 - [ ] **Step 10: 提交**
 
 ```bash
-git add miniunicorn/agent/task_router.py miniunicorn/agent/runner.py tests/agent/test_task_router.py tests/agent/test_runner_task_routing.py tests/agent/test_runner_safety.py
+git add erza/agent/task_router.py erza/agent/runner.py tests/agent/test_task_router.py tests/agent/test_runner_task_routing.py tests/agent/test_runner_safety.py
 git commit -m "feat(agent): upgrade complex and risky turns before execution"
 ```
 
@@ -700,9 +700,9 @@ git commit -m "feat(agent): upgrade complex and risky turns before execution"
 ### Task 8: 接入顶层 Loop、子 Agent、checkpoint 和日志
 
 **Files:**
-- Modify: `miniunicorn/agent/loop.py`
-- Modify: `miniunicorn/agent/subagent.py`
-- Modify: `miniunicorn/agent/runner.py`
+- Modify: `erza/agent/loop.py`
+- Modify: `erza/agent/subagent.py`
+- Modify: `erza/agent/runner.py`
 - Modify: `tests/agent/test_loop_runner_integration.py`
 - Modify: `tests/agent/test_runner_persistence.py`
 - Modify: `tests/agent/test_runner_reflection.py`
@@ -756,7 +756,7 @@ Expected: PASS。
 - [ ] **Step 8: 提交**
 
 ```bash
-git add miniunicorn/agent/loop.py miniunicorn/agent/subagent.py miniunicorn/agent/runner.py tests/agent/test_loop_runner_integration.py tests/agent/test_runner_persistence.py tests/agent/test_runner_reflection.py tests/agent/test_runner_task_routing.py
+git add erza/agent/loop.py erza/agent/subagent.py erza/agent/runner.py tests/agent/test_loop_runner_integration.py tests/agent/test_runner_persistence.py tests/agent/test_runner_reflection.py tests/agent/test_runner_task_routing.py
 git commit -m "feat(agent): propagate adaptive routing across runtimes"
 ```
 
@@ -765,10 +765,10 @@ git commit -m "feat(agent): propagate adaptive routing across runtimes"
 ### Task 9: 删除静态 Planner 残留并更新产品文档
 
 **Files:**
-- Modify: `miniunicorn/agent/runner.py`
-- Modify: `miniunicorn/agent/loop.py`
-- Modify: `miniunicorn/agent/planner.py`
-- Modify: `miniunicorn/config/schema.py`
+- Modify: `erza/agent/runner.py`
+- Modify: `erza/agent/loop.py`
+- Modify: `erza/agent/planner.py`
+- Modify: `erza/config/schema.py`
 - Create: `tests/agent/test_task_routing_boundary.py`
 - Modify: `docs/configuration.md`
 - Create: `docs/task-routing.md`
@@ -838,7 +838,7 @@ README 架构描述改为“Adaptive Router -> ReAct / Guided ReAct / Planner+Re
 
 - [ ] **Step 6: 执行残留搜索**
 
-Run: `rg -n "usePlanner|use_planner|agents\.defaults\.plannerModel|agents\.defaults\.plannerMaxReplans" miniunicorn docs README.md tests`
+Run: `rg -n "usePlanner|use_planner|agents\.defaults\.plannerModel|agents\.defaults\.plannerMaxReplans" erza docs README.md tests`
 Expected: 只在旧字段拒绝测试的字符串 fixture 中出现；运行时和产品文档零结果。
 
 - [ ] **Step 7: 运行边界和配置测试**
@@ -849,7 +849,7 @@ Expected: PASS。
 - [ ] **Step 8: 提交**
 
 ```bash
-git add miniunicorn/agent/runner.py miniunicorn/agent/loop.py miniunicorn/agent/planner.py miniunicorn/config/schema.py tests/agent/test_task_routing_boundary.py docs/configuration.md docs/task-routing.md docs/image-generation.md README.md
+git add erza/agent/runner.py erza/agent/loop.py erza/agent/planner.py erza/config/schema.py tests/agent/test_task_routing_boundary.py docs/configuration.md docs/task-routing.md docs/image-generation.md README.md
 git commit -m "docs(agent): document adaptive task routing"
 ```
 
@@ -930,9 +930,9 @@ Expected: tests PASS，build exit 0。
 
 - [ ] **Step 6: 运行静态和编译检查**
 
-Run: `ruff check miniunicorn tests scripts/benchmark_task_router.py`
+Run: `ruff check erza tests scripts/benchmark_task_router.py`
 Expected: PASS。
-Run: `python -m compileall -q miniunicorn`
+Run: `python -m compileall -q erza`
 Expected: exit 0。
 Run: `git diff --check`
 Expected: 无 whitespace error。

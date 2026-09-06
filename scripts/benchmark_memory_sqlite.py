@@ -37,8 +37,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from miniunicorn.memory.audit_export import MemoryAuditExporter
-from miniunicorn.memory.models import (
+from erza.memory.audit_export import MemoryAuditExporter
+from erza.memory.models import (
     SCHEMA_VERSION,
     ActorKind,
     MemoryKind,
@@ -50,8 +50,8 @@ from miniunicorn.memory.models import (
     ScopeKind,
     transaction_checksum,
 )
-from miniunicorn.memory.repository import StructuredMemoryRepository
-from miniunicorn.memory.sqlite_schema import (
+from erza.memory.repository import StructuredMemoryRepository
+from erza.memory.sqlite_schema import (
     SQL_ORDER_BY_ID,
     SQL_RECALL_SELECT,
     SQL_RECALL_SUFFIX,
@@ -329,7 +329,7 @@ def _prepare_workspace(workspace: Path) -> None:
     if not tags_path.exists():
         bundled = (
             Path(__file__).resolve().parent.parent
-            / "miniunicorn"
+            / "erza"
             / "templates"
             / "memory"
             / "TAGS.json"

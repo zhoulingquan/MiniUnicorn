@@ -2,9 +2,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from miniunicorn.bus.events import OutboundMessage
-from miniunicorn.bus.queue import MessageBus
-from miniunicorn.channels.base import BaseChannel
+from erza.bus.events import OutboundMessage
+from erza.bus.queue import MessageBus
+from erza.channels.base import BaseChannel
 
 
 class _DummyChannel(BaseChannel):

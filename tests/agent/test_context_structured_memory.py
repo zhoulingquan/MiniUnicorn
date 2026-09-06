@@ -7,11 +7,11 @@ from datetime import datetime, timezone
 
 import pytest
 
-from miniunicorn.agent.context import ContextBuilder
-from miniunicorn.config.schema import StructuredMemoryConfig
-from miniunicorn.memory import MemoryStore
-from miniunicorn.memory.lifecycle import IngestContext
-from miniunicorn.memory.models import (
+from erza.agent.context import ContextBuilder
+from erza.config.schema import StructuredMemoryConfig
+from erza.memory import MemoryStore
+from erza.memory.lifecycle import IngestContext
+from erza.memory.models import (
     ActorKind,
     EvidenceKind,
     EvidenceRef,
@@ -30,7 +30,7 @@ def make_proposal(statement: str, slot: str = "memory.retrieval.strategy", **ove
         "proposal_index": 0,
         "kind": "decision",
         "scope_hint": "project",
-        "subject": "MiniUnicorn",
+        "subject": "Erza",
         "slot": slot,
         "statement": statement,
         "detail": "",
@@ -61,7 +61,7 @@ def seed_active_record(
             observed_at=datetime(2026, 8, 11, 8, 30, tzinfo=UTC),
         )
     }
-    from miniunicorn.memory.extraction import parse_extraction_batch
+    from erza.memory.extraction import parse_extraction_batch
 
     extracted = parse_extraction_batch(
         json.dumps({"schema_version": 1, "proposals": [make_proposal(statement, slot)]}),
@@ -151,10 +151,10 @@ class TestStructuredMemoryContext:
 
     def test_build_messages_feeds_current_message_as_recall_query(self, workspace):
         builder = make_builder(workspace)
-        seed_active_record(builder.memory, "MiniUnicorn recall stays local without embeddings.")
+        seed_active_record(builder.memory, "Erza recall stays local without embeddings.")
 
         messages = builder.build_messages(
-            history=[], current_message="how does MiniUnicorn recall memory?"
+            history=[], current_message="how does Erza recall memory?"
         )
 
         system = messages[0]["content"]
@@ -175,7 +175,7 @@ class TestStructuredMemoryContext:
             ),
         )
 
-        prompt = builder.build_system_prompt(recall_query="MiniUnicorn memory")
+        prompt = builder.build_system_prompt(recall_query="Erza memory")
 
         assert "Structured memory recall is unavailable" in prompt
         assert "journal_corrupt" in prompt
@@ -199,7 +199,7 @@ class TestStructuredMemoryContext:
 
         messages = builder.build_messages(
             history=[],
-            current_message="MiniUnicorn Alice caching response session",
+            current_message="Erza Alice caching response session",
             sender_id="alice",
             session_key="web:chat-7",
         )
@@ -219,7 +219,7 @@ class TestStructuredMemoryContext:
 
         messages = builder.build_messages(
             history=[],
-            current_message="MiniUnicorn default user language",
+            current_message="Erza default user language",
             session_key="cli:direct",
         )
 
@@ -236,7 +236,7 @@ class TestStructuredMemoryContext:
 
         messages = builder.build_messages(
             history=[{"role": "user", "content": "task", "sender_id": "alice"}],
-            current_message="MiniUnicorn parent user terse",
+            current_message="Erza parent user terse",
             sender_id="subagent",
             session_key="web:chat-7#sub:task-1",
             memory_user_key="user:alice",

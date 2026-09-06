@@ -10,7 +10,7 @@
 裁决依据(与首评的差异点):
 
 1. **依赖方向已经归零在望**:memory 家族 13 文件的外部依赖只剩 `memory_store.py:22 → reflection._atomic_rewrite_lines` **一个工具函数**(W6-1 已把 call_ledger 移出依赖面)。下沉该函数后,memory → agent 方向字面归零
-2. **无同名冲突**:W4 否决包目录的原因是 `agent/memory.py`(模块)与 `agent/memory/`(包)同目录不能共存;搬到**顶层** `miniunicorn/memory/` 与 `agent/memory.py` 不同父目录,Python 解析上无任何冲突——甚至允许新旧短暂共存,搬家比 W4 内部重组更安全
+2. **无同名冲突**:W4 否决包目录的原因是 `agent/memory.py`(模块)与 `agent/memory/`(包)同目录不能共存;搬到**顶层** `erza/memory/` 与 `agent/memory.py` 不同父目录,Python 解析上无任何冲突——甚至允许新旧短暂共存,搬家比 W4 内部重组更安全
 3. **运行时归属已在库侧**:`RuntimeResourceRegistry`(agent/runtime_resources.py)已按"长生命周期服务归组合/运行时层"的项目约定持有 Consolidator/Dream/DreamIdleTrigger 及 per-workspace 缓存——**运行时模型早就是库形态,只有模块位置不匹配**。仅 `context.py:116` 在 ContextBuilder 内直接构造 MemoryStore(外置时改为注入即可,一行改动)
 4. **agent 公共 API 面失真**:`agent/__init__.py` 的 `__all__` 把 MemoryStore/Dream 当作 agent 核心的门面导出——数据平面服务冒充核心 API。外置后 agent 的公共面回归纯编排(ContextBuilder/AgentLoop/hook/SubagentManager/SkillsLoader)
 5. **首评低估的成本项**:测试足迹约 **17 个测试文件**(15 个走 facade + 直插模块的若干),守护手术 5 处硬编码 + W4 实例化白名单。总接触面 ~35 文件,介于 W6-1(~31)与 W5-1(~90)之间,单次 Cline 会话可完成
@@ -65,7 +65,7 @@
 ## 建议批次
 
 - **W7-0(立即,~30 分钟,人工可完成)**:`_atomic_rewrite_lines` 下沉 utils(与既有 `_write_text_atomic` 合并或并列),memory_store 改指向。效果:memory 家族对 agent 核心依赖**字面归零**,保险栓落地
-- **W7-1(触发条件出现时)**:13 文件 git mv → `miniunicorn/memory/`,门面重建(`memory/__init__.py` re-export 清单照抄现 facade),~9 个生产文件改指向(含 context.py:116 构造改注入、agent/__init__ 门面收窄),~17 测试文件改指向 + 搬 tests/memory/,守护 5 处手术,module-boundaries 登记,新增 memory 包零核心依赖守护(并入 test_dependency_direction 六包规则)
+- **W7-1(触发条件出现时)**:13 文件 git mv → `erza/memory/`,门面重建(`memory/__init__.py` re-export 清单照抄现 facade),~9 个生产文件改指向(含 context.py:116 构造改注入、agent/__init__ 门面收窄),~17 测试文件改指向 + 搬 tests/memory/,守护 5 处手术,module-boundaries 登记,新增 memory 包零核心依赖守护(并入 test_dependency_direction 六包规则)
 - 验证门模板照抄 W6-1(零残留 rg + 全量 pytest + 双 ruff + 中断防护)
 
 ---
@@ -104,7 +104,7 @@ agent 核心   ──→ memory:      loop, context, autocompact, dream_trigger,
 
 | 项 | 量级 |
 |---|---|
-| git mv | 13 文件 → `miniunicorn/memory/` |
+| git mv | 13 文件 → `erza/memory/` |
 | 消费方改指向 | agent 内 5 + command/cli 2 + 测试若干,约 10 文件 |
 | 守护手术 | test_structured_memory_boundary ~8 处硬编码路径(**W4 教训:搬家前预先 grep 白名单,同批同步调整**) |
 | 测试搬家 | tests/agent/test_memory*.py → tests/memory/(仿 tests/tools 约定) |
@@ -130,7 +130,7 @@ agent 核心   ──→ memory:      loop, context, autocompact, dream_trigger,
 ## 六、建议的批次切分(W7)
 
 - **W7-0**(可与 W6-1 合并或紧随):`_atomic_rewrite_lines` 下沉 utils(与既有 `_write_text_atomic` 合并评估,同批改 memory_store 导入)
-- **W7-1**:memory 家族 + reflection 外置 `miniunicorn/memory/`,含守护白名单手术与门面重建(门面 re-export 清单照抄现 memory.py,含私有名 noqa)
+- **W7-1**:memory 家族 + reflection 外置 `erza/memory/`,含守护白名单手术与门面重建(门面 re-export 清单照抄现 memory.py,含私有名 noqa)
 - 判据:W6-1 全绿落地后启动;期间若有更高优先级业务需求,本项可无限期后移——facade 保证了后移不产生新的耦合债
 
 ## 七、被否决的替代方案

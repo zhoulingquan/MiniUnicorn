@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1.6
-# MiniUnicorn Dockerfile — multi-stage build (设计 §4.6)
+# Erza Dockerfile — multi-stage build (设计 §4.6)
 #
 # Stage 1 (webui-builder): uses Bun + frozen bun.lock to build the Vite frontend
-#   into miniunicorn/web/dist. Node/Bun live ONLY in this stage.
+#   into erza/web/dist. Node/Bun live ONLY in this stage.
 # Stage 2 (runtime): Python-only image. Copies the prebuilt webui dist from
-#   stage 1 and runs `uv pip install` with MINIUNICORN_SKIP_WEBUI_BUILD=1 so
+#   stage 1 and runs `uv pip install` with ERZA_SKIP_WEBUI_BUILD=1 so
 #   hatch_build.py never tries to invoke bun/npm. The runtime image contains
 #   no Node/Bun toolchain.
 
@@ -17,14 +17,14 @@ WORKDIR /build
 
 # Copy the whole webui source tree. .dockerignore excludes node_modules/ and
 # any prebuilt dist/, so the layer stays small and the build is reproducible.
-# We also create an empty miniunicorn/web/ directory so vite.config.ts's
-# outDir (``../miniunicorn/web/dist``) has a parent to write into.
+# We also create an empty erza/web/ directory so vite.config.ts's
+# outDir (``../erza/web/dist``) has a parent to write into.
 COPY webui/ ./webui/
-RUN mkdir -p miniunicorn/web
+RUN mkdir -p erza/web
 
 # Install with frozen lockfile (reproducible) and build. vite.config.ts writes
-# its outDir to ``../miniunicorn/web/dist`` (relative to webui/), which lands
-# at /build/miniunicorn/web/dist — exactly the layout the runtime stage needs.
+# its outDir to ``../erza/web/dist`` (relative to webui/), which lands
+# at /build/erza/web/dist — exactly the layout the runtime stage needs.
 RUN cd webui && \
     bun install --frozen-lockfile && \
     bun run build
@@ -47,32 +47,32 @@ WORKDIR /app
 # build hook from hatch_build.py even for this metadata-only install.
 COPY pyproject.toml README.md LICENSE THIRD_PARTY_NOTICES.md hatch_build.py ./
 COPY uv.lock ./
-RUN mkdir -p miniunicorn && touch miniunicorn/__init__.py && \
+RUN mkdir -p erza && touch erza/__init__.py && \
     uv pip install --system --no-cache . && \
-    rm -rf miniunicorn
+    rm -rf erza
 
 # Copy the prebuilt webui dist produced by stage 1. This MUST happen before the
-# full source install below so hatch_build.py sees miniunicorn/web/dist/index.html
+# full source install below so hatch_build.py sees erza/web/dist/index.html
 # and treats the webui as already built.
-COPY --from=webui-builder /build/miniunicorn/web/dist ./miniunicorn/web/dist
+COPY --from=webui-builder /build/erza/web/dist ./erza/web/dist
 
-# Copy the full Python source and install. MINIUNICORN_SKIP_WEBUI_BUILD=1
+# Copy the full Python source and install. ERZA_SKIP_WEBUI_BUILD=1
 # guarantees hatch_build.py will not try to invoke bun/npm (which are absent
 # from this stage) — the prebuilt dist copied above is used as-is.
-ENV MINIUNICORN_SKIP_WEBUI_BUILD=1
-COPY miniunicorn/ miniunicorn/
+ENV ERZA_SKIP_WEBUI_BUILD=1
+COPY erza/ erza/
 RUN uv pip install --system --no-cache .
 
 # Create non-root user and config directory
-RUN useradd -m -u 1000 -s /bin/bash miniunicorn && \
-    mkdir -p /home/miniunicorn/.miniunicorn && \
-    chown -R miniunicorn:miniunicorn /home/miniunicorn /app
+RUN useradd -m -u 1000 -s /bin/bash erza && \
+    mkdir -p /home/erza/.erza && \
+    chown -R erza:erza /home/erza /app
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/entrypoint.sh
 
-USER miniunicorn
-ENV HOME=/home/miniunicorn
+USER erza
+ENV HOME=/home/erza
 
 # WebUI/WebSocket channel port
 EXPOSE 8765

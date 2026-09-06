@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from miniunicorn.tools.shell import ExecTool
+from erza.tools.shell import ExecTool
 
 
 def test_deny_patterns_block_rm_rf():

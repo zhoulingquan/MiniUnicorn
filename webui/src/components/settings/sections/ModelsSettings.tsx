@@ -58,7 +58,7 @@ export function ModelsSettings({
         <SettingsGroup>
           <SettingsRow
             title={tx("settings.rows.currentModel", "Current model")}
-            description={tx("settings.help.currentModel", "Choose the model MiniUnicorn uses for new replies.")}
+            description={tx("settings.help.currentModel", "Choose the model Erza uses for new replies.")}
           >
             <ModelPresetPicker
               presets={settings.model_presets}
