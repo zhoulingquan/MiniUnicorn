@@ -1,15 +1,15 @@
 {
-  "version": "0.3.0",
+  "version": "0.4.0",
   "pub_date": "2026-09-06T00:00:00Z",
   "notes": {
-    "zh": "### v0.3.0\n\n- 记忆系统重构：治理型 SQLite 结构化存储（移除向量记忆），支持原子修订、审计日志、备份恢复与旧数据迁移\n- 精简 ReAct 内核：调用账本（CallLedger）、计划/步骤验收、结构化回执与证据分级、检查点与超时防护\n- core + library 架构拆分：tools / ledger / memory 提为顶级包\n- 功能裁剪：移除 CLI Apps 生态、web_search / deep_research / image_generation 工具子包及 OAuth 死代码\n- IM 适配器与 OpenAI 兼容服务拆分为可选 extras\n- 项目更名 MiniUnicorn → Erza：包名 erza-ai、CLI 命令 erza、环境变量前缀 ERZA_*、数据目录 ~/.erza（破坏性变更，请查阅迁移说明）",
-    "en": "### v0.3.0\n\n- Memory rework: governed SQLite structured storage (vector memory removed) with atomic revisions, audit journals, backup/restore and legacy migration\n- Lean ReAct kernel: call ledger (CallLedger), plan/step acceptance, structured receipts with evidence levels, checkpoints and timeout guards\n- core + library split: tools / ledger / memory promoted to top-level packages\n- Feature strip: CLI Apps ecosystem, web_search / deep_research / image_generation tool subpackages and OAuth dead code removed\n- IM adapters and the OpenAI-compatible server are now optional extras\n- Project renamed MiniUnicorn → Erza: package erza-ai, CLI command erza, env prefix ERZA_*, data dir ~/.erza (breaking — see migration notes)"
+    "zh": "### v0.4.0\n\n- 记忆系统重构：治理型 SQLite 结构化存储（移除向量记忆），支持原子修订、审计日志、备份恢复与旧数据迁移\n- 精简 ReAct 内核：调用账本（CallLedger）、计划/步骤验收、结构化回执与证据分级、检查点与超时防护\n- core + library 架构拆分：tools / ledger / memory 提为顶级包\n- 功能裁剪：移除 CLI Apps 生态、web_search / deep_research / image_generation 工具子包及 OAuth 死代码\n- IM 适配器与 OpenAI 兼容服务拆分为可选 extras\n- 项目更名 MiniUnicorn → Erza：包名 erza-ai、CLI 命令 erza、环境变量前缀 ERZA_*、数据目录 ~/.erza（破坏性变更，请查阅迁移说明）",
+    "en": "### v0.4.0\n\n- Memory rework: governed SQLite structured storage (vector memory removed) with atomic revisions, audit journals, backup/restore and legacy migration\n- Lean ReAct kernel: call ledger (CallLedger), plan/step acceptance, structured receipts with evidence levels, checkpoints and timeout guards\n- core + library split: tools / ledger / memory promoted to top-level packages\n- Feature strip: CLI Apps ecosystem, web_search / deep_research / image_generation tool subpackages and OAuth dead code removed\n- IM adapters and the OpenAI-compatible server are now optional extras\n- Project renamed MiniUnicorn → Erza: package erza-ai, CLI command erza, env prefix ERZA_*, data dir ~/.erza (breaking — see migration notes)"
   },
   "package": {
-    "pypi": "0.3.0",
-    "npm": "0.3.0",
-    "docker": "agentscope/erza:0.3.0"
+    "pypi": "0.4.0",
+    "npm": "0.4.0",
+    "docker": "agentscope/erza:0.4.0"
   },
   "min_required": "0.1.0",
-  "release_url": "https://github.com/zhoulingquan/Erza/releases/tag/v0.3.0"
+  "release_url": "https://github.com/zhoulingquan/Erza/releases/tag/v0.4.0"
 }

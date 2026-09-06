@@ -49,7 +49,7 @@ body:
     attributes:
       label: Erza Version
       description: Run `erza --version` or `pip show erza-ai`
-      placeholder: e.g., 0.3.0
+      placeholder: e.g., 0.4.0
     validations:
       required: true
 

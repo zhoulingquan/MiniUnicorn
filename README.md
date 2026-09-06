@@ -8,7 +8,7 @@
 
 [![Python](https://img.shields.io/badge/python-≥3.11-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
-[![Release](https://img.shields.io/badge/release-v0.3.0-success)](https://github.com/zhoulingquan/Erza/releases)
+[![Release](https://img.shields.io/badge/release-v0.4.0-success)](https://github.com/zhoulingquan/Erza/releases)
 [![Status](https://img.shields.io/badge/status-alpha-orange)]()
 
 **[简体中文]** | [English](./README.en.md)
