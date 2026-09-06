@@ -5,13 +5,7 @@
 把任意 LLM 变成长期运行、可治理、可审计的 Agent 系统——  
 一条透明的执行内核，一套确定性的治理机制，一层可插拔的接入面。
 
-![Python](https://img.shields.io/badge/python-≥3.11-blue)
-
-![License](https://img.shields.io/badge/license-MIT-green)
-
-![Release](https://img.shields.io/badge/release-v0.4.0-success)
-
-![Status](https://img.shields.io/badge/status-alpha-orange)
+![Python](https://img.shields.io/badge/python-≥3.11-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Release](https://img.shields.io/badge/release-v0.4.0-success) ![Status](https://img.shields.io/badge/status-alpha-orange)
 
 **[简体中文]** | [English](./README.en.md)
 
