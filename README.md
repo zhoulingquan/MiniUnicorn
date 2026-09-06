@@ -33,7 +33,6 @@ Erza 不是个人 AI 助手，也不是聊天机器人框架。**Erza 是一个 
 
 **不适合**：需要复杂 DAG 工作流引擎的场景；多租户 SaaS（当前为单工作区隔离模型）；不接受文件系统 / Shell 访问的高沙箱环境。
 
-
 ## 整体架构
 
 系统围绕一条异步消息总线展开，分四层：
@@ -43,29 +42,6 @@ Erza 不是个人 AI 助手，也不是聊天机器人框架。**Erza 是一个 
 ![Erza 四层架构：频道层 → 消息总线 → 代理核心 → 能力层](docs/architecture.svg)
 
 </div>
-
-```
-接入层    channels/(飞书·微信·企微·钉钉·QQ·WebSocket)   api_compat/(OpenAI 兼容)   cli/   webui/(控制台)
-             │                    │                        │
-             └────────────┬───────┴────────────┬───────────┘
-                          ▼                    ▼
-                   bus/MessageBus ──────► command/ 斜杠命令路由
-                          │
-                          ▼
-执行内核   agent/  AgentLoop（轮次状态机）──► AgentRunner（ReAct 循环）
-             │              │                    │
-             │              │             ┌──────┴──────┐
-             │              ▼             ▼             ▼
-治理机制     │        ledger/CallLedger  planner/  step_acceptance(回执+证据)
-             │
-             ├──► tools/registry ──► tools/*（25+ 内置工具）＋ mcp_runtime（MCP 服务器）
-             ├──► providers/（多提供商 + Fallback 链）
-             ├──► memory/（SQLite 结构化记忆 + Dream 蒸馏）＋ session/（会话持久化）
-             └──► security/（工作区边界 · SSRF 防护 · 沙箱 · 风险分级）
-
-控制面     webui/ Python 网关 ──► React 18 前端（设置/频道/工具/记忆管理）
-组合根     composition/  gateway / agent / serve 三种装配方式
-```
 
 频道的入站消息经 49 行的 `MessageBus`（有界队列 + 背压）进入内核；内核之下，工具、技能、提供商组成能力层。**所有跨层通信都走显式接口，没有隐式全局状态。**
 
@@ -184,7 +160,6 @@ bot = Erza.from_config()
 result = await bot.run("总结这个仓库的架构")
 print(result.content, result.tools_used)
 ```
-
 
 ## 代码地图
 

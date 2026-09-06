@@ -48,29 +48,6 @@ The system revolves around an async message bus, in four layers:
 
 </div>
 
-```
-Edge      channels/(Feishu·WeChat·WeCom·DingTalk·QQ·WebSocket)   api_compat/(OpenAI-compat)   cli/   webui/(console)
-             │                    │                        │
-             └────────────┬───────┴────────────┬───────────┘
-                          ▼                    ▼
-                   bus/MessageBus ──────► command/ slash-command router
-                          │
-                          ▼
-Kernel    agent/  AgentLoop (turn state machine) ──► AgentRunner (ReAct loop)
-             │              │                    │
-             │              │             ┌──────┴──────┐
-             │              ▼             ▼             ▼
-Governance  │        ledger/CallLedger  planner/  step_acceptance (receipts + evidence)
-             │
-             ├──► tools/registry ──► tools/* (25+ built-ins) ＋ mcp_runtime (MCP servers)
-             ├──► providers/ (multi-provider + fallback chain)
-             ├──► memory/ (SQLite structured memory + Dream distillation) ＋ session/ (persistence)
-             └──► security/ (workspace boundary · SSRF guard · sandbox · risk levels)
-
-Control   webui/ Python gateway ──► React 18 frontend (settings/channels/tools/memory)
-Roots     composition/  gateway / agent / serve assembly
-```
-
 Inbound channel messages flow through a 49-line `MessageBus` (bounded queue + backpressure) into the kernel; below the kernel, tools, skills, and providers form the capability layer. **All cross-layer communication goes through explicit interfaces — no implicit global state.**
 
 ## Execution kernel
